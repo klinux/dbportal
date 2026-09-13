@@ -185,7 +185,6 @@ mock.module("@/lib/storage", () => ({
     getSchemaSnapshots: mockGetSchemaSnapshots,
     saveSchemaSnapshot: mockSaveSchemaSnapshot,
     deleteSchemaSnapshot: mockDeleteSchemaSnapshot,
-    getConnections: mockGetConnections,
   },
 }));
 

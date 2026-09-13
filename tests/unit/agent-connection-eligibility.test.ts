@@ -1,20 +1,12 @@
 /**
- * Which connections a run may be STARTED on (#329 follow-up).
+ * Which connections a run may be STARTED on.
  *
  * A run persists a connection id and no credential, so the process that resumes it
- * re-resolves that id server-side. The question the rail has to answer is therefore
- * not "can I avoid shipping credentials" (that is `buildConnectionPayload`, whose own two
- * arms are pinned at the bottom of this file) but "will `seed:<id>` still reach the SAME
- * database later". The two answers coincide for a
- * managed connection and for a browser-only one, and diverge for the editable copy of
- * a seed — which is exactly what a zero-config deployment ships, and what left the
- * rail unable to start anything at all.
- *
- * The last test here is the anti-drift pin this needs: it takes the real seed
- * writers' output, puts it through the same JSON round trip the browser copy makes,
- * and asserts the payload builder's requirement still accepts it. A seed descriptor
- * that changed shape, or a rule that got stricter, fails here rather than in a
- * container.
+ * re-resolves that id server-side. Every datasource is declared server-side and opened by
+ * its seed id (docs/CONTEXT.md §4.1), so the rule is one line: a seed reference resolves,
+ * anything else is a stale row the server cannot rebuild. The last test here is the
+ * anti-drift pin: it takes the real seed writers' output, puts it through the JSON round
+ * trip the browser makes, and asserts the rule still accepts it.
  */
 
 import { describe, expect, test, beforeAll } from "bun:test";
@@ -23,7 +15,6 @@ import {
   buildConnectionPayload,
   resolveAgentRunConnectionId,
   type ManagedConnectionPayload,
-  type ServedSeeds,
 } from "@/hooks/use-connection-payload";
 
 /** A seed descriptor as `GET /api/connections/managed` serializes it. */
@@ -38,190 +29,36 @@ function descriptor(overrides: Partial<ManagedConnectionPayload> = {}): ManagedC
     database: "sales",
     user: "reader",
     password: "s3cret",
-    managed: false,
+    managed: true,
     createdAt: "1970-01-01T00:00:00.000Z",
     ...overrides,
   };
 }
 
-/** The copy `use-connection-manager` persists for an editable (managed:false) seed. */
+/** The row the browser holds for a served descriptor, after the JSON round trip. */
 function browserCopy(from: ManagedConnectionPayload, edits: Partial<DatabaseConnection> = {}): DatabaseConnection {
   const serialized = JSON.parse(JSON.stringify(from)) as ManagedConnectionPayload;
-  return { ...serialized, createdAt: new Date(serialized.createdAt), managed: false, ...edits };
-}
-
-/** A seed list the server actually served — the ONLY thing an empty one may mean. */
-function loaded(...seeds: ManagedConnectionPayload[]): ServedSeeds {
-  return { loaded: true, seeds };
+  return { ...serialized, createdAt: new Date(serialized.createdAt), ...edits };
 }
 
 /** The id a run may be started on, dropping the reason the tests below do not read. */
-function startableId(conn: DatabaseConnection, servedSeeds: ServedSeeds): string | null {
-  return resolveAgentRunConnectionId(conn, servedSeeds).id;
+function startableId(conn: DatabaseConnection): string | null {
+  return resolveAgentRunConnectionId(conn).id;
 }
 
 describe("which connection a run may be started on", () => {
-  test("a managed connection is startable by id without consulting any descriptor", () => {
-    const managed: DatabaseConnection = {
-      id: "seed:sales",
-      seedId: "sales",
-      name: "Sales",
-      type: "postgres",
-      managed: true,
-      createdAt: new Date(0),
-    };
-
-    expect(startableId(managed, loaded())).toBe("seed:sales");
+  test("a served datasource is startable by its seed reference", () => {
+    expect(resolveAgentRunConnectionId(browserCopy(descriptor()))).toEqual({ id: "seed:sales" });
+    // Whatever the row says about itself locally: the server rebuilds it from its declaration.
+    expect(startableId(browserCopy(descriptor(), { name: "Renamed", database: "elsewhere" }))).toBe("seed:sales");
   });
 
-  test("a connection with no seed origin is not startable", () => {
-    const own: DatabaseConnection = {
-      id: "local-1",
-      name: "Local scratch",
-      type: "postgres",
-      host: "localhost",
-      createdAt: new Date(0),
-    };
-
-    expect(startableId(own, loaded(descriptor()))).toBeNull();
-  });
-
-  test("an untouched copy of an editable seed is startable by id", () => {
-    const server = descriptor();
-
-    expect(startableId(browserCopy(server), loaded(server))).toBe("seed:sales");
-  });
-
-  test("a copy whose seed the server no longer serves is not startable", () => {
-    const server = descriptor();
-
-    expect(startableId(browserCopy(server), loaded(descriptor({ seedId: "other" })))).toBeNull();
-  });
-
-  // The whole reason the rule is not just "has a seedId": the server would resolve
-  // `seed:sales` to ITS descriptor, so a run started here would investigate a
-  // different database than the one the user is looking at, and say nothing.
-  test("a copy edited to reach a different database is not startable", () => {
-    const server = descriptor();
-
-    expect(startableId(browserCopy(server, { database: "somewhere-else" }), loaded(server))).toBeNull();
-  });
-
-  test("a Trino copy with a different session schema is not startable by the seed id", () => {
-    const server = descriptor({ type: "trino", database: "memory", schema: "default" });
-    expect(startableId(browserCopy(server), loaded(server))).toBe("seed:sales");
-    expect(startableId(browserCopy(server, { schema: "other" }), loaded(server))).toBeNull();
-  });
-
-  test("a copy given different credentials is not startable", () => {
-    const server = descriptor();
-
-    expect(startableId(browserCopy(server, { password: "different" }), loaded(server))).toBeNull();
-  });
-
-  // The field a hand-written comparison forgets: it changes which role the agent
-  // executes as, which is the whole point of the least-privilege profile (#328).
-  test("a copy carrying its own agent credentials is not startable", () => {
-    const server = descriptor();
-    const copy = browserCopy(server, { agentUser: "agent_ro", agentPassword: "pw" });
-
-    expect(startableId(copy, loaded(server))).toBeNull();
-  });
-
-  test("presentation-only edits leave a copy startable", () => {
-    const server = descriptor();
-    const renamed = browserCopy(server, {
-      name: "My sales DB",
-      color: "#ff0000",
-      group: "work",
-      environment: "development",
-      createdAt: new Date("2026-08-12T00:00:00.000Z"),
-    });
-
-    expect(startableId(renamed, loaded(server))).toBe("seed:sales");
-  });
-
-  // B37. A seed list that was never read is not an empty seed list. Deciding
-  // "browser-only" from it states a conclusion about the SERVER's copy that nothing
-  // measured — and it is wrong for exactly the connections this application seeds itself.
-  test("a seed copy is not judged browser-only while the served list is unread", () => {
-    const copy = browserCopy(descriptor());
-
-    expect(resolveAgentRunConnectionId(copy, { loaded: false })).toEqual({
-      id: null,
-      reason: "seed-config-unreadable",
-    });
-  });
-
-  // The control: a served list that is genuinely empty HAS been measured, so the
-  // browser-only verdict is the honest one there.
-  test("a seed copy the server does not serve is browser-only, empty list and all", () => {
-    const copy = browserCopy(descriptor());
-
-    expect(resolveAgentRunConnectionId(copy, loaded())).toEqual({ id: null, reason: "browser-only" });
-  });
-
-  // An unread list changes nothing for a MANAGED connection: it only exists in the list
-  // because the server served it, and its id is the server's own.
-  test("a managed connection stays startable while the served list is unread", () => {
-    const managed: DatabaseConnection = {
-      id: "seed:sales",
-      seedId: "sales",
-      name: "Sales",
-      type: "postgres",
-      managed: true,
-      createdAt: new Date(0),
-    };
-
-    expect(resolveAgentRunConnectionId(managed, { loaded: false })).toEqual({ id: "seed:sales" });
-  });
-
-  describe("nested transport settings", () => {
-    const withSsl = descriptor({ ssl: { mode: "require", rejectUnauthorized: true } });
-
-    test("an identical TLS block leaves a copy startable", () => {
-      expect(startableId(browserCopy(withSsl), loaded(withSsl))).toBe("seed:sales");
-    });
-
-    test("a changed TLS field makes a copy unstartable", () => {
-      const relaxed = browserCopy(withSsl, { ssl: { mode: "require", rejectUnauthorized: false } });
-
-      expect(startableId(relaxed, loaded(withSsl))).toBeNull();
-    });
-
-    test("adding a TLS block the descriptor does not have makes a copy unstartable", () => {
-      const server = descriptor();
-      const added = browserCopy(server, { ssl: { mode: "disable" } });
-
-      expect(startableId(added, loaded(server))).toBeNull();
-    });
-
-    test("dropping the descriptor's TLS block makes a copy unstartable", () => {
-      const dropped = browserCopy(withSsl);
-      delete (dropped as { ssl?: unknown }).ssl;
-
-      expect(startableId(dropped, loaded(withSsl))).toBeNull();
-    });
-
-    test("a changed SSH tunnel makes a copy unstartable", () => {
-      const tunnelled = descriptor({
-        sshTunnel: { enabled: true, host: "bastion", port: 22, username: "ops", authMethod: "password" },
-      });
-      const rerouted = browserCopy(tunnelled, {
-        sshTunnel: { enabled: true, host: "other-bastion", port: 22, username: "ops", authMethod: "password" },
-      });
-
-      expect(startableId(rerouted, loaded(tunnelled))).toBeNull();
-    });
+  test("a row with no seed origin is not startable, and says so", () => {
+    const stale: DatabaseConnection = { id: "local-1", name: "Local", type: "postgres", createdAt: new Date(0) };
+    expect(resolveAgentRunConnectionId(stale)).toEqual({ id: null, reason: "browser-only" });
   });
 });
 
-/**
- * The reason this test exists: the two connections a default deployment ships are the ONLY
- * ones most installations have, so if the eligibility rule rejects them the whole
- * agent surface is unreachable out of the box. Nothing else in the suite compares
- * the seed writers' real output against the rule that consumes it.
- */
 describe("the connections a default deployment ships", () => {
   let builders: { seedId: string; build: () => { seedId: string } }[] = [];
 
@@ -245,7 +82,7 @@ describe("the connections a default deployment ships", () => {
       const served = JSON.parse(JSON.stringify(build())) as ManagedConnectionPayload;
       const stored = browserCopy(served);
 
-      expect(startableId(stored, loaded(served))).toBe(`seed:${seedId}`);
+      expect(startableId(stored)).toBe(`seed:${seedId}`);
     }
   });
 });

@@ -299,8 +299,7 @@ export default function Studio() {
   // to the SAME database has an id that survives that, which is why anything else
   // reaches the rail as null: the rail says why instead of posting a request the route
   // could only refuse — or, worse, accept while meaning a different database.
-  const agentConnectionId =
-    conn.activeConnection === null ? null : resolveAgentRunConnectionId(conn.activeConnection, conn.servedSeeds);
+  const agentConnectionId = conn.activeConnection === null ? null : resolveAgentRunConnectionId(conn.activeConnection);
 
   /*
     What the two standalone AI entry points do now (#331 T3). The in-editor chat is

@@ -277,10 +277,6 @@ describe("storage facade: delete non-existent items", () => {
     localStorage.clear();
   });
 
-  test("deleteConnection with non-existent id does not throw", () => {
-    expect(() => storage.deleteConnection("non-existent")).not.toThrow();
-  });
-
   test("deleteSavedQuery with non-existent id does not throw", () => {
     expect(() => storage.deleteSavedQuery("non-existent")).not.toThrow();
   });
@@ -291,20 +287,6 @@ describe("storage facade: delete non-existent items", () => {
 
   test("deleteChart with non-existent id does not throw", () => {
     expect(() => storage.deleteChart("non-existent")).not.toThrow();
-  });
-
-  test("deleteConnection does not affect existing items", () => {
-    storage.saveConnection({
-      id: "c1",
-      name: "DB1",
-      type: "postgres",
-      host: "localhost",
-      port: 5432,
-      createdAt: new Date(),
-    });
-    storage.deleteConnection("non-existent");
-    expect(storage.getConnections().length).toBe(1);
-    expect(storage.getConnections()[0].id).toBe("c1");
   });
 });
 

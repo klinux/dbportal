@@ -167,7 +167,6 @@ export function useStorageSync(): StorageSyncState {
       const data = (await res.json()) as Partial<StorageData>;
 
       // Write server data to localStorage (overwrite)
-      if (data.connections) writeCollectionToLocal("connections", data.connections);
       if (data.history) writeCollectionToLocal("history", data.history);
       if (data.saved_queries) writeCollectionToLocal("saved_queries", data.saved_queries);
       if (data.schema_snapshots) writeCollectionToLocal("schema_snapshots", data.schema_snapshots);
@@ -177,7 +176,6 @@ export function useStorageSync(): StorageSyncState {
       if (data.audit_log) writeCollectionToLocal("audit_log", data.audit_log);
       if (data.masking_config) writeCollectionToLocal("masking_config", data.masking_config);
       if (data.threshold_config) writeCollectionToLocal("threshold_config", data.threshold_config);
-      if (data.dismissed_seeds) writeCollectionToLocal("dismissed_seeds", data.dismissed_seeds);
 
       setLastSyncedAt(new Date());
       setSyncError(null);
@@ -314,8 +312,6 @@ export function useStorageSync(): StorageSyncState {
 /** Read a collection's current data from the storage facade */
 function getCollectionData(collection: string): unknown {
   switch (collection) {
-    case "connections":
-      return storage.getConnections();
     case "history":
       return storage.getHistory();
     case "saved_queries":
@@ -332,8 +328,6 @@ function getCollectionData(collection: string): unknown {
       return storage.getMaskingConfig();
     case "threshold_config":
       return storage.getThresholdConfig();
-    case "dismissed_seeds":
-      return storage.getDismissedSeeds();
     default:
       return null;
   }

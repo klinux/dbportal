@@ -102,15 +102,15 @@ describe("delegation", () => {
 
   test("a collection that holds no credential is written through byte for byte", async () => {
     const inner = stubProvider();
-    await withCredentialEncryption(inner).setCollection("u", "dismissed_seeds", ["seed-1"]);
+    await withCredentialEncryption(inner).setCollection("u", "active_connection_id", "c1");
 
-    expect(inner.setCollection).toHaveBeenCalledWith("u", "dismissed_seeds", ["seed-1"]);
+    expect(inner.setCollection).toHaveBeenCalledWith("u", "active_connection_id", "c1");
   });
 
   test("a non-connections read is returned untouched", async () => {
-    const inner = stubProvider({ getCollection: mock(async () => ["seed-1"]) as never });
+    const inner = stubProvider({ getCollection: mock(async () => "c1") as never });
 
-    expect(await withCredentialEncryption(inner).getCollection("u", "dismissed_seeds")).toEqual(["seed-1"]);
+    expect(await withCredentialEncryption(inner).getCollection("u", "active_connection_id")).toEqual("c1");
   });
 
   test("a null connections read stays null rather than becoming an empty list", async () => {

@@ -71,9 +71,6 @@ const mockHandleDiscardChanges = mock(() => {});
 // Toast
 const mockToast = mock(() => {});
 // Storage
-const mockStorageSaveConnection = mock(() => {});
-const mockStorageGetConnections = mock(() => [] as unknown[]);
-const mockStorageDeleteConnection = mock(() => {});
 const mockStorageSaveQuery = mock(() => {});
 // Data Masking
 const mockSaveMaskingConfig = mock(() => {});
@@ -104,7 +101,6 @@ mock.module("@/hooks/use-auth", () => ({
 
 const mockUseConnectionManager = mock(() => ({
   connections: [],
-  servedSeeds: { loaded: true, seeds: [] },
   activeConnection: null,
   schema: [],
   schemaContext: "[]",
@@ -232,9 +228,6 @@ mock.module("@/hooks/use-storage-sync", () => ({
 
 mock.module("@/lib/storage", () => ({
   storage: {
-    saveConnection: mockStorageSaveConnection,
-    getConnections: mockStorageGetConnections,
-    deleteConnection: mockStorageDeleteConnection,
     saveQuery: mockStorageSaveQuery,
     getActiveConnectionId: mock(() => null),
   },
@@ -472,7 +465,6 @@ mock.module("@/components/ui/resizable", () => {
 // The dynamic import resolves against the mock registry instead.
 
 const { default: Studio } = await import("@/components/Studio");
-import type { DatabaseConnection } from "@/lib/types";
 import type { DatabaseObject } from "@/lib/db/types";
 import type { TreeRowActionHandlers } from "@/components/object-tree/row-actions";
 
@@ -560,10 +552,6 @@ describe("Studio", () => {
     mockHandleApplyChanges.mockClear();
     mockHandleDiscardChanges.mockClear();
     mockToast.mockClear();
-    mockStorageSaveConnection.mockClear();
-    mockStorageGetConnections.mockClear();
-    mockStorageGetConnections.mockReturnValue([]);
-    mockStorageDeleteConnection.mockClear();
     mockStorageSaveQuery.mockClear();
     mockSaveMaskingConfig.mockClear();
     mockCreateObjectURL.mockClear();
@@ -1996,29 +1984,11 @@ describe("Studio", () => {
 
   test("an untouched copy of an editable seed reaches the rail as startable", async () => {
     mockAgentConfig(true);
-    connMgrOverride = {
-      activeConnection: seedCopy,
-      connections: [seedCopy],
-      servedSeeds: { loaded: true, seeds: [servedSeed] },
-    };
+    connMgrOverride = { activeConnection: seedCopy, connections: [seedCopy] };
     const { findByTestId } = render(<Studio />);
     await findByTestId("agent-rail");
 
     expect(capturedAgentRailProps.connectionId).toEqual({ id: "seed:sample" });
-  });
-
-  test("a seed copy edited to reach another database reaches the rail as unresolvable", async () => {
-    mockAgentConfig(true);
-    const edited = { ...seedCopy, database: "somewhere-else" };
-    connMgrOverride = {
-      activeConnection: edited,
-      connections: [edited],
-      servedSeeds: { loaded: true, seeds: [servedSeed] },
-    };
-    const { findByTestId } = render(<Studio />);
-    await findByTestId("agent-rail");
-
-    expect(capturedAgentRailProps.connectionId).toEqual({ id: null, reason: "browser-only" });
   });
 
   test("with no connection selected the rail is told so", async () => {

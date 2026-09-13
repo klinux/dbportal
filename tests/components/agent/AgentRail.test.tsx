@@ -6,20 +6,12 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, renderHook, fireEvent, waitFor, act, type RenderResult } from "@testing-library/react";
 import { AgentRail } from "@/components/agent/AgentRail";
-import { useConnectionManager } from "@/hooks/use-connection-manager";
-import {
-  resolveAgentRunConnectionId,
-  SEED_CONFIG_UNREADABLE_REASON,
-  type ManagedConnectionPayload,
-} from "@/hooks/use-connection-payload";
 import { applyStatementName } from "@/components/agent/rail-parts";
 import { useAgentRun } from "@/components/agent/use-agent-run";
 import { AGENT_WORKFLOW_BUDGETS } from "@/lib/agent/execution-policy";
 import { agentPosture } from "@/lib/agent/posture";
 import type { AgentRunWorkflowType, AgentThreadContext } from "@/lib/agent/types";
 import { getDBConfig } from "@/lib/db-ui-config";
-import type { DatabaseConnection } from "@/lib/types";
-import { mockGlobalFetch, restoreGlobalFetch } from "../../helpers/mock-fetch";
 
 /**
  * The standalone agent rail (#329 T10a): the gated surface, its two modes and the
@@ -6589,99 +6581,5 @@ describe("AgentRail", () => {
         expect(view.getByTestId("agent-answer-chip-fingerprint").textContent).toBe("ctx_drui");
       });
     });
-  });
-});
-
-/**
- * B37 — what the rail says when the SERVER could not read its own seed configuration.
- *
- * Driven live on 2026-08-15: one malformed `seed-connections.yaml` made
- * `GET /api/connections/managed` fail, the browser held no seed descriptors, and the rail
- * therefore said of `Sample (Employees)` — a connection this application ships and seeds
- * itself — that "its settings live in this browser". False twice, and it pointed the
- * operator at the wrong file while the real cause reached the server log only.
- *
- * These two tests run the WHOLE path rather than the rail alone, because the defect was in
- * the joint: a failed load and an empty list were the same value, so no component
- * downstream could have told them apart. The endpoint is failed for real, the real hook
- * reads it, and the real rule turns that into what the rail is handed.
- */
-describe("a seed configuration the server could not read (B37)", () => {
-  const SERVED: ManagedConnectionPayload = {
-    id: "seed:employees",
-    seedId: "employees",
-    name: "Sample (Employees)",
-    type: "sqlite",
-    database: "data/sample-employees.db",
-    managed: false,
-    createdAt: "1970-01-01T00:00:00.000Z",
-  };
-  /** The editable copy `use-connection-manager` persists for that seed. */
-  const LOCAL_COPY: DatabaseConnection = { ...SERVED, createdAt: new Date(0) };
-
-  /** The rail, rendered on the copy, after the managed endpoint answered as given. */
-  const railAfterManaged = async (managed: { status?: number; json: unknown }) => {
-    mockGlobalFetch({
-      "/api/connections/managed": managed,
-      "/api/db/health": { json: { status: "healthy" } },
-      "/api/agent/config": { json: { enabled: true } },
-    });
-    const hook = renderHook(() => useConnectionManager(true));
-    await waitFor(() => {
-      expect(hook.result.current.servedSeeds).toBeDefined();
-    });
-    const seeds = hook.result.current.servedSeeds;
-    hook.unmount();
-    const resolved = resolveAgentRunConnectionId(LOCAL_COPY, seeds);
-    const view = render(<AgentRail connectionId={resolved} connectionName={LOCAL_COPY.name} />);
-    return { view, seeds, resolved };
-  };
-
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
-  afterEach(() => {
-    restoreGlobalFetch();
-    cleanup();
-    localStorage.clear();
-  });
-
-  test("the rail names the server's configuration, not the connection", async () => {
-    const { view, seeds, resolved } = await railAfterManaged({
-      status: 500,
-      json: { error: "Failed to load managed connections", reason: SEED_CONFIG_UNREADABLE_REASON },
-    });
-
-    // The browser holds "I do not have the seed list", which is not an empty one.
-    expect(seeds).toEqual({ loaded: false });
-    expect(resolved).toEqual({ id: null, reason: SEED_CONFIG_UNREADABLE_REASON });
-
-    const notice = view.getByTestId("agent-seed-config-unreadable").textContent ?? "";
-    expect(notice).toContain("server");
-    expect(notice).toContain("configuration");
-    // The two false claims the entry was written about. The connection is not at fault
-    // and its settings do not live here.
-    expect(notice).not.toContain("this browser");
-    expect(view.queryByTestId("agent-unresolvable-connection")).toBeNull();
-    // Still refused, and still without asking the server for a run it cannot open.
-    expect((view.getByTestId("agent-start") as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  // The control arm. A server that legitimately serves NO seeds is answering, and the
-  // original sentence is the true one there: this copy exists in this browser and
-  // nowhere else. Without this test the fix could turn every empty list into a false
-  // alarm about a configuration that is fine.
-  test("a server that legitimately serves no seeds still gets the original sentence", async () => {
-    const { view, seeds, resolved } = await railAfterManaged({ json: { connections: [] } });
-
-    expect(seeds).toEqual({ loaded: true, seeds: [] });
-    expect(resolved).toEqual({ id: null, reason: "browser-only" });
-
-    const caveat = view.getByTestId("agent-unresolvable-connection").textContent ?? "";
-    expect(caveat).toContain("Sample (Employees)");
-    expect(caveat).toContain("this browser");
-    expect(view.queryByTestId("agent-seed-config-unreadable")).toBeNull();
-    expect((view.getByTestId("agent-start") as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -102,7 +102,6 @@ mock.module("@/hooks/use-auth", () => ({
 mock.module("@/hooks/use-connection-manager", () => ({
   useConnectionManager: mock(() => ({
     connections: [],
-    servedSeeds: { loaded: true, seeds: [] },
     activeConnection: null,
     schema: [],
     schemaContext: "[]",
@@ -192,9 +191,6 @@ mock.module("@/hooks/use-storage-sync", () => ({
 
 mock.module("@/lib/storage", () => ({
   storage: {
-    saveConnection: mock(() => {}),
-    getConnections: mock(() => [] as unknown[]),
-    deleteConnection: mock(() => {}),
     saveQuery: mock(() => {}),
     getActiveConnectionId: mock(() => null),
     // Read by the REAL command palette when it opens.

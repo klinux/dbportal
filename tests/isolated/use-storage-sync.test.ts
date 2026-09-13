@@ -7,7 +7,6 @@ import { mockGlobalFetch, restoreGlobalFetch } from "../helpers/mock-fetch";
 // ── Mock storage module ─────────────────────────────────────────────────────
 
 const mockStorage = {
-  getConnections: mock(() => [{ id: "c1" }]),
   getHistory: mock(() => []),
   getSavedQueries: mock(() => []),
   getSchemaSnapshots: mock(() => []),
@@ -20,11 +19,9 @@ const mockStorage = {
     roleSettings: { admin: { canToggle: true, canReveal: true }, user: { canToggle: false, canReveal: false } },
   })),
   getThresholdConfig: mock(() => []),
-  getDismissedSeeds: mock(() => ["seed-1"]),
 };
 
 const ALL_COLLECTIONS = [
-  "connections",
   "history",
   "saved_queries",
   "schema_snapshots",
@@ -33,7 +30,6 @@ const ALL_COLLECTIONS = [
   "audit_log",
   "masking_config",
   "threshold_config",
-  "dismissed_seeds",
 ];
 
 mock.module("@/lib/storage", () => ({
@@ -54,8 +50,8 @@ function setupLocalMode() {
 function setupServerMode(extraRoutes: Record<string, unknown> = {}) {
   return mockGlobalFetch({
     "/api/storage/config": { ok: true, status: 200, json: { provider: "postgres", serverMode: true } },
-    "/api/storage/migrate": { ok: true, status: 200, json: { ok: true, migrated: ["connections"] } },
-    "/api/storage": { ok: true, status: 200, json: { connections: [{ id: "server-c1" }] } },
+    "/api/storage/migrate": { ok: true, status: 200, json: { ok: true, migrated: ["history"] } },
+    "/api/storage": { ok: true, status: 200, json: { history: [{ id: "server-c1" }] } },
     ...extraRoutes,
   });
 }
@@ -150,7 +146,8 @@ describe("useStorageSync", () => {
   describe("migration", () => {
     test("performs migration on first server-mode visit when localStorage has data", async () => {
       // Seed localStorage with actual data so migration has something to send
-      localStorage.setItem("dbportal_connections", JSON.stringify([{ id: "test", name: "Test DB" }]));
+      localStorage.setItem("dbportal_history", JSON.stringify([{ id: "test" }]));
+      mockStorage.getHistory.mockReturnValue([{ id: "test" }] as never);
       const fetchMock = setupServerMode();
 
       const { result } = renderHook(() => useStorageSync());
@@ -210,7 +207,7 @@ describe("useStorageSync", () => {
 
     test("sets migration flag even when no data to migrate", async () => {
       // All storage getters return empty
-      mockStorage.getConnections.mockReturnValue([]);
+      mockStorage.getHistory.mockReturnValue([]);
       mockStorage.getActiveConnectionId.mockReturnValue(null);
 
       setupServerMode();
@@ -242,8 +239,8 @@ describe("useStorageSync", () => {
     });
 
     test("does not set flag when migrate fetch throws", async () => {
-      localStorage.setItem("dbportal_connections", JSON.stringify([{ id: "test" }]));
-      mockStorage.getConnections.mockReturnValue([{ id: "test" }]);
+      localStorage.setItem("dbportal_history", JSON.stringify([{ id: "test" }]));
+      mockStorage.getHistory.mockReturnValue([{ id: "test" }] as never);
       mockGlobalFetch({
         "/api/storage/config": { ok: true, status: 200, json: { provider: "postgres", serverMode: true } },
         "/api/storage/migrate": () => {
@@ -267,7 +264,7 @@ describe("useStorageSync", () => {
       for (const col of ALL_COLLECTIONS) {
         localStorage.setItem(`libredb_${col}`, "x");
       }
-      mockStorage.getConnections.mockReturnValue([{ id: "c1" }]);
+      mockStorage.getHistory.mockReturnValue([{ id: "c1" }] as never);
       mockStorage.getActiveConnectionId.mockReturnValue("c1");
       const fetchMock = setupServerMode();
 
@@ -279,7 +276,6 @@ describe("useStorageSync", () => {
 
       expect(calledPaths(fetchMock)).toContain("/api/storage/migrate");
       // Every collection getter was consulted during migration
-      expect(mockStorage.getConnections).toHaveBeenCalled();
       expect(mockStorage.getHistory).toHaveBeenCalled();
       expect(mockStorage.getSavedQueries).toHaveBeenCalled();
       expect(mockStorage.getSchemaSnapshots).toHaveBeenCalled();
@@ -288,7 +284,6 @@ describe("useStorageSync", () => {
       expect(mockStorage.getAuditLog).toHaveBeenCalled();
       expect(mockStorage.getMaskingConfig).toHaveBeenCalled();
       expect(mockStorage.getThresholdConfig).toHaveBeenCalled();
-      expect(mockStorage.getDismissedSeeds).toHaveBeenCalled();
     });
   });
 
@@ -323,8 +318,8 @@ describe("useStorageSync", () => {
         expect(result.current.lastSyncedAt).not.toBeNull();
       });
 
-      // Server returned connections: [{ id: 'server-c1' }]
-      const stored = localStorage.getItem("dbportal_connections");
+      // Server returned history: [{ id: 'server-c1' }]
+      const stored = localStorage.getItem("dbportal_history");
       expect(stored).not.toBeNull();
       expect(JSON.parse(stored!)).toEqual([{ id: "server-c1" }]);
     });

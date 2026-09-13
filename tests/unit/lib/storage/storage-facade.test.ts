@@ -46,32 +46,6 @@ describe("storage facade: CustomEvent dispatch", () => {
     localStorage.clear();
   });
 
-  test("saveConnection dispatches dbportal-storage-change event", () => {
-    let captured: CustomEvent | null = null;
-    const handler = (e: Event) => {
-      captured = e as CustomEvent;
-    };
-    window.addEventListener("dbportal-storage-change", handler);
-
-    storage.saveConnection(makeConnection());
-
-    expect(captured).not.toBeNull();
-    expect(captured!.detail.collection).toBe("connections");
-
-    window.removeEventListener("dbportal-storage-change", handler);
-  });
-
-  test("deleteConnection dispatches event", () => {
-    storage.saveConnection(makeConnection());
-    const handler = mock(() => {});
-    window.addEventListener("dbportal-storage-change", handler);
-
-    storage.deleteConnection("conn-1");
-
-    expect(handler).toHaveBeenCalledTimes(1);
-    window.removeEventListener("dbportal-storage-change", handler);
-  });
-
   test("addToHistory dispatches event", () => {
     const handler = mock(() => {});
     window.addEventListener("dbportal-storage-change", handler);

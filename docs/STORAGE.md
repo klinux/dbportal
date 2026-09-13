@@ -329,7 +329,7 @@ If a DBA creates the table, the app user only needs:
 
 ```sql
 -- Grant only data access (no DDL needed)
-GRANT SELECT, INSERT, UPDATE ON user_storage TO libredb_app;
+GRANT SELECT, INSERT, UPDATE ON user_storage TO dbportal_app;
 ```
 
 ---
@@ -362,8 +362,8 @@ reads the per-process ring buffer.
 When you switch from local mode to SQLite or PostgreSQL, **existing browser data is automatically migrated** on first login:
 
 1. User opens the app in server mode
-2. The sync hook detects it's the first time (no `libredb_server_migrated` flag)
-3. All existing localStorage data is sent to the server via `POST /api/storage/migrate` (a fresh browser with no `libredb_*` data simply sets the flag and skips the upload)
+2. The sync hook detects it's the first time (no `dbportal_server_migrated` flag)
+3. All existing localStorage data is sent to the server via `POST /api/storage/migrate` (a fresh browser with no `dbportal_*` data simply sets the flag and skips the upload)
 4. Server upserts each collection as a whole JSON blob — one row per user per collection, replacing any existing row
 5. A flag is set in localStorage to prevent re-migration
 6. From this point on, the server is the source of truth
@@ -560,7 +560,7 @@ If the key is gone, re-enter the affected passwords; everything else about the c
 
 ### "Duplicate data after migration"
 
-- Migration runs once per browser (guarded by the `libredb_server_migrated` flag) and replaces each collection wholesale, so duplicates shouldn't occur
+- Migration runs once per browser (guarded by the `dbportal_server_migrated` flag) and replaces each collection wholesale, so duplicates shouldn't occur
 - If you do see them, check whether the same user pushed data from multiple browsers before the first migration completed
 
 ---
@@ -633,8 +633,8 @@ This part describes the internals of the storage abstraction layer: design goals
 ```
 ┌──────────────────────────────┐
 │   16+ Consumer Components    │  ← Unchanged, same sync API
-│   storage.getConnections()   │
-│   storage.saveConnection()   │
+│   storage.getHistory()       │
+│   storage.addToHistory()     │
 └──────────────┬───────────────┘
                │ sync read/write
 ┌──────────────▼───────────────┐
@@ -683,7 +683,6 @@ All application state is organized into **10 collections**, each stored as a JSO
 | `audit_log` | `AuditEvent[]` | Audit trail events | 1000 |
 | `masking_config` | `MaskingConfig` | Data masking rules and RBAC | — |
 | `threshold_config` | `ThresholdConfig[]` | Monitoring alert thresholds | — |
-| `dismissed_seeds` | `string[]` | Seed IDs the user dismissed (deleted a `managed: false` seed copy) so it is not re-added | — |
 
 **A snapshot taken before the object model has no kind and no path.** `schema_snapshots` holds what
 the schema list held when the snapshot was taken, and a live reading now always carries an object's
@@ -717,19 +716,18 @@ This design is intentionally simple:
 
 ### 3.3 localStorage Keys
 
-Each collection maps to a `libredb_`-prefixed localStorage key:
+Each collection maps to a `dbportal_`-prefixed localStorage key:
 
 ```
-connections       → libredb_connections
-history           → libredb_history
-saved_queries     → libredb_saved_queries
-schema_snapshots  → libredb_schema_snapshots
-saved_charts      → libredb_saved_charts
-active_connection_id → libredb_active_connection_id
-audit_log         → libredb_audit_log
-masking_config    → libredb_masking_config
-threshold_config  → libredb_threshold_config
-dismissed_seeds   → libredb_dismissed_seeds
+connections       → dbportal_connections
+history           → dbportal_history
+saved_queries     → dbportal_saved_queries
+schema_snapshots  → dbportal_schema_snapshots
+saved_charts      → dbportal_saved_charts
+active_connection_id → dbportal_active_connection_id
+audit_log         → dbportal_audit_log
+masking_config    → dbportal_masking_config
+threshold_config  → dbportal_threshold_config
 ```
 
 ---
@@ -772,7 +770,7 @@ export function writeJSON(collection: string, data: unknown): boolean;  // false
 export function readString(collection: string): string | null;
 export function writeString(collection: string, value: string): boolean; // false on failure
 export function remove(collection: string): void;
-export function getKey(collection: string): string;  // → 'libredb_' + collection
+export function getKey(collection: string): string;  // → 'dbportal_' + collection
 ```
 
 - Every function is guarded by `isClient()` — safe to call during SSR (returns `null` / no-op)
@@ -802,7 +800,6 @@ storage.saveConnection(conn);
 
 | Category | Methods |
 |----------|---------|
-| **Connections** | `getConnections()`, `saveConnection(conn)`, `deleteConnection(id)`, `getDismissedSeeds()` |
 | **History** | `getHistory()`, `addToHistory(item)`, `clearHistory()` |
 | **Saved Queries** | `getSavedQueries()`, `saveQuery(query)`, `deleteSavedQuery(id)` |
 | **Schema Snapshots** | `getSchemaSnapshots(connId?)`, `saveSchemaSnapshot(snap)`, `deleteSchemaSnapshot(id)` |
@@ -963,7 +960,7 @@ App Mount
   │   └─ serverMode: true ──┐
   │                          │
   │   ┌──────────────────────▼──────────────────────┐
-  │   │ Check libredb_server_migrated flag          │
+  │   │ Check dbportal_server_migrated flag          │
   │   │  ├─ Not migrated → POST /api/storage/migrate│
   │   │  │   (send all localStorage → server merge) │
   │   │  │   Set flag in localStorage               │
@@ -1011,12 +1008,12 @@ When a user first enables server mode (or a new user logs in for the first time)
 
 ```
 1. Hook detects serverMode = true
-2. Checks localStorage('libredb_server_migrated') flag
+2. Checks localStorage('dbportal_server_migrated') flag
 3. If not migrated:
    a. Reads whichever of the 10 collections exist in localStorage (a fresh browser with none simply sets the flag and skips)
    b. POST /api/storage/migrate with the collected payload
    c. Server calls provider.mergeData() — upserts each collection as a whole blob in one transaction
-   d. Sets 'libredb_server_migrated' flag in localStorage
+   d. Sets 'dbportal_server_migrated' flag in localStorage
 4. Pull: GET /api/storage → overwrite localStorage with server data
 5. Subsequent mutations sync normally via push
 ```

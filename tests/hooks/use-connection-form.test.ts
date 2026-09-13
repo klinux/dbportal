@@ -531,8 +531,7 @@ describe("useConnectionForm", () => {
     // that a presentation-only edit stays startable; asserting the preserved fields
     // alone would not have caught this, because the earlier eligibility tests built
     // their "edited" copy by hand rather than through the editor that produces it.
-    const served = { ...seedCopy, createdAt: seedCopy.createdAt.toISOString() };
-    expect(resolveAgentRunConnectionId(saved, { loaded: true, seeds: [served] })).toEqual({ id: "seed:sample" });
+    expect(resolveAgentRunConnectionId(saved)).toEqual({ id: "seed:sample" });
   });
 
   /*
@@ -581,10 +580,7 @@ describe("useConnectionForm", () => {
     expect(saved.user).toBeUndefined();
     expect(saved.password).toBeUndefined();
 
-    const served = { ...sqliteSeed, createdAt: sqliteSeed.createdAt.toISOString() };
-    expect(resolveAgentRunConnectionId(saved, { loaded: true, seeds: [served] })).toEqual({
-      id: "seed:sqlite-embedded-sample",
-    });
+    expect(resolveAgentRunConnectionId(saved)).toEqual({ id: "seed:sqlite-embedded-sample" });
   });
 
   // Preserving must not resurrect what the user turned OFF: the form owns TLS and

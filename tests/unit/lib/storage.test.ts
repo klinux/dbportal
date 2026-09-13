@@ -7,23 +7,11 @@ if (typeof globalThis.window === "undefined") {
 }
 
 import { storage } from "@/lib/storage";
-import type { DatabaseConnection, QueryHistoryItem, SavedQuery, SchemaSnapshot, SavedChartConfig } from "@/lib/types";
+import type { QueryHistoryItem, SavedQuery, SchemaSnapshot, SavedChartConfig } from "@/lib/types";
 
 // ============================================================================
 // Helpers — localStorage is cleared by afterEach in tests/setup.ts
 // ============================================================================
-
-function makeConnection(overrides: Partial<DatabaseConnection> = {}): DatabaseConnection {
-  return {
-    id: "conn-1",
-    name: "Test DB",
-    type: "postgres",
-    host: "localhost",
-    port: 5432,
-    createdAt: new Date("2025-01-01"),
-    ...overrides,
-  };
-}
 
 function makeHistoryItem(overrides: Partial<QueryHistoryItem> = {}): QueryHistoryItem {
   return {
@@ -76,46 +64,6 @@ function makeChart(overrides: Partial<SavedChartConfig> = {}): SavedChartConfig 
 // ============================================================================
 // Connections
 // ============================================================================
-
-describe("storage: connections", () => {
-  test("round-trips a custom query timeout and clears it on update", () => {
-    storage.saveConnection(makeConnection({ queryTimeout: 120000 }));
-    expect(storage.getConnections()[0].queryTimeout).toBe(120000);
-    storage.saveConnection(makeConnection());
-    expect(storage.getConnections()[0].queryTimeout).toBeUndefined();
-  });
-
-  test("getConnections returns empty array when nothing stored", () => {
-    expect(storage.getConnections()).toEqual([]);
-  });
-
-  test("saveConnection and getConnections round-trip", () => {
-    const conn = makeConnection();
-    storage.saveConnection(conn);
-    const result = storage.getConnections();
-    expect(result.length).toBe(1);
-    expect(result[0].id).toBe("conn-1");
-    expect(result[0].name).toBe("Test DB");
-    expect(result[0].createdAt).toBeInstanceOf(Date);
-  });
-
-  test("saveConnection updates existing connection by id", () => {
-    storage.saveConnection(makeConnection());
-    storage.saveConnection(makeConnection({ name: "Updated DB" }));
-    const result = storage.getConnections();
-    expect(result.length).toBe(1);
-    expect(result[0].name).toBe("Updated DB");
-  });
-
-  test("deleteConnection removes by id", () => {
-    storage.saveConnection(makeConnection({ id: "a" }));
-    storage.saveConnection(makeConnection({ id: "b" }));
-    storage.deleteConnection("a");
-    const result = storage.getConnections();
-    expect(result.length).toBe(1);
-    expect(result[0].id).toBe("b");
-  });
-});
 
 // ============================================================================
 // History
@@ -345,11 +293,6 @@ describe("storage: active connection ID", () => {
 // ============================================================================
 
 describe("storage: broken JSON", () => {
-  test("getConnections returns empty array on invalid JSON", () => {
-    localStorage.setItem("dbportal_connections", "not-json{{{");
-    expect(storage.getConnections()).toEqual([]);
-  });
-
   test("getHistory returns empty array on invalid JSON", () => {
     localStorage.setItem("dbportal_history", "{bad");
     expect(storage.getHistory()).toEqual([]);

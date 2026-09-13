@@ -42,8 +42,7 @@ const mockGetHistory = mock(() => [
   },
 ]);
 
-// The tab reads its list from the server through this hook (docs/CONTEXT.md §4.1); the
-// storage mock keeps `getConnections` so the tests' own overrides still drive the list.
+// The tab reads its list from the server through this hook (docs/CONTEXT.md §4.1).
 // Stable across renders: the tab keys its fleet-health effect on the list's identity, and a
 // fresh array per render would re-request forever.
 let lastConnections: unknown[] = [];

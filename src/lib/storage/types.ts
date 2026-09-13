@@ -4,8 +4,10 @@ import type { MaskingConfig } from "../data-masking";
 import type { ThresholdConfig } from "../monitoring-thresholds";
 
 /**
- * All persistable collections and their data types.
- * Maps 1:1 with localStorage keys (minus the `libredb_` prefix).
+ * All persistable collections and their data types. Maps 1:1 with localStorage keys (minus
+ * the `dbportal_` prefix). `connections` is no longer written by the browser - every
+ * datasource is declared server-side (docs/CONTEXT.md §4.1) - and stays because the shared
+ * datasource store keeps its records in that collection under a reserved owner.
  */
 export interface StorageData {
   connections: DatabaseConnection[];
@@ -17,8 +19,6 @@ export interface StorageData {
   audit_log: AuditEvent[];
   masking_config: MaskingConfig;
   threshold_config: ThresholdConfig[];
-  /** seedIds the user dismissed (deleted a managed:false seed copy) so it is not re-added. */
-  dismissed_seeds: string[];
 }
 
 /** Collection names that can be synced to server storage */
@@ -35,7 +35,6 @@ export const STORAGE_COLLECTIONS: StorageCollection[] = [
   "audit_log",
   "masking_config",
   "threshold_config",
-  "dismissed_seeds",
 ];
 
 /** What the admin API asks the audit store for. */

@@ -176,7 +176,10 @@ describe("useConnectionManager", () => {
   test("lists what the managed endpoint serves, and nothing from browser storage", async () => {
     const conn = makeConnection();
     // A stale row from before docs/CONTEXT.md §4.1 must not resurface.
-    storage.saveConnection(makeConnection({ id: "stale-local", name: "Stale" }));
+    localStorage.setItem(
+      "dbportal_connections",
+      JSON.stringify([makeConnection({ id: "stale-local", name: "Stale" })]),
+    );
 
     mockGlobalFetch({
       "/api/connections/managed": served([conn]),
@@ -710,8 +713,13 @@ describe("useConnectionManager", () => {
   // docs/CONTEXT.md §4.1: the list is the server's. Nothing in browser storage joins it - not
   // a stored connection, not a copy of a seed - and no copy is persisted as a side effect.
   test("the managed endpoint's list is the whole list, revived and in server order", async () => {
-    storage.saveConnection(makeConnection({ id: "plain-1", name: "Plain" }));
-    storage.saveConnection(makeConnection({ id: "user-copy-1", name: "My Copy", seedId: "seed-copy" }));
+    localStorage.setItem(
+      "dbportal_connections",
+      JSON.stringify([
+        makeConnection({ id: "plain-1", name: "Plain" }),
+        makeConnection({ id: "user-copy-1", name: "My Copy", seedId: "seed-copy" }),
+      ]),
+    );
     storage.setActiveConnectionId("plain-1");
 
     mockGlobalFetch({
@@ -737,7 +745,11 @@ describe("useConnectionManager", () => {
     expect(result.current.connections[0].createdAt).toBeInstanceOf(Date);
     // The persisted active id names a row the server does not serve; the first served one wins.
     expect(result.current.activeConnection!.id).toBe("managed-1");
-    expect(storage.getConnections().map((c) => c.id)).toEqual(["plain-1", "user-copy-1"]);
+    // The stale rows are neither listed nor touched: the browser no longer owns a connection list.
+    expect(JSON.parse(localStorage.getItem("dbportal_connections")!).map((c: { id: string }) => c.id)).toEqual([
+      "plain-1",
+      "user-copy-1",
+    ]);
   });
 
   // A managed fetch that throws (the network, not a status) is the one failure the
@@ -756,99 +768,6 @@ describe("useConnectionManager", () => {
     expect(result.current.connections).toEqual([]);
     expect(result.current.activeConnection).toBeNull();
     expect(managedCallCount(fetchMock)).toBe(1);
-  });
-
-  // The rail needs the server's own descriptors, not just the merged list: an
-  // editable seed copy is startable by id exactly while it still matches the
-  // descriptor it came from, and the merged list has already lost that side.
-  test("exposes the seed descriptors the server served, unmerged", async () => {
-    const served = makeManagedConnection({ id: "seed-new-srv", managed: false, seedId: "seed-new" });
-    mockGlobalFetch({
-      "/api/connections/managed": { ok: true, json: { connections: [served] } },
-      "/api/db/health": { ok: true, json: { status: "healthy" } },
-    });
-
-    const { result } = renderHook(() => useConnectionManager(true));
-
-    await waitFor(() => {
-      expect(result.current.servedSeeds).toEqual({ loaded: true, seeds: [served] });
-    });
-    // The server's copy, not the user's: the merged entry is the one that may drift,
-    // and it carries the raw `createdAt` string rather than a Date.
-    expect(result.current.servedSeeds).toEqual({ loaded: true, seeds: [{ ...served, createdAt: served.createdAt }] });
-  });
-
-  // An answer that carries no connections is an answer: the server served none. That is
-  // what a deployment with no seed file looks like, and it stays LOADED — the empty list
-  // is a measurement, not a gap.
-  test("serves no descriptors when the endpoint answers with no connections", async () => {
-    mockGlobalFetch({
-      "/api/connections/managed": { json: {} },
-      "/api/db/health": { ok: true, json: { status: "healthy" } },
-    });
-
-    const { result } = renderHook(() => useConnectionManager(true));
-
-    await waitFor(() => {
-      expect(result.current.connections).toEqual([]);
-    });
-    expect(result.current.servedSeeds).toEqual({ loaded: true, seeds: [] });
-  });
-
-  // B37. The endpoint failing is not the endpoint answering "none": one malformed
-  // seed-connections.yaml used to reach the browser as an empty list, and everything
-  // downstream then reported an absence it had never measured.
-  test("holds the seed list as UNREAD when the server says it could not read its own configuration", async () => {
-    mockGlobalFetch({
-      "/api/connections/managed": {
-        status: 500,
-        json: { error: "Failed to load managed connections", reason: "seed-config-unreadable" },
-      },
-      "/api/db/health": { ok: true, json: { status: "healthy" } },
-    });
-
-    const { result } = renderHook(() => useConnectionManager(true));
-
-    await waitFor(() => {
-      expect(result.current.servedSeeds).toEqual({ loaded: false });
-    });
-  });
-
-  // The other arm: a failure the server did NOT attribute to its seed configuration
-  // says nothing about that configuration, so it may not be recorded as one. This is
-  // also the shape the platform embed produces, where the route does not exist at all.
-  test("a failure the server did not attribute to its seed config leaves the list loaded", async () => {
-    mockGlobalFetch({
-      "/api/connections/managed": { status: 404, json: { error: "Not found" } },
-      "/api/db/health": { ok: true, json: { status: "healthy" } },
-    });
-
-    const { result } = renderHook(() => useConnectionManager(true));
-
-    await waitFor(() => {
-      expect(result.current.connections).toEqual([]);
-    });
-    expect(result.current.servedSeeds).toEqual({ loaded: true, seeds: [] });
-  });
-
-  // A gateway's HTML error page is not a server statement about anything: the body does
-  // not parse, so no reason is read from it and the seed list stays a measured empty.
-  test("a failure whose body is not JSON attributes nothing", async () => {
-    mockGlobalFetch({
-      "/api/connections/managed": {
-        status: 502,
-        text: "<html>Bad Gateway</html>",
-        headers: { "content-type": "text/html" },
-      },
-      "/api/db/health": { ok: true, json: { status: "healthy" } },
-    });
-
-    const { result } = renderHook(() => useConnectionManager(true));
-
-    await waitFor(() => {
-      expect(result.current.connections).toEqual([]);
-    });
-    expect(result.current.servedSeeds).toEqual({ loaded: true, seeds: [] });
   });
 
   test("managed merge falls back to the first merged connection when no active ID is persisted", async () => {

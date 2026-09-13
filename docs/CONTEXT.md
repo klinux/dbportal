@@ -104,10 +104,11 @@ Two steps. The first closes the hole; the second delivers the product.
   server's answer alone (no browser-stored rows, no seed copies, no `dismissed_seeds`), the
   built-in samples are `managed: true`, and the studio's "+" takes an admin to
   `/admin/datasources`. `ConnectionModal` now lives only on that page.
-- Cleanup candidates left behind: `resolveAgentRunConnectionId`'s copy-vs-seed comparison
-  (`reachesSameDatabase` and the relevance maps in `use-connection-payload.ts`) is dead —
-  every connection is managed — as is the per-user `connections` / `dismissed_seeds`
-  storage the studio no longer reads. Both are harmless and covered; delete when convenient.
+- Cleanups done (2026-09-13): `resolveAgentRunConnectionId` is the seed reference and nothing
+  else (the copy-vs-seed comparison, its relevance maps and the served-seeds plumbing are
+  gone), and the browser no longer holds a `connections` list or `dismissed_seeds` — the
+  storage facade lost those methods, the sync hook those collections. The `connections`
+  collection itself stays: the shared datasource store keeps its records there.
 
 ### 4.2 Server-side audit of every execution — done, persistence open
 

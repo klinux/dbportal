@@ -1,6 +1,11 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import * as path from "path";
-import { DEFAULT_STORAGE_SQLITE_PATH, getDataDir, resolveStorageSqlitePath, LEGACY_STORAGE_SQLITE_PATH } from "@/lib/data-dir";
+import {
+  DEFAULT_STORAGE_SQLITE_PATH,
+  getDataDir,
+  resolveStorageSqlitePath,
+  LEGACY_STORAGE_SQLITE_PATH,
+} from "@/lib/data-dir";
 
 describe("data-dir getDataDir()", () => {
   let origStoragePath: string | undefined;

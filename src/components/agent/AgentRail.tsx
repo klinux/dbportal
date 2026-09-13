@@ -100,9 +100,7 @@ export interface AgentRailProps {
    * The run's connection, already narrowed to a server-resolvable id — or, when there
    * is none, the reason there is none. `null` when no connection is selected at all.
    *
-   * The reason is carried rather than derived here because only the shell knows it: the
-   * two absences look identical from this component ("no id"), and they are not the same
-   * sentence to a user (B37).
+   * The reason is carried rather than derived here because only the shell knows it.
    */
   readonly connectionId: AgentRunConnection | null;
   readonly connectionName: string | null;
@@ -2205,27 +2203,16 @@ export function AgentRail({
         </div>
 
         {/*
-          Two absences, and they are not the same sentence (B37). "No id" reads as
-          "the server does not hold this connection" only when the server ANSWERED
-          with the connections it holds. When it could not read its own seed
-          configuration, nothing has been established about this connection at all —
-          and saying its settings live in this browser is false of the samples this
-          application ships and seeds itself, while sending the operator to the wrong
-          file. Which absence it is comes from the shell, because only it asked.
+          "No id" means the server cannot rebuild this connection: every datasource is
+          declared server-side (docs/CONTEXT.md §4.1), so this is a stale row from before.
         */}
-        {connectionId === null &&
-          (connection?.reason === "seed-config-unreadable" ? (
-            <p data-testid="agent-seed-config-unreadable" data-tone="warning" className="mt-2 text-xs text-warning/80">
-              The server could not read its own connection configuration, so it cannot resolve a connection for a run.
-              This is not a problem with {connectionName ?? "this connection"} — the server log says what failed.
-            </p>
-          ) : (
-            <p data-testid="agent-unresolvable-connection" className="mt-2 text-xs text-warning/80">
-              {connectionName ?? "This connection"} cannot be rebuilt on the server: its settings live in this browser.
-              A run re-resolves its connection there after a restart, so it can only investigate a connection the server
-              holds too.
-            </p>
-          ))}
+        {connectionId === null && (
+          <p data-testid="agent-unresolvable-connection" className="mt-2 text-xs text-warning/80">
+            {connectionName ?? "This connection"} cannot be rebuilt on the server: its settings live in this browser. A
+            run re-resolves its connection there after a restart, so it can only investigate a connection the server
+            holds too.
+          </p>
+        )}
 
         {/*
           Next to the status rather than only in the timeline: the timeline scrolls

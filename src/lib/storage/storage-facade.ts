@@ -4,7 +4,7 @@
  * Dispatches CustomEvent on every mutation for the sync hook.
  */
 
-import { DatabaseConnection, QueryHistoryItem, SavedQuery, SchemaSnapshot, SavedChartConfig } from "../types";
+import { QueryHistoryItem, SavedQuery, SchemaSnapshot, SavedChartConfig } from "../types";
 import { type AuditEvent } from "../audit";
 import { DEFAULT_MASKING_CONFIG, type MaskingConfig } from "../data-masking";
 import { DEFAULT_THRESHOLDS, type ThresholdConfig } from "../monitoring-thresholds";
@@ -40,50 +40,6 @@ function reviveDates<T>(items: T[], ...dateFields: string[]): T[] {
 }
 
 export const storage = {
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Connections
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  getConnections: (): DatabaseConnection[] => {
-    const data = readJSON<DatabaseConnection[]>("connections");
-    if (!data) return [];
-    return reviveDates(data, "createdAt");
-  },
-
-  saveConnection: (connection: DatabaseConnection) => {
-    const connections = storage.getConnections();
-    const existingIndex = connections.findIndex((c) => c.id === connection.id);
-
-    if (existingIndex > -1) {
-      connections[existingIndex] = connection;
-    } else {
-      connections.push(connection);
-    }
-
-    writeJSON("connections", connections);
-    dispatchChange("connections", connections);
-  },
-
-  getDismissedSeeds: (): string[] => {
-    return readJSON<string[]>("dismissed_seeds") ?? [];
-  },
-
-  deleteConnection: (id: string) => {
-    const connections = storage.getConnections();
-    const target = connections.find((c) => c.id === id);
-    if (target?.seedId) {
-      const dismissed = storage.getDismissedSeeds();
-      if (!dismissed.includes(target.seedId)) {
-        const next = [...dismissed, target.seedId];
-        writeJSON("dismissed_seeds", next);
-        dispatchChange("dismissed_seeds", next);
-      }
-    }
-    const filtered = connections.filter((c) => c.id !== id);
-    writeJSON("connections", filtered);
-    dispatchChange("connections", filtered);
-  },
-
   // ═══════════════════════════════════════════════════════════════════════════
   // History
   // ═══════════════════════════════════════════════════════════════════════════
