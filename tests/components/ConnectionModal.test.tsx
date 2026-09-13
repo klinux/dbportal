@@ -292,7 +292,7 @@ mock.module("lucide-react", () => {
 
 // ── Imports AFTER mocks ─────────────────────────────────────────────────────
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { render, fireEvent, cleanup } from "@testing-library/react";
+import { render, fireEvent, cleanup, act } from "@testing-library/react";
 import { ConnectionModal } from "@/components/ConnectionModal";
 
 // =============================================================================
@@ -418,15 +418,17 @@ describe("ConnectionModal", () => {
 
   // ── 5. Database type buttons render ─────────────────────────────────────────
 
-  test("database type buttons render", () => {
+  test("the database type dropdown lists every selectable engine with its icon and name", () => {
     const props = createDefaultProps();
-    const { queryByText } = render(React.createElement(ConnectionModal, props));
-
-    expect(queryByText("PostgreSQL")).not.toBeNull();
-    expect(queryByText("MySQL")).not.toBeNull();
-    expect(queryByText("SQLite")).not.toBeNull();
-    expect(queryByText("MongoDB")).not.toBeNull();
-    expect(queryByText("Redis")).not.toBeNull();
+    const { baseElement, getByLabelText } = render(React.createElement(ConnectionModal, props));
+    act(() => {
+      fireEvent.keyDown(getByLabelText("Database type"), { key: "ArrowDown" });
+    });
+    // Each option is the engine's icon (mocked here as its two-letter mark) followed by its name.
+    const options = Array.from(baseElement.querySelectorAll('[role="option"]')).map((o) => o.textContent ?? "");
+    for (const name of ["PostgreSQL", "MySQL", "SQLite", "MongoDB", "Redis"]) {
+      expect(options.some((text) => text.endsWith(name))).toBe(true);
+    }
   });
 
   // ── 6. Name input renders ──────────────────────────────────────────────────
@@ -764,17 +766,34 @@ describe("ConnectionModal", () => {
 
   // ── 31. Clicking a different DB type card sets type, default port, and resets test result ──
 
-  test("clicking a different DB type card sets type, default port, and resets test result", () => {
+  // The engine is one dropdown row (icon and name per option), not a wall of cards: the
+  // sheet is half the viewport and the form below is what the person came for.
+  test("choosing a different DB type in the dropdown sets type, default port, and resets test result", () => {
     const props = createDefaultProps();
-    const { getByText } = render(React.createElement(ConnectionModal, props));
+    const { baseElement, getByLabelText } = render(React.createElement(ConnectionModal, props));
 
-    const mysqlButton = getByText("MySQL").closest("button");
-    expect(mysqlButton).not.toBeNull();
-    fireEvent.click(mysqlButton as HTMLButtonElement);
+    const trigger = getByLabelText("Database type");
+    expect(trigger.getAttribute("role")).toBe("combobox");
+    act(() => {
+      fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    });
+    const options = Array.from(baseElement.querySelectorAll('[role="option"]'));
+    const mysql = options.find((o) => o.textContent?.endsWith("MySQL"))!;
+    expect(mysql).toBeDefined();
+    act(() => {
+      fireEvent.keyDown(mysql, { key: "Enter" });
+    });
 
     expect(mockSetType).toHaveBeenCalledWith("mysql");
     expect(mockSetPort).toHaveBeenCalledWith("3306");
     expect(mockSetTestResult).toHaveBeenCalledWith(null);
+  });
+
+  test("the DB type dropdown is disabled while editing: the engine of a saved datasource cannot change", () => {
+    mockFormOverrides = { isEditMode: true };
+    const props = createDefaultProps();
+    const { getByLabelText } = render(React.createElement(ConnectionModal, props));
+    expect((getByLabelText("Database type") as HTMLButtonElement).disabled).toBe(true);
   });
 
   // ── 32. SQLite type renders the file path input and its onChange updates database ──

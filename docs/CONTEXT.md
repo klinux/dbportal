@@ -262,7 +262,9 @@ editor and the data-import wizard open in a **Sheet** anchored to the right edge
 cannot drift; the mobile Drawer stays). A sheet keeps the list it was opened from visible,
 gives a long form its full height, and does not fight the page for the centre. The
 save-query prompt and the masking-rule dialog stay centred: they are one-field prompts,
-not configuration. Requested 2026-09-13.
+not configuration. Requested 2026-09-13. The engine picker in that editor is a dropdown
+(icon + name per option, disabled in edit mode) rather than the seventeen cards it was:
+in a half-width sheet the cards pushed the form itself below the fold.
 
 ## 5. Decisions already taken
 

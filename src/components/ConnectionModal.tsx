@@ -8,6 +8,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } f
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DatabaseConnection,
   ConnectionEnvironment,
@@ -33,6 +34,7 @@ import {
   Server,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { DatabaseType } from "@/lib/types";
 import { getDBConfig, isFileBased, takesConnectionField } from "@/lib/db-ui-config";
 import { motion, AnimatePresence } from "framer-motion";
 import { useConnectionForm } from "@/hooks/use-connection-form";
@@ -376,37 +378,40 @@ export function ConnectionModal({
             </div>
           </div>
 
-          {/* DB Type Selector */}
-          <div className="grid grid-cols-2 gap-3">
-            {dbTypes.map((db) => (
-              <button
-                key={db.value}
-                onClick={() => {
-                  setType(db.value);
-                  const cfg = getDBConfig(db.value);
-                  if (cfg.defaultPort) setPort(cfg.defaultPort);
-                  setTestResult(null);
-                }}
-                disabled={isEditMode}
-                className={cn(
-                  "flex flex-col items-center justify-center p-3 md:p-4 rounded-xl border transition-all duration-200 gap-2 group",
-                  type === db.value
-                    ? "bg-brand-solid/10 border-brand-tint/50 shadow-[0_0_20px_rgba(59,130,246,0.1)]"
-                    : "bg-panel border-hairline hover:border-hairline-strong hover:bg-raised",
-                  isEditMode && type !== db.value && "opacity-30 cursor-not-allowed",
-                )}
+          {/* DB type: one row, not seventeen cards - the sheet is 50% of the viewport and the
+              form below it is what the person came for. Disabled in edit mode: the engine of a
+              saved datasource cannot change, only its settings. */}
+          <div className="space-y-1.5">
+            <Label htmlFor="db-type" className="text-xs text-fg-tertiary">
+              Database type
+            </Label>
+            <Select
+              value={type}
+              disabled={isEditMode}
+              onValueChange={(value) => {
+                const next = value as DatabaseType;
+                setType(next);
+                const cfg = getDBConfig(next);
+                if (cfg.defaultPort) setPort(cfg.defaultPort);
+                setTestResult(null);
+              }}
+            >
+              <SelectTrigger
+                id="db-type"
+                aria-label="Database type"
+                className="h-10 w-full bg-panel border-hairline-strong"
               >
-                <db.icon
-                  className={cn(
-                    "w-6 h-6 mb-1 transition-transform group-hover:scale-110",
-                    type === db.value ? db.color : "text-fg-subtle",
-                  )}
-                />
-                <span className={cn("text-xs font-medium", type === db.value ? "text-fg" : "text-fg-muted")}>
-                  {db.label}
-                </span>
-              </button>
-            ))}
+                <SelectValue placeholder="Choose a database" />
+              </SelectTrigger>
+              <SelectContent>
+                {dbTypes.map((db) => (
+                  <SelectItem key={db.value} value={db.value}>
+                    <db.icon className={cn("w-4 h-4", db.color)} />
+                    <span>{db.label}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Wire-compatible engines served by the selected driver (#424) */}
