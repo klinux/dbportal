@@ -6,8 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
-import { EyeOff, Lock, Activity, KeyRound, Save, RotateCcw } from "lucide-react";
+import { EyeOff, Lock, Activity, KeyRound, Save, RotateCcw, Terminal } from "lucide-react";
 import { MaskingSettings } from "@/components/MaskingSettings";
+import { SshProfilesTab } from "@/components/admin/tabs/SshProfilesTab";
 import { DEFAULT_THRESHOLDS, type ThresholdConfig } from "@/lib/monitoring-thresholds";
 import { storage } from "@/lib/storage";
 import { toast } from "sonner";
@@ -15,6 +16,7 @@ import { toast } from "sonner";
 const MASKING_TAB_LABEL = "Data Masking";
 const ACCESS_TAB_LABEL = "Access";
 const THRESHOLDS_TAB_LABEL = "Thresholds";
+const SSH_TAB_LABEL = "SSH profiles";
 const ACCESS_CARD_TITLE = "Security & Access";
 const SUPPORTED_LABEL = "Supported";
 const CONFIGURABLE_LABEL = "Configurable";
@@ -50,6 +52,13 @@ export function SecurityTab() {
             <Activity className="h-3.5 w-3.5" />
             {THRESHOLDS_TAB_LABEL}
           </TabsTrigger>
+          <TabsTrigger
+            value="ssh"
+            className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-brand text-fg-muted text-xs px-4"
+          >
+            <Terminal className="h-3.5 w-3.5" />
+            {SSH_TAB_LABEL}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="masking" className="mt-4">
@@ -58,6 +67,11 @@ export function SecurityTab() {
 
         <TabsContent value="access" className="mt-4">
           <AccessSummary />
+        </TabsContent>
+
+        {/* docs/CONTEXT.md §4.9: the bastions, kept with the other things only an admin sets. */}
+        <TabsContent value="ssh" className="mt-4">
+          <SshProfilesTab />
         </TabsContent>
 
         <TabsContent value="thresholds" className="mt-4">

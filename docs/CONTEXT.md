@@ -268,14 +268,18 @@ in a half-width sheet the cards pushed the form itself below the fold. In the st
 sidebar's flat connection list became one **datasource row** (`ConnectionPicker`) whose
 popover lists datasources grouped by environment, production first, searchable from six
 entries (`ConnectionsList`, also the mobile tab's inline list): with every datasource shared
-and declared server-side, a list was taking the space the object tree needs.
+and declared server-side, a list was taking the space the object tree needs. The admin
+datasources page shows one **tab per environment** (production first, count on the tab)
+instead of stacked sections: a fleet of a hundred datasources is read one environment at a
+time. SSH profiles (§4.9) live under **Security → SSH profiles**, with the other settings
+only an administrator sets, so the datasources page holds datasources alone.
 
 ### 4.9 SSH profiles — done
 
 A datasource used to carry its own bastion block; ten datasources behind one bastion were
 ten copies of the same key, and a managed datasource had no way to declare one at all. A
-profile is now declared once — `sshProfiles:` in the seed file, or the admin page's SSH
-profiles section, stored under the reserved owner `shared:ssh-profiles` with its secrets
+profile is now declared once — `sshProfiles:` in the seed file, or the admin page's
+Security → SSH profiles tab, stored under the reserved owner `shared:ssh-profiles` with its secrets
 sealed by the same encrypting layer as a tunnel's — and a datasource names it with
 `sshProfile: "<id>"` ([`src/lib/ssh-profiles/`](../src/lib/ssh-profiles/)). `resolveConnection`
 builds `sshTunnel` from the profile when the datasource is opened (secrets as values,

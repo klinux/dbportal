@@ -208,7 +208,7 @@ connections:
     sshProfile: "prod-bastion"
 ```
 
-Profiles may also be declared on the admin page (Datasources → SSH profiles), where they are
+Profiles may also be declared on the admin page (Security → SSH profiles), where they are
 stored in the server store with the password, key and passphrase sealed at rest like a
 datasource's own credentials. A profile named by any datasource cannot be deleted; one the
 seed file declares is read-only there. A datasource that names an unknown profile, or a

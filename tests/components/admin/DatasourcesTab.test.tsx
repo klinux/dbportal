@@ -108,12 +108,15 @@ describe("DatasourcesTab", () => {
     restoreGlobalFetch();
   });
 
-  test("groups every shared datasource by environment, production first, and marks the seed-file ones read-only", async () => {
+  // A fleet is read one environment at a time: a tab per environment that has a datasource,
+  // production first and open by default, the count on the tab.
+  test("puts each environment on its own tab, production first and open, and marks the seed-file ones read-only", async () => {
     mockGlobalFetch({ "/api/admin/datasources": listing() });
-    const { getByTestId, container } = await renderLoaded();
+    const { getByTestId, container, getAllByRole, queryByTestId } = await renderLoaded();
 
+    expect(getAllByRole("tab").map((t) => t.textContent)).toEqual(["Production(1)", "Development(1)"]);
     const sections = [...container.querySelectorAll("section")].map((s) => s.getAttribute("data-testid"));
-    expect(sections).toEqual(["env-group-production", "env-group-development"]);
+    expect(sections).toEqual(["env-group-production"]);
 
     const orders = within(getByTestId("datasource-row-prod-orders"));
     expect(orders.getByText("Users")).not.toBeNull();
@@ -121,12 +124,35 @@ describe("DatasourcesTab", () => {
     expect(orders.getByLabelText("Edit Orders")).not.toBeNull();
     expect(orders.getByLabelText("Delete Orders")).not.toBeNull();
 
+    // Radix Tabs switch on mouseDown, not click.
+    fireEvent.mouseDown(getByTestId("env-tab-development"), { button: 0 });
+    expect(queryByTestId("env-group-production")).toBeNull();
     const dev = within(getByTestId("datasource-row-dev-shared"));
     expect(dev.getByText("seed file")).not.toBeNull();
     expect(dev.getByText("read-only")).not.toBeNull();
     // `roles: ["*"]` reads as both roles, the way the server applies it.
     expect(dev.getByText("Administrators")).not.toBeNull();
     expect(dev.getByText("Users")).not.toBeNull();
+  });
+
+  test("a tab whose environment empties on reload falls back to the first environment", async () => {
+    let second = false;
+    const fetchMock = mockGlobalFetch({
+      "/api/admin/datasources": () => (second ? listing({ declared: [] }) : listing()),
+    });
+    const { getByTestId, getByText, queryByTestId } = await renderLoaded();
+    fireEvent.mouseDown(getByTestId("env-tab-development"), { button: 0 });
+    expect(getByTestId("env-group-development")).not.toBeNull();
+    second = true;
+    await act(async () => {
+      fireEvent.click(getByText("Refresh"));
+    });
+    await waitFor(() => {
+      if (queryByTestId("datasources-loading")) throw new Error("still loading");
+    });
+    expect(queryByTestId("env-tab-development")).toBeNull();
+    expect(getByTestId("env-group-production")).not.toBeNull();
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(2);
   });
 
   // STORAGE_PROVIDER=local has no server store: the page says what to set and offers no

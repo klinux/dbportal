@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   AlertDialog,
@@ -316,6 +317,11 @@ export function DatasourcesTab() {
     }));
   }, [rows]);
 
+  // The tab the operator picked; when a reload leaves that environment empty, the first one.
+  const [selectedEnvironment, setSelectedEnvironment] = useState<ConnectionEnvironment | null>(null);
+  const activeEnvironment =
+    groups.find((group) => group.environment === selectedEnvironment)?.environment ?? groups[0]?.environment;
+
   const openCreate = () => {
     setEditing(null);
     setRoles(["admin", "user"]);
@@ -478,7 +484,7 @@ export function DatasourcesTab() {
             Shared datasources
           </h2>
           <p className="text-xs text-fg-muted mt-1">
-            Declared once, opened by everyone the roles name. Grouped by environment.
+            Declared once, opened by everyone the roles name. One tab per environment.
           </p>
         </div>
         <div className="flex gap-2">
@@ -516,134 +522,152 @@ export function DatasourcesTab() {
           No shared datasources yet. {available ? "Create the first one." : "Declare them in the seed file."}
         </div>
       ) : (
-        groups.map((group) => (
-          <section key={group.environment} className="space-y-2" data-testid={`env-group-${group.environment}`}>
-            <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-fg-tertiary">
-              <EnvironmentDot environment={group.environment} />
-              {ENVIRONMENT_TITLES[group.environment]}
-              <span className="font-normal text-fg-muted">({group.rows.length})</span>
-            </h3>
-            <div className="rounded-xl border border-hairline overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">Name</TableHead>
-                    <TableHead className="text-xs">Engine</TableHead>
-                    <TableHead className="text-xs">Target</TableHead>
-                    <TableHead className="text-xs">Roles</TableHead>
-                    <TableHead className="text-xs">Source</TableHead>
-                    <TableHead className="text-xs text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {group.rows.map((row) => {
-                    const engine = getDBConfig(row.type);
-                    const Icon = engine.icon;
-                    return (
-                      <TableRow key={`${row.source}:${row.id}`} data-testid={`datasource-row-${row.id}`}>
-                        <TableCell className="text-xs">
-                          <div className="font-medium text-fg-secondary">{row.name}</div>
-                          <div className="font-mono text-[10px] text-fg-muted">{row.id}</div>
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          <span className="inline-flex items-center gap-1.5">
-                            <Icon className={`h-3.5 w-3.5 ${engine.color}`} aria-hidden="true" />
-                            {engine.label}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-xs font-mono text-fg-tertiary">
-                          {row.source === "store"
-                            ? [row.host, row.port, row.database].filter(Boolean).length > 0
-                              ? `${row.host ?? ""}${row.port ? `:${row.port}` : ""}${row.database ? `/${row.database}` : ""}`
-                              : "—"
-                            : "declared in seed file"}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          <div className="flex flex-wrap gap-1">
-                            {rolesOf(row).map((role) => (
-                              <Badge key={role} variant="outline" className="text-[10px]">
-                                {ROLE_LABELS[role]}
-                              </Badge>
-                            ))}
-                            {groupNamesOf(row.roles).map((group) => (
-                              <Badge key={`group:${group}`} variant="outline" className="text-[10px] font-mono">
-                                {group}
-                              </Badge>
-                            ))}
-                            {row.writeRoles !== undefined && (
-                              <Badge
-                                variant="secondary"
-                                className="text-[10px]"
-                                title={row.writeRoles.join(", ") || "nobody"}
-                              >
-                                {writeModeOf(row.writeRoles) === "none" ? "read-only" : "writes restricted"}
-                              </Badge>
-                            )}
-                            {row.sshProfile && (
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] font-mono"
-                                title="Reached through an SSH profile"
-                              >
-                                ssh:{row.sshProfile}
-                              </Badge>
-                            )}
-                            {row.writeApproval && (
-                              <Badge
-                                variant="secondary"
-                                className="text-[10px]"
-                                title="Writes need a reviewer's window"
-                              >
-                                approval
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          {row.source === "config" ? (
-                            <Badge variant="secondary" className="text-[10px] gap-1">
-                              <FileCode2 className="h-3 w-3" /> seed file
-                            </Badge>
-                          ) : (
-                            <span className="text-fg-muted" title={`Last change by ${row.updatedBy}`}>
-                              {new Date(row.updatedAt).toLocaleDateString()} · {row.updatedBy}
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {row.source === "store" ? (
-                            <div className="flex justify-end gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 w-7 p-0"
-                                aria-label={`Edit ${row.name}`}
-                                onClick={() => openEdit(row)}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 w-7 p-0 text-danger hover:text-danger-bright"
-                                aria-label={`Delete ${row.name}`}
-                                onClick={() => setPendingDelete(row)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <span className="text-[10px] text-fg-muted">read-only</span>
-                          )}
-                        </TableCell>
+        // One tab per environment that has a datasource: a fleet of a hundred datasources is
+        // read one environment at a time, not as one long page.
+        <Tabs
+          value={activeEnvironment}
+          onValueChange={(value) => setSelectedEnvironment(value as ConnectionEnvironment)}
+        >
+          <TabsList className="bg-transparent border-b border-hairline rounded-none p-0 h-10 w-full justify-start">
+            {groups.map((group) => (
+              <TabsTrigger
+                key={group.environment}
+                value={group.environment}
+                data-testid={`env-tab-${group.environment}`}
+                className="flex-none gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-brand text-fg-muted text-xs px-4"
+              >
+                <EnvironmentDot environment={group.environment} />
+                {ENVIRONMENT_TITLES[group.environment]}
+                <span className="font-normal text-fg-muted">({group.rows.length})</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {groups.map((group) => (
+            <TabsContent key={group.environment} value={group.environment} className="mt-4">
+              <section className="space-y-2" data-testid={`env-group-${group.environment}`}>
+                <div className="rounded-xl border border-hairline overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">Name</TableHead>
+                        <TableHead className="text-xs">Engine</TableHead>
+                        <TableHead className="text-xs">Target</TableHead>
+                        <TableHead className="text-xs">Roles</TableHead>
+                        <TableHead className="text-xs">Source</TableHead>
+                        <TableHead className="text-xs text-right">Actions</TableHead>
                       </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          </section>
-        ))
+                    </TableHeader>
+                    <TableBody>
+                      {group.rows.map((row) => {
+                        const engine = getDBConfig(row.type);
+                        const Icon = engine.icon;
+                        return (
+                          <TableRow key={`${row.source}:${row.id}`} data-testid={`datasource-row-${row.id}`}>
+                            <TableCell className="text-xs">
+                              <div className="font-medium text-fg-secondary">{row.name}</div>
+                              <div className="font-mono text-[10px] text-fg-muted">{row.id}</div>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              <span className="inline-flex items-center gap-1.5">
+                                <Icon className={`h-3.5 w-3.5 ${engine.color}`} aria-hidden="true" />
+                                {engine.label}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-xs font-mono text-fg-tertiary">
+                              {row.source === "store"
+                                ? [row.host, row.port, row.database].filter(Boolean).length > 0
+                                  ? `${row.host ?? ""}${row.port ? `:${row.port}` : ""}${row.database ? `/${row.database}` : ""}`
+                                  : "—"
+                                : "declared in seed file"}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              <div className="flex flex-wrap gap-1">
+                                {rolesOf(row).map((role) => (
+                                  <Badge key={role} variant="outline" className="text-[10px]">
+                                    {ROLE_LABELS[role]}
+                                  </Badge>
+                                ))}
+                                {groupNamesOf(row.roles).map((group) => (
+                                  <Badge key={`group:${group}`} variant="outline" className="text-[10px] font-mono">
+                                    {group}
+                                  </Badge>
+                                ))}
+                                {row.writeRoles !== undefined && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-[10px]"
+                                    title={row.writeRoles.join(", ") || "nobody"}
+                                  >
+                                    {writeModeOf(row.writeRoles) === "none" ? "read-only" : "writes restricted"}
+                                  </Badge>
+                                )}
+                                {row.sshProfile && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] font-mono"
+                                    title="Reached through an SSH profile"
+                                  >
+                                    ssh:{row.sshProfile}
+                                  </Badge>
+                                )}
+                                {row.writeApproval && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-[10px]"
+                                    title="Writes need a reviewer's window"
+                                  >
+                                    approval
+                                  </Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {row.source === "config" ? (
+                                <Badge variant="secondary" className="text-[10px] gap-1">
+                                  <FileCode2 className="h-3 w-3" /> seed file
+                                </Badge>
+                              ) : (
+                                <span className="text-fg-muted" title={`Last change by ${row.updatedBy}`}>
+                                  {new Date(row.updatedAt).toLocaleDateString()} · {row.updatedBy}
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {row.source === "store" ? (
+                                <div className="flex justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0"
+                                    aria-label={`Edit ${row.name}`}
+                                    onClick={() => openEdit(row)}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 text-danger hover:text-danger-bright"
+                                    aria-label={`Delete ${row.name}`}
+                                    onClick={() => setPendingDelete(row)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-fg-muted">read-only</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </section>
+            </TabsContent>
+          ))}
+        </Tabs>
       )}
 
       <ConnectionModal

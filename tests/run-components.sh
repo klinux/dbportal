@@ -30,7 +30,7 @@ FAIL=0
 # green summary line reported a group count no run had.
 # Drifted again before this line was touched: it read 30 while 32 `run_group` calls
 # existed, so every green run reported a group count no run had. 33 is the grep below.
-TOTAL_GROUPS=40
+TOTAL_GROUPS=41
 EXTRA_BUN_ARGS=("$@")
 GROUP_INDEX=0
 COVERAGE_MODE=0
@@ -189,11 +189,14 @@ run_group "Group 4/6: AdminDashboard" \
 run_group "Group 4b/6: AdminLayout" \
   tests/components/admin/AdminLayout.test.tsx
 
-# Group 5: SecurityTab (isolated — mocks MaskingSettings)
+# Group 5: SecurityTab (isolated — mocks MaskingSettings and SshProfilesTab)
 run_group "Group 5/6: SecurityTab" \
   tests/components/admin/SecurityTab.test.tsx \
   tests/components/admin/DatasourcesTab.test.tsx \
-  tests/components/admin/ApprovalsTab.test.tsx \
+  tests/components/admin/ApprovalsTab.test.tsx
+
+# Group 5b: SshProfilesTab, the real one - SecurityTab.test stubs it process-wide
+run_group "Group 5b/6: SshProfilesTab" \
   tests/components/admin/SshProfilesTab.test.tsx
 
 # Group 6: MonitoringDashboard (isolated - mocks all monitoring tabs)

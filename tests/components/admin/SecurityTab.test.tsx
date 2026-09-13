@@ -8,6 +8,10 @@ import { setupRechartssMock, setupFramerMotionMock } from "../../helpers/mock-mo
 setupRechartssMock();
 setupFramerMotionMock();
 
+mock.module("@/components/admin/tabs/SshProfilesTab", () => ({
+  SshProfilesTab: () => <div data-testid="ssh-profiles-tab">SshProfilesTab</div>,
+}));
+
 mock.module("@/components/MaskingSettings", () => ({
   MaskingSettings: () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -50,6 +54,19 @@ describe("SecurityTab", () => {
     if (typeof localStorage !== "undefined") {
       localStorage.removeItem("dbportal_threshold_config");
     }
+  });
+
+  // docs/CONTEXT.md §4.9: the bastions sit with the other admin-only settings, not on the
+  // datasources page, which is long enough with the datasources alone.
+  test("the SSH profiles tab shows the profiles page", async () => {
+    let renderResult: ReturnType<typeof render>;
+    await act(async () => {
+      renderResult = render(<SecurityTab />);
+    });
+    const { getByText, getByTestId, queryByTestId } = renderResult!;
+    expect(queryByTestId("ssh-profiles-tab")).toBeNull();
+    clickRadixTab(getByText("SSH profiles"));
+    expect(getByTestId("ssh-profiles-tab")).not.toBeNull();
   });
 
   test("renders 3 tabs (Data Masking, Access, Thresholds)", async () => {

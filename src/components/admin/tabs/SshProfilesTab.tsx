@@ -317,151 +317,157 @@ export function SshProfilesTab() {
       ) : null}
 
       <Sheet open={open} onOpenChange={(next) => !saving && setOpen(next)}>
-        <SheetContent side="right" className={CONFIG_SHEET_CLASS} data-testid="ssh-profile-sheet">
-          <SheetTitle>{editing ? "Edit SSH profile" : "New SSH profile"}</SheetTitle>
-          <SheetDescription>{secretNote}</SheetDescription>
-          <div className="mt-4 space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="ssh-name" className="text-xs text-fg-tertiary">
-                Name
-              </Label>
-              <Input
-                id="ssh-name"
-                value={draft.name}
-                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                placeholder="Production bastion"
-                className="h-8 text-xs bg-panel border-hairline-strong"
-              />
-              {!editing && draft.name && (
-                <p className="text-[11px] font-mono text-fg-muted">id: {slugifyProfileId(draft.name) || "—"}</p>
-              )}
+        {/* The same frame as the datasource editor: a padded, scrolling body and a footer that stays put. */}
+        <SheetContent side="right" className={`${CONFIG_SHEET_CLASS} p-0 gap-0`} data-testid="ssh-profile-sheet">
+          <div className="flex-1 overflow-y-auto p-4 md:p-8">
+            <div className="mb-6 pr-8">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 rounded-xl bg-brand-tint/10 border border-brand-tint/20">
+                  <Terminal strokeWidth={1.5} className="w-5 h-5 text-brand" />
+                </div>
+                <SheetTitle className="text-xs md:text-[0.8125rem] font-medium">
+                  {editing ? "Edit SSH profile" : "New SSH profile"}
+                </SheetTitle>
+              </div>
+              <SheetDescription className="text-xs text-fg-muted leading-relaxed">{secretNote}</SheetDescription>
             </div>
-            <div className="grid grid-cols-4 gap-3">
-              <div className="col-span-3 space-y-1.5">
-                <Label htmlFor="ssh-host" className="text-xs text-fg-tertiary">
-                  Host
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="ssh-name" className="text-xs text-fg-tertiary">
+                  Name
                 </Label>
                 <Input
-                  id="ssh-host"
-                  value={draft.host}
-                  onChange={(e) => setDraft({ ...draft, host: e.target.value })}
-                  placeholder="bastion.example.com"
+                  id="ssh-name"
+                  value={draft.name}
+                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                  placeholder="Production bastion"
+                  className="h-8 text-xs bg-panel border-hairline-strong"
+                />
+                {!editing && draft.name && (
+                  <p className="text-[11px] font-mono text-fg-muted">id: {slugifyProfileId(draft.name) || "—"}</p>
+                )}
+              </div>
+              <div className="grid grid-cols-4 gap-3">
+                <div className="col-span-3 space-y-1.5">
+                  <Label htmlFor="ssh-host" className="text-xs text-fg-tertiary">
+                    Host
+                  </Label>
+                  <Input
+                    id="ssh-host"
+                    value={draft.host}
+                    onChange={(e) => setDraft({ ...draft, host: e.target.value })}
+                    placeholder="bastion.example.com"
+                    className="h-8 text-xs bg-panel border-hairline-strong"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ssh-port" className="text-xs text-fg-tertiary">
+                    Port
+                  </Label>
+                  <Input
+                    id="ssh-port"
+                    value={draft.port}
+                    onChange={(e) => setDraft({ ...draft, port: e.target.value })}
+                    className="h-8 text-xs font-mono bg-panel border-hairline-strong"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ssh-username" className="text-xs text-fg-tertiary">
+                  Username
+                </Label>
+                <Input
+                  id="ssh-username"
+                  value={draft.username}
+                  onChange={(e) => setDraft({ ...draft, username: e.target.value })}
+                  placeholder="ubuntu"
                   className="h-8 text-xs bg-panel border-hairline-strong"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="ssh-port" className="text-xs text-fg-tertiary">
-                  Port
+                <Label htmlFor="ssh-auth" className="text-xs text-fg-tertiary">
+                  Authentication
+                </Label>
+                <select
+                  id="ssh-auth"
+                  value={draft.authMethod}
+                  onChange={(e) => setDraft({ ...draft, authMethod: e.target.value as Draft["authMethod"] })}
+                  className="h-8 w-full rounded-md border border-hairline-strong bg-panel px-2 text-xs text-fg-secondary"
+                >
+                  <option value="privateKey">Private key</option>
+                  <option value="password">Password</option>
+                </select>
+              </div>
+              {draft.authMethod === "password" ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="ssh-password" className="text-xs text-fg-tertiary">
+                    Password
+                  </Label>
+                  <Input
+                    id="ssh-password"
+                    type="password"
+                    autoComplete="off"
+                    value={draft.password}
+                    onChange={(e) => setDraft({ ...draft, password: e.target.value })}
+                    placeholder={editing ? "Leave blank to keep the stored one" : "Password or ${BASTION_PASS}"}
+                    className="h-8 text-xs bg-panel border-hairline-strong"
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ssh-key" className="text-xs text-fg-tertiary">
+                      Private key
+                    </Label>
+                    <textarea
+                      id="ssh-key"
+                      value={draft.privateKey}
+                      onChange={(e) => setDraft({ ...draft, privateKey: e.target.value })}
+                      placeholder={
+                        editing
+                          ? "Leave blank to keep the stored one"
+                          : "-----BEGIN OPENSSH PRIVATE KEY----- … or ${BASTION_KEY}"
+                      }
+                      rows={5}
+                      className="w-full rounded-md border border-hairline-strong bg-panel px-2 py-1.5 text-xs font-mono text-fg-secondary"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ssh-passphrase" className="text-xs text-fg-tertiary">
+                      Passphrase (optional)
+                    </Label>
+                    <Input
+                      id="ssh-passphrase"
+                      type="password"
+                      autoComplete="off"
+                      value={draft.passphrase}
+                      onChange={(e) => setDraft({ ...draft, passphrase: e.target.value })}
+                      className="h-8 text-xs bg-panel border-hairline-strong"
+                    />
+                  </div>
+                </>
+              )}
+              <div className="space-y-1.5">
+                <Label htmlFor="ssh-fingerprint" className="text-xs text-fg-tertiary">
+                  Host key fingerprint (optional, pins the bastion)
                 </Label>
                 <Input
-                  id="ssh-port"
-                  value={draft.port}
-                  onChange={(e) => setDraft({ ...draft, port: e.target.value })}
+                  id="ssh-fingerprint"
+                  value={draft.hostKeyFingerprint}
+                  onChange={(e) => setDraft({ ...draft, hostKeyFingerprint: e.target.value })}
+                  placeholder="SHA256:…"
                   className="h-8 text-xs font-mono bg-panel border-hairline-strong"
                 />
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ssh-username" className="text-xs text-fg-tertiary">
-                Username
-              </Label>
-              <Input
-                id="ssh-username"
-                value={draft.username}
-                onChange={(e) => setDraft({ ...draft, username: e.target.value })}
-                placeholder="ubuntu"
-                className="h-8 text-xs bg-panel border-hairline-strong"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ssh-auth" className="text-xs text-fg-tertiary">
-                Authentication
-              </Label>
-              <select
-                id="ssh-auth"
-                value={draft.authMethod}
-                onChange={(e) => setDraft({ ...draft, authMethod: e.target.value as Draft["authMethod"] })}
-                className="h-8 w-full rounded-md border border-hairline-strong bg-panel px-2 text-xs text-fg-secondary"
-              >
-                <option value="privateKey">Private key</option>
-                <option value="password">Password</option>
-              </select>
-            </div>
-            {draft.authMethod === "password" ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="ssh-password" className="text-xs text-fg-tertiary">
-                  Password
-                </Label>
-                <Input
-                  id="ssh-password"
-                  type="password"
-                  autoComplete="off"
-                  value={draft.password}
-                  onChange={(e) => setDraft({ ...draft, password: e.target.value })}
-                  placeholder={editing ? "Leave blank to keep the stored one" : "Password or ${BASTION_PASS}"}
-                  className="h-8 text-xs bg-panel border-hairline-strong"
-                />
-              </div>
-            ) : (
-              <>
-                <div className="space-y-1.5">
-                  <Label htmlFor="ssh-key" className="text-xs text-fg-tertiary">
-                    Private key
-                  </Label>
-                  <textarea
-                    id="ssh-key"
-                    value={draft.privateKey}
-                    onChange={(e) => setDraft({ ...draft, privateKey: e.target.value })}
-                    placeholder={
-                      editing
-                        ? "Leave blank to keep the stored one"
-                        : "-----BEGIN OPENSSH PRIVATE KEY----- … or ${BASTION_KEY}"
-                    }
-                    rows={5}
-                    className="w-full rounded-md border border-hairline-strong bg-panel px-2 py-1.5 text-xs font-mono text-fg-secondary"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="ssh-passphrase" className="text-xs text-fg-tertiary">
-                    Passphrase (optional)
-                  </Label>
-                  <Input
-                    id="ssh-passphrase"
-                    type="password"
-                    autoComplete="off"
-                    value={draft.passphrase}
-                    onChange={(e) => setDraft({ ...draft, passphrase: e.target.value })}
-                    className="h-8 text-xs bg-panel border-hairline-strong"
-                  />
-                </div>
-              </>
-            )}
-            <div className="space-y-1.5">
-              <Label htmlFor="ssh-fingerprint" className="text-xs text-fg-tertiary">
-                Host key fingerprint (optional, pins the bastion)
-              </Label>
-              <Input
-                id="ssh-fingerprint"
-                value={draft.hostKeyFingerprint}
-                onChange={(e) => setDraft({ ...draft, hostKeyFingerprint: e.target.value })}
-                placeholder="SHA256:…"
-                className="h-8 text-xs font-mono bg-panel border-hairline-strong"
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() => setOpen(false)}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-              <Button size="sm" className="h-8 text-xs" onClick={save} disabled={saving}>
-                {editing ? "Save profile" : "Create profile"}
-              </Button>
-            </div>
+          </div>
+          <div className="shrink-0 border-t border-hairline bg-surface px-4 md:px-8 py-3 flex justify-end gap-2">
+            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button size="sm" className="h-8 text-xs" onClick={save} disabled={saving}>
+              {editing ? "Save profile" : "Create profile"}
+            </Button>
           </div>
         </SheetContent>
       </Sheet>

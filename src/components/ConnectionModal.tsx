@@ -888,7 +888,7 @@ export function ConnectionModal({
                 </Select>
                 {(sshProfiles ?? []).length === 0 && (
                   <p className="text-[11px] text-fg-muted">
-                    No SSH profile declared yet. Profiles are declared once, below the datasource list, and referenced
+                    No SSH profile declared yet. Profiles are declared once under Security → SSH profiles and referenced
                     here.
                   </p>
                 )}
