@@ -33,6 +33,8 @@ export const CONNECTION_FIELDS: Record<keyof DatabaseConnection, FieldClass> = {
   group: "public",
   ssl: "nested",
   sshTunnel: "nested",
+  // The NAME of a profile; its secrets live in the profile store, sealed there (§4.9).
+  sshProfile: "public",
   serviceName: "public",
   instanceName: "public",
   // A data-centre NAME (`datacenter1`), which the server publishes itself in
@@ -232,4 +234,29 @@ export function decryptConnections(connections: DatabaseConnection[]): Connectio
     return result.connection;
   });
   return { connections: opened, undecryptable };
+}
+
+/**
+ * SSH profiles (docs/CONTEXT.md §4.9) carry the same three secrets a tunnel block does, so
+ * they are sealed and opened by the same keys and the same transforms - the walk is one
+ * level instead of three. Kept beside the connection walk so the two cannot disagree.
+ */
+export function encryptSshProfiles<T extends Record<string, unknown>>(profiles: T[]): T[] {
+  return profiles.map((profile) => {
+    const copy = { ...profile };
+    mapSecretFields(copy, SSH_TUNNEL_SECRET_KEYS, sealIfPlaintext);
+    return copy;
+  });
+}
+
+export function decryptSshProfiles<T extends Record<string, unknown>>(
+  profiles: T[],
+): { profiles: T[]; undecryptable: number } {
+  let undecryptable = 0;
+  const opened = profiles.map((profile) => {
+    const copy = { ...profile };
+    undecryptable += mapSecretFields(copy, SSH_TUNNEL_SECRET_KEYS, openOrDrop);
+    return copy;
+  });
+  return { profiles: opened, undecryptable };
 }

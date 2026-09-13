@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import { decryptConnections, encryptConnections } from "./connection-secrets";
+import { decryptConnections, decryptSshProfiles, encryptConnections, encryptSshProfiles } from "./connection-secrets";
 import type {
   ApprovalQuery,
   ApprovalRequest,
@@ -20,12 +20,13 @@ import type { AuditEvent } from "@/lib/audit";
  * Neither shipped provider knows this exists; both simply receive a connection list whose secret
  * fields are already sealed and JSON.stringify it into their `data` column.
  *
- * Only `connections` is touched. No other collection carries a credential field: history and
- * saved_queries hold SQL text (the product's data, not its secrets), audit_log is already
- * sanitized by src/lib/audit.ts, and the remaining six hold metadata.
+ * Only `connections` and `ssh_profiles` are touched. No other collection carries a credential
+ * field: history and saved_queries hold SQL text (the product's data, not its secrets),
+ * audit_log is already sanitized by src/lib/audit.ts, and the remaining ones hold metadata.
  */
 
 const CONNECTIONS: StorageCollection = "connections";
+const SSH_PROFILES: StorageCollection = "ssh_profiles";
 
 /**
  * Quoted verbatim in docs/STORAGE.md's troubleshooting section, and exported so the doc and the
@@ -98,7 +99,13 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
 
   async getCollection<K extends StorageCollection>(userId: string, collection: K): Promise<StorageData[K] | null> {
     const value = await this.inner.getCollection(userId, collection);
-    if (collection !== CONNECTIONS || value === null) return value;
+    if (value === null) return value;
+    if (collection === SSH_PROFILES) {
+      const { profiles, undecryptable } = decryptSshProfiles(value as unknown as Record<string, unknown>[]);
+      reportUndecryptable(undecryptable);
+      return profiles as unknown as StorageData[K];
+    }
+    if (collection !== CONNECTIONS) return value;
     // TypeScript cannot narrow StorageData[K] from a runtime comparison on K, so the two casts are
     // unavoidable; the runtime guard above is what makes them sound.
     const { connections, undecryptable } = decryptConnections(value as DatabaseConnection[]);
@@ -107,6 +114,13 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
   }
 
   setCollection<K extends StorageCollection>(userId: string, collection: K, data: StorageData[K]): Promise<void> {
+    if (collection === SSH_PROFILES) {
+      return this.inner.setCollection(
+        userId,
+        collection,
+        encryptSshProfiles(data as unknown as Record<string, unknown>[]) as unknown as StorageData[K],
+      );
+    }
     if (collection !== CONNECTIONS) return this.inner.setCollection(userId, collection, data);
     const sealed = encryptConnections(data as DatabaseConnection[]) as StorageData[K];
     return this.inner.setCollection(userId, collection, sealed);

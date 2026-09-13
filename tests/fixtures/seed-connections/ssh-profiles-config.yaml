@@ -1,0 +1,47 @@
+version: "1"
+
+sshProfiles:
+  - id: "fixture-bastion"
+    name: "Fixture bastion"
+    host: bastion.internal
+    username: portal
+    authMethod: privateKey
+    privateKey: "${FIXTURE_BASTION_KEY}"
+    passphrase: "${FIXTURE_BASTION_PASS}"
+    hostKeyFingerprint: "SHA256:fixture"
+  - id: "vault-bastion"
+    name: "Vault bastion"
+    host: bastion.internal
+    port: 2222
+    username: portal
+    authMethod: password
+    password: "vault:kv:secret/bastion#password"
+
+connections:
+  - id: "behind-bastion"
+    name: "Behind the bastion"
+    type: postgres
+    host: private-pg.internal
+    password: "${SHARED_PG_PASS}"
+    roles: ["*"]
+    sshProfile: "fixture-bastion"
+  - id: "vault-bastion-db"
+    name: "Behind the Vault bastion"
+    type: postgres
+    host: private-pg.internal
+    password: "${SHARED_PG_PASS}"
+    roles: ["*"]
+    sshProfile: "vault-bastion"
+  - id: "orphan-bastion"
+    name: "Names a missing profile"
+    type: postgres
+    host: private-pg.internal
+    password: "${SHARED_PG_PASS}"
+    roles: ["*"]
+    sshProfile: "nobody"
+  - id: "direct"
+    name: "Direct"
+    type: postgres
+    host: public-pg.internal
+    password: "${SHARED_PG_PASS}"
+    roles: ["*"]

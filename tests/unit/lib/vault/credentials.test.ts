@@ -4,6 +4,7 @@ import {
   DEFAULT_KV_TTL_MS,
   isVaultReference,
   parseVaultReference,
+  readVaultKvReference,
   resetVaultCache,
   resolveVaultReferences,
 } from "@/lib/vault/credentials";
@@ -185,6 +186,15 @@ describe("resolveVaultReferences", () => {
     await resolveVaultReferences(kv, "ana");
     expect(fetchSpy).toHaveBeenCalledTimes(3);
     expect(auditLines(logSpy)).toHaveLength(0);
+  });
+
+  // docs/CONTEXT.md §4.9: an SSH profile's secret may be a kv reference read on its own; a
+  // db reference makes no sense there (a bastion has no role to issue) and is refused.
+  test("readVaultKvReference returns the field a kv reference names and refuses a db reference", async () => {
+    expect(await readVaultKvReference("vault:kv:secret/db/orders#password")).toBe("kv-pass");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await expect(readVaultKvReference("vault:db:database/orders")).rejects.toThrow("Only a vault:kv reference");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   test("a kv reference to a field the secret does not have is refused, naming the secret and never a value", async () => {

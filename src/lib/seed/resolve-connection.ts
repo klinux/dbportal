@@ -6,6 +6,7 @@ import { resolveEnvPlaceholders } from "./credential-resolver";
 import { principalsOf } from "@/lib/access";
 import { resolveVaultReferences } from "@/lib/vault/credentials";
 import { VaultError } from "@/lib/vault/client";
+import { applySshProfile, SshProfileResolutionError } from "@/lib/ssh-profiles/resolve";
 
 /**
  * What the audit line names as the target of a refused client-supplied connection. There is
@@ -86,7 +87,7 @@ export async function resolveConnection(
       user: session.username,
     });
 
-    return withVaultCredentials(seedConn, session.username);
+    return withSshProfile(await withVaultCredentials(seedConn, session.username));
   }
 
   throw new SeedConnectionError("connectionId is required", 400);
@@ -121,7 +122,32 @@ export async function resolveDraftConnection(
   } catch (error) {
     throw new SeedConnectionError(error instanceof Error ? error.message : String(error), 400);
   }
-  return withVaultCredentials(resolved, session.username);
+  return withSshProfile(await withVaultCredentials(resolved, session.username));
+}
+
+/**
+ * The tunnel a datasource's SSH profile describes (docs/CONTEXT.md §4.9), built here so the
+ * datasource record never carries the bastion's secrets. A declaration that names an
+ * unknown profile or an unset variable is a 400 that says so; a Vault that does not answer
+ * is the same 503 as for a credential.
+ */
+async function withSshProfile<T extends DatabaseConnection>(conn: T): Promise<T> {
+  try {
+    return await applySshProfile(conn);
+  } catch (error) {
+    if (error instanceof SshProfileResolutionError) throw new SeedConnectionError(error.message, error.statusCode);
+    if (error instanceof VaultError) {
+      logger.error("SSH profile secret could not be obtained", error, {
+        route: "seed/resolve-connection",
+        connectionId: conn.id,
+      });
+      throw new SeedConnectionError(
+        `The SSH profile of "${conn.name}" could not be resolved from the secrets manager`,
+        503,
+      );
+    }
+    throw error;
+  }
 }
 
 /**

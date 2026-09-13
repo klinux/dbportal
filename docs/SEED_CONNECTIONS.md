@@ -185,6 +185,35 @@ connections:
 2. `${VARIABLE_NAME}` patterns are resolved from `process.env`
 3. If an env var is undefined, that connection is **skipped** (others continue working)
 
+### SSH profiles
+
+A bastion is declared once and referenced by name (docs/CONTEXT.md §4.9); the server builds
+the tunnel when a datasource that names it is opened, so no datasource carries a key:
+
+```yaml
+sshProfiles:
+  - id: "prod-bastion"
+    name: "Production bastion"
+    host: bastion.internal
+    port: 22
+    username: portal
+    authMethod: privateKey            # or password
+    privateKey: "${BASTION_KEY}"      # a value, ${ENV_VAR}, or vault:kv:<mount>/<path>#<key>
+    passphrase: "${BASTION_KEY_PASS}"
+    hostKeyFingerprint: "SHA256:…"    # optional; pins the bastion's host key
+connections:
+  - id: "prod-orders"
+    type: postgres
+    host: orders.internal
+    sshProfile: "prod-bastion"
+```
+
+Profiles may also be declared on the admin page (Datasources → SSH profiles), where they are
+stored in the server store with the password, key and passphrase sealed at rest like a
+datasource's own credentials. A profile named by any datasource cannot be deleted; one the
+seed file declares is read-only there. A datasource that names an unknown profile, or a
+profile whose `${ENV_VAR}` is unset, is refused with a 400 that says so.
+
 ### Vault references
 
 A credential can also live in HashiCorp Vault and be fetched when the datasource is

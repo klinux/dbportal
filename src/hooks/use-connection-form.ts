@@ -57,6 +57,7 @@ const FIELD_OWNERSHIP: Record<keyof DatabaseConnection, FieldOwnership> = {
   environment: "edited",
   ssl: "edited",
   sshTunnel: "edited",
+  sshProfile: "edited",
   serviceName: "edited",
   instanceName: "edited",
   localDataCenter: "edited",
@@ -214,6 +215,8 @@ export function useConnectionForm({
 
   // SSH Tunnel
   const [showSSH, setShowSSH] = useState(false);
+  /** The SSH profile a managed datasource is reached through (docs/CONTEXT.md §4.9); "" for none. */
+  const [sshProfile, setSshProfile] = useState("");
   const [sshEnabled, setSSHEnabled] = useState(false);
   const [sshHost, setSSHHost] = useState("");
   const [sshPort, setSSHPort] = useState("22");
@@ -281,6 +284,7 @@ export function useConnectionForm({
         setClientKey(editConnection.ssl.clientKey || "");
         if (editConnection.ssl.mode !== "disable") setShowSSL(true);
       }
+      setSshProfile(editConnection.sshProfile ?? "");
       // SSH
       if (editConnection.sshTunnel?.enabled) {
         setSSHEnabled(true);
@@ -415,6 +419,7 @@ export function useConnectionForm({
           : ENVIRONMENT_COLORS[environment],
       ...(sslConfig ? { ssl: sslConfig } : {}),
       ...(sshConfig ? { sshTunnel: sshConfig } : {}),
+      ...(sshProfile ? { sshProfile } : {}),
       ...(getDBConfig(type).showConnectionStringToggle && mongoConnectionMode === "connectionString"
         ? {
             connectionString,
@@ -437,6 +442,7 @@ export function useConnectionForm({
     caCert,
     clientCert,
     clientKey,
+    sshProfile,
     sshEnabled,
     sshHost,
     sshPort,
@@ -772,6 +778,8 @@ export function useConnectionForm({
     // SSH Tunnel
     showSSH,
     setShowSSH,
+    sshProfile,
+    setSshProfile,
     sshEnabled,
     setSSHEnabled,
     sshHost,

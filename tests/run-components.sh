@@ -193,7 +193,8 @@ run_group "Group 4b/6: AdminLayout" \
 run_group "Group 5/6: SecurityTab" \
   tests/components/admin/SecurityTab.test.tsx \
   tests/components/admin/DatasourcesTab.test.tsx \
-  tests/components/admin/ApprovalsTab.test.tsx
+  tests/components/admin/ApprovalsTab.test.tsx \
+  tests/components/admin/SshProfilesTab.test.tsx
 
 # Group 6: MonitoringDashboard (isolated - mocks all monitoring tabs)
 run_group "Group 6/7: MonitoringDashboard" \

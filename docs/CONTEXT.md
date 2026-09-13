@@ -270,6 +270,21 @@ popover lists datasources grouped by environment, production first, searchable f
 entries (`ConnectionsList`, also the mobile tab's inline list): with every datasource shared
 and declared server-side, a list was taking the space the object tree needs.
 
+### 4.9 SSH profiles — done
+
+A datasource used to carry its own bastion block; ten datasources behind one bastion were
+ten copies of the same key, and a managed datasource had no way to declare one at all. A
+profile is now declared once — `sshProfiles:` in the seed file, or the admin page's SSH
+profiles section, stored under the reserved owner `shared:ssh-profiles` with its secrets
+sealed by the same encrypting layer as a tunnel's — and a datasource names it with
+`sshProfile: "<id>"` ([`src/lib/ssh-profiles/`](../src/lib/ssh-profiles/)). `resolveConnection`
+builds `sshTunnel` from the profile when the datasource is opened (secrets as values,
+`${ENV_VAR}` or `vault:kv:` references), so the record never holds the key and the browser
+never sees it; the editor's inline SSH panel became a profile select. A profile a datasource
+names cannot be deleted (409); a seed-file profile is read-only in the admin page. Not done:
+per-profile connection pooling across datasources — each datasource still opens its own
+tunnel to the same bastion.
+
 ## 5. Decisions already taken
 
 - **TypeScript stays.** The 50k-line driver layer is the main asset; rewriting the backend

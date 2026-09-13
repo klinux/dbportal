@@ -603,7 +603,7 @@ CREATE INDEX IF NOT EXISTS idx_user_storage_user_id ON user_storage (user_id);
 | Column | Type | Description |
 |--------|------|-------------|
 | `user_id` | TEXT | User's email from JWT token (e.g., `admin@libredb.org`) |
-| `collection` | TEXT | Data category: `connections`, `history`, `saved_queries`, `schema_snapshots`, `saved_charts`, `active_connection_id`, `audit_log`, `masking_config`, `threshold_config`, `dismissed_seeds` |
+| `collection` | TEXT | Data category: `connections`, `history`, `saved_queries`, `schema_snapshots`, `saved_charts`, `active_connection_id`, `audit_log`, `masking_config`, `threshold_config`, `dismissed_seeds`, `ssh_profiles` (owner `shared:ssh-profiles` only) |
 | `data` | TEXT | JSON-serialized collection data |
 | `updated_at` | TEXT / TIMESTAMPTZ | Last modification timestamp |
 
@@ -682,6 +682,7 @@ All application state is organized into **10 collections**, each stored as a JSO
 | `active_connection_id` | `string \| null` | Currently active connection | — |
 | `audit_log` | `AuditEvent[]` | Audit trail events | 1000 |
 | `masking_config` | `MaskingConfig` | Data masking rules and RBAC | — |
+| `ssh_profiles` | `SshProfileRecord[]` | Shared SSH profiles (docs/CONTEXT.md §4.9); password, key and passphrase sealed like a tunnel's | — |
 | `threshold_config` | `ThresholdConfig[]` | Monitoring alert thresholds | — |
 
 **A snapshot taken before the object model has no kind and no path.** `schema_snapshots` holds what

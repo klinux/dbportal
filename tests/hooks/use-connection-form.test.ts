@@ -619,6 +619,39 @@ describe("useConnectionForm", () => {
     expect(saved.sshTunnel).toBeUndefined();
   });
 
+  // docs/CONTEXT.md §4.9: the tunnel is a profile NAME on the datasource; the editor keeps it
+  // across an edit, writes it only when set, and drops it when the operator picks "no tunnel".
+  test("the SSH profile reference is loaded from the edit target, saved when set, and omitted when cleared", async () => {
+    mockGlobalFetch({ "/api/db/test-connection": { ok: true, json: { success: true, latency: 10 } } });
+    const behindBastion: DatabaseConnection = {
+      id: "edit-3",
+      name: "Behind bastion",
+      type: "postgres",
+      host: "private.internal",
+      port: 5432,
+      createdAt: new Date(0),
+      sshProfile: "prod-bastion",
+    };
+    const onConnect = mock(() => {});
+    const { result } = renderHook(() =>
+      useConnectionForm({ ...defaultProps, editConnection: behindBastion, onConnect }),
+    );
+    expect(result.current.sshProfile).toBe("prod-bastion");
+    await act(async () => {
+      await result.current.handleConnect();
+    });
+    expect(((onConnect.mock.calls as unknown[][])[0][0] as DatabaseConnection).sshProfile).toBe("prod-bastion");
+
+    act(() => {
+      result.current.setSshProfile("");
+    });
+    await act(async () => {
+      await result.current.handleConnect();
+    });
+    const cleared = (onConnect.mock.calls as unknown[][])[1][0] as DatabaseConnection;
+    expect(cleared).not.toHaveProperty("sshProfile");
+  });
+
   // ── handleConnect calls onConnect on successful test ───────────────────────
 
   test.each(["unchanged", "tls", "host", "port", "environment"])(

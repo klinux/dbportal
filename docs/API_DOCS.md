@@ -1179,6 +1179,19 @@ Admin only. Read and replace the one shared configuration. The body is a `Maskin
 (`src/lib/data-masking.ts`); `400` when it does not validate, `503` without server storage.
 Audited as `masking_config` / `updated`.
 
+### SSH profiles API
+
+Admin only (docs/CONTEXT.md §4.9). Secrets are never returned: a view carries `hasPassword`,
+`hasPrivateKey`, `hasPassphrase` and, when the stored value is a reference, `passwordRef` /
+`privateKeyRef`; `source` is `config` (the seed file, read-only) or `store`.
+
+- `GET /api/admin/ssh-profiles` → `{ "profiles": SshProfileView[] }`
+- `POST /api/admin/ssh-profiles` — body `{ id, name, host, port?, username, authMethod, password?, privateKey?, passphrase?, hostKeyFingerprint? }`; `201`, `400` invalid, `409` id taken
+- `PUT /api/admin/ssh-profiles/[id]` — same body; a secret left out or blank keeps the stored one; `404`
+- `DELETE /api/admin/ssh-profiles/[id]` — `409` while a datasource names the profile
+
+Audited as `ssh_profile` / `created` · `updated` · `deleted`.
+
 ### Approvals API
 
 Write approval (docs/CONTEXT.md §4.6). A write on a datasource declared `writeApproval: true`
@@ -1255,6 +1268,7 @@ interface DatabaseConnection {
   group?: string;          // Optional sidebar grouping label
   ssl?: SSLConfig;         // TLS mode and optional certificates
   sshTunnel?: SSHTunnelConfig; // Bastion hop before the database host
+  sshProfile?: string;     // A bastion declared once (docs/SEED_CONNECTIONS.md "SSH profiles"); the server builds sshTunnel from it
   serviceName?: string;    // Oracle: service name (e.g. ORCL, XEPDB1)
   instanceName?: string;   // MSSQL: named instance (e.g. SQLEXPRESS)
   localDataCenter?: string; // Cassandra only, and REQUIRED there: the driver refuses to connect without it (`datacenter1` on a stock single node)

@@ -139,6 +139,38 @@ describe("DatasourcesTab", () => {
     expect(getByText("Dev shared")).not.toBeNull();
   });
 
+  // docs/CONTEXT.md §4.9: the editor's tunnel select is fed from the profiles page; a row
+  // behind a bastion says which, and a profile read that fails leaves the select empty only.
+  test("the declared SSH profiles reach the editor, a row shows its profile, and a failed profile read is not fatal", async () => {
+    mockGlobalFetch({
+      "/api/admin/datasources": listing({ datasources: [{ ...storeRow, sshProfile: "prod-bastion" }] }),
+      "/api/admin/ssh-profiles": {
+        ok: true,
+        json: {
+          profiles: [{ id: "prod-bastion", name: "Production bastion", host: "b.internal", username: "portal" }],
+        },
+      },
+    });
+    const { getByText, getByTestId } = await renderLoaded();
+    expect(getByText("ssh:prod-bastion")).not.toBeNull();
+    fireEvent.click(getByText("New datasource"));
+    expect(capturedModalProps.sshProfiles).toEqual([
+      { id: "prod-bastion", name: "Production bastion", host: "b.internal", username: "portal" },
+    ]);
+    expect(getByTestId("connection-modal")).not.toBeNull();
+    cleanup();
+    restoreGlobalFetch();
+
+    mockGlobalFetch({
+      "/api/admin/datasources": listing(),
+      "/api/admin/ssh-profiles": { ok: false, status: 500, json: { error: "down" } },
+    });
+    const second = await renderLoaded();
+    fireEvent.click(second.getByText("New datasource"));
+    expect(capturedModalProps.sshProfiles).toEqual([]);
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
   test("a failed load is reported, not swallowed", async () => {
     mockGlobalFetch({ "/api/admin/datasources": { ok: false, status: 500, json: { error: "storage down" } } });
     await renderLoaded();
@@ -174,7 +206,11 @@ describe("DatasourcesTab", () => {
     expect(mockToastSuccess).toHaveBeenCalledWith('Datasource "Reporting réplica" created');
     expect(capturedModalProps.isOpen).toBe(false);
     // Reloaded after the save: the initial GET and one more.
-    expect(fetchMock.mock.calls.filter((c) => !(c[1] as RequestInit | undefined)?.method).length).toBe(2);
+    expect(
+      fetchMock.mock.calls.filter(
+        (c) => String(c[0]).endsWith("/api/admin/datasources") && !(c[1] as RequestInit | undefined)?.method,
+      ).length,
+    ).toBe(2);
   });
 
   // docs/CONTEXT.md §4.4: the group names typed become `group:` principals in `roles`, the
@@ -393,7 +429,9 @@ describe("DatasourcesTab", () => {
     await act(async () => {
       fireEvent.click(getByText("Refresh"));
     });
-    await waitFor(() => expect(fetchMock.mock.calls.length).toBe(2));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/api/admin/datasources")).length).toBe(2),
+    );
   });
 });
 
@@ -415,6 +453,11 @@ describe("datasource helpers", () => {
     expect(payload).toMatchObject({ id: "id-1", roles: ["admin"], name: built.name, password: "${REPORTS_PASS}" });
     expect(payload).not.toHaveProperty("sshTunnel");
     expect(payload).not.toHaveProperty("createdAt");
+    // docs/CONTEXT.md §4.9: the profile NAME travels; the tunnel it builds never does.
+    expect(payload).not.toHaveProperty("sshProfile");
+    expect(toDatasourcePayload({ ...built, sshProfile: "prod-bastion" }, "id-3", ["*"], undefined).sshProfile).toBe(
+      "prod-bastion",
+    );
     expect(payload).not.toHaveProperty("writeRoles");
     // docs/CONTEXT.md §4.4: a write rule travels only when the editor set one.
     expect(toDatasourcePayload(built, "id-2", ["*", "group:sre"], []).writeRoles).toEqual([]);

@@ -2,6 +2,7 @@ import type { DatabaseConnection, QueryHistoryItem, SavedQuery, SchemaSnapshot, 
 import type { AuditEvent } from "../audit";
 import type { MaskingConfig } from "../data-masking";
 import type { ThresholdConfig } from "../monitoring-thresholds";
+import type { SshProfileRecord } from "../ssh-profiles/types";
 
 /**
  * All persistable collections and their data types. Maps 1:1 with localStorage keys (minus
@@ -19,6 +20,12 @@ export interface StorageData {
   audit_log: AuditEvent[];
   masking_config: MaskingConfig;
   threshold_config: ThresholdConfig[];
+  /**
+   * SSH profiles (docs/CONTEXT.md §4.9), under the reserved owner only. Typed here so the
+   * store reads it through the provider; deliberately NOT in STORAGE_COLLECTIONS, so the
+   * per-user storage routes refuse the name and no browser ever writes one.
+   */
+  ssh_profiles: SshProfileRecord[];
 }
 
 /** Collection names that can be synced to server storage */

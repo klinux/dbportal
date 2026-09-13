@@ -220,6 +220,10 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists and creates shared datasources in the app's own storage backend (STORAGE_PROVIDER); never opens a user database (GET/POST). Admin-gated by a bare getSession() with a role denial audit, like admin/audit; tests/api/admin/datasources.test.ts proves the 403",
   "admin/datasources/[id]":
     "updates and deletes one shared datasource in the same storage backend; never opens a user database (PUT/DELETE, no POST export). Same admin gate as above",
+  "admin/ssh-profiles":
+    "lists and creates SSH profiles in the app's own storage backend (STORAGE_PROVIDER); never opens a user database (GET/POST). Admin-gated by requireAdmin like admin/datasources; tests/api/admin/ssh-profiles.test.ts proves the 403",
+  "admin/ssh-profiles/[id]":
+    "updates and deletes one SSH profile in the same storage backend; never opens a user database (PUT/DELETE, no POST export). Same admin gate",
   "admin/masking":
     "reads and replaces the one shared masking configuration in the app's own storage backend; never opens a user database (GET/PUT, no POST export). Admin-gated by requireAdmin like admin/datasources; tests/api/masking/routes.test.ts proves the 403",
   masking:
@@ -397,6 +401,9 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/agent/runtime": `the run loop, and it ${PROVIDER_NAMING_HELPER} - but the artifacts route imports only readAgentArtifact, which reads the in-process ExecutionArtifactStore`,
     "@/lib/access": `pure functions over the token and a datasource's access rule, and it ${PROVIDER_NAMING_HELPER} (@/lib/db/utils/query-limiter) only to classify a statement's text; opens nothing`,
     "@/lib/api/approvals": "the approvals routes' error answer and decision-body reader; reaches no provider",
+    "@/lib/api/ssh-profiles": "the SSH profile routes' error answer; reaches no provider",
+    "@/lib/ssh-profiles/store":
+      "the shared SSH profiles in the app's own storage backend and the seed file, and which datasources name them; opens no user database",
     "@/lib/masking/store":
       "the shared masking configuration in the app's own storage backend, and the pure masking rules applied to a result; opens no user database",
     "@/lib/approvals/store":

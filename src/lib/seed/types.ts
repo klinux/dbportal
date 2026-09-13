@@ -48,6 +48,27 @@ const SeedDatabaseType = z.enum([
   "duckdb",
 ]);
 
+/**
+ * A bastion declared once and referenced by any number of datasources (docs/CONTEXT.md §4.9).
+ * The secrets take a value, a `${ENV_VAR}` reference or a `vault:kv:` reference, resolved
+ * when a datasource that names the profile is opened - never sent to the browser.
+ */
+export const SshProfileSchema = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "id must be lowercase letters, digits and hyphens"),
+  name: z.string().min(1).max(80),
+  host: z.string().min(1).max(253),
+  port: z.number().int().min(1).max(65535).default(22),
+  username: z.string().min(1).max(64),
+  authMethod: z.enum(["password", "privateKey"]),
+  password: z.string().optional(),
+  privateKey: z.string().optional(),
+  passphrase: z.string().optional(),
+  /** The bastion's host key as `ssh-keygen -lf` prints it; authoritative when set. */
+  hostKeyFingerprint: z.string().max(120).optional(),
+});
+
+export type SshProfile = z.infer<typeof SshProfileSchema>;
+
 export const SeedDefaultsSchema = z.object({
   managed: z.boolean().optional(),
   environment: ConnectionEnvironmentSchema.optional(),
@@ -82,6 +103,8 @@ export const SeedConnectionSchema = z.object({
   writeApproval: z.boolean().optional(),
   /** Who may grant one; administrators when absent. */
   approverRoles: z.array(AllowedRoleSchema).optional(),
+  /** The SSH profile (a bastion declared once) this datasource is reached through (§4.9). */
+  sshProfile: z.string().optional(),
   managed: z.boolean().optional(),
   ssl: SSLConfigSchema,
   serviceName: z.string().optional(),
@@ -110,9 +133,13 @@ export const SeedConfigSchema = z
     version: z.literal("1"),
     defaults: SeedDefaultsSchema.optional(),
     connections: z.array(SeedConnectionSchema).min(1, "At least one connection is required"),
+    sshProfiles: z.array(SshProfileSchema).optional(),
   })
   .refine((cfg) => new Set(cfg.connections.map((c) => c.id)).size === cfg.connections.length, {
     message: "Connection IDs must be unique",
+  })
+  .refine((cfg) => new Set((cfg.sshProfiles ?? []).map((p) => p.id)).size === (cfg.sshProfiles ?? []).length, {
+    message: "SSH profile IDs must be unique",
   });
 
 export type SeedConnection = z.infer<typeof SeedConnectionSchema>;
@@ -125,5 +152,6 @@ export interface ManagedConnection extends DatabaseConnection {
   writeRoles?: string[];
   writeApproval?: boolean;
   approverRoles?: string[];
+  sshProfile?: string;
   seedId: string;
 }

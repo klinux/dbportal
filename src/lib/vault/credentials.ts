@@ -180,6 +180,16 @@ async function leaseFor(
 }
 
 /**
+ * One `vault:kv:` reference read on its own - what an SSH profile's secret may be (§4.9). A
+ * db reference has no meaning outside a datasource's own credential and is refused.
+ */
+export async function readVaultKvReference(value: string): Promise<string> {
+  const ref = parseVaultReference(value);
+  if (ref.kind !== "kv") throw new VaultError("Only a vault:kv reference may be used here");
+  return kvValue(ref, Date.now());
+}
+
+/**
  * The connection with every Vault reference replaced by what Vault holds, for `subject`
  * (the person the datasource is opened for). A connection without references is returned
  * as it is, without a promise worth waiting on. Throws VaultError - the caller decides

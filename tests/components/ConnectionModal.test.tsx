@@ -114,15 +114,7 @@ const mockSetClientKey = mock(() => {});
 const mockSetShowAdvanced = mock(() => {});
 const mockSetServiceName = mock(() => {});
 const mockSetInstanceName = mock(() => {});
-const mockSetShowSSH = mock(() => {});
-const mockSetSSHEnabled = mock(() => {});
-const mockSetSSHHost = mock(() => {});
-const mockSetSSHPort = mock(() => {});
-const mockSetSSHUsername = mock(() => {});
-const mockSetSSHAuthMethod = mock(() => {});
-const mockSetSSHPassword = mock(() => {});
-const mockSetSSHPrivateKey = mock(() => {});
-const mockSetSSHPassphrase = mock(() => {});
+const mockSetSshProfile = mock(() => {});
 const mockHandleTestConnection = mock(async () => {});
 const mockHandleConnect = mock(async () => {});
 const mockHandlePasteConnectionString = mock(() => {});
@@ -189,24 +181,8 @@ function getDefaultForm() {
     setSchema: mock(() => {}),
     authSource: "",
     setAuthSource: mockSetAuthSource,
-    showSSH: false,
-    setShowSSH: mockSetShowSSH,
-    sshEnabled: false,
-    setSSHEnabled: mockSetSSHEnabled,
-    sshHost: "",
-    setSSHHost: mockSetSSHHost,
-    sshPort: "22",
-    setSSHPort: mockSetSSHPort,
-    sshUsername: "",
-    setSSHUsername: mockSetSSHUsername,
-    sshAuthMethod: "password" as const,
-    setSSHAuthMethod: mockSetSSHAuthMethod,
-    sshPassword: "",
-    setSSHPassword: mockSetSSHPassword,
-    sshPrivateKey: "",
-    setSSHPrivateKey: mockSetSSHPrivateKey,
-    sshPassphrase: "",
-    setSSHPassphrase: mockSetSSHPassphrase,
+    sshProfile: "",
+    setSshProfile: mockSetSshProfile,
     handleTestConnection: mockHandleTestConnection,
     handleConnect: mockHandleConnect,
     handlePasteConnectionString: mockHandlePasteConnectionString,
@@ -532,15 +508,6 @@ describe("ConnectionModal", () => {
     expect(queryByText("SSL / TLS")).not.toBeNull();
   });
 
-  // ── 13. SSH Tunnel section renders ─────────────────────────────────────────
-
-  test("SSH Tunnel section toggle button renders", () => {
-    const props = createDefaultProps();
-    const { queryByText } = render(React.createElement(ConnectionModal, props));
-
-    expect(queryByText("SSH Tunnel")).not.toBeNull();
-  });
-
   // ── 14. Paste URL button renders for new connection ────────────────────────
 
   test("Paste URL button renders for new connection", () => {
@@ -580,24 +547,6 @@ describe("ConnectionModal", () => {
     const props = createDefaultProps();
     const { queryByText } = render(React.createElement(ConnectionModal, props));
     expect(queryByText("SSL Mode")).not.toBeNull();
-  });
-
-  // ── 18. SSH expanded shows SSH fields ───────────────────────────────────
-
-  test("SSH section shows fields when expanded", () => {
-    mockFormOverrides = { showSSH: true };
-    const props = createDefaultProps();
-    const { queryByText } = render(React.createElement(ConnectionModal, props));
-    expect(queryByText("Enable SSH Tunnel")).not.toBeNull();
-  });
-
-  // ── 19. SSH enabled shows all SSH fields ─────────────────────────────────
-
-  test("SSH enabled shows SSH connection fields", () => {
-    mockFormOverrides = { showSSH: true, sshEnabled: true };
-    const props = createDefaultProps();
-    const { queryByText } = render(React.createElement(ConnectionModal, props));
-    expect(queryByText("Enable SSH Tunnel")).not.toBeNull();
   });
 
   // ── 20. Test result success displayed ──────────────────────────────────
@@ -812,25 +761,47 @@ describe("ConnectionModal", () => {
     expect(mockSetDatabase).toHaveBeenCalledWith("/data/app.db");
   });
 
-  // ── 33. SSH private key auth mode renders PEM and passphrase fields ──
+  // docs/CONTEXT.md §4.9: the tunnel is a profile the administrator declared once, picked
+  // from a select - never a host, a key and a passphrase typed per datasource.
+  test("the SSH tunnel is picked from the declared profiles, and the choice reaches the form", () => {
+    const sshProfiles = [
+      { id: "prod-bastion", name: "Production bastion", host: "bastion.internal", username: "portal" },
+      { id: "dev-bastion", name: "Dev bastion", host: "dev-bastion.internal", username: "dev" },
+    ];
+    const { getByLabelText, baseElement, container } = render(
+      React.createElement(ConnectionModal, createDefaultProps({ sshProfiles })),
+    );
+    expect(container.querySelector('textarea[placeholder*="OPENSSH PRIVATE KEY"]')).toBeNull();
+    expect(container.querySelector('input[placeholder="bastion.example.com"]')).toBeNull();
 
-  test("SSH private key auth mode renders private key fields and their onChange handlers fire", () => {
-    mockFormOverrides = { showSSH: true, sshEnabled: true, sshAuthMethod: "privateKey" };
-    const props = createDefaultProps();
-    const { queryByText, container } = render(React.createElement(ConnectionModal, props));
+    act(() => {
+      fireEvent.keyDown(getByLabelText("SSH tunnel"), { key: "ArrowDown" });
+    });
+    const options = Array.from(baseElement.querySelectorAll('[role="option"]')).map((o) => o.textContent ?? "");
+    expect(options[0]).toContain("No tunnel");
+    expect(options[1]).toContain("Production bastion");
+    expect(options[1]).toContain("portal@bastion.internal");
+    expect(options[2]).toContain("Dev bastion");
 
-    expect(queryByText("Private Key (PEM)")).not.toBeNull();
-    expect(queryByText("Passphrase (optional)")).not.toBeNull();
+    act(() => {
+      fireEvent.keyDown(baseElement.querySelectorAll('[role="option"]')[2], { key: "Enter" });
+    });
+    expect(mockSetSshProfile).toHaveBeenCalledWith("dev-bastion");
+  });
 
-    const privateKeyTextarea = container.querySelector('textarea[placeholder*="OPENSSH PRIVATE KEY"]');
-    expect(privateKeyTextarea).not.toBeNull();
-    fireEvent.change(privateKeyTextarea as HTMLTextAreaElement, { target: { value: "fake-key-content" } });
-    expect(mockSetSSHPrivateKey).toHaveBeenCalledWith("fake-key-content");
-
-    const passphraseInput = container.querySelector('input[placeholder="Key passphrase (if encrypted)"]');
-    expect(passphraseInput).not.toBeNull();
-    fireEvent.change(passphraseInput as HTMLInputElement, { target: { value: "secret-pass" } });
-    expect(mockSetSSHPassphrase).toHaveBeenCalledWith("secret-pass");
+  test("with no profile declared the select says where to declare one, and picking 'no tunnel' clears the reference", () => {
+    mockFormOverrides = { sshProfile: "gone" };
+    const { getByLabelText, getByText, baseElement } = render(
+      React.createElement(ConnectionModal, createDefaultProps()),
+    );
+    expect(getByText(/No SSH profile declared/)).not.toBeNull();
+    act(() => {
+      fireEvent.keyDown(getByLabelText("SSH tunnel"), { key: "ArrowDown" });
+    });
+    act(() => {
+      fireEvent.keyDown(baseElement.querySelector('[role="option"]')!, { key: "Enter" });
+    });
+    expect(mockSetSshProfile).toHaveBeenCalledWith("");
   });
 
   // ── 34. Couchbase labels the database field as the bucket it actually is ──
@@ -1090,32 +1061,5 @@ describe("ConnectionModal", () => {
     expect(container.querySelector("#password")?.getAttribute("autocomplete")).toBe("new-password");
     expect(container.querySelector("#host")?.getAttribute("autocomplete")).toBe("off");
     expect(container.querySelector("#port")?.getAttribute("autocomplete")).toBe("off");
-  });
-
-  test("SSH password input opts out of browser autofill", () => {
-    mockFormOverrides = { showSSH: true, sshEnabled: true, sshAuthMethod: "password" };
-    const props = createDefaultProps();
-    const { container } = render(React.createElement(ConnectionModal, props));
-
-    const passwordInputs = Array.from(container.querySelectorAll('input[type="password"]'));
-    expect(passwordInputs.length).toBe(2);
-    for (const input of passwordInputs) {
-      expect(input.getAttribute("autocomplete")).toBe("new-password");
-    }
-
-    // SSH Username sits next to a password field — same heuristic as the DB pair.
-    const sshUsername = container.querySelector('input[placeholder="ubuntu"]');
-    expect(sshUsername?.getAttribute("autocomplete")).toBe("off");
-    const sshHost = container.querySelector('input[placeholder="bastion.example.com"]');
-    expect(sshHost?.getAttribute("autocomplete")).toBe("off");
-  });
-
-  test("SSH passphrase input opts out of browser autofill", () => {
-    mockFormOverrides = { showSSH: true, sshEnabled: true, sshAuthMethod: "privateKey" };
-    const props = createDefaultProps();
-    const { container } = render(React.createElement(ConnectionModal, props));
-
-    const passphraseInput = container.querySelector('input[placeholder="Key passphrase (if encrypted)"]');
-    expect(passphraseInput?.getAttribute("autocomplete")).toBe("new-password");
   });
 });

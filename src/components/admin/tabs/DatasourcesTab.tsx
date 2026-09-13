@@ -108,6 +108,7 @@ interface StoreRow {
   roles: string[];
   writeRoles?: string[];
   writeApproval?: boolean;
+  sshProfile?: string;
   ssl?: DatabaseConnection["ssl"];
   serviceName?: string;
   instanceName?: string;
@@ -133,9 +134,17 @@ interface ConfigRow {
   roles: string[];
   writeRoles?: string[];
   writeApproval?: boolean;
+  sshProfile?: string;
 }
 
 type Row = StoreRow | ConfigRow;
+
+interface SshProfileOption {
+  id: string;
+  name: string;
+  host: string;
+  username: string;
+}
 
 interface ListResponse {
   available: boolean;
@@ -180,6 +189,7 @@ export function toDatasourcePayload(
     authSource: conn.authSource,
     schema: conn.schema,
     skipObjectScan: conn.skipObjectScan,
+    ...(conn.sshProfile ? { sshProfile: conn.sshProfile } : {}),
     roles,
     ...(writeRoles !== undefined ? { writeRoles } : {}),
     ...(writeApproval ? { writeApproval: true } : {}),
@@ -210,6 +220,7 @@ function toEditConnection(row: StoreRow): DatabaseConnection {
     environment: row.environment,
     color: row.color,
     group: row.group,
+    sshProfile: row.sshProfile,
     ssl: row.ssl,
     serviceName: row.serviceName,
     instanceName: row.instanceName,
@@ -221,6 +232,14 @@ function toEditConnection(row: StoreRow): DatabaseConnection {
     managed: true,
     seedId: row.id,
   };
+}
+
+/** The profiles the editor may reference (docs/CONTEXT.md §4.9); a failed read leaves the select empty, never the page. */
+async function fetchSshProfiles(): Promise<SshProfileOption[]> {
+  const res = await appFetch("/api/admin/ssh-profiles");
+  if (!res.ok) return [];
+  const body = (await res.json()) as { profiles?: SshProfileOption[] };
+  return body.profiles ?? [];
 }
 
 async function fetchDatasources(): Promise<ListResponse> {
@@ -250,6 +269,7 @@ export function DatasourcesTab() {
   const [writeMode, setWriteMode] = useState<WriteMode>("open");
   const [writeApproval, setWriteApproval] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<StoreRow | null>(null);
+  const [sshProfiles, setSshProfiles] = useState<SshProfileOption[]>([]);
 
   const applyListing = useCallback((body: ListResponse) => {
     setAvailable(body.available);
@@ -263,8 +283,11 @@ export function DatasourcesTab() {
    */
   const load = useCallback(
     () =>
-      fetchDatasources()
-        .then(applyListing)
+      Promise.all([fetchDatasources(), fetchSshProfiles().catch(() => [] as SshProfileOption[])])
+        .then(([listing, profiles]) => {
+          applyListing(listing);
+          setSshProfiles(profiles);
+        })
         .catch((error: unknown) => {
           toast.error(`Could not load datasources: ${error instanceof Error ? error.message : String(error)}`);
         })
@@ -556,6 +579,15 @@ export function DatasourcesTab() {
                                 {writeModeOf(row.writeRoles) === "none" ? "read-only" : "writes restricted"}
                               </Badge>
                             )}
+                            {row.sshProfile && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-mono"
+                                title="Reached through an SSH profile"
+                              >
+                                ssh:{row.sshProfile}
+                              </Badge>
+                            )}
                             {row.writeApproval && (
                               <Badge
                                 variant="secondary"
@@ -626,6 +658,7 @@ export function DatasourcesTab() {
             : "Declare a datasource everyone the roles name can open. It is tested before it is saved.",
         }}
         submitLabel={editing ? "Save datasource" : "Create datasource"}
+        sshProfiles={sshProfiles}
         extraFields={sharingFields}
       />
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { SeedConnectionSchema, SeedConfigSchema, SeedDefaultsSchema } from "@/lib/seed/types";
+import { SeedConnectionSchema, SeedConfigSchema, SeedDefaultsSchema, SshProfileSchema } from "@/lib/seed/types";
 
 describe("SeedConnectionSchema", () => {
   const validConn = {
@@ -139,6 +139,29 @@ describe("SeedConfigSchema", () => {
   it("rejects empty connections array", () => {
     const result = SeedConfigSchema.safeParse({ version: "1", connections: [] });
     expect(result.success).toBe(false);
+  });
+});
+
+// docs/CONTEXT.md §4.9: a bastion declared once under `sshProfiles`, named by a datasource.
+describe("SeedConfigSchema: SSH profiles", () => {
+  const conn = { id: "a", name: "A", type: "postgres", host: "h", roles: ["*"], sshProfile: "bastion" };
+  const profile = { id: "bastion", name: "Bastion", host: "b.internal", username: "portal", authMethod: "privateKey" };
+
+  it("accepts a profile list and a datasource that names one; the port defaults to 22", () => {
+    const result = SeedConfigSchema.safeParse({ version: "1", connections: [conn], sshProfiles: [profile] });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.sshProfiles?.[0].port).toBe(22);
+      expect(result.data.connections[0].sshProfile).toBe("bastion");
+    }
+  });
+
+  it("rejects two profiles with the same id, an id that is not a slug, and an unknown auth method", () => {
+    expect(
+      SeedConfigSchema.safeParse({ version: "1", connections: [conn], sshProfiles: [profile, profile] }).success,
+    ).toBe(false);
+    expect(SshProfileSchema.safeParse({ ...profile, id: "Not A Slug" }).success).toBe(false);
+    expect(SshProfileSchema.safeParse({ ...profile, authMethod: "agent" }).success).toBe(false);
   });
 });
 

@@ -219,3 +219,63 @@ describe("approval requests pass through", () => {
     expect(inner.listApprovals).toHaveBeenCalledWith({ limit: 5 });
   });
 });
+
+// docs/CONTEXT.md §4.9: the SSH profile collection is sealed on the way in and opened on the
+// way out exactly as `connections` is, so a bastion key never sits in the table in clear.
+describe("ssh_profiles", () => {
+  const profile = {
+    id: "bastion",
+    name: "Bastion",
+    host: "bastion.internal",
+    port: 22,
+    username: "ops",
+    authMethod: "privateKey" as const,
+    privateKey: "CANARY-PROFILE-KEY",
+    createdAt: "x",
+    updatedAt: "x",
+    createdBy: "root",
+    updatedBy: "root",
+  };
+
+  test("setCollection seals the key and getCollection opens it", async () => {
+    let stored: unknown = null;
+    const inner = stubProvider({
+      setCollection: mock(async (_o: string, _c: string, value: unknown) => {
+        stored = value;
+      }) as never,
+      getCollection: mock(async () => stored) as never,
+    });
+    const wrapped = withCredentialEncryption(inner);
+    await wrapped.setCollection("shared:ssh-profiles", "ssh_profiles", [profile]);
+    expect(JSON.stringify(stored)).not.toContain("CANARY-PROFILE-KEY");
+    expect(await wrapped.getCollection("shared:ssh-profiles", "ssh_profiles")).toEqual([profile]);
+    expect(await wrapped.getCollection("shared:ssh-profiles", "ssh_profiles")).not.toBeNull();
+  });
+
+  test("an empty store answers null, and an unreadable key is warned about once", async () => {
+    const inner = stubProvider();
+    expect(await withCredentialEncryption(inner).getCollection("shared:ssh-profiles", "ssh_profiles")).toBeNull();
+    const sealed = withCredentialEncryption(stubProvider());
+    let stored: unknown = null;
+    const keeper = stubProvider({
+      setCollection: mock(async (_o: string, _c: string, value: unknown) => {
+        stored = value;
+      }) as never,
+      getCollection: mock(async () => stored) as never,
+    });
+    await withCredentialEncryption(keeper).setCollection("shared:ssh-profiles", "ssh_profiles", [profile]);
+    void sealed;
+    process.env.JWT_SECRET = "a-different-secret-that-cannot-open-it";
+    resetStorageEncryptionKey();
+    const warn = spyOn(logger, "warn").mockImplementation(() => {});
+    try {
+      const opened = (await withCredentialEncryption(keeper).getCollection("shared:ssh-profiles", "ssh_profiles")) as
+        | (typeof profile)[]
+        | null;
+      expect(opened?.[0].privateKey).toBeUndefined();
+      expect(ownWarnings(warn)).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});

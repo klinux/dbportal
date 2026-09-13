@@ -188,6 +188,8 @@ export interface DatabaseConnection {
   group?: string;
   ssl?: SSLConfig;
   sshTunnel?: SSHTunnelConfig;
+  /** The id of the SSH profile a managed datasource is reached through (docs/CONTEXT.md §4.9); the server builds `sshTunnel` from it. */
+  sshProfile?: string;
   serviceName?: string; // Oracle: service name (e.g. ORCL, XEPDB1)
   instanceName?: string; // MSSQL: named instance (e.g. SQLEXPRESS)
   /**

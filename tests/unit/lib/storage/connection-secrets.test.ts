@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   CONNECTION_FIELDS,
   decryptConnections,
+  decryptSshProfiles,
   encryptConnections,
+  encryptSshProfiles,
   SSH_TUNNEL_FIELDS,
   SSL_FIELDS,
 } from "@/lib/storage/connection-secrets";
@@ -115,6 +117,9 @@ describe("the classification is exhaustive by construction", () => {
         "skipObjectScan",
         "serviceName",
         "ssl",
+        // The NAME of an SSH profile (docs/CONTEXT.md §4.9); the profile's own secrets are
+        // sealed where the profile is stored, never on the datasource.
+        "sshProfile",
         "sshTunnel",
         "type",
         "user",
@@ -298,5 +303,53 @@ describe("decryptConnections", () => {
 
   test("an empty list is not an error", () => {
     expect(decryptConnections([])).toEqual({ connections: [], undecryptable: 0 });
+  });
+});
+
+// docs/CONTEXT.md §4.9: an SSH profile is stored apart from any datasource, so its three
+// secrets are sealed and opened by the same envelope, with the same survive-and-count rule.
+describe("SSH profiles at rest", () => {
+  const profile = {
+    id: "bastion",
+    name: "Bastion",
+    host: "bastion.internal",
+    port: 22,
+    username: "ops",
+    authMethod: "privateKey" as const,
+    password: "CANARY-PROFILE-PASSWORD",
+    privateKey: "CANARY-PROFILE-KEY",
+    passphrase: "CANARY-PROFILE-PASS",
+    hostKeyFingerprint: "SHA256:abc",
+    createdAt: "x",
+    updatedAt: "x",
+    createdBy: "root",
+    updatedBy: "root",
+  };
+
+  test("seals the three secrets, leaves the bastion address readable, and round-trips", () => {
+    const [sealed] = encryptSshProfiles([profile]);
+    const serialized = JSON.stringify(sealed);
+    for (const canary of ["CANARY-PROFILE-PASSWORD", "CANARY-PROFILE-KEY", "CANARY-PROFILE-PASS"]) {
+      expect({ canary, present: serialized.includes(canary) }).toEqual({ canary, present: false });
+    }
+    expect(sealed.host).toBe("bastion.internal");
+    expect(sealed.hostKeyFingerprint).toBe("SHA256:abc");
+    expect(profile.privateKey).toBe("CANARY-PROFILE-KEY");
+    // Sealing twice does not wrap the envelope in another: the value still opens.
+    expect(decryptSshProfiles(encryptSshProfiles([sealed])).profiles[0].privateKey).toBe("CANARY-PROFILE-KEY");
+    const opened = decryptSshProfiles([sealed]);
+    expect(opened.undecryptable).toBe(0);
+    expect(opened.profiles[0]).toEqual(profile);
+  });
+
+  test("an unreadable secret is dropped, the profile kept, and the loss counted", () => {
+    const sealed = encryptSshProfiles([profile]);
+    process.env.JWT_SECRET = "a-different-secret-that-cannot-open-it";
+    resetStorageEncryptionKey();
+    const opened = decryptSshProfiles(sealed);
+    expect(opened.undecryptable).toBe(3);
+    expect(opened.profiles).toHaveLength(1);
+    expect(opened.profiles[0].privateKey).toBeUndefined();
+    expect(JSON.stringify(opened.profiles)).not.toContain(ENVELOPE_VERSION + ":");
   });
 });

@@ -22,6 +22,10 @@ mock.module("@/components/admin/tabs/DatasourcesTab", () => ({
   DatasourcesTab: () => React.createElement("div", { "data-testid": "datasources-tab" }, "DatasourcesTab"),
 }));
 
+mock.module("@/components/admin/tabs/SshProfilesTab", () => ({
+  SshProfilesTab: () => React.createElement("div", { "data-testid": "ssh-profiles-tab" }, "SshProfilesTab"),
+}));
+
 mock.module("@/components/admin/tabs/ApprovalsTab", () => ({
   ApprovalsTab: () => React.createElement("div", { "data-testid": "approvals-tab" }, "ApprovalsTab"),
 }));
@@ -70,6 +74,8 @@ describe("Admin section pages", () => {
     const { getByTestId } = render(<AdminDatasourcesPage />);
     expect(getByTestId("admin-content-datasources")).not.toBeNull();
     expect(getByTestId("datasources-tab")).not.toBeNull();
+    // docs/CONTEXT.md §4.9: the bastions live on the same page, below the datasources.
+    expect(getByTestId("ssh-profiles-tab")).not.toBeNull();
   });
 
   test("audit page renders AuditTab", () => {

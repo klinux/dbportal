@@ -75,6 +75,8 @@ interface ConnectionModalProps {
    */
   heading?: { title: string; description: string };
   submitLabel?: string;
+  /** The SSH profiles a datasource may be reached through (docs/CONTEXT.md §4.9); absent where none apply. */
+  sshProfiles?: { id: string; name: string; host: string; username: string }[];
   /** Rendered above the connection fields: the caller's own inputs (roles, notes) that travel with the save. */
   extraFields?: ReactNode;
 }
@@ -87,6 +89,7 @@ export function ConnectionModal({
   onTestConnection,
   heading,
   submitLabel,
+  sshProfiles,
   extraFields,
 }: ConnectionModalProps) {
   const isMobile = useIsMobile();
@@ -153,25 +156,9 @@ export function ConnectionModal({
     authSource,
     setAuthSource,
 
-    // SSH Tunnel
-    showSSH,
-    setShowSSH,
-    sshEnabled,
-    setSSHEnabled,
-    sshHost,
-    setSSHHost,
-    sshPort,
-    setSSHPort,
-    sshUsername,
-    setSSHUsername,
-    sshAuthMethod,
-    setSSHAuthMethod,
-    sshPassword,
-    setSSHPassword,
-    sshPrivateKey,
-    setSSHPrivateKey,
-    sshPassphrase,
-    setSSHPassphrase,
+    // SSH (docs/CONTEXT.md §4.9): the profile reference, nothing typed per datasource
+    sshProfile,
+    setSshProfile,
 
     // Handlers
     handleTestConnection,
@@ -867,144 +854,45 @@ export function ConnectionModal({
                 )}
               </AnimatePresence>
 
-              {/* SSH Tunnel Toggle */}
-              <button
-                type="button"
-                onClick={() => setShowSSH(!showSSH)}
-                className="flex items-center gap-2 w-full px-3 py-2 rounded-lg border border-hairline hover:border-hairline-strong bg-panel text-xs font-medium text-fg-tertiary hover:text-fg transition-all"
-              >
-                <Terminal strokeWidth={1.5} className="w-3.5 h-3.5 text-hue-purple" />
-                <span>SSH Tunnel</span>
-                {sshEnabled && (
-                  <span className="ml-1 px-1.5 py-0.5 rounded text-[0.625rem] bg-hue-purple-tint/10 text-hue-purple border border-hue-purple-tint/20">
-                    ON
-                  </span>
-                )}
-                <ChevronDown className={cn("w-3 h-3 ml-auto transition-transform", showSSH && "rotate-180")} />
-              </button>
-              <AnimatePresence>
-                {showSSH && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden"
+              {/* SSH (docs/CONTEXT.md §4.9): a profile declared once, never a bastion typed per datasource. */}
+              <div className="space-y-1.5">
+                <Label htmlFor="ssh-profile" className="text-xs text-fg-tertiary">
+                  SSH tunnel
+                </Label>
+                <Select
+                  value={sshProfile || "none"}
+                  onValueChange={(value) => setSshProfile(value === "none" ? "" : value)}
+                >
+                  <SelectTrigger
+                    id="ssh-profile"
+                    aria-label="SSH tunnel"
+                    className="h-9 w-full bg-panel border-hairline-strong text-xs"
                   >
-                    <div className="p-3 rounded-lg border border-hue-purple-tint/10 bg-hue-purple-tint/5 space-y-3">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={sshEnabled}
-                          onChange={(e) => setSSHEnabled(e.target.checked)}
-                          className="rounded border-edge bg-panel"
-                        />
-                        <span className="text-xs font-medium text-fg-secondary">Enable SSH Tunnel</span>
-                      </label>
-                      {sshEnabled && (
-                        <div className="space-y-3">
-                          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                            <div className="md:col-span-3 space-y-1.5">
-                              <Label className="text-xs font-mediumr text-fg-muted">SSH Host</Label>
-                              <Input
-                                value={sshHost}
-                                onChange={(e) => setSSHHost(e.target.value)}
-                                placeholder="bastion.example.com"
-                                autoComplete="off"
-                                className="h-9 bg-panel border-hairline focus:border-hue-purple-tint/50 text-xs"
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-xs font-mediumr text-fg-muted">Port</Label>
-                              <Input
-                                value={sshPort}
-                                onChange={(e) => setSSHPort(e.target.value)}
-                                autoComplete="off"
-                                className="h-9 bg-panel border-hairline focus:border-hue-purple-tint/50 text-xs font-mono"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label className="text-xs font-mediumr text-fg-muted">Username</Label>
-                            <Input
-                              value={sshUsername}
-                              onChange={(e) => setSSHUsername(e.target.value)}
-                              placeholder="ubuntu"
-                              autoComplete="off"
-                              className="h-9 bg-panel border-hairline focus:border-hue-purple-tint/50 text-xs"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label className="text-xs font-mediumr text-fg-muted">Auth Method</Label>
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setSSHAuthMethod("password")}
-                                className={cn(
-                                  "flex-1 px-3 py-1.5 rounded-md text-xs font-mediumr transition-all border",
-                                  sshAuthMethod === "password"
-                                    ? "border-hue-purple-tint/30 bg-hue-purple-tint/10 text-hue-purple"
-                                    : "border-transparent text-fg-muted hover:text-fg-secondary hover:bg-fill",
-                                )}
-                              >
-                                Password
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setSSHAuthMethod("privateKey")}
-                                className={cn(
-                                  "flex-1 px-3 py-1.5 rounded-md text-xs font-mediumr transition-all border",
-                                  sshAuthMethod === "privateKey"
-                                    ? "border-hue-purple-tint/30 bg-hue-purple-tint/10 text-hue-purple"
-                                    : "border-transparent text-fg-muted hover:text-fg-secondary hover:bg-fill",
-                                )}
-                              >
-                                Private Key
-                              </button>
-                            </div>
-                          </div>
-                          {sshAuthMethod === "password" ? (
-                            <div className="space-y-1.5">
-                              <Label className="text-xs font-mediumr text-fg-muted">SSH Password</Label>
-                              <Input
-                                type="password"
-                                value={sshPassword}
-                                onChange={(e) => setSSHPassword(e.target.value)}
-                                placeholder="••••••••"
-                                autoComplete="new-password"
-                                className="h-9 bg-panel border-hairline focus:border-hue-purple-tint/50 text-xs"
-                              />
-                            </div>
-                          ) : (
-                            <div className="space-y-3">
-                              <div className="space-y-1.5">
-                                <Label className="text-xs font-mediumr text-fg-muted">Private Key (PEM)</Label>
-                                <textarea
-                                  value={sshPrivateKey}
-                                  onChange={(e) => setSSHPrivateKey(e.target.value)}
-                                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;Paste private key here...&#10;-----END OPENSSH PRIVATE KEY-----"
-                                  rows={4}
-                                  className="w-full rounded-md bg-panel border border-hairline focus:border-hue-purple-tint/50 text-xs font-mono text-fg-secondary p-2 resize-none placeholder:text-fg-subtle"
-                                />
-                              </div>
-                              <div className="space-y-1.5">
-                                <Label className="text-xs font-mediumr text-fg-muted">Passphrase (optional)</Label>
-                                <Input
-                                  type="password"
-                                  value={sshPassphrase}
-                                  onChange={(e) => setSSHPassphrase(e.target.value)}
-                                  placeholder="Key passphrase (if encrypted)"
-                                  autoComplete="new-password"
-                                  className="h-9 bg-panel border-hairline focus:border-hue-purple-tint/50 text-xs"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
+                    <SelectValue placeholder="No tunnel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No tunnel - direct connection</SelectItem>
+                    {(sshProfiles ?? []).map((profile) => (
+                      <SelectItem key={profile.id} value={profile.id}>
+                        <Terminal strokeWidth={1.5} className="w-3.5 h-3.5 text-hue-purple" />
+                        <span>
+                          {profile.name}
+                          <span className="text-fg-muted">
+                            {" "}
+                            · {profile.username}@{profile.host}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(sshProfiles ?? []).length === 0 && (
+                  <p className="text-[11px] text-fg-muted">
+                    No SSH profile declared yet. Profiles are declared once, below the datasource list, and referenced
+                    here.
+                  </p>
                 )}
-              </AnimatePresence>
+              </div>
             </div>
           )}
 
