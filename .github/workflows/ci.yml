@@ -12,6 +12,14 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Test-only values; nothing here reaches a real deployment.
+  JWT_SECRET: test-secret-for-ci-build-only-32ch
+  ADMIN_EMAIL: admin@example.com
+  ADMIN_PASSWORD: test-admin
+  USER_EMAIL: user@example.com
+  USER_PASSWORD: test-user
+
 jobs:
   lint-and-build:
     name: Lint, typecheck, build
@@ -29,6 +37,20 @@ jobs:
       - run: bun run security:check
       - run: bun run build
 
+  helm:
+    name: Helm lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.1.3
+      - run: helm repo add bitnami https://charts.bitnami.com/bitnami --timeout 5m
+      - run: helm dependency build charts/libredb-studio --skip-refresh
+      - run: helm lint charts/libredb-studio --strict
+      - run: helm template dbportal charts/libredb-studio > /dev/null
+
   test:
     name: Core and component tests
     runs-on: ubuntu-latest
@@ -39,4 +61,10 @@ jobs:
         with:
           bun-version: "1.4.2"
       - uses: ./.github/actions/bun-install
+      # The chart tests render the chart with helm, which needs the subchart fetched.
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.1.3
+      - run: helm repo add bitnami https://charts.bitnami.com/bitnami --timeout 5m
+      - run: helm dependency build charts/libredb-studio --skip-refresh
       - run: bun run test:ci

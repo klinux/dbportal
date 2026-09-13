@@ -2,13 +2,13 @@ apiVersion: v2
 name: libredb-studio
 description: Web-based SQL IDE for cloud-native teams supporting sixteen engines - PostgreSQL, MySQL, SQLite, DuckDB, Oracle, SQL Server, MongoDB, Redis, Couchbase, ClickHouse, Apache Druid, Elasticsearch, OpenSearch, Apache Trino, Apache Cassandra and libSQL
 type: application
-version: 0.1.64
-appVersion: "0.16.0"
+version: 0.1.0
+appVersion: "0.1.0"
 kubeVersion: ">=1.26.0-0"
-home: https://github.com/libredb/libredb-studio
-icon: https://raw.githubusercontent.com/libredb/libredb-studio/main/public/logo.svg
+home: https://github.com/klinux/dbportal
+icon: https://raw.githubusercontent.com/klinux/dbportal/main/public/logo.svg
 sources:
-  - https://github.com/libredb/libredb-studio
+  - https://github.com/klinux/dbportal
 keywords:
   - sql
   - ide
@@ -101,7 +101,7 @@ annotations:
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/images: |
     - name: libredb-studio
-      image: ghcr.io/libredb/libredb-studio:0.16.0
+      image: ghcr.io/klinux/dbportal:0.1.0
       platforms:
         - linux/amd64
         - linux/arm64

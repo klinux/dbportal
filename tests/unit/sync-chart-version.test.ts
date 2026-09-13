@@ -44,7 +44,7 @@ kubeVersion: ">=1.26.0-0"
 annotations:
   artifacthub.io/images: |
     - name: libredb-studio
-      image: ghcr.io/libredb/libredb-studio:${imageTag}
+      image: ghcr.io/klinux/dbportal:${imageTag}
       platforms:
         - linux/amd64
   artifacthub.io/changes: |
@@ -88,12 +88,12 @@ describe("bumpPatch", () => {
 
 describe("parseImageTag", () => {
   test("returns the tag when duplicated image lines agree", () => {
-    const dup = `${chartYaml()}      image: ghcr.io/libredb/libredb-studio:0.9.44\n`;
+    const dup = `${chartYaml()}      image: ghcr.io/klinux/dbportal:0.9.44\n`;
     expect(parseImageTag(dup)).toBe("0.9.44");
   });
 
   test("throws when duplicated image lines disagree instead of silently using the first (#151)", () => {
-    const dup = `${chartYaml()}      image: ghcr.io/libredb/libredb-studio:0.9.43\n`;
+    const dup = `${chartYaml()}      image: ghcr.io/klinux/dbportal:0.9.43\n`;
     expect(() => parseImageTag(dup)).toThrow(/disagree/);
   });
 });
@@ -374,7 +374,7 @@ describe("applyBump", () => {
     expect(result.version).toBe("0.1.4");
     expect(result.appVersion).toBe("0.9.45");
     expect(result.chartYaml).toContain('appVersion: "0.9.45"');
-    expect(result.chartYaml).toContain("image: ghcr.io/libredb/libredb-studio:0.9.45");
+    expect(result.chartYaml).toContain("image: ghcr.io/klinux/dbportal:0.9.45");
     expect(result.chartYaml).toContain('- "Track app release 0.9.45 (appVersion bump; default image tag follows)"');
     expect(result.readme).toContain("--version 0.1.4");
     expect(checkSync({ pkgVersion: "0.9.45", chartYaml: result.chartYaml, readme: result.readme })).toEqual([]);
@@ -394,7 +394,7 @@ describe("applyBump", () => {
     );
     const result = applyBump({ pkgVersion: "0.9.44", chartYaml: custom, readme: readme() });
     expect(result.changed).toBe(true);
-    expect(result.chartYaml).toContain("image: ghcr.io/libredb/libredb-studio:0.9.44");
+    expect(result.chartYaml).toContain("image: ghcr.io/klinux/dbportal:0.9.44");
     expect(result.chartYaml).toContain('- "Hand-written chart-only changelog entry"');
   });
 
@@ -409,12 +409,12 @@ describe("applyBump", () => {
   });
 
   test("rewrites every duplicated image line and --version example, not just the first (#151)", () => {
-    const dupChart = `${chartYaml()}      image: ghcr.io/libredb/libredb-studio:0.9.44\n`;
+    const dupChart = `${chartYaml()}      image: ghcr.io/klinux/dbportal:0.9.44\n`;
     const dupReadme = `${readme()}helm upgrade libredb libredb/libredb-studio --version 0.1.3\n`;
     const result = applyBump({ pkgVersion: "0.9.45", chartYaml: dupChart, readme: dupReadme });
     expect(result.changed).toBe(true);
-    expect([...result.chartYaml.matchAll(/libredb-studio:0\.9\.45/g)].length).toBe(2);
-    expect(result.chartYaml).not.toContain("libredb-studio:0.9.44");
+    expect([...result.chartYaml.matchAll(/dbportal:0\.9\.45/g)].length).toBe(2);
+    expect(result.chartYaml).not.toContain("dbportal:0.9.44");
     expect([...result.readme.matchAll(/--version 0\.1\.4/g)].length).toBe(2);
     expect(result.readme).not.toContain("--version 0.1.3");
   });

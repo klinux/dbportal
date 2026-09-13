@@ -120,7 +120,7 @@ export function parseChart(chartYaml) {
 }
 
 export function parseImageTag(chartYaml) {
-  const tags = [...chartYaml.matchAll(/^\s*image:\s*ghcr\.io\/libredb\/libredb-studio:(\S+)\s*$/gm)].map((m) => m[1]);
+  const tags = [...chartYaml.matchAll(/^\s*image:\s*ghcr\.io\/klinux\/dbportal:(\S+)\s*$/gm)].map((m) => m[1]);
   if (tags.length === 0) {
     throw new Error(`${CHART_YAML}: could not find the artifacthub.io/images image tag`);
   }
@@ -312,7 +312,7 @@ export function applyBump({ pkgVersion, chartYaml, readme }) {
   let newChartYaml = chartYaml
     .replace(/^version:\s*\S+\s*$/m, `version: ${newVersion}`)
     .replace(/^appVersion:\s*.*$/m, `appVersion: "${pkgVersion}"`)
-    .replace(/^(\s*image:\s*ghcr\.io\/libredb\/libredb-studio:)\S+/gm, `$1${pkgVersion}`);
+    .replace(/^(\s*image:\s*ghcr\.io\/klinux\/dbportal:)\S+/gm, `$1${pkgVersion}`);
   if (appVersion !== pkgVersion) {
     newChartYaml = newChartYaml.replace(
       /- "?Track app release .*/,
