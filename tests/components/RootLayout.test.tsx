@@ -36,21 +36,21 @@ describe("RootLayout", () => {
   });
 
   test("exports correct metadata title", () => {
-    expect(metadata.title).toBe("LibreDB Studio | Universal Database Editor");
+    expect(metadata.title).toBe("dbportal | Shared database portal");
   });
 
   test("shares a branded static image with matching Open Graph and Twitter metadata", () => {
-    const screenshot = readFileSync(new URL("../../public/screenshots/hero-editor.png", import.meta.url));
+    const screenshot = readFileSync(new URL("../../public/brand/og-image.png", import.meta.url));
     const image = {
-      url: "https://raw.githubusercontent.com/libredb/libredb-studio/main/public/screenshots/hero-editor.png",
-      alt: "LibreDB Studio SQL editor and query results",
+      url: "https://raw.githubusercontent.com/klinux/dbportal/main/public/brand/og-image.png",
+      alt: "dbportal — one deployment, one set of datasources, every execution attributed to a person",
     };
     expect(metadata.openGraph).toMatchObject({
       type: "website",
-      url: "https://libredb.org",
+      url: "https://github.com/klinux/dbportal",
       title: metadata.title,
       description: metadata.description,
-      siteName: "LibreDB Studio",
+      siteName: "dbportal",
       images: [{ ...image, width: screenshot.readUInt32BE(16), height: screenshot.readUInt32BE(20) }],
     });
     expect(metadata.twitter).toMatchObject({
@@ -65,9 +65,9 @@ describe("RootLayout", () => {
     const description = metadata.description ?? "";
     expect(description.length).toBeGreaterThanOrEqual(150);
     expect(description.length).toBeLessThanOrEqual(160);
-    expect(description).toContain("self-hosted");
-    expect(description).toContain("SQL and NoSQL");
-    expect(description).toContain("database management platform");
+    expect(description).toMatch(/self-hosted/i);
+    expect(description).toContain("shared datasources");
+    expect(description).toContain("audit trail");
     expect(description).not.toMatch(/\d/);
   });
 

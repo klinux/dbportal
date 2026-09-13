@@ -12,14 +12,14 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 
-const title = "LibreDB Studio | Universal Database Editor";
+const title = "dbportal | Shared database portal";
 const description =
-  "A self-hosted database management platform for SQL and NoSQL databases, with schema exploration, query tools, data import, and AI-assisted database development.";
-// Project previews use the public demo documented in README, including on private deployments.
-const siteUrl = "https://libredb.org";
+  "Self-hosted database portal for SRE, DevOps and developers: one set of shared datasources, single sign-on, and an audit trail of every single execution.";
+// Link previews point at the public repository asset, including on private deployments.
+const siteUrl = "https://github.com/klinux/dbportal";
 const previewImage = {
-  url: `https://raw.githubusercontent.com/libredb/libredb-studio/main/public/screenshots/hero-editor.png`,
-  alt: "LibreDB Studio SQL editor and query results",
+  url: `https://raw.githubusercontent.com/klinux/dbportal/main/public/brand/og-image.png`,
+  alt: "dbportal — one deployment, one set of datasources, every execution attributed to a person",
 };
 
 export const metadata: Metadata = {
@@ -30,8 +30,8 @@ export const metadata: Metadata = {
     url: siteUrl,
     title,
     description,
-    siteName: "LibreDB Studio",
-    images: [{ ...previewImage, width: 1440, height: 900 }],
+    siteName: "dbportal",
+    images: [{ ...previewImage, width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",

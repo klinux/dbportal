@@ -1,6 +1,21 @@
-# dbportal
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/brand/lockup-dark.svg">
+    <img src="public/brand/lockup.svg" alt="dbportal" width="270">
+  </picture>
+</p>
 
-A shared database portal for SRE, DevOps and developers.
+<p align="center">
+  A shared database portal for SRE, DevOps and developers.<br>
+  One deployment. One set of datasources. Every execution attributed to a person.
+</p>
+
+<p align="center">
+  <a href="https://github.com/klinux/dbportal/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/klinux/dbportal/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-1F6FEB"></a>
+</p>
+
+---
 
 One deployment, one set of datasources, single sign-on, and an audit trail of
 **every** execution — so nobody needs a database password, a bastion host, or
@@ -45,12 +60,13 @@ aims to be the one thing you deploy that does both for the browser use case.
 
 In order of priority:
 
-1. **Server-side audit of every execution** — user, datasource, SQL, duration,
+1. **Datasources are created by admins only, and shared.** Nobody else can add a
+   connection: the server is the only source of truth for what can be reached,
+   and the request path that accepts a client-supplied connection is closed.
+2. **Server-side audit of every execution** — user, datasource, SQL, duration,
    outcome — emitted as structured log lines and persisted in a store the user
    cannot clear. Today the query history is client-side and per user; that is
    not an audit trail.
-2. **Managed datasources only** — a mode where users cannot add ad-hoc
-   connections; the server is the only source of truth for what can be reached.
 3. **`application_name` per user** on database sessions, so the database's own
    logs (pgAudit, `pg_stat_activity`) show the person, not the shared role.
 4. **Real RBAC** — groups from the identity provider mapped to a permission
@@ -91,6 +107,12 @@ bun run test:unit   # fast, no databases needed
 bun run test:ci     # full core + component suites (per-file isolation)
 docker compose -f database-compose.yml up -d && bun run test:integration
 ```
+
+## Brand
+
+The mark, lockups and colour system live in [public/brand/](public/brand/) and are
+specified in [docs/DESIGN.md](docs/DESIGN.md). The wordmark is always lowercase
+IBM Plex Mono; the three status colours describe execution outcomes only.
 
 ## License
 

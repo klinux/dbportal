@@ -29,14 +29,14 @@ function pngDimensions(file: string): { width: number; height: number } {
 describe("web app manifest", () => {
   const manifest = JSON.parse(readFileSync(join(PUBLIC_DIR, "site.webmanifest"), "utf8")) as WebManifest;
 
-  test("describes LibreDB Studio as an installable standalone app", () => {
+  test("describes dbportal as an installable standalone app", () => {
     expect(manifest).toMatchObject({
-      name: "LibreDB Studio",
-      short_name: "LibreDB",
+      name: "dbportal",
+      short_name: "dbportal",
       start_url: ".",
       display: "standalone",
-      theme_color: "#09090b",
-      background_color: "#09090b",
+      theme_color: "#0B0E14",
+      background_color: "#0B0E14",
     });
   });
 
