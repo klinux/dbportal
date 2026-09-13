@@ -227,7 +227,7 @@ describe("charts/libredb-studio PostgreSQL subchart contracts (#152)", () => {
     ]);
     expect(run.exitCode).toBe(0);
     const images = [...run.stdout.matchAll(/image:\s*"?([^"\s]+)"?/g)].map((m) => m[1]);
-    const subchartImages = images.filter((image) => !image.startsWith("ghcr.io/libredb/"));
+    const subchartImages = images.filter((image) => !image.startsWith("ghcr.io/klinux/"));
     expect(subchartImages.length).toBeGreaterThanOrEqual(3); // postgresql, os-shell, postgres-exporter
     for (const image of subchartImages) {
       expect(image).toStartWith("docker.io/bitnamilegacy/");
