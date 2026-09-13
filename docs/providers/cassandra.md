@@ -1,6 +1,6 @@
 # Apache Cassandra Provider
 
-> Apache Cassandra support for LibreDB Studio, built on the native CQL protocol (port `9042`) through
+> Apache Cassandra support for dbportal, built on the native CQL protocol (port `9042`) through
 > `cassandra-driver` — a **pure-JavaScript** client with no native module and no postinstall step.
 > This document is the single reference point for the Cassandra provider: design, architecture, usage
 > and tests. If you are reading the code, extending Cassandra support, or considering ScyllaDB, start

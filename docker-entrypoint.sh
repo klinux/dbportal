@@ -33,7 +33,7 @@ fi
 # address this image used before #432.
 if [ -z "$RESOLVED" ]; then
   RESOLVED="0.0.0.0"
-  echo "libredb-studio: WARNING bind resolver unavailable; falling back to 0.0.0.0" >&2
+  echo "dbportal: WARNING bind resolver unavailable; falling back to 0.0.0.0" >&2
 fi
 HOSTNAME="$RESOLVED"
 export HOSTNAME

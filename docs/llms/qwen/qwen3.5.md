@@ -39,7 +39,7 @@ nothing called, nothing said. Suppressing the reasoning request finished the tur
 cell 0/5 to 1/5. It reaches the OpenAI-compatible adapter only, so it is a no-op on `gemini`.
 
 The other four losses were not the model's, and this is the only cell in the product closed by
-fixing Studio's own wording. It had been writing correct refusals — naming the views whose columns
+fixing dbportal's own wording. It had been writing correct refusals — naming the views whose columns
 the inventory cannot derive, then asking the one question that would unblock it — and opening every
 one with `NO STATEMENT AT ALL:`, which is the phrase the planning rule itself put in front of the
 marker it was teaching. The rule now says it once, and the cell read 5/5 on the first pass after.

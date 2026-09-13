@@ -34,7 +34,7 @@ docker run \
   -e SEED_CONFIG_PATH=/app/config/seed-connections.yaml \
   -e DB_HOST=mydb.internal -e DB_NAME=mydb \
   -e DB_USER=reader -e DB_PASSWORD=secret \
-  ghcr.io/libredb/libredb-studio:latest
+  ghcr.io/klinux/dbportal:latest
 ```
 
 **3.** Login — the connection appears in the sidebar with a lock icon.
@@ -322,7 +322,7 @@ docker run \
   -e ADMIN_PASSWORD=MyAdmin123 \
   -e USER_PASSWORD=MyUser123 \
   -p 3000:3000 \
-  ghcr.io/libredb/libredb-studio:latest
+  ghcr.io/klinux/dbportal:latest
 ```
 
 ### Docker Compose
@@ -330,7 +330,7 @@ docker run \
 ```yaml
 services:
   libredb:
-    image: ghcr.io/libredb/libredb-studio:latest
+    image: ghcr.io/klinux/dbportal:latest
     ports:
       - "3000:3000"
     volumes:

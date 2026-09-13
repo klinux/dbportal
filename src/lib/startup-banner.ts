@@ -7,7 +7,7 @@
  * console.log on purpose, not the app logger (which emits structured JSON):
  * this block is for a human reading `docker logs`, same idiom as the first-run
  * credentials banner in auth-bootstrap.ts. Nothing here touches the network -
- * the star invitation is a static line, never a live count.
+ * the repository line is static text, never a live count.
  *
  * Set LIBREDB_NO_BANNER=1 (or true) to silence it.
  */
@@ -37,11 +37,9 @@ export function printStartupBanner(): void {
 
     // Absent in unbuilt contexts; drop the token rather than print "undefined".
     const version = getAppVersion();
-    const title = version ? `LibreDB Studio ${version}` : "LibreDB Studio";
+    const title = version ? `dbportal ${version}` : "dbportal";
 
-    console.log(
-      ["", `${title}  ->  ${resolveUrl()}`, "", "  Star the project if it helps you:", `  ${REPO_URL}`, ""].join("\n"),
-    );
+    console.log(["", `${title}  ->  ${resolveUrl()}`, "", `  Source: ${REPO_URL}`, ""].join("\n"));
   } catch {
     // A banner is never worth a failed boot - stay silent and carry on.
   }

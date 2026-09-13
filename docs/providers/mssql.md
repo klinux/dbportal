@@ -1,6 +1,6 @@
 # Microsoft SQL Server Provider
 
-> Microsoft SQL Server support for LibreDB Studio, built on the [`mssql`](https://github.com/tediousjs/node-mssql)
+> Microsoft SQL Server support for dbportal, built on the [`mssql`](https://github.com/tediousjs/node-mssql)
 > driver (Tedious/TDS). This document is the single reference point for the SQL Server provider:
 > design, architecture, usage, and tests. It is a SQL-family provider sharing `SQLBaseProvider`;
 > read the [PostgreSQL doc](./postgres.md) first for the canonical SQL walkthrough, then this doc for
@@ -1183,7 +1183,7 @@ bun run test:coverage                                   # CI coverage workflow â
 ```bash
 docker run --rm -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD='Str0ng!Passw0rd' \
   -p 1433:1433 --cpus 4 mcr.microsoft.com/mssql/server:2022-latest
-# then connect to localhost:1433 (user sa) in the Studio UI
+# then connect to localhost:1433 (user sa) in the dbportal UI
 ```
 
 `--cpus 4` is not decoration on a many-core host: SQL Server asserts on the processor topology in a

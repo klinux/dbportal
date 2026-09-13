@@ -1260,7 +1260,7 @@ describe("TrinoProvider maintenance", () => {
     expect(result.success).toBe(true);
     expect(sqlWith("kill_query")).toBe(
       "CALL system.runtime.kill_query(query_id => '20260820_001943_00041_chvb7', " +
-        "message => 'Terminated from LibreDB Studio')",
+        "message => 'Terminated from dbportal')",
     );
   });
 

@@ -1,6 +1,6 @@
 # What leaves the machine
 
-LibreDB Studio deploys next to the data, and the model is the only thing it talks to that **you did
+dbportal deploys next to the data, and the model is the only thing it talks to that **you did
 not name**. This page is about that traffic and only that traffic: **what leaves for a model
 provider, when, to which provider, and where the labelling boundary applies.**
 

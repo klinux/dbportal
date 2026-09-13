@@ -1,8 +1,8 @@
 # DuckDB Provider
 
-> DuckDB support for LibreDB Studio, built on the official native binding `@duckdb/node-api`. DuckDB
+> DuckDB support for dbportal, built on the official native binding `@duckdb/node-api`. DuckDB
 > is an **embedded, file-based analytical engine**: there is no server, no port and no credential —
-> a connection is a path to a database file on Studio's own filesystem, or `:memory:`. This document
+> a connection is a path to a database file on dbportal's own filesystem, or `:memory:`. This document
 > is the single reference point for the DuckDB provider: design, architecture, usage, and tests.
 > Everything below was **measured against a live engine**, statement by statement; nothing here is
 > quoted from duckdb.org.
@@ -51,15 +51,15 @@ Sharing an id would mean one document describing two sets of measurements.
 
 ### 1.1 Deployment constraint
 
-⚠️ The database file **must live on the server's filesystem** — the machine Studio runs on. A remote
-user of a hosted deployment cannot point Studio at a DuckDB file on their own laptop, because there
+⚠️ The database file **must live on the server's filesystem** — the machine dbportal runs on. A remote
+user of a hosted deployment cannot point dbportal at a DuckDB file on their own laptop, because there
 is nothing to connect to over a network. This is the same constraint the
 [SQLite provider](./sqlite.md) carries, and it positions DuckDB the same way: self-hosted, Docker,
 local development, edge, and zero-config trials — **not** a multi-tenant SaaS target.
 
 One consequence is sharper than SQLite's, and it is measured rather than inherited: a DuckDB file
 open by a writer **cannot be opened by a second process at all, not even read-only** (§3.8). Two
-Studio replicas pointed at one file is not a degraded configuration, it is a broken one.
+dbportal replicas pointed at one file is not a degraded configuration, it is a broken one.
 
 ### 1.2 Concept mapping
 
@@ -314,7 +314,7 @@ rather than a gap.
 
 The fifth row is the one to read twice. A read-only reader in a *separate process* is refused, which
 is stricter than the usual one-writer-many-readers summary, so `singleWriterFile: true` is not a
-conservative default here — it is the measurement. Two Studio replicas sharing a file is not a
+conservative default here — it is the measurement. Two dbportal replicas sharing a file is not a
 supported deployment.
 
 The same table is why the agent's read-only handle works at all: it is a second handle **in the same
@@ -842,7 +842,7 @@ shaped like it. `bun add @duckdb/node-api@1.5.5-r.4` installed four packages:
 runs**, or the payload doubles for nothing.
 
 Both runtimes load the addon — measured, not assumed: `SELECT 42` answered under **Bun 1.3.14** and
-under **Node 24.14.0**. That matters because Studio's packaged channels run the built app under Node
+under **Node 24.14.0**. That matters because dbportal's packaged channels run the built app under Node
 while local development runs it under Bun, the same split the SQLite provider documents.
 
 Bundled extensions are present without network access: `autocomplete`, `core_functions`, `icu`, `json`
@@ -887,7 +887,7 @@ Create a directory and point a connection at a file inside it:
 
 ```bash
 mkdir -p /tmp/libredb-duckdb
-# then add a DuckDB connection in Studio with database = /tmp/libredb-duckdb/warehouse.duckdb
+# then add a DuckDB connection in dbportal with database = /tmp/libredb-duckdb/warehouse.duckdb
 ```
 
 Remember §3.8: close any other process holding that file first, including a `duckdb` CLI session — a
@@ -897,7 +897,7 @@ second process is refused even for reading.
 
 ## 11. Security
 
-DuckDB has no users, no roles and no passwords: **the filesystem is the access control**, and Studio
+DuckDB has no users, no roles and no passwords: **the filesystem is the access control**, and dbportal
 runs the engine in its own process with its own privileges. Two consequences drive the provider's
 security posture.
 
@@ -927,7 +927,7 @@ current behaviour of the agent handle.
 | Ordinary reads, `duckdb_*()`, `pragma_database_size()`, `pragma_storage_info()` | ALLOWED | ALLOWED — untouched |
 
 Read the first column as: the engine flag protects the *database file*, and nothing else. An agent
-given only that handle could write CSV anywhere the Studio process can write, read any file the
+given only that handle could write CSV anywhere the dbportal process can write, read any file the
 process can read, and pull an extension over the network.
 
 ### 11.2 The boundary is in the engine, and the denylist is defence in depth
@@ -968,7 +968,7 @@ granted.
 
 Anyone who can create a DuckDB connection chooses a path on the server's filesystem, and the engine
 will happily read a CSV, Parquet or JSON file next to it. Grant connection-creation rights
-accordingly: on a shared deployment, a DuckDB connection is closer to a shell on the Studio host than
+accordingly: on a shared deployment, a DuckDB connection is closer to a shell on the dbportal host than
 to a database login.
 
 ---
@@ -977,7 +977,7 @@ to a database login.
 
 | Limitation | Cause | Owner |
 |---|---|---|
-| The file must live on Studio's filesystem | Embedded engine, no network protocol | The engine's (§1.1) |
+| The file must live on dbportal's filesystem | Embedded engine, no network protocol | The engine's (§1.1) |
 | A second process cannot open the file, even read-only | Measured lock behaviour | The engine's (§3.8) |
 | No transaction controls | Not exposed by this provider | Ours — `supportsTransactions: false` |
 | No slow queries, no session list | `duckdb_queries()` and `duckdb_connections()` do not exist | The engine's (§3.7) |

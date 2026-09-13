@@ -1,6 +1,6 @@
-# Storage — LibreDB Studio
+# Storage — dbportal
 
-LibreDB Studio uses a **pluggable storage abstraction layer** that lets it operate in two modes:
+dbportal uses a **pluggable storage abstraction layer** that lets it operate in two modes:
 
 - **Local mode** (default): Zero-config, all data lives in the browser's `localStorage`. Ideal for single-user / open-source usage.
 - **Server mode**: Data is persisted to a server-side database (SQLite or PostgreSQL) with per-user scoping. Ideal for teams and enterprise deployments.
@@ -45,7 +45,7 @@ This document is split into two parts. Most readers want **[Part 1 — Setup & C
 
 # Part 1 — Setup & Configuration
 
-LibreDB Studio supports three storage modes. Pick the one that fits your use case and follow the steps below.
+dbportal supports three storage modes. Pick the one that fits your use case and follow the steps below.
 
 ## Which Mode Should I Use?
 
@@ -121,7 +121,7 @@ The directory must be writable by the app process. The directory and file are cr
 # docker-compose.yml
 services:
   app:
-    image: ghcr.io/libredb/libredb-studio:latest
+    image: ghcr.io/klinux/dbportal:latest
     ports:
       - "3000:3000"
     environment:
@@ -235,7 +235,7 @@ If your DBA restricts `CREATE TABLE`, you can create the table manually (see bel
 # docker-compose.yml
 services:
   app:
-    image: ghcr.io/libredb/libredb-studio:latest
+    image: ghcr.io/klinux/dbportal:latest
     ports:
       - "3000:3000"
     environment:
@@ -428,7 +428,7 @@ version column. A row that is never written again stays plaintext — which is w
 ### What this does not protect
 
 - **Browser `localStorage` is not encrypted.** It is the rendering source and it holds the same
-  credentials in the clear. That is a deliberate product decision — it is what lets Studio work
+  credentials in the clear. That is a deliberate product decision — it is what lets dbportal work
   without a master password — and it is why cross-site scripting is treated as a top-severity
   issue in this project rather than a session-theft issue.
 - **Anyone who can read the server's environment can read the credentials.** The key lives there.

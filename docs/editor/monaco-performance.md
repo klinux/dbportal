@@ -1,6 +1,6 @@
 # Monaco Editor Performance Optimization
 
-This document details the analysis of Monaco Editor performance issues in LibreDB Studio and the implemented solutions.
+This document details the analysis of Monaco Editor performance issues in dbportal and the implemented solutions.
 
 > **Status: historical record.** It describes one optimization pass and the code as that
 > pass left it, and it is kept for the rationale — why the editor is semi-uncontrolled,

@@ -2,15 +2,20 @@
 
 ## Overview
 
-LibreDB Studio's Helm chart provides a production-grade Kubernetes deployment with security hardening, pluggable storage, autoscaling, and dual distribution (GitHub Pages + OCI).
+dbportal's Helm chart provides a production-grade Kubernetes deployment with security hardening, pluggable storage and autoscaling.
 
-## Distribution Channels
+## Distribution
 
-| Channel | URL | Command |
-|---------|-----|---------|
-| **ArtifactHub** | [artifacthub.io/packages/helm/libredb-studio/libredb-studio](https://artifacthub.io/packages/helm/libredb-studio/libredb-studio) | Browse & discover |
-| **Helm Repo** | `https://libredb.org/libredb-studio/` | `helm repo add libredb https://libredb.org/libredb-studio/` |
-| **OCI Registry** | `oci://ghcr.io/libredb/charts/libredb-studio` | `helm install libredb oci://ghcr.io/libredb/charts/libredb-studio` |
+The chart is not published to a registry yet. Install it from this repository
+(`charts/libredb-studio/` — the directory keeps the upstream name until the rebrand's
+chart layer, see [CONTEXT.md](CONTEXT.md) §5):
+
+```bash
+helm dependency build charts/libredb-studio
+helm install dbportal charts/libredb-studio
+```
+
+The image it points at is `ghcr.io/klinux/dbportal` (`main` on every push, semver on `v*` tags).
 
 ## Chart Structure
 
@@ -124,7 +129,7 @@ When `postgresql.enabled=true`:
 
 ```
 ┌──────────────────────┐      ┌───────────────────────┐
-│  LibreDB Studio Pod  │      │  PostgreSQL Pod        │
+│  dbportal Pod  │      │  PostgreSQL Pod        │
 │                      │      │  (Bitnami subchart)    │
 │  STORAGE_POSTGRES_URL├─────►│  :5432                 │
 │  = postgresql://     │      │                        │
@@ -352,11 +357,11 @@ chart-only churn drops.
 
 ### Minimal (port-forward)
 ```bash
-helm repo add libredb https://libredb.org/libredb-studio/
-helm install libredb libredb/libredb-studio \
+helm dependency build charts/libredb-studio
+helm install dbportal charts/libredb-studio \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
   --set secrets.adminPassword=MyAdmin123
-kubectl port-forward svc/libredb-libredb-studio 3000:80
+kubectl port-forward svc/dbportal-libredb-studio 3000:80
 ```
 
 ### Production (Ingress + PostgreSQL + HPA)
@@ -429,9 +434,9 @@ The short version:
   instead. This is a deliberate design decision, not a gap: the existing storage abstraction is a
   per-user blob store whose read-modify-write cycle cannot hold counters, and an ingress already
   has a rate limiter that works across replicas.
-- Studio refuses state-changing requests whose `Origin` host does not match its own. Set
+- dbportal refuses state-changing requests whose `Origin` host does not match its own. Set
   `ALLOWED_ORIGINS` (via the chart's `extraEnv`) to your public origin whenever the ingress
   rewrites `Host` without setting `x-forwarded-host`, or every action including login returns 403.
-- Studio's `Content-Security-Policy` is enforced, not report-only. If an upgrade breaks a resource
+- dbportal's `Content-Security-Policy` is enforced, not report-only. If an upgrade breaks a resource
   served from a non-default origin, set `CSP_REPORT_ONLY=true` (also via `extraEnv`) to downgrade
   it without rebuilding the image while you identify the violated directive.

@@ -1606,7 +1606,7 @@ function systemPrompt(record: AgentRunRecord, grounding: PlanningGrounding, engi
   const canHandOver =
     record.mode === "agent" && record.autoExecute && AGENT_WORKFLOW_PRESENTS_ANSWER[record.workflowType];
   const handover = canHandOver ? ` ${AUTO_EXECUTE_RULE}` : "";
-  return `You are the LibreDB Studio database investigator. ${rules}${handover} ${WORKFLOW_OBJECTIVES[record.workflowType]} ${SHARED_RULES}`;
+  return `You are the dbportal database investigator. ${rules}${handover} ${WORKFLOW_OBJECTIVES[record.workflowType]} ${SHARED_RULES}`;
 }
 
 // ============================================================================

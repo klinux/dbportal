@@ -1,6 +1,6 @@
 # LibreDB Provider
 
-> Embedded key-value store support for LibreDB Studio, built on the
+> Embedded key-value store support for dbportal, built on the
 > [`@libredb/libredb`](https://github.com/libredb/libredb-database) package.
 > This document is the single reference point for the LibreDB provider: design, architecture,
 > usage, and tests. If you are reading the code, extending LibreDB support, or authoring a new
@@ -24,7 +24,7 @@
 
 LibreDB is an embedded, ordered key-value store with no server and no wire protocol. A `.libredb`
 file is raw ordered key-value bytes on disk; the `@libredb/libredb` package opens and operates on
-that file in-process, synchronously. LibreDB Studio is a SQL-oriented IDE, so the central design
+that file in-process, synchronously. dbportal is a SQL-oriented IDE, so the central design
 problem is the same one the Redis provider faced:
 
 > **How do you present a key-value store through the same `DatabaseProvider` interface that
@@ -189,7 +189,7 @@ The filter uses the package's pinned **`isReservedKey`** predicate (exported sin
 `isReservedKey` tests the U+0000 **marker**, not the specific `catalog:` tail, so it hides the
 *entire* reserved namespace, not just catalog entries. This is the robust boundary: the database
 forbids user namespace names from starting with the marker (`assertUserName`), so the predicate can
-never hide user data, and the database can evolve its internal key layout without Studio silently
+never hide user data, and the database can evolve its internal key layout without dbportal silently
 leaking it.
 
 ### 3.4 Synchronous package, async provider contract
@@ -232,7 +232,7 @@ fields are ignored.
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `database` | Yes | Absolute path to the `.libredb` file on the Studio server's filesystem. Throws `DatabaseConfigError` if absent. |
+| `database` | Yes | Absolute path to the `.libredb` file on the dbportal server's filesystem. Throws `DatabaseConfigError` if absent. |
 
 No `host`, `port`, `user`, `password`, or `connectionString` fields are used. The `supportsConnectionString`
 capability is `false`.
@@ -247,9 +247,9 @@ const connection = {
 };
 ```
 
-### 4.2 File must exist on the Studio server
+### 4.2 File must exist on the dbportal server
 
-The `.libredb` file must be accessible on the filesystem of the machine running the Studio server.
+The `.libredb` file must be accessible on the filesystem of the machine running the dbportal server.
 Remote LibreDB is not possible — the database has no server or wire protocol by design. If the
 file does not exist at `connect()` time, the `@libredb/libredb` package will create it (an empty
 ordered-KV store). If the path is missing entirely, `connect()` throws `DatabaseConfigError`
@@ -261,22 +261,22 @@ Since `@libredb/libredb` 0.2.0 the driver hardens the file boundary; the provide
 condition as a clear `ConnectionError` (see [§10](#10-error-handling)):
 
 - **`LRDB` header.** New databases begin with an 8-byte magic/version header. Files written by
-  0.1.x (headerless) keep opening through a legacy read path — upgrading Studio does not require
+  0.1.x (headerless) keep opening through a legacy read path — upgrading dbportal does not require
   migrating existing files.
 - **Foreign files are refused untouched.** Opening a file that is not a LibreDB database throws
   `NOT_A_DATABASE` and leaves the file byte-for-byte intact (0.1.x silently truncated it to zero).
   A file written by a newer format version is refused as `UNSUPPORTED_VERSION`, also untouched.
 - **Exclusive per-file lock.** `open()` takes an exclusive `<path>.lock` sidecar (pid/host/nonce).
-  A second writer — another Studio connection to the same file, an external process, or the
+  A second writer — another dbportal connection to the same file, an external process, or the
   `libredb` CLI — fails loudly with `LOCKED` instead of silently diverging. The lock is released
   on `disconnect()`; locks from verifiably dead holders are reclaimed automatically. To *read* a
   file a live writer holds, external tooling can use the package's `readonlyFileSystem` (no lock,
   no writes).
-- **Provider cache interaction.** Studio caches a connected provider per connection id and evicts
+- **Provider cache interaction.** dbportal caches a connected provider per connection id and evicts
   it after 30 minutes idle — the lock is held that whole time. To edit the same file with external
-  tooling, disconnect the Studio connection first (or wait for eviction); otherwise the external
+  tooling, disconnect the dbportal connection first (or wait for eviction); otherwise the external
   writer gets `LOCKED`.
-- **Studio's own second openers reuse the handle instead.** Inside this server the lock used to
+- **dbportal's own second openers reuse the handle instead.** Inside this server the lock used to
   defeat three callers that build a provider outside the writable cache, and it did so every time
   (#498):
   - `POST /api/db/test-connection` reported the lock as a failed connection test. The connection
@@ -306,13 +306,13 @@ condition as a clear `ConnectionError` (see [§10](#10-error-handling)):
 
 ### 4.3 Sample connection (standalone mode)
 
-On the first startup of a **standalone** Studio instance (i.e. not embedded inside
-libredb-platform), Studio automatically creates a connection named **"Sample (LibreDB)"** seeded
+On the first startup of a **standalone** dbportal instance (i.e. not embedded inside
+libredb-platform), dbportal automatically creates a connection named **"Sample (LibreDB)"** seeded
 with example data covering each lens (relational table, document collection, raw kv). This gives
 new users a working LibreDB file to explore immediately.
 
-The sample connection is fully editable and deletable. Once deleted it stays gone — Studio tracks
-dismissed seeds and will not recreate it. It is never injected when Studio runs as an embedded
+The sample connection is fully editable and deletable. Once deleted it stays gone — dbportal tracks
+dismissed seeds and will not recreate it. It is never injected when dbportal runs as an embedded
 package inside libredb-platform.
 
 **Env vars:**
@@ -981,7 +981,7 @@ stable `code` — the part a caller may branch on (messages are free to change b
 The provider maps the open-time codes to user-actionable `ConnectionError` messages in
 `describeOpenError()`:
 
-| Kernel code | When | Studio surfaces it as |
+| Kernel code | When | dbportal surfaces it as |
 |-------------|------|----------------------|
 | `LOCKED` | Another writer holds the file's exclusive lock | `ConnectionError` — *"already open by another process ... close the other writer"* |
 | `NOT_A_DATABASE` | The file at the path is not a LibreDB database | `ConnectionError` — *"not a LibreDB database ... left untouched"* |
@@ -1062,7 +1062,7 @@ lives beside the other engines' fixtures, and it is part of the deliverable rath
 scaffolding (standing ruling 5i): the object-surface tests import `buildObjectFixture` from it,
 so the objects they reason about are created BY the fixture and not by hand in the test.
 
-Run it to get a durable file you can open in Studio:
+Run it to get a durable file you can open in dbportal:
 
 ```bash
 bun docker/libredb-init/01-object-fixture.ts                     # ./.libredb-fixture/object-fixture.libredb
@@ -1194,7 +1194,7 @@ await provider.disconnect();
   not a bug — but it is why the monitoring **Tables** panel refuses outright above the cap instead of
   publishing counts that are short by an unknown amount
   ([§7.2](#72-the-two-panels-that-are-absent-and-the-one-that-is-empty)).
-- **File must be on the Studio server's filesystem.** There is no remote LibreDB connection model.
+- **File must be on the dbportal server's filesystem.** There is no remote LibreDB connection model.
   The database has no server or wire protocol; embedded-in-process is the only supported mode.
 - **No column modification in a generated migration.** Since
   [#269](https://github.com/libredb/libredb-studio/issues/269) the schema-diff migration generator

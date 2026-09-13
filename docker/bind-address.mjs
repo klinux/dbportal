@@ -208,15 +208,15 @@ function describeDecision(decision, nonLoopbackIPv4) {
   switch (reason) {
     case "explicit-libredb-bind":
     case "explicit-hostname":
-      return `libredb-studio: bind address ${address} (explicit ${detail})`;
+      return `dbportal: bind address ${address} (explicit ${detail})`;
     case "dual-stack-verified":
-      return `libredb-studio: bind address :: (dual-stack verified - an IPv4 client connected to the wildcard IPv6 listener; set HOSTNAME to override)`;
+      return `dbportal: bind address :: (dual-stack verified - an IPv4 client connected to the wildcard IPv6 listener; set HOSTNAME to override)`;
     case "ipv6-unavailable":
-      return `libredb-studio: bind address 0.0.0.0 (IPv6 unavailable in this network namespace: ${detail}) - IPv6 clients will be refused`;
+      return `dbportal: bind address 0.0.0.0 (IPv6 unavailable in this network namespace: ${detail}) - IPv6 clients will be refused`;
     case "ipv6-only-listener-ipv4-present":
-      return `libredb-studio: bind address 0.0.0.0 (the :: listener refused IPv4: ${detail}; this namespace has non-loopback IPv4 ${describeIPv4(nonLoopbackIPv4)}, keeping it reachable) - set HOSTNAME=:: to force IPv6`;
+      return `dbportal: bind address 0.0.0.0 (the :: listener refused IPv4: ${detail}; this namespace has non-loopback IPv4 ${describeIPv4(nonLoopbackIPv4)}, keeping it reachable) - set HOSTNAME=:: to force IPv6`;
     case "ipv6-only-host":
-      return `libredb-studio: bind address :: (the :: listener refused IPv4, but this namespace has no non-loopback IPv4 address)`;
+      return `dbportal: bind address :: (the :: listener refused IPv4, but this namespace has no non-loopback IPv4 address)`;
     default:
       return `libredb-studio: WARNING bind probe failed (${detail}); falling back to ${address} (${describeEvidence(nonLoopbackIPv4)})`;
   }

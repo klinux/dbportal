@@ -1,6 +1,6 @@
 # MongoDB Provider
 
-> Document-database support for LibreDB Studio, built on the official
+> Document-database support for dbportal, built on the official
 > [`mongodb`](https://github.com/mongodb/node-mongodb-native) Node.js driver.
 > This document is the single reference point for the MongoDB provider: design, architecture, usage,
 > and tests. MongoDB is a **document** database — not relational — so, like the [Redis provider](./redis.md),
@@ -873,7 +873,7 @@ bun run test:coverage                                     # CI coverage workflow
 ```
 
 To smoke-test against a live server: `docker run --rm -p 27017:27017 mongo:7`, then connect to
-`mongodb://localhost:27017/test` in the Studio UI.
+`mongodb://localhost:27017/test` in the dbportal UI.
 
 ---
 

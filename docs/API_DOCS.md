@@ -1,4 +1,4 @@
-# LibreDB Studio API Documentation
+# dbportal API Documentation
 
 > **Version:** 0.14.1
 > **Base URL:** `https://your-domain.com` or `http://localhost:3000`
@@ -26,7 +26,7 @@
 
 ## Overview
 
-LibreDB Studio provides a RESTful API for database management operations. The API supports PostgreSQL, MySQL, SQLite, libSQL, DuckDB, Oracle, SQL Server, MongoDB, Couchbase, ClickHouse, Apache Druid, Elasticsearch, OpenSearch, Apache Trino, Apache Cassandra and Redis.
+dbportal provides a RESTful API for database management operations. The API supports PostgreSQL, MySQL, SQLite, libSQL, DuckDB, Oracle, SQL Server, MongoDB, Couchbase, ClickHouse, Apache Druid, Elasticsearch, OpenSearch, Apache Trino, Apache Cassandra and Redis.
 
 ### Key Features
 
@@ -61,7 +61,7 @@ Responses are JSON. There is **no global envelope** — each endpoint returns it
 
 ## Authentication
 
-LibreDB Studio uses JWT (JSON Web Tokens) for authentication. Tokens are stored in HTTP-only cookies for security.
+dbportal uses JWT (JSON Web Tokens) for authentication. Tokens are stored in HTTP-only cookies for security.
 
 ### Authentication Flow
 

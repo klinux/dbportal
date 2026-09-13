@@ -1,6 +1,6 @@
 # Third-Party Licenses
 
-LibreDB Studio itself is distributed under the MIT License (see [`LICENSE`](../LICENSE)). One direct
+dbportal itself is distributed under the MIT License (see [`LICENSE`](../LICENSE)). One direct
 production dependency carries different terms:
 
 | Package | License | Used at |

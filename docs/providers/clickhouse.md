@@ -1,6 +1,6 @@
 # ClickHouse Provider
 
-> ClickHouse support for LibreDB Studio, built on the documented HTTP interface (port `8123`) with
+> ClickHouse support for dbportal, built on the documented HTTP interface (port `8123`) with
 > **no driver dependency of any kind**: every statement is the body of a `POST /` and the answer
 > comes back through the runtime's own `fetch`. This document is the single reference point for the
 > ClickHouse provider: design, architecture, usage, and tests. If you are reading the code, extending
@@ -1231,7 +1231,7 @@ trailer stay reproducible:
 
 ```bash
 docker compose -f database-compose.yml up clickhouse
-# then point a Studio connection at localhost:8123, user libredb / password123, database demo
+# then point a dbportal connection at localhost:8123, user libredb / password123, database demo
 ```
 
 Port `9000` (the native protocol) is deliberately not exposed — there is no native-protocol

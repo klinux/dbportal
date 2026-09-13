@@ -1,6 +1,6 @@
 # Apache Druid Provider
 
-> Apache Druid support for LibreDB Studio, built on Druid's SQL HTTP endpoint
+> Apache Druid support for dbportal, built on Druid's SQL HTTP endpoint
 > (`POST /druid/v2/sql`, port `8888` on the Router or `8082` on the Broker) with **no driver
 > dependency of any kind**: every statement is a JSON body and the answer comes back through the
 > runtime's own `fetch`. This document is the single reference point for the Druid provider: design,
@@ -181,7 +181,7 @@ either:
   interactive editor this is the right trade: the user sees the failure and presses the button again,
   which is more honest than a silent retry that hides a degraded cluster. A Druid deployment that
   wants failover puts the **Router** or a load balancer in front of its Brokers anyway, which is
-  exactly the host a Studio connection points at.
+  exactly the host a dbportal connection points at.
 - **No cursor paging.** The response body is read to the end (`await response.text()`), scanned once
   for unsafe integers, then parsed — so a result set is materialised as text and again as objects.
   The editor's `LIMIT 500` injection ([§5.1](#51-execution)) is what keeps that bounded; a statement
@@ -1652,7 +1652,7 @@ to, published so that the Broker-equivalence claim in
 The other five processes are cluster internals and publish nothing; `8091`, the MiddleManager's usual
 port, is already taken by the `couchbase` service in the same file, which is a second reason not to.
 
-Wait for the Router to become healthy (`docker compose ... ps`), then point a Studio connection at
+Wait for the Router to become healthy (`docker compose ... ps`), then point a dbportal connection at
 `127.0.0.1:8888` with no credentials — a default install loads no security extension. Repeat with port
 `8082` to exercise the Broker path.
 

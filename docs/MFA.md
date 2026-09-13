@@ -1,13 +1,13 @@
-# Two-Factor Authentication (TOTP) — LibreDB Studio
+# Two-Factor Authentication (TOTP) — dbportal
 
-LibreDB Studio can require a time-based one-time password (TOTP) after the password on the **local**
+dbportal can require a time-based one-time password (TOTP) after the password on the **local**
 auth provider. It is opt-in per account, configured entirely through environment variables, and
 verified against RFC 6238 — so any standard authenticator app works: Google Authenticator, Authy,
 1Password, Bitwarden, Aegis, KeePassXC, and the rest.
 
 > **Using SSO instead?** For most teams that is the better answer: under
 > `NEXT_PUBLIC_AUTH_PROVIDER=oidc` the login page shows no password form, and your identity
-> provider already enforces MFA, passkeys, device trust and conditional access — Studio consumes
+> provider already enforces MFA, passkeys, device trust and conditional access — dbportal consumes
 > the result. See [`docs/OIDC.md`](OIDC.md). Note that switching to OIDC does not *disable*
 > `POST /api/auth/login`; see [Running both](#running-both) below.
 
@@ -78,11 +78,11 @@ Add a manual (key-based) entry with:
 Those are every app's defaults, so in practice you only paste the key.
 
 Prefer to scan a QR code? Build the standard URI yourself and render it with any offline QR tool —
-Studio does not mint one, because doing so would mean the server handing the shared secret back
+dbportal does not mint one, because doing so would mean the server handing the shared secret back
 over HTTP after startup:
 
 ```
-otpauth://totp/LibreDB%20Studio:admin@libredb.org?secret=YOUR_SECRET_HERE&issuer=LibreDB%20Studio
+otpauth://totp/dbportal:admin@libredb.org?secret=YOUR_SECRET_HERE&issuer=dbportal
 ```
 
 ### 4. Sign in
@@ -132,7 +132,7 @@ docker run -d -p 3000:3000 \
   -e JWT_SECRET="$(openssl rand -base64 32)" \
   -e ADMIN_PASSWORD=your_secure_admin_password \
   -e ADMIN_TOTP_SECRET="$ADMIN_TOTP_SECRET" \
-  ghcr.io/libredb/libredb-studio:latest
+  ghcr.io/klinux/dbportal:latest
 ```
 
 Prefer a file or a secret store over an inline `-e` for the secret itself: anything on the command
@@ -146,7 +146,7 @@ The chart carries the secret in its Kubernetes `Secret` and references it from t
 never appears in the Deployment spec:
 
 ```bash
-helm install libredb-studio oci://ghcr.io/libredb/charts/libredb-studio \
+helm install dbportal charts/libredb-studio \
   --set secrets.adminPassword=MyAdmin123 \
   --set secrets.adminTotpSecret="$ADMIN_TOTP_SECRET"
 ```

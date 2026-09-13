@@ -1,6 +1,6 @@
 # UI Documentation
 
-Reference docs for LibreDB Studio's visual layer — theming and standalone pages.
+Reference docs for dbportal's visual layer — theming and standalone pages.
 
 | Doc | Covers |
 |-----|--------|

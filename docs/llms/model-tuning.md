@@ -1,13 +1,13 @@
-# Giving a model settings Studio has never measured
+# Giving a model settings dbportal has never measured
 
-Studio ships a document recording what specific models were measured under — how long one of
+dbportal ships a document recording what specific models were measured under — how long one of
 their turns may take, how many readings they may take before being asked to report, whether an
 empty turn is worth asking again. A model it does not name is driven with the compiled defaults,
 which is the honest treatment of a model nobody has measured — bar the two settings noted under
 [the settings](#the-settings), where an absent entry is read as the absence it is rather than as a
 `false` somebody wrote.
 
-This page is how you supply your own, with no new Studio release and no code change. It is the
+This page is how you supply your own, with no new dbportal release and no code change. It is the
 other half of [`testing-your-own.md`](testing-your-own.md): that page is how you measure a model,
 this one is how the measurement takes effect.
 
@@ -23,7 +23,7 @@ below.
 | Kubernetes | `agent.modelTuning.existingConfigMap` (or `.document`) — the chart mounts it and sets the variable. See [`charts/libredb-studio/README.md`](../../charts/libredb-studio/README.md) |
 
 A relative path is resolved against the working directory, which is a different place in the
-container, under `npx` and in a checkout — the path Studio actually opened is reported back, so
+container, under `npx` and in a checkout — the path dbportal actually opened is reported back, so
 you never have to guess which one it was.
 
 ## Checking that it took effect
@@ -41,7 +41,7 @@ breaking a working agent, and also what makes silence ambiguous. `GET /api/agent
 ```
 
 `ignoredKeys` is the one to read on a successful load: it lists what your document said that this
-Studio does not implement — a misspelling, or a setting from a newer Studio. The entry was applied
+dbportal does not implement — a misspelling, or a setting from a newer Studio. The entry was applied
 around those keys rather than because of them.
 
 `skippedEntries` is the other one, and it is the difference between `models` and how many entries
@@ -81,18 +81,18 @@ Three top-level keys, one of them optional.
 
 ```jsonc
 {
-  "schemaVersion": 1,          // must match this Studio's version
+  "schemaVersion": 1,          // must match this dbportal's version
   "measuredAgainst": { … },    // OPTIONAL: what your numbers were obtained under
   "models": [ … ]              // one entry per model
 }
 ```
 
 **`measuredAgainst`** records the environment the measurement was taken in: `turnTimeoutMs`, a
-`protocol` sentence in your own words, and the `defaults` your Studio was running. State the
+`protocol` sentence in your own words, and the `defaults` your dbportal was running. State the
 defaults you know about; ones you omit are simply not compared against.
 
-It is **optional**, and Studio does not read it — the settings in force come from the entries, and
-Studio's own recorded basis is the one it compares against. Write it anyway if the document is
+It is **optional**, and dbportal does not read it — the settings in force come from the entries, and
+dbportal's own recorded basis is the one it compares against. Write it anyway if the document is
 going to outlive the conversation you wrote it in: a number with no record of what it was measured
 under cannot be compared with anyone else's, which is the whole argument of
 [`methodology.md`](methodology.md).
@@ -129,7 +129,7 @@ Every one is optional. What you do not state resolves to the compiled default in
 Workflow ids for `perWorkflow`: `investigation`, `query-optimization`, `database-assessment`,
 `operations`, `data-analysis`.
 
-**`threadContextMaxChars` is the one setting Studio ships NO measurement for**, and that is
+**`threadContextMaxChars` is the one setting dbportal ships NO measurement for**, and that is
 deliberate rather than an omission: no entry in the shipped document names it, because nobody has
 measured one. It is here because the value that is right depends on the model's CONTEXT WINDOW —
 what a hosted 200k-window model can carry beside its schema inventory is not what a small local one
@@ -147,19 +147,19 @@ nobody has measured only guarantees that the model most in need of the sentence 
 not to receive it. A model with no entry is therefore offered both: one plan ask
 (`planStatementAsksFor`) and one answer to a stop that read nothing (`answersUnreadStop`), both in
 [`src/lib/agent/models/index.ts`](../../src/lib/agent/models/index.ts). **A stated value still
-wins** — a `0` or a `false` you write here is a measurement, and Studio does not overrule it.
+wins** — a `0` or a `false` you write here is a measurement, and dbportal does not overrule it.
 
 ## The rules
 
 **Merged per model and WHOLE.** An entry replaces the shipped entry for that model rather than
-contributing one field to it. If you re-state a model Studio already measured and mention only one
+contributing one field to it. If you re-state a model dbportal already measured and mention only one
 setting, the others fall to the compiled defaults — not to half the shipped entry. Half of one
 measurement beside half of another is a configuration nobody has ever run.
 
-**Unknown keys are reported, not fatal.** A key this Studio does not implement does not refuse
+**Unknown keys are reported, not fatal.** A key this dbportal does not implement does not refuse
 your document; it is applied around and listed in `ignoredKeys`. That is what lets a document
-written for a newer Studio keep working on an older one, and a document written today keep working
-after Studio gains a setting. It is also why you should read `ignoredKeys`: a misspelled
+written for a newer dbportal keep working on an older one, and a document written today keep working
+after dbportal gains a setting. It is also why you should read `ignoredKeys`: a misspelled
 `retryEmtpyTurn` lands there rather than doing anything.
 
 **Refused per ENTRY, not per document.** The whole-and-nothing rule above is about MERGING, so it
@@ -172,9 +172,9 @@ a short overlay you wrote, not for a catalog somebody else mounted.
 per model id — two spellings of one id skips the second rather than last-wins, because no reader of
 the file could say which had been used.
 
-**Wording never travels.** The sentences Studio says to a model live in Studio. A document has
+**Wording never travels.** The sentences dbportal says to a model live in Studio. A document has
 nowhere to put one, and that is deliberate: those sentences are pushed verbatim into the model's
-messages, so a file that could carry them would let whoever wrote it decide what Studio says
+messages, so a file that could carry them would let whoever wrote it decide what dbportal says
 mid-run.
 
 ## What is worth measuring before you override anything

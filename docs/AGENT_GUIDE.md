@@ -314,12 +314,12 @@ checked its names — which is less than you get on PostgreSQL, and is what is a
 **A statement built from your real table names is still not a statement guaranteed to run.** The
 inventory records what exists in the database, not what your role is permitted to read.
 
-**On engines that hold no tables, the plan is told what it is looking at.** Studio records every
+**On engines that hold no tables, the plan is told what it is looking at.** dbportal records every
 schema in one shape, and the word "table" is that shape's name rather than a claim about your
 database — so the prompt uses whatever your engine's provider calls its objects: collections on
 MongoDB, datasources on Druid, key patterns on Redis, key prefixes on LibreDB. On Redis and LibreDB
 there is a further thing to say and the run is told it: the rows in that inventory are **groupings
-Studio computed**, by scanning a bounded part of the keyspace and collecting your real key names
+dbportal computed**, by scanning a bounded part of the keyspace and collecting your real key names
 under their common prefix. `user:*` is not a key and no command can be given it. Without that
 sentence a grounded Redis plan drafted `ZCARD user:*` — specific, confident, and against something
 that does not exist.

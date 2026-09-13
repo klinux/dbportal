@@ -1,6 +1,6 @@
 # MySQL Provider
 
-> MySQL support for LibreDB Studio, built on the [`mysql2`](https://github.com/sidorares/node-mysql2) driver.
+> MySQL support for dbportal, built on the [`mysql2`](https://github.com/sidorares/node-mysql2) driver.
 > This document is the single reference point for the MySQL provider: design, architecture, usage,
 > and tests. MySQL is a SQL-family provider; it shares `SQLBaseProvider` with PostgreSQL — read the
 > [PostgreSQL doc](./postgres.md) first if you want the canonical SQL walkthrough, then this doc for
@@ -1111,7 +1111,7 @@ schema, "slow" is the *ordering* (`SUM_TIMER_WAIT DESC`), and the health line's 
 any server with five or more digests for the schema, `health.slowQueries.length` is 5 permanently,
 and any consumer counting it reads the limit rather than a number of slow statements. Measured 2026-08-27
 on MySQL 26.7.0 (`libredb-mysql`): the digest table held **59 rows** for one connected schema, and
-the five this statement returns for it were **all Studio's own introspection statements** — the
+the five this statement returns for it were **all dbportal's own introspection statements** — the
 slow-query read itself first (`avg 79.11ms`, `calls 3`), then the database-size read, `SHOW STATUS
 LIKE ?` and two `PREPARE`s, between 1.15 ms and 7.78 ms. Nothing in that list is slow and none of it
 is the user's workload. Raising the limit would move the saturation point without making the figure a

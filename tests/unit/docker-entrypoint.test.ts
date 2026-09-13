@@ -87,8 +87,8 @@ describe("docker-entrypoint.sh bind address (#432)", () => {
   });
 
   test("passes the resolver's explanatory line through to the container log", () => {
-    const result = runEntrypoint('echo "::"; echo "libredb-studio: bind address :: (dual-stack verified)" >&2');
-    expect(result.stderr.toString()).toContain("libredb-studio: bind address ::");
+    const result = runEntrypoint('echo "::"; echo "dbportal: bind address :: (dual-stack verified)" >&2');
+    expect(result.stderr.toString()).toContain("dbportal: bind address ::");
   });
 
   test("a resolver that fails still starts the container, on the pre-#432 address", () => {

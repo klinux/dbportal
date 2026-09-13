@@ -319,7 +319,7 @@ describe("main - stdout contract and the one stderr line", () => {
   test("logs exactly one line to stderr", async () => {
     const result = await run();
     expect(result.stderr.trimEnd().split("\n")).toHaveLength(1);
-    expect(result.stderr).toStartWith("libredb-studio: bind address :: ");
+    expect(result.stderr).toStartWith("dbportal: bind address :: ");
     expect(result.stderr).toEndWith("\n");
   });
 
@@ -331,11 +331,11 @@ describe("main - stdout contract and the one stderr line", () => {
   test("names the variable when the operator chose explicitly", async () => {
     const viaHostname = await run({ env: { HOSTNAME: "0.0.0.0" } });
     expect(viaHostname.stdout).toBe("0.0.0.0\n");
-    expect(viaHostname.stderr).toContain("libredb-studio: bind address 0.0.0.0 (explicit HOSTNAME)");
+    expect(viaHostname.stderr).toContain("dbportal: bind address 0.0.0.0 (explicit HOSTNAME)");
 
     const viaLibredbBind = await run({ env: { LIBREDB_BIND: "192.0.2.7" } });
     expect(viaLibredbBind.stdout).toBe("192.0.2.7\n");
-    expect(viaLibredbBind.stderr).toContain("libredb-studio: bind address 192.0.2.7 (explicit LIBREDB_BIND)");
+    expect(viaLibredbBind.stderr).toContain("dbportal: bind address 192.0.2.7 (explicit LIBREDB_BIND)");
   });
 
   test("says IPv6 is unavailable, and that IPv6 clients will be refused", async () => {

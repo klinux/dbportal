@@ -1,6 +1,6 @@
 # SQLite Provider
 
-> File-based SQLite support for LibreDB Studio, using the runtime's **built-in SQLite driver**:
+> File-based SQLite support for dbportal, using the runtime's **built-in SQLite driver**:
 > `bun:sqlite` under Bun, `node:sqlite` under Node (see [Runtime](#runtime--driver-selection)).
 > This document is the single reference point for the SQLite provider: design, architecture, usage,
 > and tests. It is a SQL-family provider sharing `SQLBaseProvider`; read the
@@ -30,7 +30,7 @@
 
 SQLite shows up in this codebase in **two unrelated roles**. Don't conflate them:
 
-1. **Storage backend for Studio's own data** (`STORAGE_PROVIDER=sqlite`) — persists connections,
+1. **Storage backend for dbportal's own data** (`STORAGE_PROVIDER=sqlite`) — persists connections,
    history, and settings. Uses **`better-sqlite3`** (Node-compatible, works in the production
    runner). This is internal infrastructure, documented under the storage layer, **not** this doc.
 2. **A target database you connect to and query** (`type: 'sqlite'`) — *this* document. Uses the
@@ -43,9 +43,9 @@ SQLite shows up in this codebase in **two unrelated roles**. Don't conflate them
 for a web-based editor:
 
 - **The database file must live on the server's filesystem.** A remote user of a hosted/SaaS
-  deployment cannot point Studio at a SQLite file on *their own* machine — there is nothing to
+  deployment cannot point dbportal at a SQLite file on *their own* machine — there is nothing to
   connect to over the network. SQLite-as-target therefore fits **self-hosted / Docker / local-dev /
-  edge** deployments (where the file is co-located with Studio) and **zero-config trials** (instant,
+  edge** deployments (where the file is co-located with dbportal) and **zero-config trials** (instant,
   no server to provision) — it is **not** a multi-tenant SaaS target.
 - **It works under both Bun and Node.** The provider selects the runtime's built-in driver at
   connect time — see [Runtime & driver selection](#runtime--driver-selection). All packaged
@@ -155,7 +155,7 @@ directories are created on connect.
 > **NUL rejection is the only path validation — by design.** `../` segments are legal and simply
 > resolve into the absolute path. This follows the feature's trust model: a connection's
 > `database`/`connectionString` path is set by whoever configures the connection (an
-> authenticated user of this Studio instance) — pointing Studio at an arbitrary server-side file is
+> authenticated user of this dbportal instance) — pointing dbportal at an arbitrary server-side file is
 > the intended capability, not attacker-controlled input from an untrusted client. There is
 > currently **no** option to sandbox resolvable paths to a base directory. See
 > [Known limitations](#14-known-limitations--future-work).
@@ -225,7 +225,7 @@ ignored.
 users:
 
 - **The path is resolved on the server, not in the browser.** It is passed through to
-  `getDatabasePath()` in the Studio process, so `/data/app.db` means that path on the machine
+  `getDatabasePath()` in the dbportal process, so `/data/app.db` means that path on the machine
   running Studio. A remote user of a hosted deployment cannot reach a file on their own laptop —
   see [Deployment constraint](#deployment-constraint-the-strategic-bit).
 - **`:memory:` is accepted here too**, which makes the modal a zero-setup way to get a scratch
@@ -238,9 +238,9 @@ self-hosted instance, every authenticated user now sees a field for typing an ar
 path, where reaching the same capability previously took a hand-crafted API call. The reachable set
 of files is identical either way — see
 [No path sandboxing](#14-known-limitations--future-work) — but operators of multi-user deployments
-should treat "any logged-in user can open any SQLite file the Studio process can read" as an
+should treat "any logged-in user can open any SQLite file the dbportal process can read" as an
 explicit assumption to check against their threat model, not a corner case. Where that assumption
-does not hold, the mitigations available today are OS-level: run Studio as a user with a narrow
+does not hold, the mitigations available today are OS-level: run dbportal as a user with a narrow
 read scope, or isolate it in a container whose mounts contain only the databases it should serve.
 An optional in-app base-dir allowlist is tracked in
 [issue #125](https://github.com/libredb/libredb-studio/issues/125).

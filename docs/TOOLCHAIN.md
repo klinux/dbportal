@@ -1,18 +1,18 @@
-# LibreDB Studio Toolchain - 2026 Adoption Record
+# dbportal Toolchain - 2026 Adoption Record
 
 > Status: IMPLEMENTED (PR #98, phased; each phase green through CI before the next). A per-tool adoption
 > record for five tools, ported from the researched-then-adversarially-verified decision record in
-> `libredb-database/docs/TOOLCHAIN.md` and adapted to Studio's reality: a Next.js 16 + React 19 + TSX
+> `libredb-database/docs/TOOLCHAIN.md` and adapted to dbportal's reality: a Next.js 16 + React 19 + TSX
 > application that ALSO ships as the dual-format npm package `@libredb/studio` (consumed by
 > `libredb-platform`). The database record is the rationale source of truth; this document records only what
-> changes for Studio and why. Deviations surfaced during implementation are marked "as implemented".
+> changes for dbportal and why. Deviations surfaced during implementation are marked "as implemented".
 
 ## Scope
 
 Five tools, deliberately a subset of the database gate (no size-limit, commitlint, changesets, secretlint,
 license, etc.):
 
-| Tool | Decision | Reason for Studio |
+| Tool | Decision | Reason for dbportal |
 | --- | --- | --- |
 | `@biomejs/biome` (format-only) | ADOPT | No formatter today - the one unambiguous gap. Same as database. |
 | `oxlint` | ADOPT | Fast Rust syntactic linter; a sub-second fail-fast layer in front of ESLint. |
@@ -20,7 +20,7 @@ license, etc.):
 | `knip` | KEEP | Already wired into the CI gate. Verify, do not rebuild. |
 | `@arethetypeswrong/cli` (attw) | ADOPT | Higher value here than in database: 5 subpath exports x dual CJS+ESM x both `.d.ts` and `.d.mts`. |
 
-## How Studio differs from database (and why the configs change)
+## How dbportal differs from database (and why the configs change)
 
 | Dimension | libredb-database | libredb-studio |
 | --- | --- | --- |
@@ -36,7 +36,7 @@ Consequences:
 - **attw uses the DEFAULT profile, NOT `--profile esm-only`** - the package is intentionally dual CJS+ESM,
   so attw must verify CJS resolution too.
 - **ESLint is NOT reduced to type-aware-only** (the database move). `eslint-config-next` is the canonical
-  Next linter and Studio ships as a Next app; reducing it would drop curated Next/React coverage.
+  Next linter and dbportal ships as a Next app; reducing it would drop curated Next/React coverage.
 - **CSS is excluded from the Biome formatter** - `src/app/globals.css` is order-sensitive: it carries
   deliberately unlayered declarations that must outrank Tailwind's utility layer and shadcn's `@layer base`
   rules, and a formatter that reorders or re-nests them silently changes which rule wins (every gate stays
@@ -158,7 +158,7 @@ immediately caught five genuine fire-and-forget bugs (async functions invoked in
 signal handlers without handling the promise, in `factory.ts`, `mysql.ts`, `postgres.ts`), fixed with the
 `void` operator. Scoping keeps lint fast; eslint-config-next still owns everything else.
 
-Rejected for Studio: the database-style reduction of ESLint to type-aware-only with React/Next rules moved
+Rejected for dbportal: the database-style reduction of ESLint to type-aware-only with React/Next rules moved
 to oxlint. For a shipping Next app the risk of losing `eslint-config-next`'s curated coverage outweighs the
 single-linter simplicity.
 
@@ -294,7 +294,7 @@ Do not re-add it without a number. The measurement takes one build and one page 
 ## Suggested package versions
 
 `@biomejs/biome@^2.5`, `oxlint@^1.71`, `@arethetypeswrong/cli@^0.18.4`. `eslint` / `eslint-config-next` /
-`typescript-eslint` / `knip` stay at their current Studio versions.
+`typescript-eslint` / `knip` stay at their current dbportal versions.
 
 ## Coverage measurement (100% line coverage, held since 2026-07-14)
 

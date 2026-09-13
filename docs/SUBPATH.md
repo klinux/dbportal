@@ -1,6 +1,6 @@
-# Deploy Studio under a subpath
+# Deploy dbportal under a subpath
 
-Studio can run at `/libredb`, `/tools/libredb`, or `/~/libredb` behind a reverse proxy.
+dbportal can run at `/libredb`, `/tools/libredb`, or `/~/libredb` behind a reverse proxy.
 Set `BASE_PATH` **when building**. Next.js bakes this prefix into routes and browser bundles;
 setting it only on a prebuilt image cannot relocate that image. The published images use `/`.
 
@@ -54,10 +54,10 @@ location ~ ^/tools/libredb(?:/|$) {
 }
 ```
 
-For Traefik, match ``PathPrefix(`/tools/libredb`)`` and forward to Studio without a strip-prefix
+For Traefik, match ``PathPrefix(`/tools/libredb`)`` and forward to dbportal without a strip-prefix
 middleware. Restrict the rule to your intended hostname as usual. Assets, API calls,
 streamed agent responses, and native authentication redirects all use the configured prefix.
-Next's router and `Link` apply it automatically. Studio has no WebSocket endpoint to configure.
+Next's router and `Link` apply it automatically. dbportal has no WebSocket endpoint to configure.
 
 ## Helm and Gateway API
 

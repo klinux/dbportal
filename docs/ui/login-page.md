@@ -24,7 +24,7 @@ src/app/login/
 
 ```
 ┌─────────────────────────────┬──────────────────────┐
-│  LibreDB Studio             │   Right Panel (45%)  │
+│  dbportal             │   Right Panel (45%)  │
 │                             │                      │
 │  The open-source SQL IDE    │   ┌──────────────┐   │
 │  that deploys next to       │   │ Welcome back │   │
@@ -78,7 +78,7 @@ to undo from the outside:
 
 ```
 ┌──────────────────────┐
-│    LibreDB Studio    │  <- Compact branding
+│    dbportal    │  <- Compact branding
 │  Open-source SQL IDE │
 │                      │
 │   ┌──────────────┐   │

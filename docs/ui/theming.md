@@ -1,17 +1,17 @@
 # Theming Guide
 
-This document provides a comprehensive guide for understanding and customizing the theming system in LibreDB Studio.
+This document provides a comprehensive guide for understanding and customizing the theming system in dbportal.
 
 ## Overview
 
-LibreDB Studio uses a modern theming architecture built on:
+dbportal uses a modern theming architecture built on:
 
 - **Tailwind CSS v4** - CSS-first configuration with `@theme` directive
 - **shadcn/ui** - Accessible component library with CSS variable theming
 - **CSS Custom Properties** - Light and dark variable sets, in two layers: the shadcn
   variables in `globals.css` and studio's own semantic tokens in `src/styles/theme.css`
 
-Studio is **dark-first with a runtime light theme**: `next-themes` writes the `dark` class,
+dbportal is **dark-first with a runtime light theme**: `next-themes` writes the `dark` class,
 the toggle in the header flips it, and the choice persists under the `libredb-theme` storage
 key. Dark is the default and the server-rendered assumption.
 
@@ -158,7 +158,7 @@ guards it.
 
 ### Current Configuration
 
-LibreDB Studio uses a dark-first design with the following color palette (based on Tailwind Zinc):
+dbportal uses a dark-first design with the following color palette (based on Tailwind Zinc):
 
 ```css
 .dark {

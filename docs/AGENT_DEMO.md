@@ -1,6 +1,6 @@
 # Agent demo script
 
-Twenty-five cases, ordered easy to hard, for showing LibreDB Studio's agent to someone who has
+Twenty-five cases, ordered easy to hard, for showing dbportal's agent to someone who has
 not seen it. Every case here was **driven live** against a real model and a real database before it
 was written down, and each one records what actually came back — including the ones that refuse.
 Nothing in this file is aspirational.
@@ -404,7 +404,7 @@ figures match.
 **This is the case to show a sceptic.** Redis has no SQL at all, and agent mode's other workflows
 cannot reach it: they need a database-native read-only statement path, which only PostgreSQL, SQLite and
 DuckDB provide. Operate does not write SQL — it reads what the engine already reports about itself —
-so it answers the same operational questions on every provider Studio supports. Run case 9 against
+so it answers the same operational questions on every provider dbportal supports. Run case 9 against
 PostgreSQL and this one against Redis back to back, and the point makes itself.
 
 ---
@@ -576,7 +576,7 @@ did not settle is what it drafts with the inventory: read the note below before 
 driven.* The first grounded Redis drives read 17 real key prefixes and then drafted `KEYS user:*` and
 `ZCARD user:*` — a grouping named as though it were a key. The blocks a run reads now carry the
 provider's own noun ("17 key pattern(s)", never "17 table(s)"), and a Redis or LibreDB plan is told in
-one sentence that its rows are groupings Studio derived from a bounded scan and that a statement must
+one sentence that its rows are groupings dbportal derived from a bounded scan and that a statement must
 name a whole key or scan by pattern instead. What that sentence does not do is name or forbid a
 command, so a plan choosing a different command is not a regression; a plan naming `user:*` as a key
 is.
@@ -590,7 +590,7 @@ are worth knowing before you show this:
   This is the demo to show.
 - *"How many users are stored, and how do I look one up?"* → drafted **`KEYS user:*`**, and explained
   the lookup as `HGETALL user:<id>` — a whole key, which is the new rule working. `KEYS` is not: it is
-  the blocking O(N) command Studio's own provider refuses to use, and the product is offering it with
+  the blocking O(N) command dbportal's own provider refuses to use, and the product is offering it with
   an Apply-to-editor button. Nothing runs unless the user applies and runs it, and whether the
   planning rules should speak about operational cost at all was **ruled on and declined** on
   2026-08-22 (#459): a rule naming one command is engine trivia that goes stale, teaches nothing about

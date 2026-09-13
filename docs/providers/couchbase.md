@@ -1,6 +1,6 @@
 # Couchbase Provider
 
-> Couchbase Server support for LibreDB Studio, built on the documented REST surfaces — the Query
+> Couchbase Server support for dbportal, built on the documented REST surfaces — the Query
 > Service (`/query/service`) and the management API (`/pools/default...`) — with **no driver
 > dependency of any kind**. This document is the single reference point for the Couchbase provider:
 > design, architecture, usage, and tests. If you are reading the code, extending Couchbase support,
@@ -147,7 +147,7 @@ These are the non-obvious choices. Read this section before changing the provide
 
 The official `couchbase` SDK is Apache-2.0 but weighs 64.6 MB unpacked across 3765 files, depends on
 `cmake-js` and `node-addon-api`, and runs a postinstall step that downloads a prebuilt binary or
-compiles from source. Studio ships as a Docker image, Snap, AppImage, Flatpak, deb/rpm **and** the
+compiles from source. dbportal ships as a Docker image, Snap, AppImage, Flatpak, deb/rpm **and** the
 `@libredb/studio` npm package that `libredb-platform` consumes — every one of those would inherit
 the native module.
 
@@ -1093,7 +1093,7 @@ docker exec cb couchbase-cli bucket-create -c 127.0.0.1 \
   --storage-backend couchstore --bucket-replica 0
 ```
 
-Then point a Studio connection at `127.0.0.1:8091` with bucket `travel`, and create a primary index
+Then point a dbportal connection at `127.0.0.1:8091` with bucket `travel`, and create a primary index
 so the collection can be browsed:
 
 ```sql

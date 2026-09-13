@@ -206,7 +206,7 @@ describe("instrumentation register()", () => {
       log.mockRestore();
     }
 
-    expect(output).toContain("LibreDB Studio");
+    expect(output).toContain("dbportal");
     expect(output).toContain("https://github.com/klinux/dbportal");
   });
 
@@ -232,7 +232,7 @@ describe("instrumentation register()", () => {
       errorSpy.mockRestore();
     }
 
-    expect(output).not.toContain("Star the project");
+    expect(output).not.toContain("Source:");
   });
 
   test("logs a warning and keeps boot alive when seeding fails", async () => {

@@ -145,7 +145,7 @@ import {
 const CONNECT_PROBE_SQL = "SELECT 1";
 
 /** What `kill_query` records against the statement it terminates. */
-const KILL_MESSAGE = "Terminated from LibreDB Studio";
+const KILL_MESSAGE = "Terminated from dbportal";
 
 /**
  * The statements that change what the schema tree would show.

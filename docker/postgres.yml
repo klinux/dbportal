@@ -1,4 +1,4 @@
-# PostgreSQL Docker Compose for LibreDB Studio Development/Testing
+# PostgreSQL Docker Compose for dbportal Development/Testing
 #
 # Usage:
 #   docker compose -f docker/postgres.yml up -d

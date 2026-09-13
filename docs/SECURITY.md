@@ -1,6 +1,6 @@
 # Security Posture
 
-What LibreDB Studio actually implements, and what it does not. Every row that claims a control
+What dbportal actually implements, and what it does not. Every row that claims a control
 names the file that enforces it and the test that fails when it breaks; `bun run security:check`
 runs in CI and fails the build when a row points at something that does not exist, or does not run,
 or when a security test exists that no row accounts for.
@@ -11,7 +11,7 @@ policy.
 
 ## Scope
 
-The deployment in scope is **self-hosted, standalone Studio**. There is one trust boundary and the
+The deployment in scope is **self-hosted, standalone dbportal**. There is one trust boundary and the
 operator is the owner. The adversary this list is built against is an unauthenticated attacker on
 the internet, because most of the distribution channels put the app on a public address.
 
@@ -266,7 +266,7 @@ These are real, current, and not oversights. Each is a decision with a reason.
 - **A page on a sibling subdomain can time an authenticated endpoint on this one.** The auth cookie
   is `SameSite=Lax`, which withholds it from a cross-*site* subresource request but sends it to a
   same-*site*, cross-*origin* one — so an attacker who controls any host under the deployment's own
-  registrable domain can load a Studio URL as a no-cors subresource and read the load/error and
+  registrable domain can load a dbportal URL as a no-cors subresource and read the load/error and
   coarse-timing signal, even though the response bytes stay opaque to them.
   `Cross-Origin-Resource-Policy: same-origin` is the control that closes this, and it is refused for
   now with the reason recorded in [`next.config.ts`](../next.config.ts): its correct value is a

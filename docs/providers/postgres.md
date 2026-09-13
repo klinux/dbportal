@@ -1,6 +1,6 @@
 # PostgreSQL Provider
 
-> Full PostgreSQL support for LibreDB Studio, built on the [`pg`](https://github.com/brianc/node-postgres) driver.
+> Full PostgreSQL support for dbportal, built on the [`pg`](https://github.com/brianc/node-postgres) driver.
 > This document is the single reference point for the PostgreSQL provider: design, architecture,
 > usage, and tests. PostgreSQL is the **reference implementation** for the SQL provider family — if
 > you are authoring or maintaining another SQL provider, read this alongside the source.

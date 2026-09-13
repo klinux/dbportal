@@ -38,9 +38,9 @@ describe("printStartupBanner", () => {
 
     const output = capture();
 
-    expect(output).toContain("LibreDB Studio 1.2.3");
+    expect(output).toContain("dbportal 1.2.3");
     expect(output).toContain("http://localhost:3000");
-    expect(output).toContain("Star the project if it helps you");
+    expect(output).toContain("Source: https://github.com/klinux/dbportal");
     expect(output).toContain("https://github.com/klinux/dbportal");
   });
 
@@ -63,7 +63,7 @@ describe("printStartupBanner", () => {
   test("never prints 'undefined' when the version is missing", () => {
     const output = capture();
 
-    expect(output).toContain("LibreDB Studio");
+    expect(output).toContain("dbportal");
     expect(output).not.toContain("undefined");
     expect(output).toContain("https://github.com/klinux/dbportal");
   });
@@ -92,7 +92,7 @@ describe("printStartupBanner", () => {
   test("still prints for values that are not an opt-out", () => {
     for (const value of ["0", "false", "", "yes"]) {
       process.env.LIBREDB_NO_BANNER = value;
-      expect(capture()).toContain("LibreDB Studio");
+      expect(capture()).toContain("dbportal");
     }
   });
 

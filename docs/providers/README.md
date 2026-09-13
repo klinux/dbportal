@@ -1,6 +1,6 @@
 # Database Provider Reference
 
-This folder holds the **prime (canonical) reference for each database provider** in LibreDB Studio.
+This folder holds the **prime (canonical) reference for each database provider** in dbportal.
 There is exactly one document per provider, named by the provider's canonical **type-id** and kept
 in lockstep with the code (see the tri-sync rule in [`../../CLAUDE.md`](../../CLAUDE.md)).
 
@@ -232,7 +232,7 @@ Three deliberate limits, so nobody reads more into this than it does:
   that changes within a server's lifetime is refused, and a restart trusts afresh. Tracked as D34.
 
 The fingerprint is stored and displayed **in the clear**, on purpose. It is public key material: it
-authenticates the bastion to Studio, grants no access, unlocks nothing, and it has to be readable for
+authenticates the bastion to dbportal, grants no access, unlocks nothing, and it has to be readable for
 the comparison above to be possible at all. `src/lib/storage/connection-secrets.ts` classifies it
 `public` alongside the certificates in `ssl`; the tunnel's password, private key and passphrase stay
 encrypted at rest.
@@ -267,8 +267,8 @@ provider's integration pass.
 | OpenSearch | `opensearch` | localhost | **9201** | *none* | *none* | *none* | — |
 | Apache Trino | `trino` | localhost | 8080 | *none* | *none* | `tpch` (catalog) | — |
 | Apache Cassandra | `cassandra` | localhost | 9042 | *none* | *none* | `probe` (keyspace) | — |
-| SQLite | *no service* | — | — | — | — | a file path on the Studio host | — |
-| LibreDB | *no service* | — | — | — | — | a directory on the Studio host | — |
+| SQLite | *no service* | — | — | — | — | a file path on the dbportal host | — |
+| LibreDB | *no service* | — | — | — | — | a directory on the dbportal host | — |
 
 *none* means leave the field empty. It is never a default that happens to be blank: Druid loads no
 security extension in a default install, both search services run with their security plugin off, the
@@ -287,7 +287,7 @@ also what the connection dialog prefills, so the field can be left untouched. `d
 libredb-cassandra` prints the mapping.
 
 **The three embedded providers have no container, and that is the whole point of them.** SQLite and
-DuckDB each take a path resolved *in the Studio process* and LibreDB a directory; none of them reaches
+DuckDB each take a path resolved *in the dbportal process* and LibreDB a directory; none of them reaches
 a network. SQLite and LibreDB also ship a ready-made sample connection, "Sample (Employees)" and
 "Sample (LibreDB)", which appear in the sidebar with no configuration at all, so the fastest way to
 exercise those two is to click one rather than to fill this dialog in. DuckDB ships no sample: build a
@@ -377,9 +377,9 @@ sleep 60   # information_schema reads 0 rows / 0 B until the background statisti
 
 Then connect on port **19035** as `root` / `Probe#2026`, database `probe`.
 
-### If Studio itself runs in a container, `localhost` is the wrong host
+### If dbportal itself runs in a container, `localhost` is the wrong host
 
-Every `Host` in the table above is written for a Studio that runs **on the host** — `bun dev`,
+Every `Host` in the table above is written for a dbportal that runs **on the host** — `bun dev`,
 `bun run start`, or the npm package. Inside a container, `localhost` is that container's own loopback
 and nothing is listening on it: a plain `docker run -p 3000:3000 libredb/libredb-studio` reaches
 none of these services (measured — `curl localhost:9200` from an unrelated container answers no HTTP
@@ -419,11 +419,11 @@ in the table above:
 > number `3.8.0`.
 >
 > Credentials and database names do not change — only host and port do. And the network exists only
-> once compose has created it, so start the fixture before Studio; the name is
+> once compose has created it, so start the fixture before dbportal; the name is
 > `<project>_default`, which is `libredb-studio_default` when compose is run from this repository and
 > `<your-directory>_default` otherwise (`docker network ls` says which).
 
-**2. Reach the published host ports through the host gateway.** Use this when Studio must stay off the
+**2. Reach the published host ports through the host gateway.** Use this when dbportal must stay off the
 fixture's network — a container you did not start, or services split across several compose projects.
 On Docker Desktop `host.docker.internal` already resolves; on Linux it does not, and the flag below is
 what creates it:
@@ -439,7 +439,7 @@ Linux: 9200 and 9201 both answer HTTP 200 through that name.
 **3. `--network host`.** Makes `localhost` mean the host's loopback, so the table applies unchanged:
 
 ```bash
-docker run --network host ghcr.io/libredb/libredb-studio
+docker run --network host ghcr.io/klinux/dbportal
 ```
 
 Last because of what it costs: **Linux only** (on Docker Desktop the "host" is the VM, not your
@@ -447,9 +447,9 @@ machine), no `-p` mapping (the app binds the host's port 3000 directly), and the
 host's whole network namespace, which is a far wider grant than reaching one database.
 
 Whichever you pick, [`docker-compose.yml`](../../docker-compose.yml) in the repository root is the
-shape to copy for a real deployment: Studio and its Postgres sit on one compose network and address
+shape to copy for a real deployment: dbportal and its Postgres sit on one compose network and address
 each other by service name, so nothing depends on a published host port existing.
 
 One collision to know about if you run both files: that root compose file and the fixture both name a
 container `libredb-postgres`, so the second one to start fails with *"container name is already in
-use"*. Rename one, or run only the fixture and point Studio's `STORAGE_*` variables at it.
+use"*. Rename one, or run only the fixture and point dbportal's `STORAGE_*` variables at it.

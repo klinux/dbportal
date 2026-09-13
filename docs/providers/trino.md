@@ -1,6 +1,6 @@
 # Apache Trino Provider
 
-> Apache Trino support for LibreDB Studio, built on Trino's own client protocol (`POST /v1/statement`,
+> Apache Trino support for dbportal, built on Trino's own client protocol (`POST /v1/statement`,
 > port `8080`) with **no driver dependency of any kind**: every statement is the body of an HTTP
 > request and the answer is read by following a chain of `nextUri` links through the runtime's own
 > `fetch`. This document is the single reference point for the Trino provider: design, architecture,
@@ -1098,7 +1098,7 @@ in the schema tree.
 `supportsMaintenance: true`, `maintenanceOperations: ["kill"]`.
 
 `kill` takes the query id the Sessions panel shows and runs
-`CALL system.runtime.kill_query(query_id => '…', message => 'Terminated from LibreDB Studio')`.
+`CALL system.runtime.kill_query(query_id => '…', message => 'Terminated from dbportal')`.
 Live-verified end to end on 476: the target's own exchange then fails with `ADMINISTRATIVELY_KILLED`
 and carries the message. The result says *"Asked Trino to terminate …"* and not "terminated", because
 the procedure returns as soon as the coordinator accepts the request.
@@ -1279,7 +1279,7 @@ the `tpch` catalog configured, so there is **no seed step**: `tpch.tiny.nation` 
 rather than stored. `tpcds`, `memory`, `system` and `jmx` are configured too; leave `jmx` in place,
 because it is what makes the overview's uptime readable.
 
-Then point a Studio connection at `localhost:8080` with **no user, no password**, and `tpch` in the
+Then point a dbportal connection at `localhost:8080` with **no user, no password**, and `tpch` in the
 Database field.
 
 The healthcheck is the image's own `/usr/lib/trino/bin/health-check` rather than a `curl` at

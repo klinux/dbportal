@@ -250,7 +250,7 @@ const ACCEPTED_TARGETS = Object.keys(SANCTIONED_WORLD_TARGETS).join(", ");
 // Messages are built on one line each: bun's line coverage under-counts the
 // continuation lines of multi-line string concatenation.
 const unrecognizedFlagMessage = (raw: string): string =>
-  `LibreDB Studio: unrecognized ${AGENT_ENABLED_ENV} value "${raw}"; it is ignored and the agent's availability is derived from the AI configuration (use "false" to switch the agent off)`;
+  `dbportal: unrecognized ${AGENT_ENABLED_ENV} value "${raw}"; it is ignored and the agent's availability is derived from the AI configuration (use "false" to switch the agent off)`;
 
 // States only what this branch checked. It fires before the model configuration is
 // read at all, so a server with the flag off and no key set was once told "even
@@ -269,10 +269,10 @@ const ledgerIncompatibleMessage = (file: string, found: string): string =>
   `the agent's durable ledger at "${file}" records a version this release cannot read (${found}); it was written by an incompatible @workflow/world-local, so move the ledger directory aside or delete that file to start a fresh one`;
 
 const unsanctionedTargetMessage = (raw: string): string =>
-  `LibreDB Studio: unsupported ${AGENT_WORLD_TARGET_ENV} value "${raw}"; the agent runtime accepts only: ${ACCEPTED_TARGETS}`;
+  `dbportal: unsupported ${AGENT_WORLD_TARGET_ENV} value "${raw}"; the agent runtime accepts only: ${ACCEPTED_TARGETS}`;
 
 const implicitHostedWorldMessage = (): string =>
-  `LibreDB Studio: ${HOSTED_DEPLOYMENT_ENV} is set with no ${AGENT_WORLD_TARGET_ENV}; set it explicitly to one of: ${ACCEPTED_TARGETS}`;
+  `dbportal: ${HOSTED_DEPLOYMENT_ENV} is set with no ${AGENT_WORLD_TARGET_ENV}; set it explicitly to one of: ${ACCEPTED_TARGETS}`;
 
 const describeCause = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -301,7 +301,7 @@ function readAgentEnableFlag(): "off" | "auto" {
  * concern on the start path (`capability-gate.ts`).
  */
 const unrecognizedThreadFlagMessage = (raw: string): string =>
-  `LibreDB Studio: unrecognized ${AGENT_THREAD_CONTEXT_ENV} value "${raw}"; it is ignored and conversation context stays on (use "false" to switch it off)`;
+  `dbportal: unrecognized ${AGENT_THREAD_CONTEXT_ENV} value "${raw}"; it is ignored and conversation context stays on (use "false" to switch it off)`;
 
 /**
  * Whether a run may be told about the conversation it belongs to.

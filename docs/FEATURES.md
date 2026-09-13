@@ -1,4 +1,4 @@
-# LibreDB Studio Expert Features
+# dbportal Expert Features
 
 ## Implemented Features
 

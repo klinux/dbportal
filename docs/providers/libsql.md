@@ -1,6 +1,6 @@
 # libSQL Provider
 
-> libSQL support for LibreDB Studio, built on the Hrana HTTP protocol (`POST /v2/pipeline`) with
+> libSQL support for dbportal, built on the Hrana HTTP protocol (`POST /v2/pipeline`) with
 > **no driver dependency of any kind**: a statement is JSON in the body of a POST and the answer
 > comes back through the runtime's own `fetch`. One type-id reaches two deployments — a self-hosted
 > **libSQL server (`sqld`)** and **Turso Cloud** — because they speak the same protocol and embed the
@@ -670,7 +670,7 @@ process-wide in bun. Every payload in the tests was captured from the two live d
 
 ```bash
 docker compose -f database-compose.yml up -d libsql
-# then point a Studio connection at 127.0.0.1:18080 with TLS off and no token
+# then point a dbportal connection at 127.0.0.1:18080 with TLS off and no token
 ```
 
 For Turso Cloud, create a database and a token with the `turso` CLI and paste the

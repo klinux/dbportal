@@ -1,5 +1,5 @@
 # ==============================================================================
-# LibreDB Studio - Production Dockerfile
+# dbportal - Production Dockerfile
 # Optimized for Render, Railway, Fly.io, and Kubernetes
 # ==============================================================================
 

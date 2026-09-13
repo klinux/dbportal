@@ -1,6 +1,6 @@
 # Oracle Provider
 
-> Oracle Database support for LibreDB Studio, built on the [`oracledb`](https://github.com/oracle/node-oracledb)
+> Oracle Database support for dbportal, built on the [`oracledb`](https://github.com/oracle/node-oracledb)
 > driver in **Thin mode** (pure JavaScript — no Oracle Instant Client required).
 > This document is the single reference point for the Oracle provider: design, architecture, usage,
 > and tests. Oracle is a SQL-family provider sharing `SQLBaseProvider`; read the
@@ -408,7 +408,7 @@ connect time. It is still mapped ([§11](#11-error-handling)), because the remed
 
 #### Building an image with Instant Client (works for both cases above)
 
-The published image (`ghcr.io/libredb/libredb-studio`) ships **Thin only** — it does not bundle the
+The published image (`ghcr.io/klinux/dbportal`) ships **Thin only** — it does not bundle the
 Oracle Instant Client, because the native client is ~100 MB and only a minority of deployments need
 it. What the image does carry (since #538) is the driver's own Thick-mode addon, so layering a client
 on top is all that is left to do. The runtime base is Debian 13 (`node:*-trixie-slim`), so the recipe
@@ -416,7 +416,7 @@ installs `libaio1t64` (trixie's renamed `libaio1`), symlinks the SONAME the clie
 unpacks the Basic package, and puts the directory on the loader path:
 
 ```dockerfile
-FROM ghcr.io/libredb/libredb-studio:latest
+FROM ghcr.io/klinux/dbportal:latest
 
 USER root
 # Instant Client 19c — reaches Oracle 11.2; 21c/23ai do not. Pin to a specific
@@ -1636,7 +1636,7 @@ bun run test:coverage                                    # CI coverage workflow 
 
 ```bash
 docker run --rm -e ORACLE_PASSWORD=secret -p 1521:1521 gvenzl/oracle-free:slim
-# then connect to localhost:1521 / FREEPDB1 (user system, password secret) in the Studio UI
+# then connect to localhost:1521 / FREEPDB1 (user system, password secret) in the dbportal UI
 ```
 
 For the object surface, use the compose service instead, which mounts the fixture

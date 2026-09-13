@@ -1,6 +1,6 @@
 # Adding a Database Provider
 
-> How to add support for a new database to LibreDB Studio, and how to decide whether it needs a
+> How to add support for a new database to dbportal, and how to decide whether it needs a
 > driver dependency at all. For the architecture this plugs into — the Strategy Pattern, the
 > provider hierarchy, the shared interface and base classes — see
 > [`DATABASE_PROVIDERS.md`](./DATABASE_PROVIDERS.md). For the per-provider reference index, see

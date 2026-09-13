@@ -122,10 +122,18 @@ Design notes for these live in [DESIGN.md](DESIGN.md) §"State Management" and
     marketing hero (engine showcase, install-channel counts, connection-string ticker,
     social row) and the "star us on GitHub" prompt were removed rather than reworded, since
     none of them describes this product. Sidebar lockup, repository link, error page.
-  - *Layer 2 — operator-facing strings*: startup banner, bootstrap/preflight console
-    messages, README, `.env.example` comments, `docs/`.
+  - *Layer 2 — operator-facing strings* (done): startup banner (the "star the project"
+    line became a plain `Source:` line), bootstrap/preflight/agent-config console messages,
+    the agent's system prompt, the Trino kill message, the container bind-resolver log
+    prefix, `.env.example` / Dockerfile / compose headers, and the product name across
+    `docs/`. What `docs/` still says about the *npm package*, the *npx launcher* and
+    *libredb-platform* describes upstream channels this snapshot removed (§6); pruning
+    those is a docs audit, not a rename, and is still open. `docs/ui/login-page.md`
+    describes the upstream login hero that layer 1 replaced.
   - *Layer 3 — with migration*: `LIBREDB_*` env vars (accept both names for a release),
-    storage keys (migrate on read), chart name, `libredb.audit.v1` schema id.
+    storage keys (migrate on read), chart name, `libredb.audit.v1` schema id, the
+    `admin@libredb.org` / `user@libredb.org` default account emails, the health route's
+    `service: "libredb-studio"` field and the Trino `X-Trino-Source` client name.
   - *Never*: the `libredb` engine type and the `@libredb/libredb` package.
 - **Out of scope:** desktop apps, marketplace listings, npm library packaging, extending the
   AI agent.

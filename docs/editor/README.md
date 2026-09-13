@@ -1,6 +1,6 @@
 # Editor Documentation
 
-Reference docs for LibreDB Studio's SQL editor (Monaco-based) and the query
+Reference docs for dbportal's SQL editor (Monaco-based) and the query
 execution pipeline behind it.
 
 | Doc | Covers |

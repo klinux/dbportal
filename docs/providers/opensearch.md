@@ -1,6 +1,6 @@
 # OpenSearch Provider
 
-> OpenSearch support for LibreDB Studio, built on the SQL plugin that ships with the distribution
+> OpenSearch support for dbportal, built on the SQL plugin that ships with the distribution
 > (`POST /_plugins/_sql`, port `9200`) with **no driver dependency of any kind**: every statement is a
 > JSON body and the answer comes back through the runtime's own `fetch`. This document is the single
 > reference point for the `opensearch` type-id: design, architecture, usage, and tests. Its sibling

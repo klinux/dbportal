@@ -29,7 +29,7 @@ were `model-timeout` with tools already invoked. A turn that never finished, rat
 that was wrong.
 
 The value is the one `qwen3.5:9b` and `nemotron-3.5-lightning:30b` already carry for the same
-shape rather than a new number, and it is the product's ceiling: nothing here exceeds what Studio
+shape rather than a new number, and it is the product's ceiling: nothing here exceeds what dbportal
 already ships for a model that needs longer turns. One setting, because one is what it was
 measured needing — everything else is the compiled default, and a setting a model did not earn is
 a guess.

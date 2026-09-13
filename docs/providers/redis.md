@@ -1,6 +1,6 @@
 # Redis Provider
 
-> Key-value store support for LibreDB Studio, built on [`ioredis`](https://github.com/redis/ioredis).
+> Key-value store support for dbportal, built on [`ioredis`](https://github.com/redis/ioredis).
 > This document is the single reference point for the Redis provider: design, architecture,
 > usage, and tests. If you are reading the code, extending Redis support, or authoring a new
 > provider, start here.
@@ -24,7 +24,7 @@
 ## 1. Overview
 
 Redis is an in-memory key-value store. It has no tables, no rows, no SQL, and no relational
-schema. LibreDB Studio is a SQL-oriented IDE, so the central design problem is:
+schema. dbportal is a SQL-oriented IDE, so the central design problem is:
 
 > **How do you present a key-value store through the same `DatabaseProvider` interface that
 > PostgreSQL, MySQL, and the rest implement — without emulating SQL and without leaking
@@ -1053,7 +1053,7 @@ development:
 
 ```bash
 docker run --rm -p 6379:6379 redis:7-alpine
-# then point a connection at localhost:6379 in the Studio UI and run e.g. `INFO`, `SCAN 0`
+# then point a connection at localhost:6379 in the dbportal UI and run e.g. `INFO`, `SCAN 0`
 ```
 
 To reproduce the ACL rig of [§4.1a](#41a-acl-users-d29) — a user that can browse keys but not read

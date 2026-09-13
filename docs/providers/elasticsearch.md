@@ -1,6 +1,6 @@
 # Elasticsearch Provider
 
-> Elasticsearch support for LibreDB Studio, built on Elasticsearch's own SQL endpoint
+> Elasticsearch support for dbportal, built on Elasticsearch's own SQL endpoint
 > (`POST /_sql?format=json`, port `9200`) with **no driver dependency of any kind**: every statement is
 > a JSON body and the answer comes back through the runtime's own `fetch`. This document is the single
 > reference point for the `elasticsearch` type-id: design, architecture, usage, and tests. Its sibling
@@ -175,7 +175,7 @@ What it costs, stated plainly:
 - **No sniffing, no failover, no retry.** One statement is one `fetch` to one host. A refused socket
   surfaces as an error rather than being retried against another node. For an interactive editor that
   is the honest trade; a deployment that wants failover puts a load balancer in front, which is
-  exactly the host a Studio connection points at.
+  exactly the host a dbportal connection points at.
 - **No cursor paging offered to the user.** The transport follows the cursor the engine chooses to
   send ([§3.5](#35-the-engine-pages-aggregations-by-itself)) but never requests one, so there is no
   `fetch_size`, no server-side scroll to leak, and the editor's row limit is what bounds a result.

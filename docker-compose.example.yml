@@ -1,7 +1,7 @@
 # =============================================================================
-# LibreDB Studio — Ready-to-use Docker Compose
+# dbportal — Ready-to-use Docker Compose
 # =============================================================================
-# Pulls the published image (ghcr.io/libredb/libredb-studio:latest) — no source
+# Pulls the published image (ghcr.io/klinux/dbportal:latest) — no source
 # build required. Works on any Docker host and PaaS that consumes a plain
 # docker-compose.yml (Dokploy, Coolify, Portainer, etc.).
 #
@@ -18,9 +18,9 @@
 # =============================================================================
 
 services:
-  libredb-studio:
-    image: ghcr.io/libredb/libredb-studio:latest
-    container_name: libredb-studio
+  dbportal:
+    image: ghcr.io/klinux/dbportal:latest
+    container_name: dbportal
     restart: unless-stopped
     ports:
       - "3000:3000"

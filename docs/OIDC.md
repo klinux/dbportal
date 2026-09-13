@@ -1,8 +1,8 @@
-# OIDC SSO — LibreDB Studio
+# OIDC SSO — dbportal
 
-LibreDB Studio supports vendor-agnostic OpenID Connect (OIDC) authentication. This document is split into two parts: a **Setup Guide** for operators configuring SSO against a provider, and an **Architecture & Internals** reference for contributors working on the auth subsystem.
+dbportal supports vendor-agnostic OpenID Connect (OIDC) authentication. This document is split into two parts: a **Setup Guide** for operators configuring SSO against a provider, and an **Architecture & Internals** reference for contributors working on the auth subsystem.
 
-LibreDB Studio uses the **Authorization Code Flow with PKCE** (S256). After OIDC authentication, a local JWT session is created — the rest of the app (middleware, hooks, protected routes, RBAC) works identically to local email/password login.
+dbportal uses the **Authorization Code Flow with PKCE** (S256). After OIDC authentication, a local JWT session is created — the rest of the app (middleware, hooks, protected routes, RBAC) works identically to local email/password login.
 
 ```
 Browser → /api/auth/oidc/login → OIDC Discovery → PKCE + state → redirect to provider
@@ -329,7 +329,7 @@ The role mapping system:
 
 ### Same user auto-logs in on every SSO click
 
-- This is handled automatically — LibreDB Studio sends `prompt=login` to force re-authentication
+- This is handled automatically — dbportal sends `prompt=login` to force re-authentication
 - If the issue persists, check your provider's session settings
 
 ### Role is always "user" even for admins
@@ -342,8 +342,8 @@ The role mapping system:
 ### Logout doesn't clear provider session
 
 - The return URL must be registered with the provider, or it rejects the redirect: Auth0 "Allowed Logout URLs", Keycloak "Valid post logout redirect URIs", Azure AD "Front-channel logout URL"
-- Keycloak / Okta / Azure AD: the logout endpoint comes from the provider's own Discovery metadata, so no per-provider configuration is needed on Studio's side
-- If the provider advertises no `end_session_endpoint` (Google, for one), the provider session survives on purpose — Studio clears its own cookie and skips the redirect. Signing in again still prompts, because Studio always sends `prompt=login`
+- Keycloak / Okta / Azure AD: the logout endpoint comes from the provider's own Discovery metadata, so no per-provider configuration is needed on dbportal's side
+- If the provider advertises no `end_session_endpoint` (Google, for one), the provider session survives on purpose — dbportal clears its own cookie and skips the redirect. Signing in again still prompts, because dbportal always sends `prompt=login`
 
 ---
 
@@ -365,7 +365,7 @@ Both modes use the same JWT session after authentication. The middleware, hooks,
 
 # Part 2 — Architecture & Internals
 
-> Developer reference for the OIDC authentication subsystem in LibreDB Studio.
+> Developer reference for the OIDC authentication subsystem in dbportal.
 > For user-facing setup instructions, see [Part 1 — Setup Guide](#part-1--setup-guide).
 
 ## Design Philosophy
@@ -892,11 +892,11 @@ async function buildLogoutUrl(returnTo: string): Promise<string | null> {
 > **What `buildLogoutUrl()` actually implements:** **Auth0** and **Zitadel** retain their existing special cases. Every
 > other issuer uses the `end_session_endpoint` advertised by OIDC Discovery. Providers that do not advertise this
 > metadata complete the local logout without a provider redirect. **Google is a real example of that last
-> case** — its discovery document carries no `end_session_endpoint`, so signing out of Studio deliberately
-> leaves the Google session alone (the next sign-in still prompts, because Studio always sends `prompt=login`).
+> case** — its discovery document carries no `end_session_endpoint`, so signing out of dbportal deliberately
+> leaves the Google session alone (the next sign-in still prompts, because dbportal always sends `prompt=login`).
 >
 > The request carries `post_logout_redirect_uri` and the `client_id` that `openid-client` adds; it does **not**
-> carry `id_token_hint`, because Studio never persists the ID token. Providers that require `id_token_hint`
+> carry `id_token_hint`, because dbportal never persists the ID token. Providers that require `id_token_hint`
 > for RP-initiated logout will reject the redirect — that is the one case the ✅ column below does not cover.
 
 | Provider | Native Endpoint | Return Param | Wired? |
