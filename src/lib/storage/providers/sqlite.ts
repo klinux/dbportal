@@ -4,7 +4,8 @@
  * WAL mode enabled for concurrent read performance.
  */
 
-import type { ServerStorageProvider, StorageCollection, StorageData } from "../types";
+import type { AuditEventQuery, ServerStorageProvider, StorageCollection, StorageData } from "../types";
+import type { AuditEvent } from "@/lib/audit";
 import { STORAGE_COLLECTIONS } from "../types";
 import type BetterSqlite3 from "better-sqlite3";
 import { logger } from "@/lib/logger";
@@ -70,6 +71,16 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
           updated_at TEXT NOT NULL DEFAULT (datetime('now')),
           PRIMARY KEY (user_id, collection)
         )
+      `);
+      // The audit record (docs/CONTEXT.md §4.2); see the PostgreSQL provider for the shape.
+      this.db!.exec(`
+        CREATE TABLE IF NOT EXISTS audit_events (
+          id   TEXT PRIMARY KEY,
+          ts   TEXT NOT NULL,
+          type TEXT NOT NULL,
+          data TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS audit_events_ts ON audit_events (ts DESC);
       `);
     } catch (error) {
       logger.error("SQLite storage initialization failed", error, { provider: "sqlite", path: this.dbPath });
@@ -147,6 +158,35 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
       }
     });
     tx();
+  }
+
+  async appendAuditEvent(event: AuditEvent): Promise<void> {
+    this.ensureDb();
+    this.db!.prepare("INSERT OR IGNORE INTO audit_events (id, ts, type, data) VALUES (?, ?, ?, ?)").run(
+      event.id,
+      event.timestamp,
+      event.type,
+      JSON.stringify(event),
+    );
+  }
+
+  async listAuditEvents(query: AuditEventQuery): Promise<AuditEvent[]> {
+    this.ensureDb();
+    const rows = (
+      query.type
+        ? this.db!.prepare("SELECT data FROM audit_events WHERE type = ? ORDER BY ts DESC LIMIT ?").all(
+            query.type,
+            query.limit,
+          )
+        : this.db!.prepare("SELECT data FROM audit_events ORDER BY ts DESC LIMIT ?").all(query.limit)
+    ) as { data: string }[];
+    return rows.map((row) => JSON.parse(row.data) as AuditEvent);
+  }
+
+  async countAuditEvents(): Promise<number> {
+    this.ensureDb();
+    const row = this.db!.prepare("SELECT COUNT(*) AS n FROM audit_events").get() as { n: number } | undefined;
+    return row?.n ?? 0;
   }
 
   async isHealthy(): Promise<boolean> {

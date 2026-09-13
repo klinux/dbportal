@@ -62,6 +62,15 @@ function connectionWithEverySecret(): DatabaseConnection {
  * (src/lib/storage/providers/sqlite.ts:118, postgres.ts:107), which is what `persisted()` models.
  */
 class CaptureProvider implements ServerStorageProvider {
+  // The audit record is not what this capture is about; the three methods exist so the
+  // class still satisfies the interface it stands in for.
+  async appendAuditEvent(): Promise<void> {}
+  async listAuditEvents(): Promise<never[]> {
+    return [];
+  }
+  async countAuditEvents(): Promise<number> {
+    return 0;
+  }
   readonly rows = new Map<string, unknown>();
 
   async initialize(): Promise<void> {}

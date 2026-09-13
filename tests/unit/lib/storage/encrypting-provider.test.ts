@@ -16,6 +16,9 @@ function stubProvider(overrides: Partial<ServerStorageProvider> = {}) {
     getCollection: mock(async () => null),
     setCollection: mock(async () => {}),
     mergeData: mock(async () => {}),
+    appendAuditEvent: mock(async () => {}),
+    listAuditEvents: mock(async () => []),
+    countAuditEvents: mock(async () => 0),
     ...overrides,
   } as unknown as ServerStorageProvider & Record<string, ReturnType<typeof mock>>;
 }
@@ -64,6 +67,27 @@ afterEach(() => {
 });
 
 describe("delegation", () => {
+  // The audit record carries no credential by construction, so the three audit methods
+  // pass through unsealed and unchanged (docs/CONTEXT.md §4.2).
+  test("the audit record passes straight through", async () => {
+    const inner = stubProvider();
+    const provider = withCredentialEncryption(inner);
+    const event = {
+      id: "e1",
+      timestamp: "2026-09-13T00:00:00.000Z",
+      type: "maintenance" as const,
+      action: "vacuum",
+      target: "t",
+      user: "u",
+      result: "success" as const,
+    };
+    await provider.appendAuditEvent(event);
+    expect(inner.appendAuditEvent).toHaveBeenCalledWith(event);
+    await provider.listAuditEvents({ limit: 3 });
+    expect(inner.listAuditEvents).toHaveBeenCalledWith({ limit: 3 });
+    expect(await provider.countAuditEvents()).toBe(0);
+  });
+
   test("initialize, isHealthy and close reach the inner provider unchanged", async () => {
     const inner = stubProvider();
     const provider = withCredentialEncryption(inner);

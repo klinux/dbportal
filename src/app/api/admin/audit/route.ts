@@ -4,6 +4,7 @@ import { getServerAuditBuffer, sanitizeAuditInput, type AuditEventType } from "@
 import { auditRoleDenial } from "@/lib/api/role-denial";
 import { createErrorResponse } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
+import { getStorageProvider } from "@/lib/storage/factory";
 
 export async function GET(request: Request) {
   try {
@@ -17,10 +18,21 @@ export async function GET(request: Request) {
     const type = searchParams.get("type") as AuditEventType | null;
     const limit = parseInt(searchParams.get("limit") || "100", 10);
 
+    // The durable record when a server store is configured (docs/CONTEXT.md §4.2) - every
+    // process, every restart - and the per-process ring buffer otherwise.
+    const store = await getStorageProvider();
+    if (store) {
+      const [events, total] = await Promise.all([
+        store.listAuditEvents({ ...(type ? { type } : {}), limit }),
+        store.countAuditEvents(),
+      ]);
+      return NextResponse.json({ events, total, source: "store" });
+    }
+
     const buffer = getServerAuditBuffer();
     const events = type ? buffer.filter({ type }) : buffer.getRecent(limit);
 
-    return NextResponse.json({ events, total: buffer.size });
+    return NextResponse.json({ events, total: buffer.size, source: "buffer" });
   } catch (error) {
     return createErrorResponse(error, { route: "GET /api/admin/audit" });
   }

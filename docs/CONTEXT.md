@@ -44,7 +44,6 @@ Verified in code, not from the README:
 
 | Gap | Where | What actually happens today |
 |---|---|---|
-| Audit of human queries is not yet durable | [`src/lib/audit-execution.ts`](../src/lib/audit-execution.ts) (§4.2, done for the channel) | Every execution now leaves a `query_execution` line on stdout and in the ring buffer. The stdout pipeline is the durable record; the buffer the admin tab reads holds 1000 events per process and is lost on restart. An append-only table in the `postgres` storage provider is the next step. |
 | Two-role RBAC | [`src/lib/auth.ts`](../src/lib/auth.ts) — `type Role = "admin" \| "user"` | Seed YAML supports `roles: ["admin"]` / `["*"]`. No groups, no per-datasource read/write matrix. |
 | Static shared credentials | [`src/lib/db/factory.ts`](../src/lib/db/factory.ts) — provider cache keyed by connection | Every user shares the database role; the database's own logs cannot name the person. |
 | Masking is client-side | [`src/lib/data-masking.ts`](../src/lib/data-masking.ts) | Column-name regex in the browser; `salary AS x` escapes it; the API returns raw values. |
@@ -127,9 +126,14 @@ Two steps. The first closes the hole; the second delivers the product.
 - The admin Audit tab's Queries and Stats read `GET /api/admin/audit?type=query_execution`
   (the server's buffer), not the admin's own browser history; a list without statements
   says which flag turns them on.
-- **Open:** a store the user cannot reach and a restart does not empty — an append-only
-  table in the `postgres` storage provider — so the tab outlives the process. stdout to the
-  log pipeline remains the durable channel until then.
+- Persistence: with `STORAGE_PROVIDER=sqlite|postgres`, every event is also appended to an
+  `audit_events` table (id, ts, type, JSON of the sanitized event) — append-only by
+  contract, no update or delete anywhere, unreachable through the per-user storage routes.
+  The sink is registered at boot ([`src/lib/audit-persistence.ts`](../src/lib/audit-persistence.ts))
+  and is fire-and-forget: the stdout line is already out, and a store that is down fails
+  the event (logged) and never the request. `GET /api/admin/audit` reads the store when
+  there is one (`source: "store"`) and the per-process ring buffer otherwise. On `local`
+  the stdout pipeline remains the only durable channel.
 
 ### 4.3 `application_name` per user — done
 

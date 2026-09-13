@@ -334,6 +334,29 @@ GRANT SELECT, INSERT, UPDATE ON user_storage TO libredb_app;
 
 ---
 
+## Audit Events Table
+
+With `STORAGE_PROVIDER=sqlite` or `postgres`, every audit event the server emits (logins,
+denials, maintenance, every statement a person runs — see `docs/CONTEXT.md` §4.2) is also
+appended to an `audit_events` table next to `user_storage`:
+
+| Column | Type | Meaning |
+|--------|------|---------|
+| `id` | text, primary key | the event's own id, minted once |
+| `ts` | timestamp | when it happened |
+| `type` | text | the event type, for filtering |
+| `data` | text | the sanitized event as JSON — never a credential, never a raw error |
+
+The table is **append-only by contract**: no code path updates or deletes a row, and it is
+not reachable through the per-user `/api/storage` routes. The admin Audit page reads it
+(`GET /api/admin/audit` answers `source: "store"`), so the record survives restarts and is
+the same across replicas. The stdout JSON line remains the authoritative channel; the write
+here is fire-and-forget, and a store that is down fails the event (logged) — never the
+request that produced it. On `STORAGE_PROVIDER=local` there is no table and the admin page
+reads the per-process ring buffer.
+
+---
+
 ## Migration: Local to Server
 
 When you switch from local mode to SQLite or PostgreSQL, **existing browser data is automatically migrated** on first login:

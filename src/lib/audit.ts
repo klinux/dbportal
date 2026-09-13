@@ -1,4 +1,5 @@
 import { storage } from "@/lib/storage";
+import { logger } from "@/lib/logger";
 
 export type AuditEventType =
   | "maintenance"
@@ -493,7 +494,44 @@ export function emitAuditEvent(event: Omit<AuditEvent, "id" | "timestamp">): Aud
   // JSON.stringify escapes newlines and control characters, so an attacker-controlled actor
   // cannot forge a second log line. This is why the audit channel does not reuse logger.ts.
   console.log(JSON.stringify(toAuditLine(stored)));
+  // The durable copy (docs/CONTEXT.md §4.2), when a server store registered one at boot.
+  // Fire-and-forget: the line above is already out, and a store that is down must not make
+  // the request that produced the event wait or fail. The failure is logged, once per event.
+  const persistence = getAuditPersistence();
+  if (persistence) {
+    persistence(stored).catch((error: unknown) => {
+      logger.error("Failed to persist audit event", error, { route: "audit", eventId: stored.id });
+    });
+  }
   return stored;
+}
+
+/**
+ * The durable destination, registered by the server at boot (src/lib/audit-persistence.ts)
+ * and never from this module: audit.ts is imported by browser code too, and the storage
+ * providers are not. `null` is the default and what a `local` deployment keeps - the stdout
+ * line stays the authoritative channel either way.
+ *
+ * Held on `globalThis` under a symbol, not in a module variable, for the reason the
+ * sqlite-sample seed state is: Next.js compiles the instrumentation hook, the proxy and
+ * each route as separate entries with their own module instances, so a variable set at
+ * boot would be invisible to the route that emits the event (measured: the sink registered
+ * from instrumentation.ts never fired for /api/db/query while it was module state).
+ */
+type AuditSink = (event: AuditEvent) => Promise<void>;
+const PERSISTENCE_KEY = Symbol.for("dbportal.audit-persistence");
+type PersistenceHolder = { [PERSISTENCE_KEY]?: AuditSink | null };
+
+export function setAuditPersistence(sink: AuditSink | null): void {
+  (globalThis as PersistenceHolder)[PERSISTENCE_KEY] = sink;
+}
+
+function getAuditPersistence(): AuditSink | null {
+  return (globalThis as PersistenceHolder)[PERSISTENCE_KEY] ?? null;
+}
+
+export function hasAuditPersistence(): boolean {
+  return getAuditPersistence() !== null;
 }
 
 // Client-side localStorage persistence — delegates to storage module

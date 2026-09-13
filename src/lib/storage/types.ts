@@ -38,13 +38,30 @@ export const STORAGE_COLLECTIONS: StorageCollection[] = [
   "dismissed_seeds",
 ];
 
+/** What the admin API asks the audit store for. */
+export interface AuditEventQuery {
+  type?: string;
+  limit: number;
+}
+
 /**
  * Server-side storage provider interface.
  * Implements the Strategy Pattern — SQLite and PostgreSQL both implement this.
+ *
+ * Besides the per-user collections it also holds the audit record (docs/CONTEXT.md §4.2):
+ * an APPEND-ONLY table no user can reach through the storage routes, read by the admin
+ * API in place of the per-process ring buffer once a server store is configured. The
+ * three methods below are the whole contract - there is no update and no delete.
  */
 export interface ServerStorageProvider {
   /** Create tables if they don't exist */
   initialize(): Promise<void>;
+  /** Append one audit event. Never overwrites: the id is the event's own, minted once. */
+  appendAuditEvent(event: AuditEvent): Promise<void>;
+  /** The most recent events, newest first, optionally of one type. */
+  listAuditEvents(query: AuditEventQuery): Promise<AuditEvent[]>;
+  /** How many events the store holds. */
+  countAuditEvents(): Promise<number>;
   /** Get all collections for a user */
   getAllData(userId: string): Promise<Partial<StorageData>>;
   /** Get a single collection for a user */

@@ -22,6 +22,11 @@ export async function register(): Promise<void> {
 
   const { logger } = await import("@/lib/logger");
 
+  // The durable audit record (docs/CONTEXT.md §4.2): from here on, every event the channel
+  // emits is also appended to the server store, when there is one.
+  const { registerAuditPersistence } = await import("@/lib/audit-persistence");
+  registerAuditPersistence();
+
   // LibreDB sample: programmatic and fast — seeded synchronously as before.
   const { isSampleEnabled, resolveSamplePath, seedSampleFile } = await import("@/lib/seed/libredb-sample");
   if (isSampleEnabled()) {

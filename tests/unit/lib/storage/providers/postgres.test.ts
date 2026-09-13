@@ -58,11 +58,66 @@ describe("PostgresStorageProvider", () => {
     await provider.close();
   });
 
-  test("initialize creates table", async () => {
+  test("initialize creates the user table, the audit table and its index", async () => {
     await provider.initialize();
-    expect(mockQuery).toHaveBeenCalledTimes(1);
-    const sql = (mockQuery.mock.calls as unknown[][])[0][0] as string;
-    expect(sql).toContain("CREATE TABLE IF NOT EXISTS user_storage");
+    expect(mockQuery).toHaveBeenCalledTimes(3);
+    const sql = (mockQuery.mock.calls as unknown[][]).map((call) => call[0] as string);
+    expect(sql[0]).toContain("CREATE TABLE IF NOT EXISTS user_storage");
+    expect(sql[1]).toContain("CREATE TABLE IF NOT EXISTS audit_events");
+    expect(sql[2]).toContain("CREATE INDEX IF NOT EXISTS audit_events_ts");
+  });
+
+  // docs/CONTEXT.md §4.2: the durable audit record. Append-only by contract - the one write
+  // is an INSERT that does nothing on a duplicate id, and no method updates or deletes.
+  describe("the audit record", () => {
+    const event = {
+      id: "evt-1",
+      timestamp: "2026-09-13T00:00:00.000Z",
+      type: "query_execution" as const,
+      action: "query",
+      target: "POST /api/db/query",
+      user: "ana",
+      result: "success" as const,
+    };
+
+    test("appendAuditEvent inserts the event as JSON under its own id, never overwriting", async () => {
+      await provider.initialize();
+      mockQuery.mockClear();
+      await provider.appendAuditEvent(event);
+      const [sql, params] = (mockQuery.mock.calls as unknown[][])[0] as [string, unknown[]];
+      expect(sql).toContain("INSERT INTO audit_events");
+      expect(sql).toContain("ON CONFLICT (id) DO NOTHING");
+      expect(sql).not.toMatch(/UPDATE|DELETE/);
+      expect(params).toEqual(["evt-1", event.timestamp, "query_execution", JSON.stringify(event)]);
+    });
+
+    test("listAuditEvents reads newest first, optionally of one type, and parses the rows", async () => {
+      await provider.initialize();
+      mockQuery.mockImplementation(async () => ({ rows: [{ data: JSON.stringify(event) }] }));
+      expect(await provider.listAuditEvents({ limit: 5 })).toEqual([event]);
+      let [sql, params] = (mockQuery.mock.calls as unknown[][]).at(-1) as [string, unknown[]];
+      expect(sql).toContain("ORDER BY ts DESC LIMIT $1");
+      expect(params).toEqual([5]);
+
+      await provider.listAuditEvents({ type: "maintenance", limit: 2 });
+      [sql, params] = (mockQuery.mock.calls as unknown[][]).at(-1) as [string, unknown[]];
+      expect(sql).toContain("WHERE type = $1");
+      expect(params).toEqual(["maintenance", 2]);
+    });
+
+    test("countAuditEvents answers the count, and 0 for an empty answer", async () => {
+      await provider.initialize();
+      mockQuery.mockImplementation(async () => ({ rows: [{ n: 42 }] }));
+      expect(await provider.countAuditEvents()).toBe(42);
+      mockQuery.mockImplementation(async () => ({ rows: [] }));
+      expect(await provider.countAuditEvents()).toBe(0);
+    });
+
+    test("every audit method refuses before initialize()", async () => {
+      await expect(provider.appendAuditEvent(event)).rejects.toThrow("not initialized");
+      await expect(provider.listAuditEvents({ limit: 1 })).rejects.toThrow("not initialized");
+      await expect(provider.countAuditEvents()).rejects.toThrow("not initialized");
+    });
   });
 
   test("initialize disables SSL for localhost when no ssl params", async () => {

@@ -76,6 +76,20 @@ mock.module("@/lib/audit", () => ({
   saveAuditToStorage: mock(() => {}),
 }));
 
+// The durable store (docs/CONTEXT.md §4.2): absent by default, so the buffer path below is what
+// most tests exercise; a test that wants the store swaps it in.
+let mockStore: {
+  listAuditEvents: ReturnType<typeof mock>;
+  countAuditEvents: ReturnType<typeof mock>;
+} | null = null;
+// The error mapper reaches the seed index and the datasource store, which bind the two
+// names below too; a stub that carries only what the route calls fails at import.
+mock.module("@/lib/storage/factory", () => ({
+  getStorageProvider: async () => mockStore,
+  isServerStorageEnabled: () => mockStore !== null,
+  getStorageProviderType: () => (mockStore ? "postgres" : "local"),
+}));
+
 // ─── Import route handler AFTER mocking ─────────────────────────────────────
 const { GET, POST } = await import("@/app/api/admin/audit/route");
 
@@ -91,9 +105,29 @@ describe("/api/admin/audit", () => {
     mockBuffer.filter.mockClear();
     mockEmitAuditEvent.mockClear();
     mockEmitAuditEvent.mockImplementation(() => {});
+    mockStore = null;
   });
 
   describe("GET /api/admin/audit", () => {
+    // With a server store the answer is the durable record - every process, every restart -
+    // and says so; the ring buffer is not consulted at all.
+    test("reads the durable store when one is configured, type and limit included", async () => {
+      mockStore = {
+        listAuditEvents: mock(async () => [mockEvents[1]]),
+        countAuditEvents: mock(async () => 1234),
+      };
+      const res = await GET(createMockRequest("/api/admin/audit?type=query_execution&limit=7"));
+      const data = await parseResponseJSON<{ events: AuditEvent[]; total: number; source: string }>(res);
+      expect(res.status).toBe(200);
+      expect(mockStore.listAuditEvents).toHaveBeenCalledWith({ type: "query_execution", limit: 7 });
+      expect(data).toEqual({ events: [mockEvents[1]], total: 1234, source: "store" });
+      expect(mockBuffer.getRecent).not.toHaveBeenCalled();
+      expect(mockBuffer.filter).not.toHaveBeenCalled();
+
+      await GET(createMockRequest("/api/admin/audit"));
+      expect(mockStore.listAuditEvents).toHaveBeenLastCalledWith({ limit: 100 });
+    });
+
     test("returns events as admin", async () => {
       const req = createMockRequest("/api/admin/audit");
 

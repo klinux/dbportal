@@ -1,7 +1,8 @@
 import { logger } from "@/lib/logger";
 import { decryptConnections, encryptConnections } from "./connection-secrets";
-import type { ServerStorageProvider, StorageCollection, StorageData } from "./types";
+import type { AuditEventQuery, ServerStorageProvider, StorageCollection, StorageData } from "./types";
 import type { DatabaseConnection } from "@/lib/types";
+import type { AuditEvent } from "@/lib/audit";
 
 /**
  * Credential encryption, applied ABOVE the ServerStorageProvider boundary.
@@ -51,6 +52,20 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
 
   close(): Promise<void> {
     return this.inner.close();
+  }
+
+  // The audit record carries no credential by construction (src/lib/audit.ts sanitizes every
+  // field before an event exists), so it passes through unsealed.
+  appendAuditEvent(event: AuditEvent): Promise<void> {
+    return this.inner.appendAuditEvent(event);
+  }
+
+  listAuditEvents(query: AuditEventQuery): Promise<AuditEvent[]> {
+    return this.inner.listAuditEvents(query);
+  }
+
+  countAuditEvents(): Promise<number> {
+    return this.inner.countAuditEvents();
   }
 
   async getAllData(userId: string): Promise<Partial<StorageData>> {

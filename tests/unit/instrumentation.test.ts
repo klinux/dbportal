@@ -5,6 +5,7 @@ import * as path from "path";
 import { register } from "@/instrumentation";
 import { logger } from "@/lib/logger";
 import { getSqliteSampleSeedState, setSqliteSampleSeedState } from "@/lib/seed/sqlite-sample";
+import { hasAuditPersistence, setAuditPersistence } from "@/lib/audit";
 
 const ENV_KEYS = [
   "NEXT_RUNTIME",
@@ -14,6 +15,7 @@ const ENV_KEYS = [
   "SQLITE_EMBEDDED_SAMPLE_PATH",
   "SQLITE_EMBEDDED_SAMPLE_TEMPLATE",
   "STORAGE_SQLITE_PATH",
+  "STORAGE_PROVIDER",
   "JWT_SECRET",
   "ADMIN_PASSWORD",
   "AUTH_BOOTSTRAP",
@@ -54,6 +56,28 @@ describe("instrumentation register()", () => {
     }
     fs.rmSync(tmpDir, { recursive: true, force: true });
     setSqliteSampleSeedState("idle");
+  });
+
+  // docs/CONTEXT.md §4.2: the durable audit record is wired at boot, and only when there is a
+  // server store to write it to.
+  test("registers audit persistence when a server store is configured, and not otherwise", async () => {
+    process.env.NEXT_RUNTIME = "nodejs";
+    process.env.JWT_SECRET = "x".repeat(32);
+    process.env.ADMIN_PASSWORD = "admin-password";
+    process.env.AUTH_BOOTSTRAP = "off";
+    process.env.LIBREDB_EMBEDDED_SAMPLE = "false";
+    process.env.SQLITE_EMBEDDED_SAMPLE = "false";
+    try {
+      setAuditPersistence(null);
+      await register();
+      expect(hasAuditPersistence()).toBe(false);
+
+      process.env.STORAGE_PROVIDER = "sqlite";
+      await register();
+      expect(hasAuditPersistence()).toBe(true);
+    } finally {
+      setAuditPersistence(null);
+    }
   });
 
   test("does nothing outside the nodejs runtime", async () => {

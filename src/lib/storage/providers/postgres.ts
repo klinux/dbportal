@@ -3,7 +3,8 @@
  * Uses the existing `pg` package (already a project dependency).
  */
 
-import type { ServerStorageProvider, StorageCollection, StorageData } from "../types";
+import type { AuditEventQuery, ServerStorageProvider, StorageCollection, StorageData } from "../types";
+import type { AuditEvent } from "@/lib/audit";
 import { STORAGE_COLLECTIONS } from "../types";
 import { logger } from "@/lib/logger";
 
@@ -55,6 +56,18 @@ export class PostgresStorageProvider implements ServerStorageProvider {
           PRIMARY KEY (user_id, collection)
         )
       `);
+      // The audit record (docs/CONTEXT.md §4.2): one row per event, the sanitized event as
+      // JSON, and the two columns the admin API filters and orders on. Append-only by
+      // contract - nothing in this provider updates or deletes a row.
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS audit_events (
+          id   TEXT PRIMARY KEY,
+          ts   TIMESTAMPTZ NOT NULL,
+          type TEXT NOT NULL,
+          data TEXT NOT NULL
+        )
+      `);
+      await this.pool.query("CREATE INDEX IF NOT EXISTS audit_events_ts ON audit_events (ts DESC)");
     } catch (error) {
       if (error instanceof Error && error.message.includes("does not support SSL")) {
         throw new Error(
@@ -132,6 +145,31 @@ export class PostgresStorageProvider implements ServerStorageProvider {
     } finally {
       client.release();
     }
+  }
+
+  async appendAuditEvent(event: AuditEvent): Promise<void> {
+    this.ensurePool();
+    await this.pool!.query(
+      "INSERT INTO audit_events (id, ts, type, data) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
+      [event.id, event.timestamp, event.type, JSON.stringify(event)],
+    );
+  }
+
+  async listAuditEvents(query: AuditEventQuery): Promise<AuditEvent[]> {
+    this.ensurePool();
+    const { rows } = query.type
+      ? await this.pool!.query("SELECT data FROM audit_events WHERE type = $1 ORDER BY ts DESC LIMIT $2", [
+          query.type,
+          query.limit,
+        ])
+      : await this.pool!.query("SELECT data FROM audit_events ORDER BY ts DESC LIMIT $1", [query.limit]);
+    return rows.map((row: { data: string }) => JSON.parse(row.data) as AuditEvent);
+  }
+
+  async countAuditEvents(): Promise<number> {
+    this.ensurePool();
+    const { rows } = await this.pool!.query("SELECT COUNT(*)::int AS n FROM audit_events");
+    return rows[0]?.n ?? 0;
   }
 
   async isHealthy(): Promise<boolean> {

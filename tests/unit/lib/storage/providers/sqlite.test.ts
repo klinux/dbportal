@@ -63,7 +63,8 @@ describe("SQLiteStorageProvider", () => {
   test("initialize creates table and enables WAL", async () => {
     await provider.initialize();
     expect(mockPragma).toHaveBeenCalledWith("journal_mode = WAL");
-    expect(mockExec).toHaveBeenCalledTimes(1);
+    expect(mockExec).toHaveBeenCalledTimes(2);
+    expect((mockExec.mock.calls as unknown[][])[1][0] as string).toContain("CREATE TABLE IF NOT EXISTS audit_events");
     const sql = (mockExec.mock.calls as unknown[][])[0][0] as string;
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS user_storage");
   });
@@ -133,7 +134,7 @@ describe("SQLiteStorageProvider", () => {
     // only a statement about the store if the provider is a faithful serializer, which is what
     // this pins: a provider that re-shaped, re-encoded or supplemented the value would break the
     // chain without any security test noticing.
-    const run = mock((..._args: unknown[]) => {});
+    const run = mock(() => {});
     mockPrepare.mockImplementation(() => ({ all: mock(() => []), get: mock(() => undefined), run }));
     await provider.initialize();
     const data = [{ id: "c1", name: "Prod", type: "postgres", password: "v1:aaa:bbb" }];
@@ -349,6 +350,66 @@ describe("SQLiteStorageProvider", () => {
       constructorError = new Error("disk I/O error");
       const freshProvider = new SQLiteStorageProvider(":memory:");
       await expect(freshProvider.initialize()).rejects.toThrow("disk I/O error");
+    });
+  });
+
+  // docs/CONTEXT.md §4.2: the durable audit record. Append-only by contract - the one write
+  // is an INSERT OR IGNORE, and no method updates or deletes.
+  describe("the audit record", () => {
+    const event = {
+      id: "evt-1",
+      timestamp: "2026-09-13T00:00:00.000Z",
+      type: "query_execution" as const,
+      action: "query",
+      target: "POST /api/db/query",
+      user: "ana",
+      result: "success" as const,
+    };
+
+    test("appendAuditEvent inserts the event as JSON under its own id, never overwriting", async () => {
+      await provider.initialize();
+      const run = mock(() => {});
+      mockPrepare.mockImplementationOnce(() => ({ run, all: mock(() => []), get: mock(() => undefined) }));
+      await provider.appendAuditEvent(event);
+      const sql = (mockPrepare.mock.calls as unknown[][]).at(-1)![0] as string;
+      expect(sql).toContain("INSERT OR IGNORE INTO audit_events");
+      expect(sql).not.toMatch(/UPDATE|DELETE/);
+      expect(run).toHaveBeenCalledWith("evt-1", event.timestamp, "query_execution", JSON.stringify(event));
+    });
+
+    test("listAuditEvents reads newest first, optionally of one type, and parses the rows", async () => {
+      await provider.initialize();
+      const all = mock(() => [{ data: JSON.stringify(event) }]);
+      mockPrepare.mockImplementation(() => ({ all, run: mock(() => {}), get: mock(() => undefined) }));
+      expect(await provider.listAuditEvents({ limit: 5 })).toEqual([event]);
+      expect((mockPrepare.mock.calls as unknown[][]).at(-1)![0] as string).toContain("ORDER BY ts DESC LIMIT ?");
+      expect(all).toHaveBeenLastCalledWith(5);
+
+      await provider.listAuditEvents({ type: "maintenance", limit: 2 });
+      expect((mockPrepare.mock.calls as unknown[][]).at(-1)![0] as string).toContain("WHERE type = ?");
+      expect(all).toHaveBeenLastCalledWith("maintenance", 2);
+    });
+
+    test("countAuditEvents answers the count, and 0 for an empty answer", async () => {
+      await provider.initialize();
+      mockPrepare.mockImplementationOnce(() => ({
+        get: mock(() => ({ n: 7 })),
+        all: mock(() => []),
+        run: mock(() => {}),
+      }));
+      expect(await provider.countAuditEvents()).toBe(7);
+      mockPrepare.mockImplementationOnce(() => ({
+        get: mock(() => undefined),
+        all: mock(() => []),
+        run: mock(() => {}),
+      }));
+      expect(await provider.countAuditEvents()).toBe(0);
+    });
+
+    test("every audit method refuses before initialize()", async () => {
+      await expect(provider.appendAuditEvent(event)).rejects.toThrow("not initialized");
+      await expect(provider.listAuditEvents({ limit: 1 })).rejects.toThrow("not initialized");
+      await expect(provider.countAuditEvents()).rejects.toThrow("not initialized");
     });
   });
 });
