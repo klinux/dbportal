@@ -284,21 +284,20 @@ describe("what a request body says about a connection", () => {
     expect(JSON.stringify(payload)).not.toContain("secret");
   });
 
-  test("a browser-held connection travels whole, because the server cannot rebuild it", () => {
-    const conn = plain();
-
-    expect(buildConnectionPayload(conn)).toEqual({ connection: conn });
+  // docs/CONTEXT.md §4.1: no connection travels whole any more. A row with no seed id can
+  // only be stale browser state from before that change; its own id goes out and the server
+  // answers 400 - never a credential, whatever the row holds.
+  test("a connection with no seed id travels as its own id, carrying no credential", () => {
+    const payload = buildConnectionPayload(plain());
+    expect(payload).toEqual({ connectionId: "conn-1" });
+    expect(JSON.stringify(payload)).not.toContain("secret");
   });
 
-  test("a seedId without `managed` is not a seed reference: the copy may point elsewhere", () => {
-    const conn = plain({ seedId: "sales" });
-
-    expect(buildConnectionPayload(conn)).toEqual({ connection: conn });
+  test("a seedId is a seed reference whatever `managed` says: editable copies no longer exist", () => {
+    expect(buildConnectionPayload(plain({ seedId: "sales" }))).toEqual({ connectionId: "seed:sales" });
   });
 
-  test("`managed` with no seedId has no id to reference, so it travels whole", () => {
-    const conn = plain({ managed: true });
-
-    expect(buildConnectionPayload(conn)).toEqual({ connection: conn });
+  test("`managed` with no seedId falls back to the row's own id", () => {
+    expect(buildConnectionPayload(plain({ managed: true }))).toEqual({ connectionId: "conn-1" });
   });
 });

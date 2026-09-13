@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createDatabaseProvider, findOpenSingleWriterProvider, withOneShotTunnel } from "@/lib/db/factory";
 import { createErrorResponse } from "@/lib/api/errors";
-import { resolveConnection } from "@/lib/seed/resolve-connection";
+import { resolveConnection, resolveDraftConnection } from "@/lib/seed/resolve-connection";
 import { guardRoute } from "@/lib/api/require-session";
 
 export async function POST(req: NextRequest) {
@@ -13,11 +13,12 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    // Support both formats: { connectionId: "seed:X" }, { connection: {...} }, or bare connection object
-    const connection = await resolveConnection(
-      body.connectionId ? body : body.connection ? body : { connection: body },
-      guard.session,
-    );
+    // `{ connectionId }` tests a declared datasource. Anything else is a DRAFT an admin is
+    // testing before saving it (docs/CONTEXT.md §4.1 step B) - the one route that still
+    // reads a connection object, wrapped or bare, and only from an administrator.
+    const connection = body.connectionId
+      ? await resolveConnection(body, guard.session)
+      : await resolveDraftConnection(body.connection ?? body, guard.session);
 
     if (!connection.type) {
       return NextResponse.json({ success: false, error: "Connection configuration is required" }, { status: 400 });

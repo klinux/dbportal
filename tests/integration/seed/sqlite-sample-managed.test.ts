@@ -44,7 +44,7 @@ describe("getManagedConnections: sqlite embedded sample", () => {
     expect(sample?.type).toBe("sqlite");
     expect(sample?.name).toBe("Sample (Employees)");
     expect(sample?.database).toBe(file);
-    expect(sample?.managed).toBe(false);
+    expect(sample?.managed).toBe(true);
   });
 
   /*

@@ -3,14 +3,14 @@
 import { appFetch } from "@/lib/config/base-path";
 import { useState, useEffect } from "react";
 import type { DatabaseConnection } from "@/lib/types";
-import { storage } from "@/lib/storage";
 
 /**
- * Returns all connections: user connections from localStorage + managed seed connections from server.
- * Use this instead of storage.getConnections() in components that need the full list.
+ * Every datasource this session may open, from the server (`GET /api/connections/managed`).
+ * There is no browser-held list to merge any more (docs/CONTEXT.md §4.1): a datasource is
+ * declared by an administrator and opened by its seed id.
  *
- * This is a lightweight alternative to useConnectionManager — it only fetches and merges,
- * without active connection state, schema loading, or health checks.
+ * A lightweight alternative to useConnectionManager — it only fetches, without active
+ * connection state, schema loading, or health checks.
  */
 export function useAllConnections() {
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
@@ -19,49 +19,23 @@ export function useAllConnections() {
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
-      const userConns = storage.getConnections();
-      const dismissed = new Set(storage.getDismissedSeeds());
-
-      try {
-        const res = await appFetch("/api/connections/managed");
-        if (res.ok) {
-          const { connections: managedConns } = await res.json();
-          if (managedConns?.length > 0 && !cancelled) {
-            const merged: DatabaseConnection[] = [];
-            const addedIds = new Set<string>();
-
-            // Managed connections first
-            for (const mc of managedConns) {
-              if (mc.managed === false && mc.seedId && dismissed.has(mc.seedId)) continue;
-              merged.push({ ...mc, createdAt: new Date(mc.createdAt) });
-              addedIds.add(mc.id);
-              if (mc.seedId) addedIds.add(`seed:${mc.seedId}`);
-            }
-
-            // User connections (skip duplicates)
-            for (const uc of userConns) {
-              if (addedIds.has(uc.id)) continue;
-              if (uc.seedId && managedConns.some((mc: { seedId: string }) => mc.seedId === uc.seedId)) continue;
-              merged.push(uc);
-            }
-
-            setConnections(merged);
-            setLoading(false);
-            return;
-          }
-        }
-      } catch {
-        // Managed connections optional
-      }
-
-      if (!cancelled) {
-        setConnections(userConns);
+    appFetch("/api/connections/managed")
+      .then(async (res) => {
+        if (!res.ok) return [];
+        const { connections: managed } = (await res.json()) as {
+          connections?: Array<Omit<DatabaseConnection, "createdAt"> & { createdAt: string }>;
+        };
+        const list: DatabaseConnection[] = [];
+        for (const mc of managed ?? []) list.push({ ...mc, createdAt: new Date(mc.createdAt) });
+        return list;
+      })
+      .catch(() => [] as DatabaseConnection[])
+      .then((list) => {
+        if (cancelled) return;
+        setConnections(list);
         setLoading(false);
-      }
-    }
+      });
 
-    load();
     return () => {
       cancelled = true;
     };

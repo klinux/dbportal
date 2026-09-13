@@ -31,21 +31,11 @@ export async function GET() {
       );
     }
 
-    // A non-admin session may only open what the server itself resolves: `resolveConnection`
-    // refuses a client-supplied connection for every other role (docs/CONTEXT.md §4.1), and an
-    // editable seed copy (managed:false - the built-in samples) is sent back as exactly that.
-    // Advertising one would hand the browser a connection it can only fail on, so the list
-    // is cut here, where the role is known, and the seed poll below has nothing to wait for.
-    const canUseLocalConnections = session.role === "admin";
-    const visible = canUseLocalConnections ? connections : connections.filter((conn) => conn.managed);
-
-    const sanitized = visible.map((conn) => {
-      if (conn.managed) {
-        const { password, connectionString, ...rest } = conn;
-        return rest;
-      }
-      return conn;
-    });
+    // Every datasource is managed now (docs/CONTEXT.md §4.1): the browser opens each one by
+    // its seed id and never holds a credential, so the secret fields are dropped from all.
+    const sanitized = connections.map((conn) =>
+      Object.fromEntries(Object.entries(conn).filter(([key]) => key !== "password" && key !== "connectionString")),
+    );
 
     const rawTTL = Number(process.env.SEED_CACHE_TTL_MS);
     const cacheTTL = Number.isFinite(rawTTL) ? rawTTL : 60_000;
@@ -56,7 +46,7 @@ export async function GET() {
     return NextResponse.json({
       connections: sanitized,
       cacheHint: cacheTTL,
-      pendingSeeds: canUseLocalConnections ? getPendingSeeds() : [],
+      pendingSeeds: getPendingSeeds(),
     });
   } catch (error) {
     logger.error("Failed to load managed connections", error, {

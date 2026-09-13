@@ -60,7 +60,8 @@ describe("useTransactionControl", () => {
     expect(options?.method).toBe("POST");
     const body = JSON.parse(options?.body as string);
     expect(body.action).toBe("begin");
-    expect(body.connection.id).toBe("conn-1");
+    expect(body.connectionId).toBe("conn-1");
+    expect(body.connection).toBeUndefined();
 
     // State updated
     expect(result.current.transactionActive).toBe(true);

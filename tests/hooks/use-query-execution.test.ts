@@ -185,8 +185,9 @@ describe("useQueryExecution", () => {
 
     const body = JSON.parse(queryCall![1]!.body as string);
     expect(body.sql).toBe("SELECT * FROM users");
-    expect(body.connection).toBeDefined();
-    expect(body.connection.id).toBe("qe-pg-1");
+    // A reference, never the connection (docs/CONTEXT.md §4.1).
+    expect(body.connectionId).toBe("qe-pg-1");
+    expect(body.connection).toBeUndefined();
   });
 
   // ── executeQuery updates tab result on success ─────────────────────────────

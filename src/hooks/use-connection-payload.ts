@@ -47,17 +47,13 @@ export type AgentRunConnection =
   | { readonly id: null; readonly reason: UnresolvableConnectionReason };
 
 /**
- * Builds the connection portion of an API request body.
- * For managed connections: sends { connectionId: "seed:X" } (no credentials).
- * For user connections: sends { connection: conn } (full object).
+ * The connection portion of an API request body: a reference, never the connection. Every
+ * datasource is declared server-side and opened by its seed id (docs/CONTEXT.md §4.1), so no
+ * credential travels with a request. A connection without a seed id can only be a stale row
+ * from before that change; its own id goes out and the server answers 400 rather than 403.
  */
-export function buildConnectionPayload(
-  conn: DatabaseConnection,
-): { connectionId: string } | { connection: DatabaseConnection } {
-  if (conn.managed && conn.seedId) {
-    return { connectionId: `seed:${conn.seedId}` };
-  }
-  return { connection: conn };
+export function buildConnectionPayload(conn: DatabaseConnection): { connectionId: string } {
+  return { connectionId: conn.seedId ? `seed:${conn.seedId}` : conn.id };
 }
 
 /**

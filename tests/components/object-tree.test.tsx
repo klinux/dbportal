@@ -1072,7 +1072,7 @@ describe("useTreeNodes", () => {
   test("changing the connection throws the whole cache away rather than showing the last one's tree", async () => {
     installFetch({
       containers: (body) =>
-        (body as { connection?: { id: string } }).connection?.id === "pg"
+        (body as { connectionId?: string }).connectionId === "pg"
           ? appSchema
           : [{ path: ["other"], name: "other", level: 0 }],
       counts: () => ({}),
@@ -1139,9 +1139,9 @@ describe("useTreeNodes", () => {
     expect(calls.filter((call) => call.route === "counts")).toHaveLength(2);
   });
 
-  // The payload shape itself, both arms, is pinned in
-  // `tests/components/object-tree/first-paint.test.tsx`: this connection is one the
-  // server has never heard of, so it travels whole.
+  // The payload shape itself is pinned in `tests/components/object-tree/first-paint.test.tsx`:
+  // every request is a reference (docs/CONTEXT.md §4.1), so what this checks is that it is
+  // the reference to the connection the tree was asked for.
   test("every request carries the connection the tree was asked for", async () => {
     const calls = installFetch(routesFor({}, { table: { count: 0 }, view: { count: 0 } }));
     const { result } = renderTree("browser-only");
@@ -1150,7 +1150,7 @@ describe("useTreeNodes", () => {
     act(() => result.current.toggle("app"));
     await waitFor(() => expect(result.current.rows).toHaveLength(3));
 
-    expect(calls.every((call) => (call.body.connection as { id: string }).id === "browser-only")).toBe(true);
+    expect(calls.every((call) => call.body.connectionId === "browser-only")).toBe(true);
     expect(calls).toHaveLength(2);
   });
 });

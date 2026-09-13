@@ -229,7 +229,9 @@ describe("useMonitoringData", () => {
     const body = JSON.parse(maintenanceCall![1]!.body as string);
     expect(body.type).toBe("kill");
     expect(body.target).toBe("12345");
-    expect(body.connection).toBeDefined();
+    // A reference, never the connection (docs/CONTEXT.md §4.1).
+    expect(body.connectionId).toBe(mockConnection.id);
+    expect(body.connection).toBeUndefined();
   });
 
   // ── killSession returns true on success ────────────────────────────────────
@@ -832,10 +834,10 @@ describe("useMonitoringData", () => {
 
     mockGlobalFetch({
       "/api/db/monitoring": async (req) => {
-        const body = (await req.json()) as { connection: DatabaseConnection };
+        const body = (await req.json()) as { connectionId: string };
         // The excursion never settles: this host's monitoring read 500s, so it
         // leaves nothing behind that could re-key the buffer.
-        if (body.connection.id === unreachable.id) {
+        if (body.connectionId === unreachable.id) {
           return { ok: false, status: 500, json: { error: "unreachable" } };
         }
         return { ok: true, json: mockMonitoringResponse };

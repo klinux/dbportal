@@ -122,7 +122,7 @@ export async function seedSqliteSampleFile(filePath: string): Promise<"seeded" |
   return "seeded";
 }
 
-/** The built-in editable seed connection descriptor (managed:false). */
+/** The built-in sample as a managed seed; see `buildSampleConnection` for why it is no longer a copy. */
 export function buildSqliteSampleConnection(): ManagedConnection {
   return {
     id: `seed:${SQLITE_SAMPLE_SEED_ID}`,
@@ -130,7 +130,7 @@ export function buildSqliteSampleConnection(): ManagedConnection {
     name: "Sample (Employees)",
     type: "sqlite",
     database: resolveSqliteSamplePath(),
-    managed: false,
+    managed: true,
     roles: ["*"],
     createdAt: new Date(0),
   };

@@ -84,11 +84,15 @@ mock.module("@/hooks/use-provider-metadata", () => ({
   useProviderMetadata: mock(() => ({ metadata: mockMetadata, isLoading: false })),
 }));
 
+// The tab reads its list from the server through this hook (docs/CONTEXT.md §4.1); the
+// active id is still per-user state in storage.
+mock.module("@/hooks/use-all-connections", () => ({
+  useAllConnections: () => ({ connections: mockConnectionsList, loading: false }),
+}));
+
 mock.module("@/lib/storage", () => ({
   storage: {
-    getConnections: mock(() => mockConnectionsList),
     getActiveConnectionId: mock(() => mockActiveConnectionId),
-    getDismissedSeeds: mock(() => []),
   },
 }));
 

@@ -94,7 +94,11 @@ function removeSeedingTemp(tempPath: string): void {
   fs.rmSync(`${tempPath}.lock`, { force: true });
 }
 
-/** The built-in editable seed connection descriptor (managed:false). */
+/**
+ * The built-in sample as a managed seed. It used to be an editable copy (managed:false), which
+ * made the browser send the whole connection back; that path is closed (docs/CONTEXT.md
+ * §4.1), so the sample is now opened by its seed id like every other datasource.
+ */
 export function buildSampleConnection(): ManagedConnection {
   return {
     id: `seed:${SAMPLE_SEED_ID}`,
@@ -102,7 +106,7 @@ export function buildSampleConnection(): ManagedConnection {
     name: "Sample (LibreDB)",
     type: "libredb",
     database: resolveSamplePath(),
-    managed: false,
+    managed: true,
     roles: ["*"],
     createdAt: new Date(0),
   };

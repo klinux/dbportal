@@ -54,7 +54,7 @@ interface StudioMobileHeaderProps {
   playgroundMode: boolean;
   editingEnabled: boolean;
   onSelectConnection: (conn: DatabaseConnection) => void;
-  /** Absent when the session may not create connections; the menu then offers no "Add". */
+  /** Absent when the session may not declare datasources; the menu then offers no way to. */
   onAddConnection?: () => void;
   onLogout: () => void;
   onSaveQuery: () => void;
@@ -151,7 +151,7 @@ export function StudioMobileHeader({
               {connections.length === 0 ? (
                 onAddConnection ? (
                   <DropdownMenuItem onClick={onAddConnection} className="text-fg-tertiary cursor-pointer">
-                    <Plus strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Add Connection
+                    <Plus strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> New datasource
                   </DropdownMenuItem>
                 ) : (
                   <DropdownMenuItem disabled className="text-fg-tertiary">
@@ -178,7 +178,7 @@ export function StudioMobileHeader({
                       onClick={onAddConnection}
                       className="text-fg-muted cursor-pointer border-t border-hairline mt-1"
                     >
-                      <Plus strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Add New
+                      <Plus strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> New datasource
                     </DropdownMenuItem>
                   )}
                 </>

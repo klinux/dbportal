@@ -126,9 +126,9 @@ describe("ConnectionsList", () => {
       />,
     );
 
-    expect(queryByText("No database connections established yet.")).not.toBeNull();
-    // Empty state has an "Add Connection" button
-    expect(queryByText("Add Connection")).not.toBeNull();
+    expect(queryByText("No datasources declared yet.")).not.toBeNull();
+    // Empty state has a "New datasource" button
+    expect(queryByText("New datasource")).not.toBeNull();
   });
 
   // docs/CONTEXT.md §4.1: without `onAddConnection` the empty state cannot offer a button, so
@@ -143,7 +143,7 @@ describe("ConnectionsList", () => {
       />,
     );
 
-    expect(queryByText("Add Connection")).toBeNull();
+    expect(queryByText("New datasource")).toBeNull();
     expect(queryByText(/Ask an administrator/)).not.toBeNull();
   });
 
@@ -202,7 +202,7 @@ describe("ConnectionsList", () => {
       />,
     );
 
-    const addButton = getByText("Add Connection");
+    const addButton = getByText("New datasource");
     fireEvent.click(addButton);
 
     expect(defaultOnAdd).toHaveBeenCalledTimes(1);

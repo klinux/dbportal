@@ -28,12 +28,12 @@ export async function resolveConnection(
   const { connection, connectionId } = body;
 
   if (connection && !connectionId) {
-    // A connection the CLIENT describes (host, user, password) is the one path where the
-    // server connects to whatever the caller typed. Datasources are created once, by an admin,
-    // and shared (docs/CONTEXT.md §4.1); for any other role this branch would let a user reach
-    // any host the portal can, under any credential they hold. Refused before anything is
-    // connected, and recorded as a ROLE denial: the caller has a session, just not the role
-    // the action requires. The body itself is never logged - it carries the credential.
+    // A connection the CLIENT describes (host, user, password) is no longer a way to reach a
+    // database: datasources are declared by an administrator and referenced by id
+    // (docs/CONTEXT.md §4.1). For a non-admin session it is recorded as a ROLE denial - the
+    // caller has a session, just not the role that could ever have used this path - and the
+    // body itself is never logged: it carries the credential. The one place a connection
+    // object is still read is `resolveDraftConnection` below, for testing a draft.
     if (session.role !== "admin") {
       logger.warn("Client-supplied connection refused for non-admin session", {
         route: "seed/resolve-connection",
@@ -46,15 +46,10 @@ export async function resolveConnection(
         403,
       );
     }
-    // An admin may write `${ENV_VAR}` where a seed file would, so a datasource is tested with
-    // the credential the server holds and then saved with the reference (step B). A reference
-    // the server cannot resolve is the caller's mistake, and the message names the variable -
-    // never its value.
-    try {
-      return resolveEnvPlaceholders(connection);
-    } catch (error) {
-      throw new SeedConnectionError(error instanceof Error ? error.message : String(error), 400);
-    }
+    throw new SeedConnectionError(
+      "Client-supplied connections are not accepted; declare the datasource under Admin → Datasources and send its connectionId",
+      400,
+    );
   }
 
   if (connectionId) {
@@ -91,5 +86,35 @@ export async function resolveConnection(
     return seedConn;
   }
 
-  throw new SeedConnectionError("Either connection or connectionId is required", 400);
+  throw new SeedConnectionError("connectionId is required", 400);
+}
+
+/**
+ * A datasource an administrator is about to save, tested before it is (docs/CONTEXT.md §4.1
+ * step B). The one path that still reads a connection object off a request, and it exists
+ * for `POST /api/db/test-connection` alone: the editor tests the draft, then saves the same
+ * fields to the admin API. Admin only, audited like every other role denial. A `${ENV_VAR}`
+ * reference is resolved here, so the draft is tested with the credential the server holds
+ * and saved with the reference - the value never travels through the browser. A reference
+ * the server cannot resolve is the caller's mistake, and the message names the variable,
+ * never a value.
+ */
+export async function resolveDraftConnection(
+  connection: DatabaseConnection,
+  session: { role: string; username: string },
+): Promise<DatabaseConnection> {
+  if (session.role !== "admin") {
+    logger.warn("Draft connection refused for non-admin session", {
+      route: "seed/resolve-connection",
+      user: session.username,
+      role: session.role,
+    });
+    auditRoleDenial({ route: CLIENT_CONNECTION_TARGET, user: session.username });
+    throw new SeedConnectionError("Only administrators can test a connection draft", 403);
+  }
+  try {
+    return resolveEnvPlaceholders(connection);
+  } catch (error) {
+    throw new SeedConnectionError(error instanceof Error ? error.message : String(error), 400);
+  }
 }

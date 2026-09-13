@@ -157,7 +157,7 @@ describe("Sidebar", () => {
     const props = createDefaultProps({ onAddConnection });
     const { getByTitle } = render(<Sidebar {...props} />);
 
-    fireEvent.click(getByTitle("New connection"));
+    fireEvent.click(getByTitle("New datasource"));
     expect(onAddConnection).toHaveBeenCalledTimes(1);
   });
 
@@ -168,7 +168,7 @@ describe("Sidebar", () => {
     const props = createDefaultProps({ onAddConnection: undefined });
     const { queryByTitle } = render(<Sidebar {...props} />);
 
-    expect(queryByTitle("New connection")).toBeNull();
+    expect(queryByTitle("New datasource")).toBeNull();
   });
 
   test("the object tree only renders when activeConnection exists", () => {

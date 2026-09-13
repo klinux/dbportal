@@ -937,7 +937,7 @@ describe("SchemaDiff", () => {
         const [url, options] = calls[1] as [string, RequestInit];
         expect(url).toBe("/api/db/objects/inventory");
         const body = JSON.parse(options.body as string);
-        expect(body.connection.id).toBe("remote-1");
+        expect(body.connectionId).toBe("remote-1");
         expect(body.kinds).toEqual(["table"]);
         expect(body.includeColumns).toBe(true);
 

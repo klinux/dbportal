@@ -1,6 +1,7 @@
 "use client";
 
 import { appFetch } from "@/lib/config/base-path";
+import { buildConnectionPayload } from "@/hooks/use-connection-payload";
 import React, { useState, useMemo, useCallback } from "react";
 import {
   GitCompare,
@@ -119,7 +120,7 @@ export function SchemaDiff({ schema, connection }: SchemaDiffProps) {
           read does, and for the same measured reason: a diff is over relations, and asking for
           every declared kind would list routines and triggers this comparison cannot use.
         */
-        const payload = conn.managed && conn.seedId ? { connectionId: `seed:${conn.seedId}` } : { connection: conn };
+        const payload = buildConnectionPayload(conn);
         const post = (path: string, body: unknown) =>
           appFetch(path, {
             method: "POST",

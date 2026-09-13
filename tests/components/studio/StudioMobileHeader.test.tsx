@@ -320,16 +320,15 @@ describe("StudioMobileHeader", () => {
     expect(mockOnImport).toHaveBeenCalledTimes(1);
   });
 
-  test("shows Add Connection item when connections list is empty and click calls onAddConnection", () => {
+  test("shows the New datasource item when the list is empty and click calls onAddConnection", () => {
     const onAddConnection = mock(() => {});
-    const { queryByText } = render(
+    const { getAllByText } = render(
       <StudioMobileHeader {...defaults} connections={[]} activeConnection={null} onAddConnection={onAddConnection} />,
     );
-    const item = queryByText("Add Connection");
-    expect(item).not.toBeNull();
-    // The "Add New" variant only renders when connections exist
-    expect(queryByText("Add New")).toBeNull();
-    fireEvent.click(item!.closest('[role="menuitem"]')!);
+    // One item, not one per state: the empty and the populated menus each render their own.
+    const items = getAllByText("New datasource");
+    expect(items).toHaveLength(1);
+    fireEvent.click(items[0].closest('[role="menuitem"]')!);
     expect(onAddConnection).toHaveBeenCalledTimes(1);
   });
 
@@ -339,12 +338,12 @@ describe("StudioMobileHeader", () => {
     const empty = render(
       <StudioMobileHeader {...defaults} connections={[]} activeConnection={null} onAddConnection={undefined} />,
     );
-    expect(empty.queryByText("Add Connection")).toBeNull();
+    expect(empty.queryByText("New datasource")).toBeNull();
     expect(empty.queryByText("No connections shared with you")).not.toBeNull();
     empty.unmount();
 
     const populated = render(<StudioMobileHeader {...defaults} onAddConnection={undefined} />);
-    expect(populated.queryByText("Add New")).toBeNull();
+    expect(populated.queryByText("New datasource")).toBeNull();
     expect(populated.queryAllByText(conn.name).length).toBeGreaterThan(0);
   });
 

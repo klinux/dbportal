@@ -52,31 +52,37 @@ mock.module("@/hooks/use-monitoring-data", () => ({
   useMonitoringData: mockUseMonitoringData,
 }));
 
+let mockAllConnections: Record<string, unknown>[] = [
+  {
+    id: "c1",
+    name: "PG Dev",
+    type: "postgres",
+    host: "localhost",
+    port: 5432,
+    database: "dev",
+    createdAt: new Date(),
+  },
+  {
+    id: "c2",
+    name: "PG Prod",
+    type: "postgres",
+    host: "prod",
+    port: 5432,
+    database: "prod",
+    createdAt: new Date(),
+  },
+];
+
+// The dashboard reads its list from the server through this hook (docs/CONTEXT.md §4.1);
+// nothing comes from browser storage any more.
+mock.module("@/hooks/use-all-connections", () => ({
+  useAllConnections: () => ({ connections: mockAllConnections, loading: false }),
+}));
+
 mock.module("@/lib/storage", () => ({
   storage: {
     getThresholdConfig: mock(() => DEFAULT_THRESHOLDS),
-    getConnections: mock(() => [
-      {
-        id: "c1",
-        name: "PG Dev",
-        type: "postgres",
-        host: "localhost",
-        port: 5432,
-        database: "dev",
-        createdAt: new Date(),
-      },
-      {
-        id: "c2",
-        name: "PG Prod",
-        type: "postgres",
-        host: "prod",
-        port: 5432,
-        database: "prod",
-        createdAt: new Date(),
-      },
-    ]),
     getActiveConnectionId: mock(() => "c1"),
-    getDismissedSeeds: mock(() => []),
   },
 }));
 
@@ -324,10 +330,8 @@ describe("MonitoringDashboard", () => {
   });
 
   test("no connection shows empty state", async () => {
-    // Override storage to return empty connections
-    const storageModule = await import("@/lib/storage");
-    const originalGetConnections = (storageModule.storage as unknown as Record<string, unknown>).getConnections;
-    (storageModule.storage as unknown as Record<string, unknown>).getConnections = mock(() => []);
+    const previous = mockAllConnections;
+    mockAllConnections = [];
 
     let renderResult: ReturnType<typeof render>;
     await act(async () => {
@@ -338,8 +342,7 @@ describe("MonitoringDashboard", () => {
     expect(queryByText("No Connection Selected")).not.toBeNull();
     expect(queryByText("Select a database connection to view monitoring data.")).not.toBeNull();
 
-    // Restore
-    (storageModule.storage as unknown as Record<string, unknown>).getConnections = originalGetConnections;
+    mockAllConnections = previous;
   });
 
   test("back button remains named when its responsive text is hidden", async () => {

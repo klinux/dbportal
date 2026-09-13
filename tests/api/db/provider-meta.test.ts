@@ -47,11 +47,12 @@ mock.module("@/lib/seed/resolve-connection", () => {
     }
   }
   return {
+    // Only a reference is accepted now (docs/CONTEXT.md §4.1); the stub resolves the two ids
+    // the tests use, one to a full connection and one to a descriptor with no type.
     resolveConnection: mock(async (body: Record<string, unknown>) => {
-      if (!body.connection && !body.connectionId) {
-        throw new SeedConnectionError("Either connection or connectionId is required", 400);
-      }
-      return body.connection;
+      if (!body.connectionId) throw new SeedConnectionError("connectionId is required", 400);
+      if (body.connectionId === "seed:no-type") return { id: "test-1", name: "No Type" };
+      return validConnection;
     }),
     SeedConnectionError,
   };
@@ -111,7 +112,7 @@ describe("POST /api/db/provider-meta", () => {
 
     const req = createMockRequest("/api/db/provider-meta", {
       method: "POST",
-      body: validConnection,
+      body: { connectionId: "seed:test-1" },
     });
 
     const res = await POST(req as never);
@@ -137,7 +138,7 @@ describe("POST /api/db/provider-meta", () => {
   test("returns 200 with capabilities and labels for valid connection", async () => {
     const req = createMockRequest("/api/db/provider-meta", {
       method: "POST",
-      body: validConnection,
+      body: { connectionId: "seed:test-1" },
     });
 
     const res = await POST(req as never);
@@ -171,7 +172,7 @@ describe("POST /api/db/provider-meta", () => {
   test("returns 400 when connection has no type", async () => {
     const req = createMockRequest("/api/db/provider-meta", {
       method: "POST",
-      body: { id: "test-1", name: "No Type" },
+      body: { connectionId: "seed:no-type" },
     });
 
     const res = await POST(req as never);
@@ -186,7 +187,7 @@ describe("POST /api/db/provider-meta", () => {
 
     const req = createMockRequest("/api/db/provider-meta", {
       method: "POST",
-      body: validConnection,
+      body: { connectionId: "seed:test-1" },
     });
 
     const res = await POST(req as never);
@@ -203,7 +204,7 @@ describe("POST /api/db/provider-meta", () => {
 
     const req = createMockRequest("/api/db/provider-meta", {
       method: "POST",
-      body: validConnection,
+      body: { connectionId: "seed:test-1" },
     });
 
     const res = await POST(req as never);
@@ -219,7 +220,7 @@ describe("POST /api/db/provider-meta", () => {
 
     const req = createMockRequest("/api/db/provider-meta", {
       method: "POST",
-      body: validConnection,
+      body: { connectionId: "seed:test-1" },
     });
 
     const res = await POST(req as never);

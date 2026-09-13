@@ -10,7 +10,7 @@ interface ConnectionItemProps {
   connection: DatabaseConnection;
   isActive: boolean;
   onSelect: (conn: DatabaseConnection) => void;
-  onDelete: (id: string) => void;
+  onDelete?: (id: string) => void;
   onEdit?: (conn: DatabaseConnection) => void;
   onDuplicate?: (conn: DatabaseConnection) => void;
 }
@@ -97,7 +97,7 @@ export const ConnectionItem = React.memo(function ConnectionItem({
             <Copy strokeWidth={1.5} className="w-3 h-3" />
           </button>
         )}
-        {!conn.managed && (
+        {!conn.managed && onDelete && (
           <button
             className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-danger-tint/20 hover:text-danger"
             onClick={(e) => {

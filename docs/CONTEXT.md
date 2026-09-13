@@ -44,7 +44,6 @@ Verified in code, not from the README:
 
 | Gap | Where | What actually happens today |
 |---|---|---|
-| Admins can still keep browser-local connections | [`src/lib/seed/resolve-connection.ts`](../src/lib/seed/resolve-connection.ts) — the `connection` body field is accepted only for `role === "admin"` (§4.1 step A) | Shared datasources now live server-side (§4.1 step B: seed YAML + the admin CRUD, one list). What remains is the admin's own browser-stored connections and the built-in samples, which the studio still lets an admin create and which nobody else can see. Removing that path is the last piece of §4.1. |
 | No server-side audit of human queries | [`src/app/api/db/query/route.ts`](../src/app/api/db/query/route.ts) and siblings `multi-query`, `transaction`, `maintenance` | The routes call the provider directly with no `emitAuditEvent`. Query history is written **client-side** (`use-query-execution.ts` → `storage.addToHistory`), capped at 500 per user, and the user can clear it. The admin "Audit" tab reads the admin's own history. |
 | Audit channel excludes SQL by design | [`src/lib/audit.ts`](../src/lib/audit.ts) — "What must never be recorded here: … SQL text" | The stdout JSON channel records logins, denials, maintenance — never the statement. The in-memory ring buffer holds 1000 events per process. |
 | Two-role RBAC | [`src/lib/auth.ts`](../src/lib/auth.ts) — `type Role = "admin" \| "user"` | Seed YAML supports `roles: ["admin"]` / `["*"]`. No groups, no per-datasource read/write matrix. |
@@ -99,10 +98,18 @@ Two steps. The first closes the hole; the second delivers the product.
   `ConnectionModal` with `heading` / `submitLabel` / `extraFields` (roles, secret note);
   it tests the connection before saving, and `resolveConnection` resolves an admin's
   `${ENV_VAR}` reference in that test so the value never travels through the browser.
-- **Open:** admins can still create browser-local connections in the studio (the
-  `connection` body field on the `src/app/api/db/*` routes, and the built-in samples).
-  Closing it means the studio's "New connection" for admins becomes "New datasource",
-  the samples become admin-only demo seeds or go, and the body field is removed.
+- **Closed (2026-09-13):** no route reads a connection object any more. `resolveConnection`
+  takes `connectionId` only (a `connection` field is a 400 for an admin and an audited 403
+  for anyone else); the one exception is `POST /api/db/test-connection`, which tests an
+  admin's DRAFT through `resolveDraftConnection` before the datasource is saved. The browser
+  always sends a reference (`buildConnectionPayload`), the connection manager lists the
+  server's answer alone (no browser-stored rows, no seed copies, no `dismissed_seeds`), the
+  built-in samples are `managed: true`, and the studio's "+" takes an admin to
+  `/admin/datasources`. `ConnectionModal` now lives only on that page.
+- Cleanup candidates left behind: `resolveAgentRunConnectionId`'s copy-vs-seed comparison
+  (`reachesSameDatabase` and the relevance maps in `use-connection-payload.ts`) is dead —
+  every connection is managed — as is the per-user `connections` / `dismissed_seeds`
+  storage the studio no longer reads. Both are harmless and covered; delete when convenient.
 
 ### 4.2 Server-side audit of every execution
 

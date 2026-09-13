@@ -33,7 +33,7 @@ describe("getManagedConnections — embedded sample", () => {
     const conns = await getManagedConnections(["*"]);
     const sample = conns.find((c) => c.seedId === SAMPLE_SEED_ID);
     expect(sample).toBeDefined();
-    expect(sample?.managed).toBe(false);
+    expect(sample?.managed).toBe(true);
     expect(sample?.type).toBe("libredb");
     expect(sample?.database).toBe(file);
   });

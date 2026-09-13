@@ -208,7 +208,9 @@ describe("opening a connection", () => {
     expect(calls[2].body.container).toEqual(["shop", "dbo"]);
   });
 
-  test("a browser-only connection is posted as the whole connection, a seed as its id", async () => {
+  // docs/CONTEXT.md §4.1: every request is a reference. A seed goes out as `seed:<id>`; a row
+  // with no seed id - stale browser state - goes out under its own id, and no credential either way.
+  test("every connection is posted as a reference: a seed by its seed id, anything else by its own id", async () => {
     const calls = installFetch({
       "/api/db/objects/containers": schemaContainers,
       "/api/db/objects/counts": {},
@@ -216,10 +218,8 @@ describe("opening a connection", () => {
 
     const { unmount } = render(<ObjectTree connection={connectionOf({ type: "postgres" })} capabilities={oneLevel} />);
     await waitFor(() => expect(screen.getByRole("treeitem", { name: /public/ })).toBeTruthy());
-    // The whole object, because the server has never heard of this connection. Posting
-    // the id alone is what made the tree readable for seed connections only.
-    expect((calls[0].body.connection as DatabaseConnection).id).toBe("conn-1");
-    expect(calls[0].body.connectionId).toBeUndefined();
+    expect(calls[0].body.connectionId).toBe("conn-1");
+    expect(calls[0].body.connection).toBeUndefined();
     unmount();
 
     const seeded = installFetch({

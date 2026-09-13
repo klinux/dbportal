@@ -46,8 +46,8 @@ interface CommandPaletteProps {
   onSelectConnection: (conn: DatabaseConnection) => void;
   onTableClick: (path: readonly string[]) => void;
   /**
-   * Absent when the session may not create connections (docs/CONTEXT.md §4.1); the item is
-   * then not offered, for the same reason `onAskAgent` below is optional.
+   * Takes an administrator to where datasources are declared (docs/CONTEXT.md §4.1). Absent
+   * for every other session; the item is then not offered, as `onAskAgent` below is.
    */
   onAddConnection?: () => void;
   onExecuteQuery: () => void;
@@ -159,7 +159,7 @@ export function CommandPalette({
           {onAddConnection && (
             <CommandItem onSelect={() => runAction(onAddConnection)}>
               <Plus strokeWidth={1.5} className="w-3.5 h-3.5 text-hue-emerald" />
-              <span>New Connection</span>
+              <span>New datasource</span>
             </CommandItem>
           )}
           <CommandItem onSelect={() => runAction(onNavigateHealth)}>

@@ -18,7 +18,6 @@ let capturedSidebarProps: Record<string, unknown> = {};
 let capturedQueryExecParams: Record<string, unknown> = {};
 let capturedBottomPanelProps: Record<string, unknown> = {};
 let capturedQueryToolbarProps: Record<string, unknown> = {};
-let capturedConnectionModalProps: Record<string, unknown> = {};
 let capturedSaveQueryModalProps: Record<string, unknown> = {};
 let capturedCommandPaletteProps: Record<string, unknown> = {};
 let capturedSafetyDialogProps: Record<string, unknown> = {};
@@ -291,15 +290,6 @@ mock.module("@/components/schema-explorer", () => {
   };
 });
 
-mock.module("@/components/ConnectionModal", () => ({
-  ConnectionModal: (props: Record<string, unknown>) => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const React = require("react");
-    capturedConnectionModalProps = props;
-    return props.isOpen ? React.createElement("div", { "data-testid": "connection-modal" }, "ConnectionModal") : null;
-  },
-}));
-
 mock.module("@/components/QueryEditor", () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require("react");
@@ -519,7 +509,6 @@ describe("Studio", () => {
     capturedSidebarProps = {};
     capturedBottomPanelProps = {};
     capturedQueryToolbarProps = {};
-    capturedConnectionModalProps = {};
     capturedSaveQueryModalProps = {};
     capturedCommandPaletteProps = {};
     capturedSafetyDialogProps = {};
@@ -799,61 +788,6 @@ describe("Studio", () => {
     expect(capturedSidebarProps.objectRefreshToken).toBe(before + 1);
   });
 
-  // --- handleDeleteConnection ---
-  test("onDeleteConnection asks for confirmation instead of deleting immediately", () => {
-    connMgrOverride = { activeConnection: pgConn, connections: [pgConn] };
-    render(<Studio />);
-    const requestDelete = capturedSidebarProps.onDeleteConnection as (id: string) => void;
-    act(() => requestDelete("c1"));
-    expect(mockStorageDeleteConnection).not.toHaveBeenCalled();
-    const dialog = within(document.body as HTMLElement);
-    expect(dialog.getByText("Delete connection?")).toBeTruthy();
-    expect(dialog.getByText(pgConn.name)).toBeTruthy();
-  });
-
-  test("confirming the delete dialog removes connection and updates list", () => {
-    const remaining = [{ id: "c2", type: "mysql", name: "MySQL" }];
-    mockStorageGetConnections.mockReturnValue(remaining);
-    connMgrOverride = { activeConnection: pgConn, connections: [pgConn, remaining[0]] };
-    render(<Studio />);
-    const requestDelete = capturedSidebarProps.onDeleteConnection as (id: string) => void;
-    act(() => requestDelete("c1"));
-    const dialog = within(document.body as HTMLElement);
-    fireEvent.click(dialog.getByText("Delete"));
-    expect(mockStorageDeleteConnection).toHaveBeenCalledWith("c1");
-    expect(mockSetConnections).toHaveBeenCalledWith(remaining);
-    expect(mockSetActiveConnection).toHaveBeenCalledWith(remaining[0]);
-    expect(dialog.queryByText("Delete connection?")).toBeNull();
-  });
-
-  /**
-   * Studio mounts the connections list twice: the desktop `Sidebar` above the breakpoint and the
-   * mobile database tab below it. Both were wired to the confirmation, but reverting only the mobile
-   * one to `handleDeleteConnection` left every test above green, so nothing held that half. The
-   * crowded-sidebar misclick this dialog exists for is likeliest on a phone.
-   */
-  test("the mobile connections list asks for confirmation too", () => {
-    connMgrOverride = { activeConnection: pgConn, connections: [pgConn] };
-    render(<Studio />);
-    const onTabChange = capturedMobileNavProps.onTabChange as (tab: string) => void;
-    act(() => onTabChange("database"));
-    const requestDelete = capturedConnectionsListProps.onDeleteConnection as (id: string) => void;
-    act(() => requestDelete("c1"));
-    expect(mockStorageDeleteConnection).not.toHaveBeenCalled();
-    expect(within(document.body as HTMLElement).getByText("Delete connection?")).toBeTruthy();
-  });
-
-  test("cancelling the delete dialog leaves the connection untouched", () => {
-    connMgrOverride = { activeConnection: pgConn, connections: [pgConn] };
-    render(<Studio />);
-    const requestDelete = capturedSidebarProps.onDeleteConnection as (id: string) => void;
-    act(() => requestDelete("c1"));
-    const dialog = within(document.body as HTMLElement);
-    fireEvent.click(dialog.getByText("Cancel"));
-    expect(mockStorageDeleteConnection).not.toHaveBeenCalled();
-    expect(dialog.queryByText("Delete connection?")).toBeNull();
-  });
-
   // --- onObjectClick ---
   test("a relation activated in the object tree opens and runs its tab", () => {
     capabilitiesOverride = {
@@ -1036,85 +970,23 @@ describe("Studio", () => {
     expect(capturedSidebarProps.onLoadObjects).toBe(mockLoadObjects);
   });
 
-  // --- onEditConnection ---
-  test("onEditConnection opens connection modal with connection", () => {
+  // docs/CONTEXT.md §4.1: the studio declares no datasource itself. Every "+" an admin sees
+  // - sidebar, mobile header, mobile list, command palette - leads to the admin page.
+  test("an admin's every add entry point navigates to the datasource page", () => {
     render(<Studio />);
-    const fn = capturedSidebarProps.onEditConnection as (c: unknown) => void;
-    act(() => fn(pgConn));
-    expect(capturedConnectionModalProps.isOpen).toBe(true);
-    expect(capturedConnectionModalProps.editConnection).toEqual(pgConn);
-  });
-
-  // --- onAddConnection ---
-  test.each(["desktop", "mobile"])("duplicate opens a detached copy in the %s connection editor", (surface) => {
-    const source: DatabaseConnection = {
-      ...pgConn,
-      type: "postgres",
-      createdAt: new Date(0),
-      managed: false,
-      seedId: "sample",
-      host: "db.example.test",
-      port: 5432,
-      user: "fixture_user",
-      password: "fixture_password",
-      database: "app",
-      color: "#123456",
-      environment: "development",
-      group: "team",
-      agentUser: "agent_ro",
-      agentPassword: "fixture_agent",
-      ssl: { mode: "verify-full", caCert: "fixture-ca" },
-      sshTunnel: {
-        enabled: true,
-        host: "bastion.example.test",
-        port: 22,
-        username: "ops",
-        authMethod: "password",
-        password: "fixture_ssh",
-      },
-    };
-    const original = structuredClone(source);
-    render(<Studio />);
-    if (surface === "mobile") {
-      act(() => (capturedMobileNavProps.onTabChange as (tab: string) => void)("database"));
+    for (const props of [capturedSidebarProps, capturedMobileHeaderProps, capturedCommandPaletteProps]) {
+      mockRouterPush.mockClear();
+      act(() => (props.onAddConnection as () => void)());
+      expect(mockRouterPush).toHaveBeenCalledWith("/admin/datasources");
     }
-    const props = surface === "mobile" ? capturedConnectionsListProps : capturedSidebarProps;
-    act(() => (props.onDuplicateConnection as (conn: DatabaseConnection) => void)(source));
-    const copy = capturedConnectionModalProps.editConnection as DatabaseConnection;
-    expect(capturedConnectionModalProps.isOpen).toBe(true);
-    expect(copy.id).not.toBe(source.id);
-    expect(copy).toEqual({
-      ...source,
-      id: copy.id,
-      name: `${source.name} (copy)`,
-      createdAt: copy.createdAt,
-      seedId: undefined,
-      managed: false,
-    });
-    expect(copy.createdAt.getTime()).toBeGreaterThan(source.createdAt.getTime());
-    expect(copy.ssl).not.toBe(source.ssl);
-    expect(copy.sshTunnel).not.toBe(source.sshTunnel);
-    expect(mockStorageSaveConnection).not.toHaveBeenCalled();
-    act(() => (capturedConnectionModalProps.onClose as () => void)());
-    expect(mockStorageSaveConnection).not.toHaveBeenCalled();
-    act(() => (props.onDuplicateConnection as (conn: DatabaseConnection) => void)(source));
-    const secondCopy = capturedConnectionModalProps.editConnection as DatabaseConnection;
-    expect(secondCopy.id).not.toBe(copy.id);
-    act(() => (capturedConnectionModalProps.onConnect as (conn: DatabaseConnection) => void)(secondCopy));
-    expect(mockStorageSaveConnection).toHaveBeenCalledWith(secondCopy);
-    expect(source).toEqual(original);
-  });
-
-  test("an admin session is handed its own connections as well", () => {
-    render(<Studio />);
-    expect(mockUseConnectionManager).toHaveBeenLastCalledWith(expect.anything(), true);
-  });
-
-  test("onAddConnection opens connection modal", () => {
-    render(<Studio />);
-    const fn = capturedSidebarProps.onAddConnection as () => void;
-    act(() => fn());
-    expect(capturedConnectionModalProps.isOpen).toBe(true);
+    act(() => (capturedMobileNavProps.onTabChange as (tab: string) => void)("database"));
+    mockRouterPush.mockClear();
+    act(() => (capturedConnectionsListProps.onAddConnection as () => void)());
+    expect(mockRouterPush).toHaveBeenCalledWith("/admin/datasources");
+    // No local editing surface is offered any more, to anyone.
+    expect(capturedSidebarProps.onEditConnection).toBeUndefined();
+    expect(capturedSidebarProps.onDuplicateConnection).toBeUndefined();
+    expect(capturedSidebarProps.onDeleteConnection).toBeUndefined();
   });
 
   // docs/CONTEXT.md §4.1 step A: the server refuses a client-supplied connection from a
@@ -1123,9 +995,6 @@ describe("Studio", () => {
   test("a non-admin session gets no entry point into the connection editor", () => {
     authOverride = { isAdmin: false };
     render(<Studio />);
-    // The list itself is gated on the same seam: the hook is told this session may hold no
-    // connection of its own, so a stored one cannot be opened and refused (§4.1).
-    expect(mockUseConnectionManager).toHaveBeenLastCalledWith(expect.anything(), false);
     expect(capturedSidebarProps.onAddConnection).toBeUndefined();
     expect(capturedSidebarProps.onEditConnection).toBeUndefined();
     expect(capturedSidebarProps.onDuplicateConnection).toBeUndefined();
@@ -1134,32 +1003,6 @@ describe("Studio", () => {
     act(() => (capturedMobileNavProps.onTabChange as (tab: string) => void)("database"));
     expect(capturedConnectionsListProps.onAddConnection).toBeUndefined();
     expect(capturedConnectionsListProps.onDuplicateConnection).toBeUndefined();
-    expect(capturedConnectionModalProps.isOpen).toBe(false);
-  });
-
-  // --- ConnectionModal onConnect ---
-  test("ConnectionModal onConnect saves and activates connection", () => {
-    const newConns = [pgConn];
-    mockStorageGetConnections.mockReturnValue(newConns);
-    render(<Studio />);
-    const onConnect = capturedConnectionModalProps.onConnect as (c: unknown) => void;
-    act(() => onConnect(pgConn));
-    expect(mockStorageSaveConnection).toHaveBeenCalledWith(pgConn);
-    expect(mockSetConnections).toHaveBeenCalledWith(newConns);
-    expect(mockSetActiveConnection).toHaveBeenCalledWith(pgConn);
-  });
-
-  // --- ConnectionModal onClose ---
-  test("ConnectionModal onClose resets editing and closes modal", () => {
-    render(<Studio />);
-    // Open the modal
-    const addFn = capturedSidebarProps.onAddConnection as () => void;
-    act(() => addFn());
-    expect(capturedConnectionModalProps.isOpen).toBe(true);
-    // Close the modal
-    const closeFn = capturedConnectionModalProps.onClose as () => void;
-    act(() => closeFn());
-    expect(capturedConnectionModalProps.isOpen).toBe(false);
   });
 
   // --- exportResults ---
@@ -1878,32 +1721,28 @@ describe("Studio", () => {
     const onTabChange = capturedMobileNavProps.onTabChange as (tab: string) => void;
     act(() => onTabChange("database"));
     expect(queryByTestId("connections-list")).not.toBeNull();
-    const addFn = capturedConnectionsListProps.onAddConnection as () => void;
-    act(() => addFn());
-    expect(capturedConnectionModalProps.isOpen).toBe(true);
     const selectFn = capturedConnectionsListProps.onSelectConnection as (c: unknown) => void;
     act(() => selectFn(pgConn));
     expect(mockSetActiveConnection).toHaveBeenCalledWith(pgConn);
     expect(queryByTestId("connections-list")).toBeNull();
   });
 
-  test("mobile database tab Add button opens connection modal", () => {
-    const { getByText, queryByTestId } = render(<Studio />);
-    const onTabChange = capturedMobileNavProps.onTabChange as (tab: string) => void;
-    act(() => onTabChange("database"));
-    fireEvent.click(getByText(/Add/));
-    expect(queryByTestId("connection-modal")).not.toBeNull();
-  });
-
-  // The mobile tab has its own Add button next to the list, outside ConnectionsList; it is
-  // gated on the same seam as every other entry point (docs/CONTEXT.md §4.1).
-  test("mobile database tab has no Add button for a non-admin session", () => {
+  // The mobile tab has its own button next to the list, outside ConnectionsList; it is gated
+  // on the same seam as every other entry point (docs/CONTEXT.md §4.1) and leads to the same page.
+  test("mobile database tab's New datasource button is admin-only and navigates", () => {
     authOverride = { isAdmin: false };
-    const { queryByText, getByText } = render(<Studio />);
-    const onTabChange = capturedMobileNavProps.onTabChange as (tab: string) => void;
-    act(() => onTabChange("database"));
-    expect(getByText("Connections")).toBeTruthy();
-    expect(queryByText(/^\s*Add\s*$/)).toBeNull();
+    const first = render(<Studio />);
+    act(() => (capturedMobileNavProps.onTabChange as (tab: string) => void)("database"));
+    expect(first.getByText("Connections")).toBeTruthy();
+    expect(first.queryByText("New datasource")).toBeNull();
+    first.unmount();
+
+    authOverride = {};
+    const { getByText } = render(<Studio />);
+    act(() => (capturedMobileNavProps.onTabChange as (tab: string) => void)("database"));
+    mockRouterPush.mockClear();
+    fireEvent.click(getByText("New datasource"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/admin/datasources");
   });
 
   // --- Mobile: schema tab ---

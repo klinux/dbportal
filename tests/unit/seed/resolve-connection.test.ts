@@ -9,7 +9,12 @@ process.env.USER_MYSQL_PASS = "user-secret";
 process.env.SHARED_PG_PASS = "shared-secret";
 process.env.BOTH_PG_PASS = "both-secret";
 
-import { resolveConnection, SeedConnectionError, CLIENT_CONNECTION_TARGET } from "@/lib/seed/resolve-connection";
+import {
+  resolveConnection,
+  resolveDraftConnection,
+  SeedConnectionError,
+  CLIENT_CONNECTION_TARGET,
+} from "@/lib/seed/resolve-connection";
 import { resetCache } from "@/lib/seed/config-loader";
 import { clearRateLimitState } from "@/lib/api/rate-limit";
 
@@ -29,20 +34,29 @@ describe("resolve-connection", () => {
     clearRateLimitState();
   });
 
-  it("returns the connection object as-is for an admin session", async () => {
-    const result = await resolveConnection({ connection: clientConn }, { role: "admin", username: "test" });
-    expect(result.id).toBe("user-conn");
-    expect(result.password).toBe("hunter2");
+  // docs/CONTEXT.md §4.1: datasources are declared by an administrator and referenced by
+  // id. An admin sending a connection object is not a role problem, it is the wrong door -
+  // a 400 that names the right one.
+  it("refuses a client-supplied connection from an admin with 400, naming the datasource page", async () => {
+    try {
+      await resolveConnection({ connection: clientConn }, { role: "admin", username: "test" });
+      expect(true).toBe(false);
+    } catch (err) {
+      expect(err).toBeInstanceOf(SeedConnectionError);
+      expect((err as SeedConnectionError).statusCode).toBe(400);
+      expect((err as SeedConnectionError).message).toContain("Datasources");
+    }
   });
 
-  // Step B: an admin's `${VAR}` reference is resolved server-side, so a shared datasource can
-  // be tested before it is saved with the reference; a reference the server cannot resolve is
-  // the caller's mistake (400), and the message names the variable, not a value.
-  it("resolves an admin's ${VAR} references and refuses an unresolvable one with 400", async () => {
+  // Step B: a draft is what the admin editor tests before saving. A `${VAR}` reference is
+  // resolved server-side so the draft is tested with the credential the server holds; a
+  // reference the server cannot resolve is the caller's mistake (400), and the message names
+  // the variable, not a value.
+  it("resolveDraftConnection resolves an admin's ${VAR} references and refuses an unresolvable one with 400", async () => {
     process.env.STEP_B_PASS = "resolved-secret";
     try {
-      const resolved = await resolveConnection(
-        { connection: { ...clientConn, password: "${STEP_B_PASS}" } },
+      const resolved = await resolveDraftConnection(
+        { ...clientConn, password: "${STEP_B_PASS}" },
         { role: "admin", username: "test" },
       );
       expect(resolved.password).toBe("resolved-secret");
@@ -50,15 +64,35 @@ describe("resolve-connection", () => {
       delete process.env.STEP_B_PASS;
     }
     try {
-      await resolveConnection(
-        { connection: { ...clientConn, password: "${STEP_B_PASS}" } },
-        { role: "admin", username: "t" },
-      );
+      await resolveDraftConnection({ ...clientConn, password: "${STEP_B_PASS}" }, { role: "admin", username: "t" });
       expect(true).toBe(false);
     } catch (err) {
       expect(err).toBeInstanceOf(SeedConnectionError);
       expect((err as SeedConnectionError).statusCode).toBe(400);
       expect((err as SeedConnectionError).message).toContain("STEP_B_PASS");
+    }
+  });
+
+  // A draft is an admin's to test. Anyone else probing the route leaves the same role-denial
+  // trail a client-supplied connection does.
+  it("resolveDraftConnection refuses a non-admin with 403 and audits it", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await resolveDraftConnection(clientConn, { role: "user", username: "bob" });
+      expect(true).toBe(false);
+    } catch (err) {
+      expect(err).toBeInstanceOf(SeedConnectionError);
+      expect((err as SeedConnectionError).statusCode).toBe(403);
+      const lines = logSpy.mock.calls.map(
+        (call: unknown[]) => JSON.parse(call[0] as string) as Record<string, unknown>,
+      );
+      expect(lines).toHaveLength(1);
+      expect(lines[0].reason).toBe("insufficient_role");
+      expect(lines[0].route).toBe(CLIENT_CONNECTION_TARGET);
+    } finally {
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
     }
   });
 

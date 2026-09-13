@@ -142,12 +142,12 @@ describe("libredb-sample", () => {
     expect(after.equals(before)).toBe(true);
   });
 
-  test("buildSampleConnection: editable libredb seed pointing at the resolved path", () => {
+  test("buildSampleConnection: managed libredb seed pointing at the resolved path", () => {
     const conn = buildSampleConnection();
     expect(conn.seedId).toBe(SAMPLE_SEED_ID);
     expect(conn.id).toBe(`seed:${SAMPLE_SEED_ID}`);
     expect(conn.type).toBe("libredb");
-    expect(conn.managed).toBe(false);
+    expect(conn.managed).toBe(true);
     expect(conn.roles).toEqual(["*"]);
     expect(conn.name).toBe("Sample (LibreDB)");
     expect(conn.database).toBe(resolveSamplePath());

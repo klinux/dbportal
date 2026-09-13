@@ -91,7 +91,7 @@ describe("useProviderMetadata", () => {
     expect(url).toBe("/api/db/provider-meta");
     expect(options?.method).toBe("POST");
     const body = JSON.parse(options?.body as string);
-    expect(body.connection.id).toBe("conn-1");
+    expect(body.connectionId).toBe("conn-1");
   });
 
   test("sets isLoading true during fetch", async () => {
@@ -363,7 +363,10 @@ describe("useProviderMetadata", () => {
     expect(body.connection).toBeUndefined();
   });
 
-  test("sends the connection object for a user connection", async () => {
+  // docs/CONTEXT.md §4.1: no connection object travels any more. A row with no seed id can
+  // only be stale browser state; its own id goes out and the server refuses it - and never a
+  // credential.
+  test("sends a reference for a connection with no seed id too, never the object", async () => {
     const connection = makeConnection();
     const fetchMock = mockGlobalFetch({
       "/api/db/provider-meta": { ok: true, status: 200, json: mockMetadata },
@@ -377,8 +380,9 @@ describe("useProviderMetadata", () => {
 
     const [, options] = fetchMock.mock.calls[0];
     const body = JSON.parse(options?.body as string);
-    expect(body.connection?.id).toBe("conn-1");
-    expect(body.connectionId).toBeUndefined();
+    expect(body.connectionId).toBe("conn-1");
+    expect(body.connection).toBeUndefined();
+    expect(String(options?.body)).not.toContain("secret");
   });
 });
 

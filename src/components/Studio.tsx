@@ -2,7 +2,6 @@
 
 import type { CsvDelimiter } from "@/lib/export/csv";
 
-import { appFetch } from "@/lib/config/base-path";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Sidebar, ConnectionsList } from "@/components/sidebar";
 import { type TreeRowActionHandlers } from "@/components/object-tree";
@@ -10,7 +9,6 @@ import { objectAtPath } from "@/lib/db/detailed-object";
 import { objectPathQuery } from "@/lib/db/object-path";
 import { MobileNav } from "@/components/MobileNav";
 import { SchemaExplorer } from "@/components/schema-explorer";
-import { ConnectionModal } from "@/components/ConnectionModal";
 import { CommandPalette } from "@/components/CommandPalette";
 import { QueryEditor, QueryEditorRef } from "@/components/QueryEditor";
 import { DataImportModal } from "@/components/DataImportModal";
@@ -28,7 +26,7 @@ import {
   BottomPanel,
 } from "@/components/studio/index";
 import { AgentRail } from "@/components/agent/AgentRail";
-import { DatabaseConnection, SavedQuery } from "@/lib/types";
+import { SavedQuery } from "@/lib/types";
 import type { DatabaseObject } from "@/lib/db/types";
 import { relationKindIds } from "@/lib/db/object-kinds";
 import { ChunkBoundary, ViewLoading } from "@/components/LazyView";
@@ -69,7 +67,7 @@ import {
 } from "@/lib/data-masking";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { TriangleAlert, Database, Plus, Trash2 } from "lucide-react";
+import { TriangleAlert, Database, Plus } from "lucide-react";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -106,12 +104,7 @@ export default function Studio() {
   const { isReady: storageReady } = useStorageSync();
 
   // 2. Connection Manager + Provider Metadata
-  //
-  // `isAdmin` is false until /api/auth/me answers, so every session starts with the managed
-  // list alone and an admin's own connections join it a moment later (the hook re-initialises
-  // when the flag flips). The other order - show everything, then take it away - would open a
-  // non-admin's stored connection first and greet them with the 403 it earns.
-  const conn = useConnectionManager(storageReady, isAdmin);
+  const conn = useConnectionManager(storageReady);
   const { metadata, error: metadataError, retry: retryMetadata } = useProviderMetadata(conn.activeConnection);
 
   // 3. Tab Manager
@@ -216,33 +209,12 @@ export default function Studio() {
   }, [conn.activeConnection, metadata]);
 
   // === Modal state ===
-  const [isConnectionModalOpen, setIsConnectionModalOpen] = useState(false);
-  const [editingConnection, setEditingConnection] = useState<DatabaseConnection | null>(null);
-  const handleDuplicateConnection = (source: DatabaseConnection) => {
-    setEditingConnection({
-      ...structuredClone(source),
-      id: newLocalId(),
-      name: `${source.name} (copy)`,
-      createdAt: new Date(),
-      // A new local connection must not be merged back into its source seed on reload.
-      seedId: undefined,
-      managed: false,
-    });
-    setIsConnectionModalOpen(true);
-  };
-  // Every entry point into the connection editor, in one place. Datasources are created by
-  // admins and shared (docs/CONTEXT.md §4.1): the server refuses a client-supplied connection
-  // from any other role, so a non-admin session is not offered a dialog that could only end
-  // in a 403. `undefined` rather than a no-op so each surface can drop its control entirely.
-  const openConnectionEditor = isAdmin ? () => setIsConnectionModalOpen(true) : undefined;
-  const editConnection = isAdmin
-    ? (c: DatabaseConnection) => {
-        setEditingConnection(c);
-        setIsConnectionModalOpen(true);
-      }
-    : undefined;
-  const duplicateConnection = isAdmin ? handleDuplicateConnection : undefined;
-  const [pendingDeleteConnectionId, setPendingDeleteConnectionId] = useState<string | null>(null);
+  //
+  // The studio creates no connection of its own any more: datasources are declared by an
+  // administrator under Admin → Datasources and opened by id (docs/CONTEXT.md §4.1). An
+  // admin's "+" therefore goes THERE, and every other session gets no control at all -
+  // `undefined` rather than a no-op so each surface can drop it entirely.
+  const openDatasources = isAdmin ? () => router.push("/admin/datasources") : undefined;
   const [isCreateTableModalOpen, setIsCreateTableModalOpen] = useState(false);
   const [showDiagram, setShowDiagram] = useState(false);
   const [isSaveQueryModalOpen, setIsSaveQueryModalOpen] = useState(false);
@@ -508,35 +480,6 @@ export default function Studio() {
     onCreateObject: () => setIsCreateTableModalOpen(true),
   };
 
-  const requestDeleteConnection = (id: string) => {
-    setPendingDeleteConnectionId(id);
-  };
-
-  const handleDeleteConnection = (id: string) => {
-    // Clean up server-side provider cache and close connections/tunnels
-    appFetch("/api/db/disconnect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ connectionId: id }),
-    }).catch(() => {
-      /* best-effort cleanup */
-    });
-
-    storage.deleteConnection(id);
-    // Preserve managed (seed) connections that aren't in localStorage
-    const userConns = storage.getConnections();
-    const managedConns = conn.connections.filter((c) => c.managed && !userConns.some((uc) => uc.id === c.id));
-    const updated = [...managedConns, ...userConns];
-    conn.setConnections(updated);
-    if (conn.activeConnection?.id === id) conn.setActiveConnection(updated[0] || null);
-  };
-
-  const confirmDeleteConnection = () => {
-    if (!pendingDeleteConnectionId) return;
-    handleDeleteConnection(pendingDeleteConnectionId);
-    setPendingDeleteConnectionId(null);
-  };
-
   /**
    * One rail, two mounts: a panel of the group above the breakpoint, a bare child of
    * the shell below it. Declared once so the two placements cannot drift apart.
@@ -595,10 +538,7 @@ export default function Studio() {
                 connections={conn.connections}
                 activeConnection={conn.activeConnection}
                 onSelectConnection={conn.setActiveConnection}
-                onDeleteConnection={requestDeleteConnection}
-                onEditConnection={editConnection}
-                onDuplicateConnection={duplicateConnection}
-                onAddConnection={openConnectionEditor}
+                onAddConnection={openDatasources}
                 onObjectClick={onObjectClick}
                 objectActions={objectActions}
                 onShowDiagram={() => setShowDiagram(true)}
@@ -629,7 +569,7 @@ export default function Studio() {
               playgroundMode={txn.playgroundMode}
               editingEnabled={editingEnabled}
               onSelectConnection={conn.setActiveConnection}
-              onAddConnection={openConnectionEditor}
+              onAddConnection={openDatasources}
               onLogout={handleLogout}
               onSaveQuery={() => setIsSaveQueryModalOpen(true)}
               onClearQuery={() => tabMgr.updateCurrentTab({ query: "" })}
@@ -697,14 +637,14 @@ export default function Studio() {
                 <div className="md:hidden h-full bg-sunken overflow-auto p-4">
                   <div className="mb-4 flex items-center justify-between">
                     <h2 className="text-xs font-medium text-fg-secondary">Connections</h2>
-                    {openConnectionEditor && (
+                    {openDatasources && (
                       <Button
                         variant="outline"
                         size="sm"
                         className="h-8 text-xs border-hairline-strong hover:bg-fill"
-                        onClick={openConnectionEditor}
+                        onClick={openDatasources}
                       >
-                        <Plus strokeWidth={1.5} className="w-3 h-3 mr-1" /> Add
+                        <Plus strokeWidth={1.5} className="w-3 h-3 mr-1" /> New datasource
                       </Button>
                     )}
                   </div>
@@ -715,9 +655,7 @@ export default function Studio() {
                       conn.setActiveConnection(c);
                       setActiveMobileTab("editor");
                     }}
-                    onDeleteConnection={requestDeleteConnection}
-                    onDuplicateConnection={duplicateConnection}
-                    onAddConnection={openConnectionEditor}
+                    onAddConnection={openDatasources}
                   />
                 </div>
               )}
@@ -882,23 +820,6 @@ export default function Studio() {
       {agentEnabled && isMobile && agentRail}
 
       {/* Modals */}
-      <ConnectionModal
-        isOpen={isConnectionModalOpen}
-        onClose={() => {
-          setIsConnectionModalOpen(false);
-          setEditingConnection(null);
-        }}
-        onConnect={(c) => {
-          storage.saveConnection(c);
-          const userConns = storage.getConnections();
-          const managedConns = conn.connections.filter((mc) => mc.managed && !userConns.some((uc) => uc.id === mc.id));
-          conn.setConnections([...managedConns, ...userConns]);
-          conn.setActiveConnection(c);
-          setIsConnectionModalOpen(false);
-          setEditingConnection(null);
-        }}
-        editConnection={editingConnection}
-      />
       <CreateTableModal
         isOpen={isCreateTableModalOpen}
         onClose={() => setIsCreateTableModalOpen(false)}
@@ -988,46 +909,6 @@ export default function Studio() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Delete Connection Confirmation */}
-      <AlertDialog
-        open={!!pendingDeleteConnectionId}
-        onOpenChange={(open) => {
-          if (!open) setPendingDeleteConnectionId(null);
-        }}
-      >
-        <AlertDialogContent className="bg-overlay border-hairline max-w-sm p-0 gap-0 overflow-hidden">
-          <div className="px-6 pt-6 pb-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500/20 to-red-500/10 flex items-center justify-center shrink-0">
-                <Trash2 strokeWidth={1.5} className="w-5 h-5 text-danger" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <AlertDialogTitle className="text-[0.8125rem] font-medium text-fg mb-1">
-                  Delete connection?
-                </AlertDialogTitle>
-                <AlertDialogDescription className="text-xs text-fg-muted leading-relaxed">
-                  <span className="text-fg-tertiary">
-                    {conn.connections.find((c) => c.id === pendingDeleteConnectionId)?.name || "This connection"}
-                  </span>{" "}
-                  will be removed. This cannot be undone.
-                </AlertDialogDescription>
-              </div>
-            </div>
-          </div>
-          <div className="px-6 pb-6 flex gap-2">
-            <AlertDialogCancel className="flex-1 h-9 bg-fill border-0 text-fg-tertiary text-xs font-medium hover:bg-fill-strong hover:text-fg">
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDeleteConnection}
-              className="flex-1 h-9 bg-danger-solid border-0 text-white text-xs font-medium hover:bg-danger-solid-hover"
-            >
-              Delete
-            </AlertDialogAction>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <CommandPalette
         connections={conn.connections}
         activeConnection={conn.activeConnection}
@@ -1035,7 +916,7 @@ export default function Studio() {
         capabilities={metadata?.capabilities}
         onSelectConnection={conn.setActiveConnection}
         onTableClick={onTableClick}
-        onAddConnection={openConnectionEditor}
+        onAddConnection={openDatasources}
         onExecuteQuery={() => queryExec.executeQuery()}
         onLoadSavedQuery={(q) => {
           tabMgr.updateCurrentTab({ query: q });

@@ -18,6 +18,7 @@ import { GET } from "@/app/api/connections/managed/route";
 import { resetCache } from "@/lib/seed/config-loader";
 import { getSession } from "@/lib/auth";
 import { setSqliteSampleSeedState, SQLITE_SAMPLE_SEED_ID } from "@/lib/seed/sqlite-sample";
+import { getPendingSeeds } from "@/lib/seed";
 import { SEED_CONFIG_UNREADABLE_REASON } from "@/hooks/use-connection-payload";
 
 describe("GET /api/connections/managed", () => {
@@ -53,11 +54,9 @@ describe("GET /api/connections/managed", () => {
     }
   });
 
-  // docs/CONTEXT.md §4.1: `resolveConnection` refuses a client-supplied connection from a
-  // non-admin session, and an editable seed (managed:false, the built-in samples) is sent
-  // back by the browser as exactly that. The list must not advertise what the server will
-  // refuse, and it must not ask the browser to poll for a sample it may never hold.
-  it("hides editable seeds and pending samples from a non-admin session", async () => {
+  // docs/CONTEXT.md §4.1: every datasource is managed and opened by its seed id, so the list
+  // is the same for every role the seeds admit, and a pending sample is advertised to everyone.
+  it("serves every row as managed, to a non-admin session too, with the pending seeds", async () => {
     (getSession as ReturnType<typeof mock>).mockImplementation(() => ({ role: "user", username: "bob" }));
     setSqliteSampleSeedState("seeding");
     try {
@@ -66,7 +65,7 @@ describe("GET /api/connections/managed", () => {
       const data = await res.json();
       expect(data.connections.length).toBeGreaterThan(0);
       expect(data.connections.every((c: { managed: boolean }) => c.managed)).toBe(true);
-      expect(data.pendingSeeds).toEqual([]);
+      expect(data.pendingSeeds).toEqual(getPendingSeeds());
     } finally {
       setSqliteSampleSeedState("idle");
     }
@@ -89,7 +88,9 @@ describe("GET /api/connections/managed", () => {
     resetCache();
   });
 
-  it("includes credentials for managed:false connections", async () => {
+  // A seed file may still say `managed: false`; the browser can no longer use it as a copy
+  // (docs/CONTEXT.md §4.1), so the route strips the credential from that row like any other.
+  it("strips credentials from every connection, managed:false declared or not", async () => {
     const origPath = process.env.SEED_CONFIG_PATH;
     process.env.SEED_CONFIG_PATH = path.join(
       path.resolve(__dirname, "../../fixtures/seed-connections"),
@@ -103,9 +104,12 @@ describe("GET /api/connections/managed", () => {
 
     const res = await GET();
     const data = await res.json();
-    const unmanaged = data.connections.find((c: { managed: boolean }) => !c.managed);
-    expect(unmanaged).toBeDefined();
-    expect(unmanaged.password).toBe("mysql-pass");
+    expect(data.connections.length).toBeGreaterThan(0);
+    for (const conn of data.connections as Array<{ password?: string; connectionString?: string }>) {
+      expect(conn.password).toBeUndefined();
+      expect(conn.connectionString).toBeUndefined();
+    }
+    expect(JSON.stringify(data)).not.toContain("mysql-pass");
 
     process.env.SEED_CONFIG_PATH = origPath;
     delete process.env.TEST_PG_PASSWORD;

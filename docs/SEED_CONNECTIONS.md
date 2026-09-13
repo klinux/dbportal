@@ -248,38 +248,22 @@ User sees only connections where roles includes "user" or "*"
 
 ---
 
-## Managed vs. Unmanaged Connections
+## Every Connection Is Managed
 
-### `managed: true` (default)
+Every datasource — seed file, runtime store, built-in sample — is opened by its seed id and
+never leaves the server as a whole connection:
 
-- Connection appears with a **lock icon** in the sidebar
-- Users **cannot edit or delete** it
-- Credentials are **never sent to the client** — server resolves them at query time
-- If admin updates the config (e.g., password rotation), all users get the new credentials automatically
-- Best for: production databases, shared resources
+- It appears with a **lock icon** in the sidebar; nobody edits, duplicates or deletes it there.
+  An administrator changes it under Admin → Datasources (runtime) or in this file (GitOps).
+- Credentials are **never sent to the client** — the server resolves them at query time, so a
+  password rotation reaches every user on their next request.
+- If an administrator removes it, it disappears for everyone.
 
-### `managed: false`
-
-- On first load, the connection is **copied to the user's local storage** with credentials
-- User **can edit or delete** their copy
-- Once copied, the connection belongs to the user — admin changes to the seed config won't affect existing copies
-- If the user deletes their copy, the seed ID is recorded in a local "dismissed" list and the connection is **not** re-imported on subsequent loads (see [Dismissed Seeds](#dismissed-seeds) below)
-- Best for: development databases, sandbox environments
-
-### Comparison
-
-| Behavior | `managed: true` | `managed: false` |
-|----------|-----------------|-------------------|
-| UI edit/delete | Locked | Allowed |
-| Credentials on client | Never | Copied once |
-| Password rotation | Automatic | User must re-import |
-| Admin removes from config | Disappears for all | User copy remains |
-| Server-side credential resolution | Yes | No (user has local copy) |
-| User deletes their copy | N/A (locked) | Dismissed permanently — will not reappear |
-
-### Dismissed Seeds
-
-Deleting a `managed: false` connection from the sidebar does not simply remove it — the client records the seed's `id` in a local `dismissed_seeds` list (synced through the same write-through storage as connections). On every subsequent load, `dismissed_seeds` is checked before re-importing `managed: false` connections from `/api/connections/managed`, so a deleted seed connection stays gone even after the admin's config is untouched. There is currently no UI to un-dismiss a seed; the only way to bring it back is to clear the `dismissed_seeds` entry from local storage (see [Troubleshooting](#troubleshooting)).
+`managed: false` is still accepted by the schema for compatibility with older files, but it
+no longer does anything: the browser cannot hold a copy of a connection any more
+(docs/CONTEXT.md §4.1), so the entry is served like any other. The `dismissed_seeds`
+per-user collection that tracked deleted copies is kept in storage for the same reason and
+is not read.
 
 ---
 
@@ -481,7 +465,7 @@ Standalone deployments also get automatic, code-defined seed connections (none o
 - **Sample (LibreDB)** — on first startup, `src/lib/seed/libredb-sample.ts` creates an embedded LibreDB file (default `<data dir>/sample.libredb`, alongside the SQLite storage DB) and seeds it with example data — a `users` table, an `articles` document collection, and a couple of KV entries — one per LibreDB lens. Seeded synchronously during boot.
 - **Sample (Employees)** — `src/lib/seed/sqlite-sample.ts` copies the vendored employees SQLite database (`seed-assets/sqlite/employee.db`, from [bytebase/employee-sample-database](https://github.com/bytebase/employee-sample-database) `dataset_small`, originally [datacharmer/test_db](https://github.com/datacharmer/test_db); see `seed-assets/sqlite/ATTRIBUTION.md`) to `<data dir>/sample-employees.db`. Seeded **asynchronously and fail-open**: boot never waits for the copy; while it is in flight `GET /api/connections/managed` lists the seed id in `pendingSeeds` and the client polls (1s, max 30 attempts; the interval constant is inlined at build time — `NEXT_PUBLIC_MANAGED_POLL_MS` only affects source builds and tests, not packaged artifacts) so the connection appears without a page refresh.
 
-`getManagedConnections()` appends each sample to the managed-connections list once its file exists (`managed: false`, `roles: ["*"]`), so they behave like any other unmanaged seed: editable, and if deleted they go to the dismissed list rather than reappearing.
+`getManagedConnections()` appends each sample to the managed-connections list once its file exists (`managed: true`, `roles: ["*"]`), so it behaves like any other seed: opened by its seed id, read-only in the studio, and gone for everyone once the variable below disables it. A portal deployment that wants no demo data sets both variables to `false`.
 
 This is separate from the `SEED_CONFIG_PATH` file and needs no config of its own:
 
@@ -514,16 +498,14 @@ The user's role doesn't match the connection's `roles` array. Check:
 
 ### Credentials not updating after config change
 
-- `managed: true`: Wait for TTL to expire (default 60s), or restart the app
-- `managed: false`: The user has a local copy that never re-syncs from the config. Deleting it from the sidebar does not bring back the updated version either — it only marks the seed as dismissed (see [Dismissed Seeds](#dismissed-seeds)). To pick up new credentials, the user must delete their local copy from the `libredb_connections` entry in localStorage **and** remove the matching seed ID from `libredb_dismissed_seeds`, then reload.
+Wait for the TTL to expire (default 60s), or restart the app. Every connection resolves its
+credentials on the server, so nothing has to be cleared in a browser.
 
-### Two identical connections in sidebar
+### A connection from an older version is still listed, and every query answers 400
 
-Clear browser localStorage (`libredb_connections` key) and refresh. This can happen if a connection was persisted before being marked as managed.
-
-### A deleted seed connection won't come back
-
-This is expected: deleting a `managed: false` connection adds its seed ID to `libredb_dismissed_seeds` in localStorage, and it is intentionally excluded from re-import on every subsequent load (see [Dismissed Seeds](#dismissed-seeds)). Remove the ID from that key (or clear it) to let the connection be re-imported.
+Before docs/CONTEXT.md §4.1 the browser could hold connections of its own; the studio no
+longer reads them, so a row that still shows up comes from a stale `libredb_connections`
+entry in localStorage. Clear that key and refresh — the list is the server's answer alone.
 
 ---
 

@@ -145,12 +145,12 @@ describe("sqlite-sample", () => {
     expect(fs.existsSync(`${file}.${process.pid}.seeding`)).toBe(false);
   });
 
-  test("buildSqliteSampleConnection: editable sqlite seed pointing at the resolved path", () => {
+  test("buildSqliteSampleConnection: managed sqlite seed pointing at the resolved path", () => {
     const conn = buildSqliteSampleConnection();
     expect(conn.seedId).toBe(SQLITE_SAMPLE_SEED_ID);
     expect(conn.id).toBe(`seed:${SQLITE_SAMPLE_SEED_ID}`);
     expect(conn.type).toBe("sqlite");
-    expect(conn.managed).toBe(false);
+    expect(conn.managed).toBe(true);
     expect(conn.roles).toEqual(["*"]);
     expect(conn.name).toBe("Sample (Employees)");
     expect(conn.database).toBe(resolveSqliteSamplePath());

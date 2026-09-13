@@ -17,12 +17,12 @@ interface SidebarProps {
   connections: DatabaseConnection[];
   activeConnection: DatabaseConnection | null;
   onSelectConnection: (connection: DatabaseConnection) => void;
-  onDeleteConnection: (id: string) => void;
+  onDeleteConnection?: (id: string) => void;
   onEditConnection?: (conn: DatabaseConnection) => void;
   onDuplicateConnection?: (conn: DatabaseConnection) => void;
   /**
-   * Opens the connection editor. Absent for a session that may not create connections
-   * (docs/CONTEXT.md §4.1): the button is then not rendered rather than rendered inert.
+   * Takes an administrator to where datasources are declared (docs/CONTEXT.md §4.1). Absent
+   * for every other session: the button is then not rendered rather than rendered inert.
    */
   onAddConnection?: () => void;
   /** A row the reader activated, handed over whole: path, kind and the fields the tree loaded. */
@@ -116,7 +116,7 @@ export function Sidebar({
             <button
               className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
               onClick={onAddConnection}
-              title="New connection"
+              title="New datasource"
             >
               <Plus strokeWidth={1.5} className="w-3.5 h-3.5" />
             </button>

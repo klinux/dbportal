@@ -45,11 +45,12 @@ mock.module("@/lib/seed/resolve-connection", () => {
   }
   return {
     resolveConnection: mock(async (body: Record<string, unknown>) => {
-      if (!body.connection && !body.connectionId) {
-        throw new SeedConnectionError("Either connection or connectionId is required", 400);
-      }
+      if (!body.connectionId) throw new SeedConnectionError("connectionId is required", 400);
       return body.connection;
     }),
+    // The draft path this route alone keeps (docs/CONTEXT.md §4.1 step B): the bare or
+    // wrapped connection the admin editor tests before saving, handed back as it came.
+    resolveDraftConnection: mock(async (connection: Record<string, unknown>) => connection),
     SeedConnectionError,
   };
 });

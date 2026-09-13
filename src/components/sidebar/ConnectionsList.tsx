@@ -7,10 +7,10 @@ interface ConnectionsListProps {
   connections: DatabaseConnection[];
   activeConnection: DatabaseConnection | null;
   onSelectConnection: (conn: DatabaseConnection) => void;
-  onDeleteConnection: (id: string) => void;
+  onDeleteConnection?: (id: string) => void;
   onEditConnection?: (conn: DatabaseConnection) => void;
   onDuplicateConnection?: (conn: DatabaseConnection) => void;
-  /** Absent when the session may not create connections; the empty state then says who can. */
+  /** Absent when the session may not declare datasources; the empty state then says who can. */
   onAddConnection?: () => void;
 }
 
@@ -35,11 +35,9 @@ export function ConnectionsList({
           <div className="px-3 py-6 text-center border border-dashed border-border/50 rounded-lg mx-2">
             {onAddConnection ? (
               <>
-                <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-                  No database connections established yet.
-                </p>
+                <p className="text-xs text-muted-foreground mb-3 leading-relaxed">No datasources declared yet.</p>
                 <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onAddConnection}>
-                  Add Connection
+                  New datasource
                 </Button>
               </>
             ) : (

@@ -29,10 +29,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Empty request body" }, { status: 400 });
     }
 
-    const connection = await resolveConnection(
-      body.connectionId ? body : body.connection ? body : { connection: body },
-      guard.session,
-    );
+    const connection = await resolveConnection(body, guard.session);
 
     if (!connection.type) {
       return NextResponse.json({ error: "Valid connection configuration is required" }, { status: 400 });
