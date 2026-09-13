@@ -102,23 +102,25 @@ mock.module("@/hooks/use-auth", () => ({
   })),
 }));
 
+const mockUseConnectionManager = mock(() => ({
+  connections: [],
+  servedSeeds: { loaded: true, seeds: [] },
+  activeConnection: null,
+  schema: [],
+  schemaContext: "[]",
+  isLoadingSchema: false,
+  connectionPulse: "none",
+  setConnections: mockSetConnections,
+  setActiveConnection: mockSetActiveConnection,
+  setSchema: mockSetSchema,
+  fetchSchema: mockFetchSchema,
+  objectScanDeferred: false,
+  loadObjects: mockLoadObjects,
+  ...connMgrOverride,
+}));
+
 mock.module("@/hooks/use-connection-manager", () => ({
-  useConnectionManager: mock(() => ({
-    connections: [],
-    servedSeeds: { loaded: true, seeds: [] },
-    activeConnection: null,
-    schema: [],
-    schemaContext: "[]",
-    isLoadingSchema: false,
-    connectionPulse: "none",
-    setConnections: mockSetConnections,
-    setActiveConnection: mockSetActiveConnection,
-    setSchema: mockSetSchema,
-    fetchSchema: mockFetchSchema,
-    objectScanDeferred: false,
-    loadObjects: mockLoadObjects,
-    ...connMgrOverride,
-  })),
+  useConnectionManager: mockUseConnectionManager,
 }));
 
 mock.module("@/hooks/use-provider-metadata", () => ({
@@ -1103,6 +1105,11 @@ describe("Studio", () => {
     expect(source).toEqual(original);
   });
 
+  test("an admin session is handed its own connections as well", () => {
+    render(<Studio />);
+    expect(mockUseConnectionManager).toHaveBeenLastCalledWith(expect.anything(), true);
+  });
+
   test("onAddConnection opens connection modal", () => {
     render(<Studio />);
     const fn = capturedSidebarProps.onAddConnection as () => void;
@@ -1116,6 +1123,9 @@ describe("Studio", () => {
   test("a non-admin session gets no entry point into the connection editor", () => {
     authOverride = { isAdmin: false };
     render(<Studio />);
+    // The list itself is gated on the same seam: the hook is told this session may hold no
+    // connection of its own, so a stored one cannot be opened and refused (§4.1).
+    expect(mockUseConnectionManager).toHaveBeenLastCalledWith(expect.anything(), false);
     expect(capturedSidebarProps.onAddConnection).toBeUndefined();
     expect(capturedSidebarProps.onEditConnection).toBeUndefined();
     expect(capturedSidebarProps.onDuplicateConnection).toBeUndefined();

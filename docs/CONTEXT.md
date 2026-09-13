@@ -68,9 +68,13 @@ Two steps. The first closes the hole; the second delivers the product.
   `duplicateConnection` from `isAdmin` and hands `undefined` to the sidebar, the mobile
   header, the mobile connections tab and the command palette; each drops its control.
   The managed list is untouched.
-- Known leftover: a non-admin who created local connections before this change still
-  sees them in the list and gets the 403 on use. They disappear with Step B, when the
-  `connection` body field goes away and the list is fed only by the server.
+- The list follows the rule too: `GET /api/connections/managed` returns only `managed:true`
+  seeds (and no pending sample) to a non-admin session, and `useConnectionManager(storageReady,
+  localConnections)` skips browser-stored connections and editable seed copies when the flag
+  is false. `Studio` passes `isAdmin`, which is false until `/api/auth/me` answers, so every
+  session starts on the managed list and an admin's own connections join a moment later -
+  the other order would open a non-admin's stored connection and greet them with the 403.
+  The built-in samples (`managed:false` seeds) are therefore admin-only by construction.
 
 **Step B — server-side shared datasources:**
 - Admin CRUD (`/api/admin/datasources`) persisted server-side, encrypted like the existing

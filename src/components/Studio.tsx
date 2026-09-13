@@ -106,7 +106,12 @@ export default function Studio() {
   const { isReady: storageReady } = useStorageSync();
 
   // 2. Connection Manager + Provider Metadata
-  const conn = useConnectionManager(storageReady);
+  //
+  // `isAdmin` is false until /api/auth/me answers, so every session starts with the managed
+  // list alone and an admin's own connections join it a moment later (the hook re-initialises
+  // when the flag flips). The other order - show everything, then take it away - would open a
+  // non-admin's stored connection first and greet them with the 403 it earns.
+  const conn = useConnectionManager(storageReady, isAdmin);
   const { metadata, error: metadataError, retry: retryMetadata } = useProviderMetadata(conn.activeConnection);
 
   // 3. Tab Manager

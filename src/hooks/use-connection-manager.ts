@@ -23,7 +23,16 @@ import {
  * inlined at build time, so packaged artifacts always use the default. */
 const MANAGED_POLL_MAX_ATTEMPTS = 30;
 
-export function useConnectionManager(storageReady = false) {
+/**
+ * @param storageReady the per-user storage has synced; nothing is read before that.
+ * @param localConnections whether this session may hold connections of its own - the ones
+ *   in browser storage and the editable copies of seeds. False for a non-admin session: the
+ *   server refuses a client-supplied connection from any other role (docs/CONTEXT.md §4.1),
+ *   so listing one would offer something that can only fail. The role arrives asynchronously,
+ *   so a caller passes false until it knows better; flipping it to true re-initialises the
+ *   list, which is why it is an effect dependency rather than read once.
+ */
+export function useConnectionManager(storageReady = false, localConnections = true) {
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
   const [activeConnection, setActiveConnection] = useState<DatabaseConnection | null>(null);
   /**
@@ -274,7 +283,10 @@ export function useConnectionManager(storageReady = false) {
         if (mc.managed) {
           merged.push({ ...mc, createdAt: new Date(mc.createdAt) });
         } else {
-          // managed:false — editable user copy
+          // managed:false — editable user copy. Never materialised for a session that may
+          // not hold its own connections: the copy would be persisted to that user's
+          // storage and then refused by the server on every use.
+          if (!localConnections) continue;
           if (mc.seedId && dismissed.has(mc.seedId)) continue; // user deleted it; do not re-add
           const existingCopy = userConns.find((uc: DatabaseConnection) => uc.seedId === mc.seedId);
           if (existingCopy) {
@@ -288,6 +300,7 @@ export function useConnectionManager(storageReady = false) {
       }
 
       // Add remaining user connections (not from seeds)
+      if (!localConnections) return merged;
       const seedIds = new Set(managedConns.map((mc) => mc.seedId));
       const mergedIds = new Set(merged.map((c) => c.id));
       for (const uc of userConns) {
@@ -338,6 +351,9 @@ export function useConnectionManager(storageReady = false) {
     // after the attempt budget and never surface errors — the sample is a
     // nicety, not a dependency.
     const startSeedPoll = (pendingSeeds: string[]) => {
+      // A pending seed is an editable sample being copied at boot; a session that cannot
+      // hold one has nothing to wait for, whatever the server reported.
+      if (!localConnections) return;
       const dismissed = new Set(storage.getDismissedSeeds());
       if (!pendingSeeds.some((seedId) => !dismissed.has(seedId))) return;
 
@@ -370,7 +386,7 @@ export function useConnectionManager(storageReady = false) {
     };
 
     const initializeConnections = async () => {
-      const loadedConnections = storage.getConnections();
+      const loadedConnections = localConnections ? storage.getConnections() : [];
 
       // Fetch managed (seed) connections
       let managedMerged = false;
@@ -421,7 +437,7 @@ export function useConnectionManager(storageReady = false) {
       cancelled = true;
       stopPoll();
     };
-  }, [storageReady]);
+  }, [storageReady, localConnections]);
 
   // Persist active connection ID
   useEffect(() => {

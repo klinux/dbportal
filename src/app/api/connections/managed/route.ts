@@ -31,7 +31,15 @@ export async function GET() {
       );
     }
 
-    const sanitized = connections.map((conn) => {
+    // A non-admin session may only open what the server itself resolves: `resolveConnection`
+    // refuses a client-supplied connection for every other role (docs/CONTEXT.md §4.1), and an
+    // editable seed copy (managed:false - the built-in samples) is sent back as exactly that.
+    // Advertising one would hand the browser a connection it can only fail on, so the list
+    // is cut here, where the role is known, and the seed poll below has nothing to wait for.
+    const canUseLocalConnections = session.role === "admin";
+    const visible = canUseLocalConnections ? connections : connections.filter((conn) => conn.managed);
+
+    const sanitized = visible.map((conn) => {
       if (conn.managed) {
         const { password, connectionString, ...rest } = conn;
         return rest;
@@ -45,7 +53,11 @@ export async function GET() {
     // Seed ids still being seeded asynchronously (e.g. the SQLite sample file
     // copy at boot) — clients poll while non-empty so the sample appears
     // without a page refresh. Always [] when embedded in platform.
-    return NextResponse.json({ connections: sanitized, cacheHint: cacheTTL, pendingSeeds: getPendingSeeds() });
+    return NextResponse.json({
+      connections: sanitized,
+      cacheHint: cacheTTL,
+      pendingSeeds: canUseLocalConnections ? getPendingSeeds() : [],
+    });
   } catch (error) {
     logger.error("Failed to load managed connections", error, {
       route: "GET /api/connections/managed",

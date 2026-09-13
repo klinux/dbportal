@@ -53,6 +53,25 @@ describe("GET /api/connections/managed", () => {
     }
   });
 
+  // docs/CONTEXT.md §4.1: `resolveConnection` refuses a client-supplied connection from a
+  // non-admin session, and an editable seed (managed:false, the built-in samples) is sent
+  // back by the browser as exactly that. The list must not advertise what the server will
+  // refuse, and it must not ask the browser to poll for a sample it may never hold.
+  it("hides editable seeds and pending samples from a non-admin session", async () => {
+    (getSession as ReturnType<typeof mock>).mockImplementation(() => ({ role: "user", username: "bob" }));
+    setSqliteSampleSeedState("seeding");
+    try {
+      const res = await GET();
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.connections.length).toBeGreaterThan(0);
+      expect(data.connections.every((c: { managed: boolean }) => c.managed)).toBe(true);
+      expect(data.pendingSeeds).toEqual([]);
+    } finally {
+      setSqliteSampleSeedState("idle");
+    }
+  });
+
   it("returns 401 when no session", async () => {
     (getSession as ReturnType<typeof mock>).mockImplementation(() => null);
     const res = await GET();

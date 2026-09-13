@@ -754,6 +754,88 @@ describe("useConnectionManager", () => {
     expect(result.current.activeConnection!.id).toBe("plain-1");
   });
 
+  // ── Sessions that may not hold connections of their own (docs/CONTEXT.md §4.1) ──
+
+  // The server refuses a client-supplied connection from a non-admin session, so the list
+  // handed to such a session must carry nothing the browser would have to supply itself:
+  // no stored connection, no editable seed copy - and no copy persisted as a side effect,
+  // which is what the merge does for every new managed:false seed it sees.
+  test("a session without local connections lists managed seeds only and persists no copy", async () => {
+    storage.saveConnection(makeConnection({ id: "plain-1", name: "Plain" }));
+    storage.saveConnection(makeConnection({ id: "user-copy-1", seedId: "seed-copy", managed: false }));
+    storage.setActiveConnectionId("plain-1");
+
+    const fetchMock = mockGlobalFetch({
+      "/api/connections/managed": {
+        ok: true,
+        json: {
+          connections: [
+            makeManagedConnection({ id: "managed-1", managed: true, seedId: "seed-managed" }),
+            makeManagedConnection({ id: "seed-new-srv", managed: false, seedId: "seed-new" }),
+            makeManagedConnection({ id: "seed-copy-srv", managed: false, seedId: "seed-copy" }),
+          ],
+          pendingSeeds: ["sqlite-embedded-sample"],
+        },
+      },
+      "/api/db/health": { ok: true, json: { status: "healthy" } },
+    });
+
+    const { result } = renderHook(() => useConnectionManager(true, false));
+
+    await waitFor(() => {
+      expect(result.current.activeConnection).not.toBeNull();
+    });
+
+    expect(result.current.connections.map((c) => c.id)).toEqual(["managed-1"]);
+    // The persisted active id names a connection this session cannot see; the managed one wins.
+    expect(result.current.activeConnection!.id).toBe("managed-1");
+    expect(storage.getConnections().some((c) => c.seedId === "seed-new")).toBe(false);
+    // Nothing to poll for either: a pending seed is a sample copy this session may not hold.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(managedCallCount(fetchMock)).toBe(1);
+  });
+
+  // The fallback when the managed endpoint cannot be reached used to be "whatever storage
+  // holds"; for a session without local connections that is nothing, not a stale list.
+  test("without local connections the storage fallback is empty, not the stored list", async () => {
+    storage.saveConnection(makeConnection({ id: "plain-1", name: "Plain" }));
+    mockGlobalFetch({ "/api/connections/managed": { ok: false, status: 500, json: {} } });
+
+    const { result } = renderHook(() => useConnectionManager(true, false));
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(result.current.connections).toEqual([]);
+    expect(result.current.activeConnection).toBeNull();
+  });
+
+  // The role arrives after the first render, so the shell starts every session on the
+  // managed list and flips the flag once it knows. The flip has to re-read, or an admin
+  // would never see their own connections without a refresh.
+  test("turning local connections on re-initialises the list", async () => {
+    storage.saveConnection(makeConnection({ id: "plain-1", name: "Plain" }));
+    mockGlobalFetch({
+      "/api/connections/managed": {
+        ok: true,
+        json: { connections: [makeManagedConnection({ id: "managed-1", managed: true, seedId: "seed-managed" })] },
+      },
+      "/api/db/health": { ok: true, json: { status: "healthy" } },
+    });
+
+    const { result, rerender } = renderHook(({ local }: { local: boolean }) => useConnectionManager(true, local), {
+      initialProps: { local: false },
+    });
+
+    await waitFor(() => {
+      expect(result.current.connections.map((c) => c.id)).toEqual(["managed-1"]);
+    });
+
+    rerender({ local: true });
+
+    await waitFor(() => {
+      expect(result.current.connections.map((c) => c.id)).toEqual(["managed-1", "plain-1"]);
+    });
+  });
+
   // The rail needs the server's own descriptors, not just the merged list: an
   // editable seed copy is startable by id exactly while it still matches the
   // descriptor it came from, and the merged list has already lost that side.
