@@ -10,6 +10,7 @@ import type { MaskingConfig } from "@/lib/data-masking";
 import type { AgentArtifactHydration } from "@/components/agent/hydration";
 import type { CellChange } from "@/components/ResultsGrid";
 import { ResultsGrid } from "@/components/ResultsGrid";
+import { ApprovalState } from "@/components/studio/ApprovalState";
 import { QueryHistory } from "@/components/QueryHistory";
 import { SavedQueries } from "@/components/SavedQueries";
 import { ChunkBoundary, ViewLoading } from "@/components/LazyView";
@@ -540,6 +541,8 @@ export function BottomPanel({
                 onApplyChanges={onApplyChanges}
                 onDiscardChanges={onDiscardChanges}
               />
+            ) : currentTab.approval && mode === "results" ? (
+              <ApprovalState approval={currentTab.approval} />
             ) : (
               <div className="h-full flex flex-col items-center justify-center opacity-20 bg-surface">
                 <Terminal strokeWidth={1.5} className="w-12 h-12 mb-4" />

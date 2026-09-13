@@ -26,6 +26,7 @@ import {
 } from "@/lib/llm/types";
 import { RateLimitError } from "@/lib/api/rate-limit";
 import { SeedConnectionError } from "@/lib/seed/resolve-connection";
+import { ApprovalRequiredError } from "@/lib/approvals/errors";
 
 // ============================================================================
 // Types
@@ -47,6 +48,15 @@ export interface ApiErrorResponse {
 
 export function createErrorResponse(error: unknown, context?: { route?: string }): NextResponse<ApiErrorResponse> {
   const route = context?.route;
+
+  // --- Awaiting approval (docs/CONTEXT.md §4.6): a decision, not a failure ---
+  if (error instanceof ApprovalRequiredError) {
+    logger.info("Write awaiting approval", { route, approvalId: error.approval.id });
+    return NextResponse.json(
+      { error: error.message, code: ApiErrorCode.APPROVAL_REQUIRED, statusCode: 403, approval: error.approval },
+      { status: 403 },
+    );
+  }
 
   // --- Seed Connection Error ---
   if (error instanceof SeedConnectionError) {

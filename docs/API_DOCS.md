@@ -1161,6 +1161,32 @@ configuration is what failed.
 
 ---
 
+### Approvals API
+
+Write approval (docs/CONTEXT.md §4.6). A write on a datasource declared `writeApproval: true`
+that has no open write window answers `403` with `code: "APPROVAL_REQUIRED"` and the pending
+request in `approval`; these routes let the requester watch it and a reviewer decide it. All
+session-guarded (`guardRoute`, `query` bucket).
+
+#### GET /api/approvals
+
+Auth required. The requests the caller may review — the datasource's `approverRoles`, or
+administrators — pending first, then recent decisions. `?scope=mine` lists the caller's own.
+
+```json
+{ "approvals": [ { "id": "…", "datasourceId": "prod-orders", "datasourceName": "Orders", "requester": "ana", "statement": "DELETE …", "route": "POST /api/db/query", "status": "pending", "requestedAt": "…" } ] }
+```
+
+#### GET /api/approvals/[id]
+
+Auth required. One request, for its requester or a reviewer of its datasource; `404` for anyone else.
+
+#### POST /api/approvals/[id]
+
+Reviewer only (`403` otherwise, audited). Body `{ "decision": "approve" | "reject", "windowMinutes"?: 1–240 (default 15), "note"?: string }`.
+Answers the decided request with `reviewer`, `reviewedAt` and, for an approval, `windowUntil`.
+`404` unknown id, `409` already decided, `403` when the reviewer is the requester, `503` without server storage.
+
 ### Admin API
 
 Both require an **admin** role (enforced in-handler in addition to the middleware); non-admins get `403 { "error": "Unauthorized. Admin access required." }`. `GET`/`POST /api/admin/audit` check the session inline and return that same `403` whether there is no session at all or a valid session with the wrong role — the two are not distinguished. `POST /api/admin/fleet-health` goes through the shared route guard instead and distinguishes them: no session returns `401 { "error": "Authentication required" }`, and only a valid session with a non-admin role returns the `403` above.
@@ -1385,6 +1411,7 @@ These are the values of the `code` field emitted by `createErrorResponse` (`src/
 | `INTERNAL_ERROR` | Unhandled server error (500) |
 | `NETWORK_ERROR` | Network failure |
 | `RATE_LIMITED` | Application-level rate limit exceeded (429) - see "Rate Limiting" below |
+| `APPROVAL_REQUIRED` | The write became a pending approval request and did not run (403); `approval` carries the request - see "Approvals API" |
 
 The Origin-mismatch 403 (see "CSRF: Origin Check" below) is not in this table: it is returned
 directly by the request middleware (`src/proxy.ts`), before a request ever reaches

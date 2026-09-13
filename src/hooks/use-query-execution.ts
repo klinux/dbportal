@@ -482,6 +482,42 @@ export function useQueryExecution({
             return;
           }
 
+          // A decision, not a failure (docs/CONTEXT.md §4.6): the write became a request
+          // and the tab waits on it; use-write-approvals watches it from here.
+          const approval = error.approval as
+            | {
+                id: string;
+                status: "pending" | "approved" | "rejected";
+                datasourceId: string;
+                datasourceName: string;
+                requestedAt: string;
+                reviewer?: string;
+                windowUntil?: string;
+              }
+            | undefined;
+          if (errorCode === ApiErrorCode.APPROVAL_REQUIRED && approval) {
+            commitToTab((t) => ({
+              ...t,
+              isExecuting: false,
+              isLoadingMore: false,
+              result: null,
+              approval: {
+                id: approval.id,
+                status: approval.status,
+                datasourceId: approval.datasourceId,
+                datasourceName: approval.datasourceName,
+                requestedAt: approval.requestedAt,
+                reviewer: approval.reviewer,
+                windowUntil: approval.windowUntil,
+              },
+            }));
+            toast({
+              title: "Awaiting approval",
+              description: `A reviewer has to open a write window on "${approval.datasourceName}" before this runs.`,
+            });
+            return;
+          }
+
           throw new Error(errorMessage);
         }
 
@@ -572,9 +608,10 @@ export function useQueryExecution({
             };
           }
 
-          // New query mode: replace
+          // New query mode: replace. A run that produced a result ends the tab's wait.
           return {
             ...t,
+            approval: isExplain ? t.approval : undefined,
             result: isExplain ? null : resultData, // Don't show EXPLAIN as results
             allRows: isExplain ? t.allRows : resultData.rows,
             currentOffset: isExplain ? t.currentOffset : resultData.rows.length,

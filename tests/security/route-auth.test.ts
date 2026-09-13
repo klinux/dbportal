@@ -220,6 +220,10 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists and creates shared datasources in the app's own storage backend (STORAGE_PROVIDER); never opens a user database (GET/POST). Admin-gated by a bare getSession() with a role denial audit, like admin/audit; tests/api/admin/datasources.test.ts proves the 403",
   "admin/datasources/[id]":
     "updates and deletes one shared datasource in the same storage backend; never opens a user database (PUT/DELETE, no POST export). Same admin gate as above",
+  approvals:
+    "lists write approval requests from the app's own storage backend (STORAGE_PROVIDER); never opens a user database (GET, no POST export). Session-gated by guardRoute, and tests/api/approvals/routes.test.ts proves the 401",
+  "approvals/[id]":
+    "reads one approval request and records a reviewer's decision in the same storage backend; never opens a user database (GET/POST). Same guardRoute gate, and tests/api/approvals/routes.test.ts proves the 401 and the reviewer 403",
   "agent/config":
     "answers whether the agent runtime is enabled, from process.env alone; no database or LLM provider (GET, no POST export). It still requires a session — a bare getSession() like connections/managed, because metering a visibility probe out of the ai bucket would spend a run's budget on rendering a panel — and tests/api/agent/config.test.ts proves an unauthenticated caller learns nothing about the flag",
   "agent/drive":
@@ -388,6 +392,9 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/agent/model-tuning": "the per-model tuning table; data only",
     "@/lib/agent/runtime": `the run loop, and it ${PROVIDER_NAMING_HELPER} - but the artifacts route imports only readAgentArtifact, which reads the in-process ExecutionArtifactStore`,
     "@/lib/access": `pure functions over the token and a datasource's access rule, and it ${PROVIDER_NAMING_HELPER} (@/lib/db/utils/query-limiter) only to classify a statement's text; opens nothing`,
+    "@/lib/api/approvals": "the approvals routes' error answer and decision-body reader; reaches no provider",
+    "@/lib/approvals/store":
+      "write approval requests in the app's own storage backend (STORAGE_PROVIDER), and who may review them; opens no user database",
     "@/lib/api/admin-datasources":
       "the admin gate, body reader and error mapper the datasource routes share; reaches no provider",
     "@/lib/api/agent-run-access": "resolves a run id to its ledger behind guardRoute; reads no provider",

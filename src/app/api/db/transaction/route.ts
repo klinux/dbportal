@@ -4,7 +4,7 @@ import { applicationNameFor } from "@/lib/db/application-name";
 import { createErrorResponse } from "@/lib/api/errors";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 import { auditExecution, type ExecutionAction } from "@/lib/audit-execution";
-import { assertWriteAllowed, providerAccessOptions } from "@/lib/api/write-gate";
+import { assertWriteAllowed, providerAccessOptions, type WriteAccess } from "@/lib/api/write-gate";
 import { clientAddress } from "@/lib/api/client-address";
 import { guardRoute } from "@/lib/api/require-session";
 import { readBoundParams } from "@/lib/api/bound-params";
@@ -45,8 +45,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Only the statement writes; begin, commit and rollback are the envelope (§4.4).
+    let access: WriteAccess = {};
     if (action === "query" && typeof sql === "string") {
-      assertWriteAllowed({
+      access = await assertWriteAllowed({
         route: "POST /api/db/transaction",
         session: guard.session,
         connection,
@@ -78,6 +79,7 @@ export async function POST(req: NextRequest) {
           connectionName: connection.name,
           ip: clientAddress(req),
           ...(statement !== undefined ? { statement } : {}),
+          ...access,
         },
         invoke,
       );

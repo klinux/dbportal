@@ -1,4 +1,12 @@
-export const ADMIN_SECTIONS = ["overview", "datasources", "operations", "monitoring", "security", "audit"] as const;
+export const ADMIN_SECTIONS = [
+  "overview",
+  "datasources",
+  "approvals",
+  "operations",
+  "monitoring",
+  "security",
+  "audit",
+] as const;
 
 export type AdminSection = (typeof ADMIN_SECTIONS)[number];
 

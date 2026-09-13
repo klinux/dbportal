@@ -131,6 +131,18 @@ describe("POST /api/db/query", () => {
     expect(mockGetOrCreateProvider).toHaveBeenCalledTimes(1);
   });
 
+  // docs/CONTEXT.md §4.6: a datasource that requires approval needs the server store the
+  // requests live in; without one the write is refused with a 503 that says so, reads run.
+  test("an approval-gated datasource without a server store refuses writes with 503 and runs reads", async () => {
+    const gated = { ...validConnection, seedId: "orders", roles: ["*"], writeApproval: true };
+    const post = (body: Record<string, unknown>) =>
+      POST(createMockRequest("/api/db/query", { method: "POST", body }) as never);
+    expect((await post({ connection: gated, sql: "SELECT 1" })).status).toBe(200);
+    const denied = await post({ connection: gated, sql: "DELETE FROM users" });
+    expect(denied.status).toBe(503);
+    expect((await parseResponseJSON<{ error: string }>(denied)).error).toContain("server storage");
+  });
+
   test("returns 401 when no session exists", async () => {
     mockGetSession.mockResolvedValueOnce(null);
 

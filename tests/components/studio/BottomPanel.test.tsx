@@ -289,6 +289,59 @@ describe("BottomPanel", () => {
     expect(resultsButton!.className).toContain("text-hue-blue");
   });
 
+  // docs/CONTEXT.md §4.6: while a write waits on a reviewer the result area says so; once
+  // decided it says who decided and what to do; a tab with a result shows the result.
+  test("shows the approval state in place of the empty state, per status", () => {
+    const approval = {
+      id: "req-1",
+      status: "pending" as const,
+      datasourceId: "orders",
+      datasourceName: "Orders",
+      requestedAt: "2026-09-13T00:00:00.000Z",
+    };
+    const tab = createDefaultProps().currentTab;
+    const pending = render(
+      <BottomPanel
+        {...(createDefaultProps({ currentTab: { ...tab, approval } }) as React.ComponentProps<typeof BottomPanel>)}
+      />,
+    );
+    expect(pending.getByTestId("approval-state-pending").textContent).toContain("req-1");
+    expect(pending.queryByText("Execute a query or check history")).toBeNull();
+    pending.unmount();
+
+    const approved = render(
+      <BottomPanel
+        {...(createDefaultProps({
+          currentTab: {
+            ...tab,
+            approval: { ...approval, status: "approved", reviewer: "root", windowUntil: "2026-09-13T00:15:00.000Z" },
+          },
+        }) as React.ComponentProps<typeof BottomPanel>)}
+      />,
+    );
+    expect(approved.getByTestId("approval-state-approved").textContent).toContain("root");
+    approved.unmount();
+
+    const rejected = render(
+      <BottomPanel
+        {...(createDefaultProps({
+          currentTab: { ...tab, approval: { ...approval, status: "rejected", reviewer: "root" } },
+        }) as React.ComponentProps<typeof BottomPanel>)}
+      />,
+    );
+    expect(rejected.getByTestId("approval-state-rejected").textContent).toContain("Nothing ran");
+    rejected.unmount();
+
+    const withResult = render(
+      <BottomPanel
+        {...(createDefaultProps({
+          currentTab: { ...tab, approval, result: { rows: [{ a: 1 }], fields: ["a"], rowCount: 1, executionTime: 1 } },
+        }) as React.ComponentProps<typeof BottomPanel>)}
+      />,
+    );
+    expect(withResult.queryByTestId("approval-state-pending")).toBeNull();
+  });
+
   test("shows empty state placeholder when currentTab.result is null", () => {
     const props = createDefaultProps({ mode: "results" });
     const { getByText } = render(<BottomPanel {...(props as React.ComponentProps<typeof BottomPanel>)} />);

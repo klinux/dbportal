@@ -25,47 +25,43 @@ describe("assertWriteAllowed", () => {
     clearRateLimitState();
   });
 
-  test("lets everything through when the session may write", () => {
-    expect(() =>
-      assertWriteAllowed({ route: "r", session, connection: base, statements: ["DROP TABLE t"], request }),
-    ).not.toThrow();
+  test("lets everything through when the session may write", async () => {
+    expect(
+      await assertWriteAllowed({ route: "r", session, connection: base, statements: ["DROP TABLE t"], request }),
+    ).toEqual({});
     expect(providerAccessOptions(base, session)).toEqual({});
   });
 
-  test("lets reads through on a read-only datasource, and asks the engine for a read-only pool", () => {
+  test("lets reads through on a read-only datasource, and asks the engine for a read-only pool", async () => {
     const readOnly = { ...base, writeRoles: [] };
-    expect(() =>
-      assertWriteAllowed({
+    expect(
+      await assertWriteAllowed({
         route: "r",
         session,
         connection: readOnly,
         statements: ["SELECT 1", "EXPLAIN SELECT 2"],
         request,
       }),
-    ).not.toThrow();
+    ).toEqual({});
     expect(providerAccessOptions(readOnly, session)).toEqual({ readOnly: true });
   });
 
   // The refusal is a 403 the shared error mapper already understands, and a metered
   // permission_denied line with the datasource's own reason - never the statement.
-  test("refuses a write on a read-only datasource with a 403 and an audited reason", () => {
+  test("refuses a write on a read-only datasource with a 403 and an audited reason", async () => {
     const readOnly = { ...base, writeRoles: ["group:dba"] };
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     try {
-      try {
-        assertWriteAllowed({
-          route: "POST /api/db/query",
-          session,
-          connection: readOnly,
-          statements: ["SELECT 1", "UPDATE t SET secret = 'hunter2'"],
-          request,
-        });
-        expect(true).toBe(false);
-      } catch (err) {
-        expect(err).toBeInstanceOf(SeedConnectionError);
-        expect((err as SeedConnectionError).statusCode).toBe(403);
-        expect((err as SeedConnectionError).message).toContain("read-only");
-      }
+      const err = await assertWriteAllowed({
+        route: "POST /api/db/query",
+        session,
+        connection: readOnly,
+        statements: ["SELECT 1", "UPDATE t SET secret = 'hunter2'"],
+        request,
+      }).catch((e) => e);
+      expect(err).toBeInstanceOf(SeedConnectionError);
+      expect((err as SeedConnectionError).statusCode).toBe(403);
+      expect((err as SeedConnectionError).message).toContain("read-only");
       const lines = (logSpy.mock.calls as unknown[][])
         .map((c) => c[0])
         .filter((v): v is string => typeof v === "string" && v.startsWith("{"))
@@ -83,16 +79,16 @@ describe("assertWriteAllowed", () => {
     }
   });
 
-  test("a member of a writing group is not refused", () => {
+  test("a member of a writing group is not refused", async () => {
     const dbaOnly = { ...base, writeRoles: ["group:dba"] };
-    expect(() =>
-      assertWriteAllowed({
+    expect(
+      await assertWriteAllowed({
         route: "r",
         session: { ...session, groups: ["dba"] },
         connection: dbaOnly,
         statements: ["DELETE FROM t"],
         request,
       }),
-    ).not.toThrow();
+    ).toEqual({});
   });
 });

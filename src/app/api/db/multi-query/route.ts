@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
 
     // The whole script is judged before any of it runs (§4.4): a script that writes on its
     // third statement must not run its first two on a datasource this session cannot write to.
-    assertWriteAllowed({
+    const access = await assertWriteAllowed({
       route: "POST /api/db/multi-query",
       session: guard.session,
       connection,
@@ -155,6 +155,7 @@ export async function POST(req: NextRequest) {
       user: guard.session.username,
       connectionName: connection.name,
       ip: clientAddress(req),
+      ...access,
     };
 
     for (let i = 0; i < statements.length; i++) {

@@ -60,7 +60,8 @@ describe("PostgresStorageProvider", () => {
 
   test("initialize creates the user table, the audit table and its index", async () => {
     await provider.initialize();
-    expect(mockQuery).toHaveBeenCalledTimes(3);
+    // user_storage, the audit table and its index (§4.2), the approval table and its index (§4.6).
+    expect(mockQuery).toHaveBeenCalledTimes(5);
     const sql = (mockQuery.mock.calls as unknown[][]).map((call) => call[0] as string);
     expect(sql[0]).toContain("CREATE TABLE IF NOT EXISTS user_storage");
     expect(sql[1]).toContain("CREATE TABLE IF NOT EXISTS audit_events");
@@ -436,5 +437,63 @@ describe("PostgresStorageProvider", () => {
   test("the storage pool carries exactly one error listener", async () => {
     await provider.initialize();
     expect(mockPool.listenerCount("error")).toBe(1);
+  });
+
+  // docs/CONTEXT.md §4.6: the approval record; see the SQLite suite for the contract.
+  describe("write approvals", () => {
+    const record = {
+      id: "req-1",
+      datasourceId: "orders",
+      datasourceName: "Orders",
+      requester: "ana",
+      statement: "DELETE FROM t",
+      route: "POST /api/db/query",
+      status: "pending" as const,
+      requestedAt: "2026-09-13T00:00:00.000Z",
+    };
+
+    test("initialize creates the approval_requests table and its lookup index", async () => {
+      await provider.initialize();
+      const ddl = (mockQuery.mock.calls as unknown[][]).map((c) => c[0] as string).join("\n");
+      expect(ddl).toContain("CREATE TABLE IF NOT EXISTS approval_requests");
+      expect(ddl).toContain("approval_requests_lookup");
+    });
+
+    test("putApproval upserts the record with its filter columns", async () => {
+      await provider.initialize();
+      mockQuery.mockClear();
+      await provider.putApproval(record);
+      const [sql, params] = (mockQuery.mock.calls as unknown[][])[0] as [string, unknown[]];
+      expect(sql).toContain("INSERT INTO approval_requests");
+      expect(sql).toContain("ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, data = EXCLUDED.data");
+      expect(params).toEqual(["req-1", record.requestedAt, "pending", "ana", "orders", JSON.stringify(record)]);
+    });
+
+    test("getApproval parses the row and answers null for an unknown id", async () => {
+      await provider.initialize();
+      mockQuery.mockImplementation(async () => ({ rows: [{ data: JSON.stringify(record) }] }));
+      expect(await provider.getApproval("req-1")).toEqual(record);
+      mockQuery.mockImplementation(async () => ({ rows: [] }));
+      expect(await provider.getApproval("nope")).toBeNull();
+    });
+
+    test("listApprovals numbers the placeholders for whichever filters are given, newest first", async () => {
+      await provider.initialize();
+      mockQuery.mockImplementation(async () => ({ rows: [{ data: JSON.stringify(record) }] }));
+      expect(await provider.listApprovals({ limit: 5 })).toEqual([record]);
+      let [sql, params] = (mockQuery.mock.calls as unknown[][]).at(-1) as [string, unknown[]];
+      expect(sql).toBe("SELECT data FROM approval_requests ORDER BY ts DESC LIMIT $1");
+      expect(params).toEqual([5]);
+      await provider.listApprovals({ requester: "ana", datasourceId: "orders", limit: 2 });
+      [sql, params] = (mockQuery.mock.calls as unknown[][]).at(-1) as [string, unknown[]];
+      expect(sql).toContain("WHERE requester = $1 AND datasource_id = $2 ORDER BY ts DESC LIMIT $3");
+      expect(params).toEqual(["ana", "orders", 2]);
+    });
+
+    test("every approval method refuses before initialize()", async () => {
+      await expect(provider.putApproval(record)).rejects.toThrow("not initialized");
+      await expect(provider.getApproval("x")).rejects.toThrow("not initialized");
+      await expect(provider.listApprovals({ limit: 1 })).rejects.toThrow("not initialized");
+    });
   });
 });

@@ -39,6 +39,9 @@ export interface ExecutionAuditContext {
   /** The statement that ran. Recorded only under AUDIT_INCLUDE_SQL, bounded like every field. */
   statement?: string;
   ip?: string;
+  /** The write window this ran under, when the datasource requires approval (§4.6). */
+  approvalId?: string;
+  reviewer?: string;
 }
 
 /**
@@ -72,6 +75,7 @@ function record(
       result: outcome.result,
       duration,
       ...(outcome.result === "failure" ? { reason: outcome.reason } : {}),
+      ...(context.approvalId ? { approvalId: context.approvalId, reviewer: context.reviewer } : {}),
       ...(context.ip ? { ip: context.ip } : {}),
       ...(context.statement !== undefined && isStatementAuditEnabled() ? { details: context.statement } : {}),
     });

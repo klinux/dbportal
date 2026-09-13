@@ -191,3 +191,31 @@ describe("the warning", () => {
     }
   });
 });
+
+// docs/CONTEXT.md §4.6: approval requests carry a statement and names, never a credential -
+// passed through the encrypting layer untouched, like the audit record.
+describe("approval requests pass through", () => {
+  test("put, get and list reach the inner provider as they are", async () => {
+    const record = {
+      id: "r1",
+      datasourceId: "orders",
+      datasourceName: "Orders",
+      requester: "ana",
+      statement: "DELETE FROM t",
+      route: "POST /api/db/query",
+      status: "pending" as const,
+      requestedAt: "2026-09-13T00:00:00.000Z",
+    };
+    const inner = stubProvider({
+      putApproval: mock(async () => {}),
+      getApproval: mock(async () => record),
+      listApprovals: mock(async () => [record]),
+    });
+    const wrapped = withCredentialEncryption(inner);
+    await wrapped.putApproval(record);
+    expect(inner.putApproval).toHaveBeenCalledWith(record);
+    expect(await wrapped.getApproval("r1")).toBe(record);
+    expect(await wrapped.listApprovals({ limit: 5 })).toEqual([record]);
+    expect(inner.listApprovals).toHaveBeenCalledWith({ limit: 5 });
+  });
+});

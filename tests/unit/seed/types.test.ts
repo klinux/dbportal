@@ -284,3 +284,16 @@ describe("SeedConnectionSchema: access rules", () => {
     expect(SeedConnectionSchema.safeParse({ ...base, roles: ["*"], writeRoles: ["dba"] }).success).toBe(false);
   });
 });
+
+// docs/CONTEXT.md §4.6: a datasource may require approval for writes and name its reviewers.
+describe("SeedConnectionSchema: write approval", () => {
+  const base = { id: "gated", name: "Gated", type: "postgres", roles: ["*"] };
+  it("accepts writeApproval and approverRoles in the access vocabulary, and rejects other shapes", () => {
+    const parsed = SeedConnectionSchema.parse({ ...base, writeApproval: true, approverRoles: ["group:dba"] });
+    expect(parsed.writeApproval).toBe(true);
+    expect(parsed.approverRoles).toEqual(["group:dba"]);
+    expect(SeedConnectionSchema.parse(base).writeApproval).toBeUndefined();
+    expect(SeedConnectionSchema.safeParse({ ...base, writeApproval: "yes" }).success).toBe(false);
+    expect(SeedConnectionSchema.safeParse({ ...base, approverRoles: ["dba"] }).success).toBe(false);
+  });
+});

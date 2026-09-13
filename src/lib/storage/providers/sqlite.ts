@@ -4,7 +4,14 @@
  * WAL mode enabled for concurrent read performance.
  */
 
-import type { AuditEventQuery, ServerStorageProvider, StorageCollection, StorageData } from "../types";
+import type {
+  ApprovalQuery,
+  ApprovalRequest,
+  AuditEventQuery,
+  ServerStorageProvider,
+  StorageCollection,
+  StorageData,
+} from "../types";
 import type { AuditEvent } from "@/lib/audit";
 import { STORAGE_COLLECTIONS } from "../types";
 import type BetterSqlite3 from "better-sqlite3";
@@ -81,6 +88,19 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
           data TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS audit_events_ts ON audit_events (ts DESC);
+      `);
+      // Write approvals (docs/CONTEXT.md §4.6): the record as JSON plus the columns the
+      // gate and the reviewer list filter on.
+      this.db!.exec(`
+        CREATE TABLE IF NOT EXISTS approval_requests (
+          id            TEXT PRIMARY KEY,
+          ts            TEXT NOT NULL,
+          status        TEXT NOT NULL,
+          requester     TEXT NOT NULL,
+          datasource_id TEXT NOT NULL,
+          data          TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS approval_requests_lookup ON approval_requests (datasource_id, requester, status);
       `);
     } catch (error) {
       logger.error("SQLite storage initialization failed", error, { provider: "sqlite", path: this.dbPath });
@@ -189,6 +209,31 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
     return row?.n ?? 0;
   }
 
+  async putApproval(record: ApprovalRequest): Promise<void> {
+    this.ensureDb();
+    this.db!.prepare(
+      "INSERT OR REPLACE INTO approval_requests (id, ts, status, requester, datasource_id, data) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(record.id, record.requestedAt, record.status, record.requester, record.datasourceId, JSON.stringify(record));
+  }
+
+  async getApproval(id: string): Promise<ApprovalRequest | null> {
+    this.ensureDb();
+    const row = this.db!.prepare("SELECT data FROM approval_requests WHERE id = ?").get(id) as
+      | { data: string }
+      | undefined;
+    return row ? (JSON.parse(row.data) as ApprovalRequest) : null;
+  }
+
+  async listApprovals(query: ApprovalQuery): Promise<ApprovalRequest[]> {
+    this.ensureDb();
+    const { where, params } = approvalFilter(query);
+    const rows = this.db!.prepare(`SELECT data FROM approval_requests${where} ORDER BY ts DESC LIMIT ?`).all(
+      ...params,
+      query.limit,
+    ) as { data: string }[];
+    return rows.map((row) => JSON.parse(row.data) as ApprovalRequest);
+  }
+
   async isHealthy(): Promise<boolean> {
     try {
       this.ensureDb();
@@ -211,4 +256,23 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
       throw new Error("SQLite storage not initialized. Call initialize() first.");
     }
   }
+}
+
+/** The optional filters of an approval query as one WHERE clause with positional params. */
+function approvalFilter(query: ApprovalQuery): { where: string; params: string[] } {
+  const clauses: string[] = [];
+  const params: string[] = [];
+  if (query.status) {
+    clauses.push("status = ?");
+    params.push(query.status);
+  }
+  if (query.requester) {
+    clauses.push("requester = ?");
+    params.push(query.requester);
+  }
+  if (query.datasourceId) {
+    clauses.push("datasource_id = ?");
+    params.push(query.datasourceId);
+  }
+  return { where: clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "", params };
 }

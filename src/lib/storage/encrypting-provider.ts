@@ -1,6 +1,13 @@
 import { logger } from "@/lib/logger";
 import { decryptConnections, encryptConnections } from "./connection-secrets";
-import type { AuditEventQuery, ServerStorageProvider, StorageCollection, StorageData } from "./types";
+import type {
+  ApprovalQuery,
+  ApprovalRequest,
+  AuditEventQuery,
+  ServerStorageProvider,
+  StorageCollection,
+  StorageData,
+} from "./types";
 import type { DatabaseConnection } from "@/lib/types";
 import type { AuditEvent } from "@/lib/audit";
 
@@ -66,6 +73,19 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
 
   countAuditEvents(): Promise<number> {
     return this.inner.countAuditEvents();
+  }
+
+  // Approval requests carry a statement and names, never a credential: passed through.
+  putApproval(record: ApprovalRequest): Promise<void> {
+    return this.inner.putApproval(record);
+  }
+
+  getApproval(id: string): Promise<ApprovalRequest | null> {
+    return this.inner.getApproval(id);
+  }
+
+  listApprovals(query: ApprovalQuery): Promise<ApprovalRequest[]> {
+    return this.inner.listApprovals(query);
   }
 
   async getAllData(userId: string): Promise<Partial<StorageData>> {

@@ -7,7 +7,7 @@ import { maintenanceControl, type MaintenancePlacement } from "@/lib/db/types";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 import { guardRoute } from "@/lib/api/require-session";
 import { auditRoleDenial } from "@/lib/api/role-denial";
-import { canWrite } from "@/lib/access";
+import { assertWriteAllowed } from "@/lib/api/write-gate";
 import { logger } from "@/lib/logger";
 
 export async function POST(request: Request) {
@@ -36,16 +36,15 @@ export async function POST(request: Request) {
     }
 
     // Every maintenance operation writes, so a datasource that is read-only for this
-    // session refuses them all (§4.4) - admin role or not.
-    if (!canWrite(connection, guard.session)) {
-      auditRoleDenial({
-        route: "POST /api/db/maintenance",
-        user: guard.session.username,
-        request,
-        reason: "read_only_datasource",
-      });
-      return NextResponse.json({ error: "This datasource is read-only for you" }, { status: 403 });
-    }
+    // session refuses them all (§4.4) - admin role or not - and one that requires approval
+    // wants an open write window (§4.6). The gate judges the operation as the statement it is.
+    await assertWriteAllowed({
+      route: "POST /api/db/maintenance",
+      session: guard.session,
+      connection,
+      statements: [`${type} ${target ?? ""}`],
+      request,
+    });
 
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(guard.session.username),

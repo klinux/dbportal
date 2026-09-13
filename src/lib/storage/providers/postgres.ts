@@ -3,7 +3,14 @@
  * Uses the existing `pg` package (already a project dependency).
  */
 
-import type { AuditEventQuery, ServerStorageProvider, StorageCollection, StorageData } from "../types";
+import type {
+  ApprovalQuery,
+  ApprovalRequest,
+  AuditEventQuery,
+  ServerStorageProvider,
+  StorageCollection,
+  StorageData,
+} from "../types";
 import type { AuditEvent } from "@/lib/audit";
 import { STORAGE_COLLECTIONS } from "../types";
 import { logger } from "@/lib/logger";
@@ -68,6 +75,20 @@ export class PostgresStorageProvider implements ServerStorageProvider {
         )
       `);
       await this.pool.query("CREATE INDEX IF NOT EXISTS audit_events_ts ON audit_events (ts DESC)");
+      // Write approvals (docs/CONTEXT.md §4.6); see the SQLite provider for the shape.
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS approval_requests (
+          id            TEXT PRIMARY KEY,
+          ts            TIMESTAMPTZ NOT NULL,
+          status        TEXT NOT NULL,
+          requester     TEXT NOT NULL,
+          datasource_id TEXT NOT NULL,
+          data          TEXT NOT NULL
+        )
+      `);
+      await this.pool.query(
+        "CREATE INDEX IF NOT EXISTS approval_requests_lookup ON approval_requests (datasource_id, requester, status)",
+      );
     } catch (error) {
       if (error instanceof Error && error.message.includes("does not support SSL")) {
         throw new Error(
@@ -170,6 +191,43 @@ export class PostgresStorageProvider implements ServerStorageProvider {
     this.ensurePool();
     const { rows } = await this.pool!.query("SELECT COUNT(*)::int AS n FROM audit_events");
     return rows[0]?.n ?? 0;
+  }
+
+  async putApproval(record: ApprovalRequest): Promise<void> {
+    this.ensurePool();
+    await this.pool!.query(
+      `INSERT INTO approval_requests (id, ts, status, requester, datasource_id, data) VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, data = EXCLUDED.data`,
+      [record.id, record.requestedAt, record.status, record.requester, record.datasourceId, JSON.stringify(record)],
+    );
+  }
+
+  async getApproval(id: string): Promise<ApprovalRequest | null> {
+    this.ensurePool();
+    const { rows } = await this.pool!.query("SELECT data FROM approval_requests WHERE id = $1", [id]);
+    return rows[0] ? (JSON.parse(rows[0].data) as ApprovalRequest) : null;
+  }
+
+  async listApprovals(query: ApprovalQuery): Promise<ApprovalRequest[]> {
+    this.ensurePool();
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    for (const [column, value] of [
+      ["status", query.status],
+      ["requester", query.requester],
+      ["datasource_id", query.datasourceId],
+    ] as const) {
+      if (!value) continue;
+      params.push(value);
+      clauses.push(`${column} = $${params.length}`);
+    }
+    params.push(query.limit);
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const { rows } = await this.pool!.query(
+      `SELECT data FROM approval_requests${where} ORDER BY ts DESC LIMIT $${params.length}`,
+      params,
+    );
+    return rows.map((row: { data: string }) => JSON.parse(row.data) as ApprovalRequest);
   }
 
   async isHealthy(): Promise<boolean> {

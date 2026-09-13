@@ -107,6 +107,7 @@ interface StoreRow {
   color?: string;
   roles: string[];
   writeRoles?: string[];
+  writeApproval?: boolean;
   ssl?: DatabaseConnection["ssl"];
   serviceName?: string;
   instanceName?: string;
@@ -131,6 +132,7 @@ interface ConfigRow {
   group?: string;
   roles: string[];
   writeRoles?: string[];
+  writeApproval?: boolean;
 }
 
 type Row = StoreRow | ConfigRow;
@@ -158,6 +160,7 @@ export function toDatasourcePayload(
   id: string,
   roles: string[],
   writeRoles: string[] | undefined,
+  writeApproval = false,
 ) {
   return {
     id,
@@ -179,6 +182,7 @@ export function toDatasourcePayload(
     skipObjectScan: conn.skipObjectScan,
     roles,
     ...(writeRoles !== undefined ? { writeRoles } : {}),
+    ...(writeApproval ? { writeApproval: true } : {}),
   };
 }
 
@@ -244,6 +248,7 @@ export function DatasourcesTab() {
   const [roles, setRoles] = useState<Role[]>(["admin", "user"]);
   const [groupsInput, setGroupsInput] = useState("");
   const [writeMode, setWriteMode] = useState<WriteMode>("open");
+  const [writeApproval, setWriteApproval] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<StoreRow | null>(null);
 
   const applyListing = useCallback((body: ListResponse) => {
@@ -293,6 +298,7 @@ export function DatasourcesTab() {
     setRoles(["admin", "user"]);
     setGroupsInput("");
     setWriteMode("open");
+    setWriteApproval(false);
     setModalOpen(true);
   };
 
@@ -301,6 +307,7 @@ export function DatasourcesTab() {
     setRoles(rolesOf(row));
     setGroupsInput(groupNamesOf(row.roles).join(", "));
     setWriteMode(writeModeOf(row.writeRoles));
+    setWriteApproval(row.writeApproval === true);
     setModalOpen(true);
   };
 
@@ -336,7 +343,7 @@ export function DatasourcesTab() {
       toast.error("The name must contain at least one letter or digit.");
       return;
     }
-    const payload = toDatasourcePayload(conn, id, openRule, writeRule);
+    const payload = toDatasourcePayload(conn, id, openRule, writeRule, writeApproval);
     try {
       const res = await appFetch(
         editing ? `/api/admin/datasources/${encodeURIComponent(id)}` : "/api/admin/datasources",
@@ -424,6 +431,15 @@ export function DatasourcesTab() {
             ))}
         </select>
       </div>
+      <Label className="flex items-center gap-2 text-xs text-fg-tertiary cursor-pointer">
+        <Checkbox
+          checked={writeApproval}
+          onCheckedChange={(checked) => setWriteApproval(checked === true)}
+          aria-label="Writes need approval"
+        />
+        Writes need approval: a writing statement runs only inside a window a reviewer opened (administrators review
+        unless the seed file names approvers)
+      </Label>
       <p className="text-xs text-fg-muted leading-relaxed" data-testid="datasource-secret-note">
         {secretNote}
       </p>
@@ -538,6 +554,15 @@ export function DatasourcesTab() {
                                 title={row.writeRoles.join(", ") || "nobody"}
                               >
                                 {writeModeOf(row.writeRoles) === "none" ? "read-only" : "writes restricted"}
+                              </Badge>
+                            )}
+                            {row.writeApproval && (
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px]"
+                                title="Writes need a reviewer's window"
+                              >
+                                approval
                               </Badge>
                             )}
                           </div>

@@ -78,6 +78,10 @@ export const SeedConnectionSchema = z.object({
   // Who may WRITE (docs/CONTEXT.md §4.4). Absent: everyone who can open. Empty: nobody -
   // the datasource is read-only for every session, administrators included.
   writeRoles: z.array(AllowedRoleSchema).optional(),
+  /** Writes run only inside an approved write window (docs/CONTEXT.md §4.6). */
+  writeApproval: z.boolean().optional(),
+  /** Who may grant one; administrators when absent. */
+  approverRoles: z.array(AllowedRoleSchema).optional(),
   managed: z.boolean().optional(),
   ssl: SSLConfigSchema,
   serviceName: z.string().optional(),
@@ -119,5 +123,7 @@ export interface ManagedConnection extends DatabaseConnection {
   managed: boolean;
   roles: string[];
   writeRoles?: string[];
+  writeApproval?: boolean;
+  approverRoles?: string[];
   seedId: string;
 }

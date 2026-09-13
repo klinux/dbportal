@@ -6,6 +6,8 @@
 export const ApiErrorCode = {
   // Database errors
   QUERY_CANCELLED: "QUERY_CANCELLED",
+  /** A write on an approval-gated datasource became a pending request (docs/CONTEXT.md §4.6). */
+  APPROVAL_REQUIRED: "APPROVAL_REQUIRED",
   QUERY_ERROR: "QUERY_ERROR",
   CONFIG_ERROR: "CONFIG_ERROR",
   AUTH_ERROR: "AUTH_ERROR",

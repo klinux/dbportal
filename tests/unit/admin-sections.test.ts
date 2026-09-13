@@ -8,8 +8,16 @@ import {
 } from "@/lib/admin-sections";
 
 describe("admin-sections", () => {
-  test("lists six canonical sections", () => {
-    expect([...ADMIN_SECTIONS]).toEqual(["overview", "datasources", "operations", "monitoring", "security", "audit"]);
+  test("lists seven canonical sections", () => {
+    expect([...ADMIN_SECTIONS]).toEqual([
+      "overview",
+      "datasources",
+      "approvals",
+      "operations",
+      "monitoring",
+      "security",
+      "audit",
+    ]);
   });
 
   test("isAdminSection validates known ids", () => {

@@ -45,6 +45,35 @@ export interface AuditEventQuery {
 }
 
 /**
+ * A write awaiting, granted or refused approval (docs/CONTEXT.md §4.6). `windowUntil` is the
+ * end of the write window an approval opened for `requester` on `datasourceId`.
+ */
+export type ApprovalStatus = "pending" | "approved" | "rejected";
+export type ApprovalDecision = "approve" | "reject";
+export interface ApprovalRequest {
+  id: string;
+  datasourceId: string;
+  datasourceName: string;
+  requester: string;
+  /** The statement that was refused, bounded; what the reviewer sees. */
+  statement: string;
+  route: string;
+  status: ApprovalStatus;
+  requestedAt: string;
+  reviewer?: string;
+  reviewedAt?: string;
+  windowUntil?: string;
+  note?: string;
+}
+
+export interface ApprovalQuery {
+  status?: ApprovalStatus;
+  requester?: string;
+  datasourceId?: string;
+  limit: number;
+}
+
+/**
  * Server-side storage provider interface.
  * Implements the Strategy Pattern — SQLite and PostgreSQL both implement this.
  *
@@ -62,6 +91,11 @@ export interface ServerStorageProvider {
   listAuditEvents(query: AuditEventQuery): Promise<AuditEvent[]>;
   /** How many events the store holds. */
   countAuditEvents(): Promise<number>;
+  /** Write or replace one approval request by its id (§4.6). */
+  putApproval(record: ApprovalRequest): Promise<void>;
+  getApproval(id: string): Promise<ApprovalRequest | null>;
+  /** Newest first, filtered by whichever of status, requester and datasourceId are given. */
+  listApprovals(query: ApprovalQuery): Promise<ApprovalRequest[]>;
   /** Get all collections for a user */
   getAllData(userId: string): Promise<Partial<StorageData>>;
   /** Get a single collection for a user */

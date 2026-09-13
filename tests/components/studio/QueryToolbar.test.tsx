@@ -6,7 +6,7 @@ import { describe, test, expect, mock, afterEach } from "bun:test";
 import { render, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 
-import { QueryToolbar } from "@/components/studio/QueryToolbar";
+import { QueryToolbar, formatCountdown } from "@/components/studio/QueryToolbar";
 import { mockPostgresConnection } from "../../fixtures/connections";
 import type { ProviderMetadata } from "@/hooks/use-provider-metadata";
 import type { ProviderLabels } from "@/lib/db/types";
@@ -428,5 +428,45 @@ describe("QueryToolbar", () => {
     const props3 = createDefaultProps({ metadata: null });
     const { queryByText: q3 } = render(<QueryToolbar {...props3} />);
     expect(q3("Query")).not.toBeNull();
+  });
+});
+
+// docs/CONTEXT.md §4.6, DESIGN.md "Write window": the live countdown chip, green while the
+// window is open, 00:00 in the denied palette once it closed, absent when nothing was approved.
+describe("QueryToolbar write window chip", () => {
+  afterEach(() => cleanup());
+
+  test("formatCountdown renders mm:ss and clamps at zero", () => {
+    const now = Date.parse("2026-09-13T10:00:00.000Z");
+    expect(formatCountdown("2026-09-13T10:14:05.000Z", now)).toBe("14:05");
+    expect(formatCountdown("2026-09-13T09:59:00.000Z", now)).toBe("00:00");
+  });
+
+  test("shows an open window counting down, a closed one as 00:00 in the denied palette, and nothing otherwise", () => {
+    const open = render(
+      <QueryToolbar
+        {...createDefaultProps({
+          writeWindow: { until: new Date(Date.now() + 5 * 60_000).toISOString(), reviewer: "root" },
+        })}
+      />,
+    );
+    const chip = open.getByTestId("write-window-chip");
+    expect(chip.getAttribute("data-open")).toBe("true");
+    expect(chip.textContent).toMatch(/^0[45]:\d\d$/);
+    expect(chip.getAttribute("title")).toContain("root");
+    open.unmount();
+
+    const closed = render(
+      <QueryToolbar
+        {...createDefaultProps({ writeWindow: { until: new Date(Date.now() - 1000).toISOString(), reviewer: "root" } })}
+      />,
+    );
+    const closedChip = closed.getByTestId("write-window-chip");
+    expect(closedChip.getAttribute("data-open")).toBe("false");
+    expect(closedChip.textContent).toBe("00:00");
+    closed.unmount();
+
+    const none = render(<QueryToolbar {...createDefaultProps({ writeWindow: null })} />);
+    expect(none.queryByTestId("write-window-chip")).toBeNull();
   });
 });

@@ -68,6 +68,13 @@ class CaptureProvider implements ServerStorageProvider {
   async listAuditEvents(): Promise<never[]> {
     return [];
   }
+  async putApproval(): Promise<void> {}
+  async getApproval(): Promise<null> {
+    return null;
+  }
+  async listApprovals(): Promise<never[]> {
+    return [];
+  }
   async countAuditEvents(): Promise<number> {
     return 0;
   }

@@ -66,6 +66,11 @@ export function matchesAccess(rule: readonly string[], principals: readonly stri
   return rule.some((entry) => principals.includes(entry));
 }
 
+/** Who may review a write on this datasource: its `approverRoles`, or administrators. */
+export function canApprove(rules: { approverRoles?: readonly string[] }, session: AccessSession): boolean {
+  return matchesAccess(rules.approverRoles ?? ["admin"], principalsOf(session));
+}
+
 export function canWrite(rules: AccessRules, session: AccessSession): boolean {
   if (rules.writeRoles === undefined) return true;
   return matchesAccess(rules.writeRoles, principalsOf(session));

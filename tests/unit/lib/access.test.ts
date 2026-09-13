@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { canWrite, isReadStatement, matchesAccess, normalizeGroups, principalsOf } from "@/lib/access";
+import { canApprove, canWrite, isReadStatement, matchesAccess, normalizeGroups, principalsOf } from "@/lib/access";
 
 /**
  * The access model (docs/CONTEXT.md §4.4): principals from the token, two lists on the
@@ -74,5 +74,15 @@ describe("isReadStatement", () => {
   test("an engine without SQL text is never a read", () => {
     expect(isReadStatement('{"find": "users"}', "mongodb")).toBe(false);
     expect(isReadStatement("GET key", "redis")).toBe(false);
+  });
+});
+
+describe("canApprove", () => {
+  // docs/CONTEXT.md §4.6: reviewers are the datasource's approverRoles, or administrators.
+  test("administrators review by default; approverRoles replaces that, not extends it", () => {
+    expect(canApprove({}, { role: "admin" })).toBe(true);
+    expect(canApprove({}, { role: "user", groups: ["dba"] })).toBe(false);
+    expect(canApprove({ approverRoles: ["group:dba"] }, { role: "user", groups: ["dba"] })).toBe(true);
+    expect(canApprove({ approverRoles: ["group:dba"] }, { role: "admin" })).toBe(false);
   });
 });

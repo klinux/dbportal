@@ -63,7 +63,8 @@ describe("SQLiteStorageProvider", () => {
   test("initialize creates table and enables WAL", async () => {
     await provider.initialize();
     expect(mockPragma).toHaveBeenCalledWith("journal_mode = WAL");
-    expect(mockExec).toHaveBeenCalledTimes(2);
+    // user_storage, the audit record (§4.2), the approval record (§4.6).
+    expect(mockExec).toHaveBeenCalledTimes(3);
     expect((mockExec.mock.calls as unknown[][])[1][0] as string).toContain("CREATE TABLE IF NOT EXISTS audit_events");
     const sql = (mockExec.mock.calls as unknown[][])[0][0] as string;
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS user_storage");
@@ -410,6 +411,77 @@ describe("SQLiteStorageProvider", () => {
       await expect(provider.appendAuditEvent(event)).rejects.toThrow("not initialized");
       await expect(provider.listAuditEvents({ limit: 1 })).rejects.toThrow("not initialized");
       await expect(provider.countAuditEvents()).rejects.toThrow("not initialized");
+    });
+  });
+
+  // docs/CONTEXT.md §4.6: the approval record - written whole under its id, replaced on a
+  // decision, read by id and by the three columns the gate and the reviewer list filter on.
+  describe("write approvals", () => {
+    const record = {
+      id: "req-1",
+      datasourceId: "orders",
+      datasourceName: "Orders",
+      requester: "ana",
+      statement: "DELETE FROM t",
+      route: "POST /api/db/query",
+      status: "pending" as const,
+      requestedAt: "2026-09-13T00:00:00.000Z",
+    };
+
+    test("initialize creates the approval_requests table and its lookup index", async () => {
+      await provider.initialize();
+      const ddl = (mockExec.mock.calls as unknown[][]).map((c) => c[0] as string).join("\n");
+      expect(ddl).toContain("CREATE TABLE IF NOT EXISTS approval_requests");
+      expect(ddl).toContain("approval_requests_lookup");
+    });
+
+    test("putApproval writes the record as JSON with its filter columns, replacing an earlier row", async () => {
+      await provider.initialize();
+      const run = mock(() => {});
+      mockPrepare.mockImplementationOnce(() => ({ run, all: mock(() => []), get: mock(() => undefined) }));
+      await provider.putApproval(record);
+      expect((mockPrepare.mock.calls as unknown[][]).at(-1)![0] as string).toContain(
+        "INSERT OR REPLACE INTO approval_requests",
+      );
+      expect(run).toHaveBeenCalledWith("req-1", record.requestedAt, "pending", "ana", "orders", JSON.stringify(record));
+    });
+
+    test("getApproval parses the row and answers null for an unknown id", async () => {
+      await provider.initialize();
+      mockPrepare.mockImplementationOnce(() => ({
+        get: mock(() => ({ data: JSON.stringify(record) })),
+        all: mock(() => []),
+        run: mock(() => {}),
+      }));
+      expect(await provider.getApproval("req-1")).toEqual(record);
+      mockPrepare.mockImplementationOnce(() => ({
+        get: mock(() => undefined),
+        all: mock(() => []),
+        run: mock(() => {}),
+      }));
+      expect(await provider.getApproval("nope")).toBeNull();
+    });
+
+    test("listApprovals builds the WHERE from whichever filters are given, newest first", async () => {
+      await provider.initialize();
+      const all = mock(() => [{ data: JSON.stringify(record) }]);
+      mockPrepare.mockImplementation(() => ({ all, run: mock(() => {}), get: mock(() => undefined) }));
+      expect(await provider.listApprovals({ limit: 5 })).toEqual([record]);
+      expect((mockPrepare.mock.calls as unknown[][]).at(-1)![0] as string).toBe(
+        "SELECT data FROM approval_requests ORDER BY ts DESC LIMIT ?",
+      );
+      expect(all).toHaveBeenLastCalledWith(5);
+      await provider.listApprovals({ status: "pending", requester: "ana", datasourceId: "orders", limit: 1 });
+      expect((mockPrepare.mock.calls as unknown[][]).at(-1)![0] as string).toContain(
+        "WHERE status = ? AND requester = ? AND datasource_id = ? ORDER BY ts DESC LIMIT ?",
+      );
+      expect(all).toHaveBeenLastCalledWith("pending", "ana", "orders", 1);
+    });
+
+    test("every approval method refuses before initialize()", async () => {
+      await expect(provider.putApproval(record)).rejects.toThrow("not initialized");
+      await expect(provider.getApproval("x")).rejects.toThrow("not initialized");
+      await expect(provider.listApprovals({ limit: 1 })).rejects.toThrow("not initialized");
     });
   });
 });

@@ -187,13 +187,17 @@ describe("DatasourcesTab", () => {
       name: "DBA writes",
       roles: ["user", "group:dba"],
       writeRoles: ["group:dba"],
+      writeApproval: true,
     };
     const fetchMock = mockGlobalFetch({ "/api/admin/datasources": listing({ datasources: [storeRow, custom] }) });
     const { getByText, getByLabelText, getAllByText } = await renderLoaded();
     expect(getAllByText("dba").length).toBeGreaterThan(0);
     expect(getByText("writes restricted")).not.toBeNull();
+    expect(getByText("approval")).not.toBeNull();
 
     fireEvent.click(getByText("New datasource"));
+    // docs/CONTEXT.md §4.6: the approval rule is a checkbox, sent only when ticked.
+    fireEvent.click(getByLabelText("Writes need approval"));
     fireEvent.change(getByLabelText(/Groups from the identity provider/), { target: { value: "sre, data-platform" } });
     fireEvent.change(getByLabelText("Who may write"), { target: { value: "none" } });
     await act(async () => {
@@ -203,6 +207,7 @@ describe("DatasourcesTab", () => {
     const posted = JSON.parse((post[1] as RequestInit).body as string);
     expect(posted.roles).toEqual(["admin", "user", "group:sre", "group:data-platform"]);
     expect(posted.writeRoles).toEqual([]);
+    expect(posted.writeApproval).toBe(true);
 
     fireEvent.click(getByLabelText("Edit DBA writes"));
     expect((getByLabelText(/Groups from the identity provider/) as HTMLInputElement).value).toBe("dba");
@@ -214,6 +219,7 @@ describe("DatasourcesTab", () => {
     const putBody = JSON.parse((put[1] as RequestInit).body as string);
     expect(putBody.roles).toEqual(["user", "group:dba"]);
     expect(putBody.writeRoles).toEqual(["group:dba"]);
+    expect(putBody.writeApproval).toBe(true);
 
     // Administrators only: the offered shape the editor writes itself.
     fireEvent.click(getByLabelText("Edit Orders"));
@@ -222,7 +228,9 @@ describe("DatasourcesTab", () => {
       await (capturedModalProps.onConnect as (c: DatabaseConnection) => Promise<void>)({ ...built, password: "" });
     });
     const puts = fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "PUT");
-    expect(JSON.parse((puts[1][1] as RequestInit).body as string).writeRoles).toEqual(["admin"]);
+    const second = JSON.parse((puts[1][1] as RequestInit).body as string);
+    expect(second.writeRoles).toEqual(["admin"]);
+    expect(second).not.toHaveProperty("writeApproval");
   });
 
   test("a datasource nobody may open is refused before anything is sent", async () => {

@@ -1401,6 +1401,40 @@ describe("useQueryExecution", () => {
     expect(mockToastError).not.toHaveBeenCalled();
   });
 
+  // docs/CONTEXT.md §4.6: a write that entered "awaiting approval" is a state on the tab,
+  // not an error - no destructive toast, no result, the request remembered for polling.
+  test("handles APPROVAL_REQUIRED by parking the request on the tab", async () => {
+    const approval = {
+      id: "req-1",
+      status: "pending" as const,
+      datasourceId: "orders",
+      datasourceName: "Orders",
+      requestedAt: "2026-09-13T00:00:00.000Z",
+    };
+    mockGlobalFetch({
+      "/api/db/query": {
+        ok: false,
+        status: 403,
+        json: { error: "needs approval", code: "APPROVAL_REQUIRED", statusCode: 403, approval },
+      },
+    });
+    const snapshots: QueryTab[][] = [];
+    const tab = createTab({ result: mockQueryResult as never });
+    const setTabsMock = mock((fn: unknown) => {
+      if (typeof fn === "function") snapshots.push((fn as (prev: QueryTab[]) => QueryTab[])([tab]));
+    });
+    const params = createDefaultParams({ tabs: [tab], currentTab: tab, setTabs: setTabsMock });
+    const { result } = renderHook(() => useQueryExecution(params));
+    await act(async () => {
+      await result.current.executeQuery("UPDATE users SET name = 'x'");
+    });
+    const parked = snapshots.at(-1)![0];
+    expect(parked.approval).toEqual(approval);
+    expect(parked.result).toBeNull();
+    expect(parked.isExecuting).toBe(false);
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
   // ── execute-query custom event listener ────────────────────────────────
 
   test("listens for execute-query custom events", async () => {

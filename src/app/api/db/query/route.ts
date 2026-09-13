@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
 
     // The datasource's write rule, before anything reaches the engine (§4.4). An explain
     // request is judged on the statement it would explain, which the gate reads as such.
-    assertWriteAllowed({
+    const access = await assertWriteAllowed({
       route: "POST /api/db/query",
       session: guard.session,
       connection,
@@ -133,6 +133,7 @@ export async function POST(req: NextRequest) {
         connectionName: connection.name,
         statement: prepared.query,
         ip: clientAddress(req),
+        ...access,
       },
       () =>
         supportsCancel && queryId

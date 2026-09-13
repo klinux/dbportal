@@ -312,6 +312,32 @@ runs, and every maintenance operation counts as a write. On an engine whose stat
 not SQL text (MongoDB, Redis, the search engines) a read-only rule refuses every
 execution: a rule that cannot be enforced is not reported as enforced.
 
+### Writes that need a reviewer
+
+```yaml
+  - id: "prod-orders"
+    name: "Orders (production)"
+    type: postgres
+    host: orders.internal
+    password: "${ORDERS_PASS}"
+    roles: ["group:support"]
+    writeApproval: true
+    approverRoles: ["group:dba"]     # administrators when absent
+```
+
+With `writeApproval: true`, a statement that writes runs only inside an open **write
+window**: an approval a reviewer granted to that person, on that datasource, for a bounded
+number of minutes (docs/CONTEXT.md §4.6). Without one the statement does not run - it
+becomes a pending request (one per person and datasource, carrying the statement) and the
+response is a 403 with `code: "APPROVAL_REQUIRED"` and the request; the editor shows the
+waiting state and polls until a reviewer decides. Reviewers are the datasource's
+`approverRoles` (same vocabulary as `roles`) or administrators, on the admin page's
+Approvals section or through `GET/POST /api/approvals`. Nobody reviews their own request.
+Every execution inside a window carries `approval_id` and `reviewer` on its audit line; the
+decision itself is an `approval_decision` event. Approval needs server storage
+(`STORAGE_PROVIDER=sqlite|postgres`); without it, writes on such a datasource are refused
+with a 503 that says so, and reads are unaffected.
+
 This is a policy gate on the statement's text. Where the engine can enforce read-only
 itself, the session's pool is opened that way too — PostgreSQL gets
 `default_transaction_read_only=on`, so a `SELECT` that calls a writing function is refused

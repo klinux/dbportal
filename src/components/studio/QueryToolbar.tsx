@@ -1,10 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import type { DatabaseConnection } from "@/lib/types";
 import type { ProviderMetadata } from "@/hooks/use-provider-metadata";
 import { cn } from "@/lib/utils";
-import { FlaskConical, Pencil, Play, Save, Square, Terminal, Upload } from "lucide-react";
+import { FlaskConical, Pencil, Play, Save, Square, Terminal, Timer, Upload } from "lucide-react";
+import type { WriteWindow } from "@/hooks/use-write-approvals";
 import { Button } from "@/components/ui/button";
 
 interface QueryToolbarProps {
@@ -14,6 +15,11 @@ interface QueryToolbarProps {
   playgroundMode: boolean;
   transactionActive: boolean;
   editingEnabled: boolean;
+  /**
+   * The write window this person holds on the active datasource (docs/CONTEXT.md §4.6),
+   * open or just closed; omitted where nothing was ever approved.
+   */
+  writeWindow?: WriteWindow | null;
   /** Omitted where the caller offers nowhere to save a query to. */
   onSaveQuery?: () => void;
   onExecuteQuery: () => void;
@@ -42,6 +48,7 @@ export function QueryToolbar({
   playgroundMode,
   transactionActive,
   editingEnabled,
+  writeWindow,
   onSaveQuery,
   onExecuteQuery,
   onCancelQuery,
@@ -79,6 +86,7 @@ export function QueryToolbar({
             <Terminal strokeWidth={1.5} className="w-3 h-3 text-hue-blue" />
             <span className="text-xs font-medium text-hue-blue">Query</span>
           </div>
+          {writeWindow && <WriteWindowChip window={writeWindow} />}
           {/* The separator is chrome for Save; with Save withheld it would be a rule
               standing alone, the same reason the control group drops its border (#427). */}
           {onSaveQuery && (
@@ -207,5 +215,39 @@ export function QueryToolbar({
         )}
       </div>
     </>
+  );
+}
+
+/** mm:ss until the window closes; 00:00 in the denied palette once it has (DESIGN.md "Write window"). */
+export function formatCountdown(until: string, now: number): string {
+  const left = Math.max(0, Math.floor((Date.parse(until) - now) / 1000));
+  const mm = String(Math.floor(left / 60)).padStart(2, "0");
+  const ss = String(left % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function WriteWindowChip({ window }: { window: WriteWindow }) {
+  // The chip's own clock: one tick a second while it is on screen, and nothing else re-renders for it.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
+  const open = Date.parse(window.until) > now;
+  return (
+    <div
+      data-testid="write-window-chip"
+      data-open={open ? "true" : "false"}
+      title={open ? `Write window opened by ${window.reviewer}` : "Write window closed: writes are refused again"}
+      className={cn(
+        "flex items-center gap-1.5 px-2 py-0.5 rounded border font-mono text-xs",
+        open
+          ? "bg-success-tint/10 border-success-tint/20 text-success"
+          : "bg-danger-tint/10 border-danger-tint/20 text-status-danger",
+      )}
+    >
+      <Timer strokeWidth={1.5} className="w-3 h-3" />
+      <span>{formatCountdown(window.until, now)}</span>
+    </div>
   );
 }

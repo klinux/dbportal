@@ -22,11 +22,16 @@ mock.module("@/components/admin/tabs/DatasourcesTab", () => ({
   DatasourcesTab: () => React.createElement("div", { "data-testid": "datasources-tab" }, "DatasourcesTab"),
 }));
 
+mock.module("@/components/admin/tabs/ApprovalsTab", () => ({
+  ApprovalsTab: () => React.createElement("div", { "data-testid": "approvals-tab" }, "ApprovalsTab"),
+}));
+
 const { default: AdminOperationsPage } = await import("@/app/admin/operations/page");
 const { default: AdminMonitoringPage } = await import("@/app/admin/monitoring/page");
 const { default: AdminSecurityPage } = await import("@/app/admin/security/page");
 const { default: AdminAuditPage } = await import("@/app/admin/audit/page");
 const { default: AdminDatasourcesPage } = await import("@/app/admin/datasources/page");
+const { default: AdminApprovalsPage } = await import("@/app/admin/approvals/page");
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
@@ -34,6 +39,13 @@ import { cleanup, render } from "@testing-library/react";
 describe("Admin section pages", () => {
   afterEach(() => {
     cleanup();
+  });
+
+  // docs/CONTEXT.md §4.6: the reviewer's page.
+  test("approvals page renders ApprovalsTab", () => {
+    const { getByTestId } = render(<AdminApprovalsPage />);
+    expect(getByTestId("admin-content-approvals")).not.toBeNull();
+    expect(getByTestId("approvals-tab")).not.toBeNull();
   });
 
   test("operations page renders OperationsTab", () => {

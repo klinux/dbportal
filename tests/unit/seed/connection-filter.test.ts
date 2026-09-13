@@ -164,3 +164,20 @@ describe("filterByRoles", () => {
     expect(result).toHaveLength(0);
   });
 });
+
+// docs/CONTEXT.md §4.6: the approval rule reaches the routes with the connection, and only when declared.
+describe("filterByRoles: write approval", () => {
+  it("carries writeApproval and approverRoles through, and adds nothing when absent", () => {
+    const [gated, plain] = filterByRoles(
+      [
+        { ...baseConn, id: "gated", roles: ["*"], writeApproval: true, approverRoles: ["group:dba"] },
+        { ...baseConn, id: "plain", roles: ["*"] },
+      ],
+      ["*", "user"],
+    );
+    expect(gated.writeApproval).toBe(true);
+    expect(gated.approverRoles).toEqual(["group:dba"]);
+    expect(plain).not.toHaveProperty("writeApproval");
+    expect(plain).not.toHaveProperty("approverRoles");
+  });
+});

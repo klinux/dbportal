@@ -28,7 +28,9 @@ export type AuditEventType =
    * datasource (docs/CONTEXT.md §4.5). The line that joins the database's own log - which
    * names the issued user - to the person the portal issued it for.
    */
-  | "credential_issued";
+  | "credential_issued"
+  /** A reviewer's decision on a write approval request (docs/CONTEXT.md §4.6). */
+  | "approval_decision";
 
 /**
  * Why a reason is a closed union and never free text: it is the mechanism that makes redaction
@@ -97,6 +99,8 @@ export type AuditReason =
   | "read_only_datasource"
   /** The secrets manager did not answer, refused, or answered without a credential (§4.5). */
   | "credential_provider_failed"
+  /** A write on an approval-gated datasource with no open window: it became a request (§4.6). */
+  | "approval_required"
   | "query_error"
   | "query_timeout"
   | "query_cancelled"
@@ -137,6 +141,13 @@ export interface AuditEvent {
    * events set it.
    */
   correlationId?: string;
+  /**
+   * The approval a write ran under, and who granted it (docs/CONTEXT.md §4.6): set on the
+   * `approval_decision` event and on every execution inside the window it opened, so the
+   * trail answers "who let this run" without joining two systems.
+   */
+  approvalId?: string;
+  reviewer?: string;
 }
 
 const MAX_EVENTS = 1000;
@@ -436,6 +447,8 @@ interface AuditLogLine {
   duration_ms?: number;
   bucket?: string;
   correlation_id?: string;
+  approval_id?: string;
+  reviewer?: string;
   statement?: string;
 }
 
@@ -464,6 +477,8 @@ function toAuditLine(event: AuditEvent): AuditLogLine {
     ...(event.connectionName ? { connection: event.connectionName } : {}),
     ...(event.bucket ? { bucket: event.bucket } : {}),
     ...(event.correlationId ? { correlation_id: event.correlationId } : {}),
+    ...(event.approvalId ? { approval_id: event.approvalId } : {}),
+    ...(event.reviewer ? { reviewer: event.reviewer } : {}),
     // Number.isFinite excludes NaN and +/-Infinity: JSON.stringify(NaN) silently produces `null`,
     // which would flip duration_ms from a number to null for that one line in a contract parsers
     // depend on. Omitting it entirely keeps the field's type stable instead.

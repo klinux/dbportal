@@ -26,6 +26,8 @@ const ALLOWED_KEYS = new Set([
   "duration_ms",
   "bucket",
   "correlation_id",
+  "approval_id",
+  "reviewer",
   "statement",
 ]);
 
@@ -661,5 +663,33 @@ describe("emitAuditEvent", () => {
     );
 
     expect("duration_ms" in line).toBe(false);
+  });
+});
+
+// docs/CONTEXT.md §4.6: an execution inside a write window says which approval let it run
+// and who granted it, on the line, bounded like every other field - and nothing else new.
+describe("approval fields on the line", () => {
+  test("approval_id and reviewer are written when set, and absent otherwise", () => {
+    const withApproval = captureLine(() =>
+      emitAuditEvent({
+        type: "query_execution",
+        action: "query",
+        target: "POST /api/db/query",
+        user: "ana",
+        result: "success",
+        approvalId: "req-1",
+        reviewer: "root",
+      }),
+    );
+    expect(withApproval.approval_id).toBe("req-1");
+    expect(withApproval.reviewer).toBe("root");
+    for (const key of Object.keys(withApproval)) {
+      expect({ key, allowed: ALLOWED_KEYS.has(key) }).toEqual({ key, allowed: true });
+    }
+    const without = captureLine(() =>
+      emitAuditEvent({ type: "query_execution", action: "query", target: "t", user: "ana", result: "success" }),
+    );
+    expect(without).not.toHaveProperty("approval_id");
+    expect(without).not.toHaveProperty("reviewer");
   });
 });

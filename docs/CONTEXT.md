@@ -196,10 +196,43 @@ browser ([`src/lib/vault/`](../src/lib/vault/), docs/SEED_CONNECTIONS.md "Vault 
   and Vault revokes the old user on its own; and Vault auth methods beyond a token (AppRole,
   Kubernetes) — the injector/agent already turns those into a token file.
 
-### 4.6 Approval flow → 4.7 Server-side masking
+### 4.6 Approval flow — done
 
-Design notes for these live in [DESIGN.md](DESIGN.md) §"State Management" and
-§"Interactions" (write window, awaiting-approval state, masked columns, audit rail).
+A write on a datasource declared `writeApproval: true` runs only inside an open **write
+window**; otherwise it becomes a pending request and does not run
+([`src/lib/approvals/`](../src/lib/approvals/), docs/SEED_CONNECTIONS.md "Writes that need a
+reviewer"). Deliberately a window and not "execute on approval": the reviewer grants a
+person bounded access (1–240 min, default 15), and the person, who is present, runs the
+statement again and sees the result — the server never executes a stored statement on
+someone's behalf later.
+
+- Gate: `assertWriteAllowed` (§4.4) gained the step after the read-only check: a write on
+  such a datasource looks for an approved request of this person with `windowUntil` in the
+  future, else creates the pending request (one per person and datasource, statement bounded
+  to 4 KB, the first offending statement of a script) and throws `ApprovalRequiredError` →
+  403 `APPROVAL_REQUIRED` with the request, plus an audited `permission_denied` /
+  `approval_required`. Maintenance goes through the same gate now.
+- Store: `approval_requests` table beside `audit_events` in both server stores; without a
+  server store the write is a 503 that says what to configure. Reviewers: the datasource's
+  `approverRoles` or administrators (`canApprove`); nobody reviews their own request.
+  `GET /api/approvals` (reviewer's list, `?scope=mine` for one's own), `GET/POST
+  /api/approvals/[id]` (`{ decision, windowMinutes?, note? }`).
+- Audit: `approval_decision` event with `approvalId` + `reviewer`; every execution inside the
+  window carries both on its `query_execution` line (`approval_id`, `reviewer`) — "who let
+  this run" without joining two systems.
+- UI: the tab parks the request (`QueryTab.approval`) and shows the waiting state in the
+  result area; `useWriteApprovals` polls the request every 5 s while it waits, toasts the
+  decision, and holds the windows this person has (read once on load); the toolbar shows
+  the countdown chip (DESIGN.md "Write window"), 00:00 in the denied palette once closed.
+  Admin → Approvals lists pending requests with the statement and approves for 15/60/240
+  min or rejects. The datasource editor has a "Writes need approval" checkbox.
+- Not done: reviewer notifications (the list is polled by the page), and a reviewer UI
+  outside the admin area for group approvers (the API already admits them).
+
+### 4.7 Server-side masking
+
+Design notes live in [DESIGN.md](DESIGN.md) §"State Management" and §"Interactions"
+(masked columns, audit rail).
 
 ### 4.8 UI: configuration dialogs are side sheets (done)
 

@@ -53,6 +53,7 @@ import { useConnectionManager } from "@/hooks/use-connection-manager";
 import { useTabManager } from "@/hooks/use-tab-manager";
 import { useTransactionControl } from "@/hooks/use-transaction-control";
 import { useQueryExecution } from "@/hooks/use-query-execution";
+import { useWriteApprovals } from "@/hooks/use-write-approvals";
 import { useInlineEditing } from "@/hooks/use-inline-editing";
 import { useStorageSync } from "@/hooks/use-storage-sync";
 import { storage } from "@/lib/storage";
@@ -143,6 +144,10 @@ export default function Studio() {
     onObjectsChanged: objectsChanged,
     queryEditorRef,
   });
+
+  // 5b. Write approvals (docs/CONTEXT.md §4.6): the requests the tabs wait on, and the
+  // windows this person holds - the toolbar's countdown chip reads from here.
+  const approvals = useWriteApprovals({ tabs: tabMgr.tabs, setTabs: tabMgr.setTabs });
 
   // 6. Inline Editing
   const editing = useInlineEditing({
@@ -707,6 +712,7 @@ export default function Studio() {
                           playgroundMode={txn.playgroundMode}
                           transactionActive={txn.transactionActive}
                           editingEnabled={editingEnabled}
+                          writeWindow={approvals.windowFor(conn.activeConnection?.seedId ?? conn.activeConnection?.id)}
                           onSaveQuery={() => setIsSaveQueryModalOpen(true)}
                           onExecuteQuery={() => queryExec.executeQuery()}
                           onCancelQuery={() => queryExec.cancelQuery()}

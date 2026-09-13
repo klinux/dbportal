@@ -345,12 +345,27 @@ export interface QueryResult {
   columnTypes?: Record<string, string>;
 }
 
+/**
+ * The write a tab tried on a datasource that requires approval (docs/CONTEXT.md §4.6): the
+ * request it became, as the server last reported it. Cleared by the next successful run.
+ */
+export interface TabApproval {
+  id: string;
+  status: "pending" | "approved" | "rejected";
+  datasourceId: string;
+  datasourceName: string;
+  requestedAt: string;
+  reviewer?: string;
+  windowUntil?: string;
+}
+
 export interface QueryTab {
   id: string;
   name: string;
   query: string;
   result: QueryResult | null;
   isExecuting: boolean;
+  approval?: TabApproval;
   type: "sql" | "mongodb" | "redis" | "libredb";
   viewMode?: "results" | "explain" | "history" | "saved";
   explainPlan?: unknown;
