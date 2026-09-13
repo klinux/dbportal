@@ -1,7 +1,7 @@
 import { getSession } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { getServerAuditBuffer, sanitizeAuditInput, type AuditEventType } from "@/lib/audit";
-import { auditRoleDenial } from "@/lib/api/require-session";
+import { auditRoleDenial } from "@/lib/api/role-denial";
 import { createErrorResponse } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 

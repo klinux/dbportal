@@ -44,7 +44,7 @@ Verified in code, not from the README:
 
 | Gap | Where | What actually happens today |
 |---|---|---|
-| Anyone can create a connection | [`src/lib/seed/resolve-connection.ts`](../src/lib/seed/resolve-connection.ts) — `if (connection && !connectionId) return connection;` | Any authenticated user sends a full connection (host, user, password) in the request body and the server connects to it. 12 routes under `src/app/api/db/*` follow this path. Only `seed:` ids are server-controlled. |
+| Admins can still create connections in the browser | [`src/lib/seed/resolve-connection.ts`](../src/lib/seed/resolve-connection.ts) — the `connection` body field is accepted only for `role === "admin"` (§4.1 step A, done) | A non-admin session that sends a full connection gets a 403 and a `permission_denied` / `insufficient_role` audit line; the UI offers it no connection dialog. An admin can still connect to whatever they type, and those connections live in the admin's own browser storage, not in a shared store. Only `seed:` ids are server-controlled. |
 | No server-side audit of human queries | [`src/app/api/db/query/route.ts`](../src/app/api/db/query/route.ts) and siblings `multi-query`, `transaction`, `maintenance` | The routes call the provider directly with no `emitAuditEvent`. Query history is written **client-side** (`use-query-execution.ts` → `storage.addToHistory`), capped at 500 per user, and the user can clear it. The admin "Audit" tab reads the admin's own history. |
 | Audit channel excludes SQL by design | [`src/lib/audit.ts`](../src/lib/audit.ts) — "What must never be recorded here: … SQL text" | The stdout JSON channel records logins, denials, maintenance — never the statement. The in-memory ring buffer holds 1000 events per process. |
 | Two-role RBAC | [`src/lib/auth.ts`](../src/lib/auth.ts) — `type Role = "admin" \| "user"` | Seed YAML supports `roles: ["admin"]` / `["*"]`. No groups, no per-datasource read/write matrix. |
@@ -58,14 +58,19 @@ Verified in code, not from the README:
 
 Two steps. The first closes the hole; the second delivers the product.
 
-**Step A — close the client-supplied connection path (small, safe):**
-- `resolveConnection`: when `body.connection` is present and the session role is not
-  `admin`, throw `SeedConnectionError(403)`. Audit the denial with reason
-  `insufficient_role` (the reason union already exists).
-- UI: hide "New connection" and the connection dialog for non-admin sessions; keep the
-  managed list.
-- Tests: `tests/unit/seed/resolve-connection.test.ts` and the API tests under
-  `tests/api/db/` already mock sessions — add the non-admin cases.
+**Step A — close the client-supplied connection path — done:**
+- `resolveConnection` refuses `body.connection` for any role but `admin` with
+  `SeedConnectionError(403)` before a provider is built, and records the denial through
+  `auditRoleDenial` ([`src/lib/api/role-denial.ts`](../src/lib/api/role-denial.ts), target
+  `connection:client-supplied`, reason `insufficient_role`). The helper moved out of
+  `require-session.ts` because that module reaches the resolver through `errors.ts`.
+- UI: `Studio.tsx` derives `openConnectionEditor` / `editConnection` /
+  `duplicateConnection` from `isAdmin` and hands `undefined` to the sidebar, the mobile
+  header, the mobile connections tab and the command palette; each drops its control.
+  The managed list is untouched.
+- Known leftover: a non-admin who created local connections before this change still
+  sees them in the list and gets the 403 on use. They disappear with Step B, when the
+  `connection` body field goes away and the list is fed only by the server.
 
 **Step B — server-side shared datasources:**
 - Admin CRUD (`/api/admin/datasources`) persisted server-side, encrypted like the existing

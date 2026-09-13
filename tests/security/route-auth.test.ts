@@ -388,6 +388,7 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/api/errors": `maps a thrown error to a response and ${PROVIDER_NAMING_HELPER} (@/lib/db/errors, @/lib/llm/types) for the error CLASSES alone - nearly every route imports it, and treating it as an entry point would fire on all fifteen`,
     "@/lib/api/rate-limit": "the in-process token buckets",
     "@/lib/api/require-session": "guardRoute itself",
+    "@/lib/api/role-denial": "the metered permission_denied audit line for a role denial; reaches no provider",
     "@/lib/audit": "the in-process audit ring buffer",
     "@/lib/auth": "session cookie minting and reading",
     "@/lib/auth-compare": "constant-time credential comparison",

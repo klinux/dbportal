@@ -1110,6 +1110,23 @@ describe("Studio", () => {
     expect(capturedConnectionModalProps.isOpen).toBe(true);
   });
 
+  // docs/CONTEXT.md §4.1 step A: the server refuses a client-supplied connection from a
+  // non-admin session, so the shell hands none of its surfaces a way to open the editor.
+  // Withheld (undefined) rather than stubbed, so each surface drops its control entirely.
+  test("a non-admin session gets no entry point into the connection editor", () => {
+    authOverride = { isAdmin: false };
+    render(<Studio />);
+    expect(capturedSidebarProps.onAddConnection).toBeUndefined();
+    expect(capturedSidebarProps.onEditConnection).toBeUndefined();
+    expect(capturedSidebarProps.onDuplicateConnection).toBeUndefined();
+    expect(capturedMobileHeaderProps.onAddConnection).toBeUndefined();
+    expect(capturedCommandPaletteProps.onAddConnection).toBeUndefined();
+    act(() => (capturedMobileNavProps.onTabChange as (tab: string) => void)("database"));
+    expect(capturedConnectionsListProps.onAddConnection).toBeUndefined();
+    expect(capturedConnectionsListProps.onDuplicateConnection).toBeUndefined();
+    expect(capturedConnectionModalProps.isOpen).toBe(false);
+  });
+
   // --- ConnectionModal onConnect ---
   test("ConnectionModal onConnect saves and activates connection", () => {
     const newConns = [pgConn];
@@ -1866,6 +1883,17 @@ describe("Studio", () => {
     act(() => onTabChange("database"));
     fireEvent.click(getByText(/Add/));
     expect(queryByTestId("connection-modal")).not.toBeNull();
+  });
+
+  // The mobile tab has its own Add button next to the list, outside ConnectionsList; it is
+  // gated on the same seam as every other entry point (docs/CONTEXT.md §4.1).
+  test("mobile database tab has no Add button for a non-admin session", () => {
+    authOverride = { isAdmin: false };
+    const { queryByText, getByText } = render(<Studio />);
+    const onTabChange = capturedMobileNavProps.onTabChange as (tab: string) => void;
+    act(() => onTabChange("database"));
+    expect(getByText("Connections")).toBeTruthy();
+    expect(queryByText(/^\s*Add\s*$/)).toBeNull();
   });
 
   // --- Mobile: schema tab ---

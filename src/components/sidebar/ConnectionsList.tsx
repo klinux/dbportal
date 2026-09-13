@@ -10,7 +10,8 @@ interface ConnectionsListProps {
   onDeleteConnection: (id: string) => void;
   onEditConnection?: (conn: DatabaseConnection) => void;
   onDuplicateConnection?: (conn: DatabaseConnection) => void;
-  onAddConnection: () => void;
+  /** Absent when the session may not create connections; the empty state then says who can. */
+  onAddConnection?: () => void;
 }
 
 export function ConnectionsList({
@@ -32,12 +33,20 @@ export function ConnectionsList({
       <div className="space-y-0.5">
         {connections.length === 0 ? (
           <div className="px-3 py-6 text-center border border-dashed border-border/50 rounded-lg mx-2">
-            <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-              No database connections established yet.
-            </p>
-            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onAddConnection}>
-              Add Connection
-            </Button>
+            {onAddConnection ? (
+              <>
+                <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                  No database connections established yet.
+                </p>
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onAddConnection}>
+                  Add Connection
+                </Button>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                No connections have been shared with you yet. Ask an administrator.
+              </p>
+            )}
           </div>
         ) : (
           connections.map((conn) => (

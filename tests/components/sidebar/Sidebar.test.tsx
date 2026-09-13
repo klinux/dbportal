@@ -155,11 +155,20 @@ describe("Sidebar", () => {
   test('shows "Add Connection" button (Plus icon)', () => {
     const onAddConnection = mock(() => {});
     const props = createDefaultProps({ onAddConnection });
-    const { getAllByRole } = render(<Sidebar {...props} />);
+    const { getByTitle } = render(<Sidebar {...props} />);
 
-    // The Plus button is in the header
-    const buttons = getAllByRole("button");
-    expect(buttons.length).toBeGreaterThan(0);
+    fireEvent.click(getByTitle("New connection"));
+    expect(onAddConnection).toHaveBeenCalledTimes(1);
+  });
+
+  // docs/CONTEXT.md §4.1: a non-admin session is handed no `onAddConnection`, and the header
+  // must then carry no Plus at all - an inert button would advertise an action the server
+  // refuses with a 403.
+  test("no Plus button when onAddConnection is withheld", () => {
+    const props = createDefaultProps({ onAddConnection: undefined });
+    const { queryByTitle } = render(<Sidebar {...props} />);
+
+    expect(queryByTitle("New connection")).toBeNull();
   });
 
   test("the object tree only renders when activeConnection exists", () => {

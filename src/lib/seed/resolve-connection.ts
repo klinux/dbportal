@@ -1,6 +1,14 @@
 import type { DatabaseConnection } from "@/lib/types";
 import { getSeedConnectionById, getSeedConnectionByIdUnfiltered } from "./index";
 import { logger } from "@/lib/logger";
+import { auditRoleDenial } from "@/lib/api/role-denial";
+
+/**
+ * What the audit line names as the target of a refused client-supplied connection. There is
+ * no route to name: `resolveConnection` serves every `src/app/api/db/*` route and does not
+ * know which one called it. Exported so the tests assert the same string the trail carries.
+ */
+export const CLIENT_CONNECTION_TARGET = "connection:client-supplied";
 
 export class SeedConnectionError extends Error {
   constructor(
@@ -19,6 +27,24 @@ export async function resolveConnection(
   const { connection, connectionId } = body;
 
   if (connection && !connectionId) {
+    // A connection the CLIENT describes (host, user, password) is the one path where the
+    // server connects to whatever the caller typed. Datasources are created once, by an admin,
+    // and shared (docs/CONTEXT.md §4.1); for any other role this branch would let a user reach
+    // any host the portal can, under any credential they hold. Refused before anything is
+    // connected, and recorded as a ROLE denial: the caller has a session, just not the role
+    // the action requires. The body itself is never logged - it carries the credential.
+    if (session.role !== "admin") {
+      logger.warn("Client-supplied connection refused for non-admin session", {
+        route: "seed/resolve-connection",
+        user: session.username,
+        role: session.role,
+      });
+      auditRoleDenial({ route: CLIENT_CONNECTION_TARGET, user: session.username });
+      throw new SeedConnectionError(
+        "Only administrators can supply a connection; select a managed connection instead",
+        403,
+      );
+    }
     return connection;
   }
 

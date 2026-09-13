@@ -3,7 +3,8 @@ import { getOrCreateProvider } from "@/lib/db";
 import type { DatabaseConnection } from "@/lib/types";
 import { createErrorResponse } from "@/lib/api/errors";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
-import { auditRoleDenial, guardRoute } from "@/lib/api/require-session";
+import { guardRoute } from "@/lib/api/require-session";
+import { auditRoleDenial } from "@/lib/api/role-denial";
 import { logger } from "@/lib/logger";
 
 /**

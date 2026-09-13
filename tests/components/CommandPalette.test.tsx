@@ -453,6 +453,18 @@ describe("CommandPalette", () => {
     expect(queryByText("Run Query")).not.toBeNull();
   });
 
+  // docs/CONTEXT.md §4.1: the palette is one more entry point into the connection editor, so
+  // it drops the item for a session that may not create connections, as it does for the agent.
+  test("no New Connection item is offered when onAddConnection is withheld", () => {
+    const props = createDefaultProps({ onAddConnection: undefined });
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    expect(queryByText("New Connection")).toBeNull();
+    expect(queryByText("Run Query")).not.toBeNull();
+  });
+
   test("Logout action callback fires via runAction", () => {
     const onLogout = mock(() => {});
     const props = createDefaultProps({ onLogout });

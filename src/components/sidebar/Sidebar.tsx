@@ -19,7 +19,11 @@ interface SidebarProps {
   onDeleteConnection: (id: string) => void;
   onEditConnection?: (conn: DatabaseConnection) => void;
   onDuplicateConnection?: (conn: DatabaseConnection) => void;
-  onAddConnection: () => void;
+  /**
+   * Opens the connection editor. Absent for a session that may not create connections
+   * (docs/CONTEXT.md §4.1): the button is then not rendered rather than rendered inert.
+   */
+  onAddConnection?: () => void;
   /** A row the reader activated, handed over whole: path, kind and the fields the tree loaded. */
   onObjectClick?: (object: DatabaseObject) => void;
   onShowDiagram?: () => void;
@@ -110,12 +114,15 @@ export function Sidebar({
               <Layers strokeWidth={1.5} className="w-3.5 h-3.5" />
             </button>
           )}
-          <button
-            className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-            onClick={onAddConnection}
-          >
-            <Plus strokeWidth={1.5} className="w-3.5 h-3.5" />
-          </button>
+          {onAddConnection && (
+            <button
+              className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              onClick={onAddConnection}
+              title="New connection"
+            >
+              <Plus strokeWidth={1.5} className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 

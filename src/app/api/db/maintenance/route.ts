@@ -4,7 +4,8 @@ import { emitAuditEvent } from "@/lib/audit";
 import { createErrorResponse } from "@/lib/api/errors";
 import { maintenanceControl, type MaintenancePlacement } from "@/lib/db/types";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
-import { auditRoleDenial, guardRoute } from "@/lib/api/require-session";
+import { guardRoute } from "@/lib/api/require-session";
+import { auditRoleDenial } from "@/lib/api/role-denial";
 import { logger } from "@/lib/logger";
 
 export async function POST(request: Request) {

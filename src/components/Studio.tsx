@@ -225,6 +225,18 @@ export default function Studio() {
     });
     setIsConnectionModalOpen(true);
   };
+  // Every entry point into the connection editor, in one place. Datasources are created by
+  // admins and shared (docs/CONTEXT.md §4.1): the server refuses a client-supplied connection
+  // from any other role, so a non-admin session is not offered a dialog that could only end
+  // in a 403. `undefined` rather than a no-op so each surface can drop its control entirely.
+  const openConnectionEditor = isAdmin ? () => setIsConnectionModalOpen(true) : undefined;
+  const editConnection = isAdmin
+    ? (c: DatabaseConnection) => {
+        setEditingConnection(c);
+        setIsConnectionModalOpen(true);
+      }
+    : undefined;
+  const duplicateConnection = isAdmin ? handleDuplicateConnection : undefined;
   const [pendingDeleteConnectionId, setPendingDeleteConnectionId] = useState<string | null>(null);
   const [isCreateTableModalOpen, setIsCreateTableModalOpen] = useState(false);
   const [showDiagram, setShowDiagram] = useState(false);
@@ -579,12 +591,9 @@ export default function Studio() {
                 activeConnection={conn.activeConnection}
                 onSelectConnection={conn.setActiveConnection}
                 onDeleteConnection={requestDeleteConnection}
-                onEditConnection={(c) => {
-                  setEditingConnection(c);
-                  setIsConnectionModalOpen(true);
-                }}
-                onDuplicateConnection={handleDuplicateConnection}
-                onAddConnection={() => setIsConnectionModalOpen(true)}
+                onEditConnection={editConnection}
+                onDuplicateConnection={duplicateConnection}
+                onAddConnection={openConnectionEditor}
                 onObjectClick={onObjectClick}
                 objectActions={objectActions}
                 onShowDiagram={() => setShowDiagram(true)}
@@ -615,7 +624,7 @@ export default function Studio() {
               playgroundMode={txn.playgroundMode}
               editingEnabled={editingEnabled}
               onSelectConnection={conn.setActiveConnection}
-              onAddConnection={() => setIsConnectionModalOpen(true)}
+              onAddConnection={openConnectionEditor}
               onLogout={handleLogout}
               onSaveQuery={() => setIsSaveQueryModalOpen(true)}
               onClearQuery={() => tabMgr.updateCurrentTab({ query: "" })}
@@ -683,14 +692,16 @@ export default function Studio() {
                 <div className="md:hidden h-full bg-sunken overflow-auto p-4">
                   <div className="mb-4 flex items-center justify-between">
                     <h2 className="text-xs font-medium text-fg-secondary">Connections</h2>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs border-hairline-strong hover:bg-fill"
-                      onClick={() => setIsConnectionModalOpen(true)}
-                    >
-                      <Plus strokeWidth={1.5} className="w-3 h-3 mr-1" /> Add
-                    </Button>
+                    {openConnectionEditor && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs border-hairline-strong hover:bg-fill"
+                        onClick={openConnectionEditor}
+                      >
+                        <Plus strokeWidth={1.5} className="w-3 h-3 mr-1" /> Add
+                      </Button>
+                    )}
                   </div>
                   <ConnectionsList
                     connections={conn.connections}
@@ -700,8 +711,8 @@ export default function Studio() {
                       setActiveMobileTab("editor");
                     }}
                     onDeleteConnection={requestDeleteConnection}
-                    onDuplicateConnection={handleDuplicateConnection}
-                    onAddConnection={() => setIsConnectionModalOpen(true)}
+                    onDuplicateConnection={duplicateConnection}
+                    onAddConnection={openConnectionEditor}
                   />
                 </div>
               )}
@@ -1019,7 +1030,7 @@ export default function Studio() {
         capabilities={metadata?.capabilities}
         onSelectConnection={conn.setActiveConnection}
         onTableClick={onTableClick}
-        onAddConnection={() => setIsConnectionModalOpen(true)}
+        onAddConnection={openConnectionEditor}
         onExecuteQuery={() => queryExec.executeQuery()}
         onLoadSavedQuery={(q) => {
           tabMgr.updateCurrentTab({ query: q });

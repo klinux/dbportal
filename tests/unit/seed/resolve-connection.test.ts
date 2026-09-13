@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach, spyOn } from "bun:test";
 import path from "path";
 import type { DatabaseConnection } from "@/lib/types";
 
@@ -9,24 +9,85 @@ process.env.USER_MYSQL_PASS = "user-secret";
 process.env.SHARED_PG_PASS = "shared-secret";
 process.env.BOTH_PG_PASS = "both-secret";
 
-import { resolveConnection, SeedConnectionError } from "@/lib/seed/resolve-connection";
+import { resolveConnection, SeedConnectionError, CLIENT_CONNECTION_TARGET } from "@/lib/seed/resolve-connection";
 import { resetCache } from "@/lib/seed/config-loader";
+import { clearRateLimitState } from "@/lib/api/rate-limit";
+
+const clientConn: DatabaseConnection = {
+  id: "user-conn",
+  name: "User DB",
+  type: "postgres",
+  host: "db.internal.example",
+  user: "app",
+  password: "hunter2",
+  createdAt: new Date(),
+};
 
 describe("resolve-connection", () => {
   beforeEach(() => {
     resetCache();
+    clearRateLimitState();
   });
 
-  it("returns connection object as-is when no connectionId", async () => {
-    const conn: DatabaseConnection = {
-      id: "user-conn",
-      name: "User DB",
-      type: "postgres",
-      host: "localhost",
-      createdAt: new Date(),
-    };
-    const result = await resolveConnection({ connection: conn }, { role: "user", username: "test" });
+  it("returns the connection object as-is for an admin session", async () => {
+    const result = await resolveConnection({ connection: clientConn }, { role: "admin", username: "test" });
     expect(result.id).toBe("user-conn");
+  });
+
+  // docs/CONTEXT.md §4.1 step A: a client-supplied connection was the one path where any
+  // authenticated user could make the server connect to a host of their choosing. The refusal
+  // has to happen here, before a provider is built, because 12 routes share this resolver.
+  it("throws 403 for a non-admin session that supplies its own connection", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await resolveConnection({ connection: clientConn }, { role: "user", username: "bob" });
+      expect(true).toBe(false);
+    } catch (err) {
+      expect(err).toBeInstanceOf(SeedConnectionError);
+      expect((err as SeedConnectionError).statusCode).toBe(403);
+    } finally {
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  // The denial is a ROLE denial and is recorded as one in the stdout channel, with the same
+  // reason the admin-only routes use, so an operator filtering on `insufficient_role` sees
+  // both kinds of probing in one place.
+  it("audits the refused client connection as permission_denied / insufficient_role", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await resolveConnection({ connection: clientConn }, { role: "user", username: "bob" }).catch(() => {});
+      const lines = logSpy.mock.calls.map(
+        (call: unknown[]) => JSON.parse(call[0] as string) as Record<string, unknown>,
+      );
+      expect(lines).toHaveLength(1);
+      expect(lines[0].event).toBe("permission_denied");
+      expect(lines[0].reason).toBe("insufficient_role");
+      expect(lines[0].actor).toBe("bob");
+      expect(lines[0].route).toBe(CLIENT_CONNECTION_TARGET);
+      // No request reaches the resolver, so the line must not invent an address.
+      expect(lines[0].ip).toBeUndefined();
+      // The refused body carries the credential; none of it may reach the trail.
+      const raw = logSpy.mock.calls[0][0] as string;
+      expect(raw).not.toContain("hunter2");
+      expect(raw).not.toContain("db.internal.example");
+    } finally {
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  // `connectionId` wins when both are present: the seed path already checks the role, so a
+  // non-admin body that also carries a stray `connection` is not refused for it.
+  it("ignores a stray connection object when a connectionId is present", async () => {
+    const result = await resolveConnection(
+      { connection: clientConn, connectionId: "seed:everyone" },
+      { role: "user", username: "test" },
+    );
+    expect(result.id).toBe("seed:everyone");
   });
 
   it("resolves seed connection by connectionId", async () => {

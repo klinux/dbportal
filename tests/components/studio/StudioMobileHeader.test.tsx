@@ -333,6 +333,21 @@ describe("StudioMobileHeader", () => {
     expect(onAddConnection).toHaveBeenCalledTimes(1);
   });
 
+  // docs/CONTEXT.md §4.1: a session that may not create connections gets neither "Add"
+  // variant; the empty menu says so instead of offering an item that ends in a 403.
+  test("no Add item in either state when onAddConnection is withheld", () => {
+    const empty = render(
+      <StudioMobileHeader {...defaults} connections={[]} activeConnection={null} onAddConnection={undefined} />,
+    );
+    expect(empty.queryByText("Add Connection")).toBeNull();
+    expect(empty.queryByText("No connections shared with you")).not.toBeNull();
+    empty.unmount();
+
+    const populated = render(<StudioMobileHeader {...defaults} onAddConnection={undefined} />);
+    expect(populated.queryByText("Add New")).toBeNull();
+    expect(populated.queryAllByText(conn.name).length).toBeGreaterThan(0);
+  });
+
   test("Copy Query click writes the editor query to the clipboard", () => {
     const writeText = mock(async () => {});
     Object.defineProperty(globalThis.navigator, "clipboard", {

@@ -54,7 +54,8 @@ interface StudioMobileHeaderProps {
   playgroundMode: boolean;
   editingEnabled: boolean;
   onSelectConnection: (conn: DatabaseConnection) => void;
-  onAddConnection: () => void;
+  /** Absent when the session may not create connections; the menu then offers no "Add". */
+  onAddConnection?: () => void;
   onLogout: () => void;
   onSaveQuery: () => void;
   onClearQuery: () => void;
@@ -148,9 +149,15 @@ export function StudioMobileHeader({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64 bg-raised border-hairline-strong">
               {connections.length === 0 ? (
-                <DropdownMenuItem onClick={onAddConnection} className="text-fg-tertiary cursor-pointer">
-                  <Plus strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Add Connection
-                </DropdownMenuItem>
+                onAddConnection ? (
+                  <DropdownMenuItem onClick={onAddConnection} className="text-fg-tertiary cursor-pointer">
+                    <Plus strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Add Connection
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem disabled className="text-fg-tertiary">
+                    No connections shared with you
+                  </DropdownMenuItem>
+                )
               ) : (
                 <>
                   {connections.map((c) => (
@@ -166,12 +173,14 @@ export function StudioMobileHeader({
                       )}
                     </DropdownMenuItem>
                   ))}
-                  <DropdownMenuItem
-                    onClick={onAddConnection}
-                    className="text-fg-muted cursor-pointer border-t border-hairline mt-1"
-                  >
-                    <Plus strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Add New
-                  </DropdownMenuItem>
+                  {onAddConnection && (
+                    <DropdownMenuItem
+                      onClick={onAddConnection}
+                      className="text-fg-muted cursor-pointer border-t border-hairline mt-1"
+                    >
+                      <Plus strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Add New
+                    </DropdownMenuItem>
+                  )}
                 </>
               )}
             </DropdownMenuContent>

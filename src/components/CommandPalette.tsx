@@ -45,7 +45,11 @@ interface CommandPaletteProps {
   capabilities?: ProviderCapabilities;
   onSelectConnection: (conn: DatabaseConnection) => void;
   onTableClick: (path: readonly string[]) => void;
-  onAddConnection: () => void;
+  /**
+   * Absent when the session may not create connections (docs/CONTEXT.md §4.1); the item is
+   * then not offered, for the same reason `onAskAgent` below is optional.
+   */
+  onAddConnection?: () => void;
   onExecuteQuery: () => void;
   onLoadSavedQuery: (query: string) => void;
   onLoadHistoryQuery: (query: string) => void;
@@ -152,10 +156,12 @@ export function CommandPalette({
               <span>Ask the agent about this query</span>
             </CommandItem>
           )}
-          <CommandItem onSelect={() => runAction(onAddConnection)}>
-            <Plus strokeWidth={1.5} className="w-3.5 h-3.5 text-hue-emerald" />
-            <span>New Connection</span>
-          </CommandItem>
+          {onAddConnection && (
+            <CommandItem onSelect={() => runAction(onAddConnection)}>
+              <Plus strokeWidth={1.5} className="w-3.5 h-3.5 text-hue-emerald" />
+              <span>New Connection</span>
+            </CommandItem>
+          )}
           <CommandItem onSelect={() => runAction(onNavigateHealth)}>
             <Activity strokeWidth={1.5} className="w-3.5 h-3.5 text-hue-emerald" />
             <span>Health Dashboard</span>

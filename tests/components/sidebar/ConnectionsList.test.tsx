@@ -131,6 +131,22 @@ describe("ConnectionsList", () => {
     expect(queryByText("Add Connection")).not.toBeNull();
   });
 
+  // docs/CONTEXT.md §4.1: without `onAddConnection` the empty state cannot offer a button, so
+  // it has to say who can fix the situation instead of showing a dead end.
+  test("empty state without onAddConnection points at an administrator", () => {
+    const { queryByText } = render(
+      <ConnectionsList
+        connections={[]}
+        activeConnection={null}
+        onSelectConnection={defaultOnSelect}
+        onDeleteConnection={defaultOnDelete}
+      />,
+    );
+
+    expect(queryByText("Add Connection")).toBeNull();
+    expect(queryByText(/Ask an administrator/)).not.toBeNull();
+  });
+
   test("renders ConnectionItem for each connection", () => {
     const connections = [mockPostgresConnection, mockMySQLConnection];
 
