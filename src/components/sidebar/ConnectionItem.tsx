@@ -1,6 +1,6 @@
 import React from "react";
 import { DatabaseConnection, ENVIRONMENT_LABELS } from "@/lib/types";
-import { Lock, Trash2, Pencil, Copy } from "lucide-react";
+import { Lock, Trash2, Pencil, Copy, Eye } from "lucide-react";
 import { getDBIcon } from "@/lib/db-ui-config";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -64,6 +64,15 @@ export const ConnectionItem = React.memo(function ConnectionItem({
         </div>
       </div>
       <div className="flex items-center gap-0.5">
+        {conn.readOnly && (
+          <div
+            data-testid={`read-only-${conn.seedId || conn.id}`}
+            className="flex items-center justify-center text-fg-muted"
+            title="Read-only for you"
+          >
+            <Eye strokeWidth={1.5} className="w-3 h-3" />
+          </div>
+        )}
         {conn.managed && (
           <div
             data-testid={`managed-lock-${conn.seedId || conn.id}`}

@@ -4,6 +4,7 @@ import { applicationNameFor } from "@/lib/db/application-name";
 import { createErrorResponse } from "@/lib/api/errors";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 import { auditExecution, type ExecutionAction } from "@/lib/audit-execution";
+import { assertWriteAllowed, providerAccessOptions } from "@/lib/api/write-gate";
 import { clientAddress } from "@/lib/api/client-address";
 import { guardRoute } from "@/lib/api/require-session";
 import { readBoundParams } from "@/lib/api/bound-params";
@@ -43,8 +44,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Connection and action are required" }, { status: 400 });
     }
 
+    // Only the statement writes; begin, commit and rollback are the envelope (§4.4).
+    if (action === "query" && typeof sql === "string") {
+      assertWriteAllowed({
+        route: "POST /api/db/transaction",
+        session: guard.session,
+        connection,
+        statements: [sql],
+        request: req,
+      });
+    }
+
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(guard.session.username),
+      ...providerAccessOptions(connection, guard.session),
     });
 
     if (!isTransactionProvider(provider)) {

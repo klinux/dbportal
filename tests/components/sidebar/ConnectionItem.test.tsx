@@ -244,3 +244,26 @@ describe("ConnectionItem", () => {
     expect(defaultOnSelect).toHaveBeenCalledTimes(0);
   });
 });
+
+// docs/CONTEXT.md §4.4: the server says whether this session may write; the row says it.
+describe("ConnectionItem: read-only badge", () => {
+  test("shows the badge only when the server marked the connection read-only", () => {
+    const readOnly = render(
+      <ConnectionItem
+        connection={{ ...mockPostgresConnection, managed: true, seedId: "ro", readOnly: true }}
+        isActive={false}
+        onSelect={() => {}}
+      />,
+    );
+    expect(readOnly.getByTitle("Read-only for you")).toBeTruthy();
+    readOnly.unmount();
+    const writable = render(
+      <ConnectionItem
+        connection={{ ...mockPostgresConnection, managed: true, seedId: "rw" }}
+        isActive={false}
+        onSelect={() => {}}
+      />,
+    );
+    expect(writable.queryByTitle("Read-only for you")).toBeNull();
+  });
+});

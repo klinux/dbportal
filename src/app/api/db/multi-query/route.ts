@@ -10,6 +10,7 @@ import { guardRoute } from "@/lib/api/require-session";
 import type { DatabaseType, QueryWarning } from "@/lib/types";
 import type { DatabaseProvider } from "@/lib/db/types";
 import { auditExecution, type ExecutionAuditContext } from "@/lib/audit-execution";
+import { assertWriteAllowed, providerAccessOptions } from "@/lib/api/write-gate";
 import { clientAddress } from "@/lib/api/client-address";
 
 export interface StatementResult {
@@ -132,8 +133,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No valid SQL statements found" }, { status: 400 });
     }
 
+    // The whole script is judged before any of it runs (§4.4): a script that writes on its
+    // third statement must not run its first two on a datasource this session cannot write to.
+    assertWriteAllowed({
+      route: "POST /api/db/multi-query",
+      session: guard.session,
+      connection,
+      statements: statements.map((statement) => statement.sql),
+      request: req,
+    });
+
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(guard.session.username),
+      ...providerAccessOptions(connection, guard.session),
     });
     const results: StatementResult[] = [];
     let totalExecutionTime = 0;

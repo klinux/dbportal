@@ -15,6 +15,7 @@ const mockGetOIDCConfig = mock(() => ({
   clientSecret: "test-client-secret",
   scope: "openid profile email",
   roleClaim: "roles",
+  groupsClaim: "groups",
   adminRoles: ["admin"],
 }));
 
@@ -44,12 +45,18 @@ mock.module("@/lib/oidc", () => ({
   decryptState: mockDecryptState,
   exchangeCode: mockExchangeCode,
   mapOIDCRole: mockMapOIDCRole,
+  // The real reading of the claim, on the mocked module: the test above asserts what
+  // reaches login(), not how the claim is walked (tests/unit/lib/oidc.test.ts does that).
+  mapOIDCGroups: (claims: Record<string, unknown>, claim: string) => {
+    const raw = claims[claim];
+    return [...new Set((Array.isArray(raw) ? raw : [raw]).filter((g): g is string => typeof g === "string"))];
+  },
   resetDiscoveryCache: mock(() => {}),
   getPublicOrigin: mockGetPublicOrigin,
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const mockLogin = mock(async (_role: string, _username?: string) => {});
+const mockLogin = mock(async (_role: string, _username?: string, _groups?: string[]) => {});
 
 mock.module("@/lib/auth", () => ({
   login: mockLogin,
@@ -108,7 +115,7 @@ describe("GET /api/auth/oidc/callback", () => {
 
     expect(mockDecryptState).toHaveBeenCalledWith("encrypted-state-cookie");
     expect(mockExchangeCode).toHaveBeenCalledTimes(1);
-    expect(mockLogin).toHaveBeenCalledWith("user", "user@example.com");
+    expect(mockLogin).toHaveBeenCalledWith("user", "user@example.com", []);
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toContain("/");
   });
@@ -119,7 +126,7 @@ describe("GET /api/auth/oidc/callback", () => {
     const req = new Request("http://localhost:3000/api/auth/oidc/callback?code=auth-code&state=test-state");
     const res = await GET(req);
 
-    expect(mockLogin).toHaveBeenCalledWith("admin", "user@example.com");
+    expect(mockLogin).toHaveBeenCalledWith("admin", "user@example.com", []);
     expect(res.headers.get("location")).toContain("/admin");
   });
 
@@ -183,7 +190,15 @@ describe("GET /api/auth/oidc/callback", () => {
     const req = new Request("http://localhost:3000/api/auth/oidc/callback?code=auth-code&state=test-state");
     await GET(req);
 
-    expect(mockLogin).toHaveBeenCalledWith("user", "user-123");
+    expect(mockLogin).toHaveBeenCalledWith("user", "user-123", []);
+  });
+
+  // docs/CONTEXT.md §4.4: the provider's groups become the session's principals.
+  test("signs the groups claim into the session, bounded", async () => {
+    mockExchangeCode.mockImplementationOnce(async () => ({ ...defaultClaims, groups: ["sre", "sre", 7, "dba"] }));
+    const res = await GET(new Request("http://localhost:3000/api/auth/oidc/callback?code=auth-code&state=test-state"));
+    expect(res.status).toBe(307);
+    expect(mockLogin).toHaveBeenCalledWith("user", "user@example.com", ["sre", "dba"]);
   });
 
   test("passes claims to mapOIDCRole with correct config", async () => {
@@ -206,6 +221,7 @@ describe("GET /api/auth/oidc/callback", () => {
         clientSecret: "secret",
         scope: "openid",
         roleClaim: "roles",
+        groupsClaim: "groups",
         adminRoles: ["admin"],
       }));
       mockExchangeCode.mockResolvedValue({ ...defaultClaims });

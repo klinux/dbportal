@@ -1217,6 +1217,7 @@ interface DatabaseConnection {
   authSource?: string; // MongoDB only: the database the credentials live in (`?authSource=admin`). Not the database being opened - without it the driver checks the user against that one, which fails as a credentials error
   skipObjectScan?: boolean; // read no catalog when this connection opens: zero reads on connect, so the editor is usable immediately and the object tree offers a load action instead of scanning (#765, an Oracle owner with 43,512 tables froze the browser on connect)
   managed?: boolean;       // true = admin-controlled, read-only in UI
+  readOnly?: boolean;      // the server's answer for THIS session: it may open the datasource but not write to it (docs/SEED_CONNECTIONS.md, `writeRoles`)
   seedId?: string;         // stable reference to seed config ID
   agentUser?: string;      // optional least-privilege role for the agent read-only execution profile (#328)
   agentPassword?: string;  // password for agentUser; secret-classified, sealed at rest by connection-secrets

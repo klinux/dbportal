@@ -38,6 +38,7 @@ mock.module("openid-client", () => ({
 
 const {
   mapOIDCRole,
+  mapOIDCGroups,
   getOIDCConfig,
   encryptState,
   decryptState,
@@ -364,6 +365,7 @@ describe("discoverProvider", () => {
       clientSecret: "custom-secret",
       scope: "openid",
       roleClaim: "",
+      groupsClaim: "groups",
       adminRoles: ["admin"],
     };
 
@@ -541,5 +543,18 @@ describe("resetDiscoveryCache", () => {
     resetDiscoveryCache();
     await discoverProvider();
     expect(mockDiscoveryFn).toHaveBeenCalledTimes(2);
+  });
+});
+
+// docs/CONTEXT.md §4.4: the groups a token carries, read with the same dot-notation the role
+// claim uses, and bounded before they are signed in.
+describe("mapOIDCGroups", () => {
+  test("reads a flat or nested claim, keeps strings only, and answers [] for a missing one", () => {
+    expect(mapOIDCGroups({ groups: ["sre", "dba"] }, "groups")).toEqual(["sre", "dba"]);
+    expect(mapOIDCGroups({ realm_access: { groups: ["a", 1, null] } }, "realm_access.groups")).toEqual(["a"]);
+    expect(mapOIDCGroups({ groups: "single" }, "groups")).toEqual(["single"]);
+    expect(mapOIDCGroups({}, "groups")).toEqual([]);
+    expect(mapOIDCGroups({ groups: "x" }, "")).toEqual([]);
+    expect(mapOIDCGroups({ realm_access: "not-an-object" }, "realm_access.groups")).toEqual([]);
   });
 });

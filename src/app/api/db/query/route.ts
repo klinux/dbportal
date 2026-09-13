@@ -7,6 +7,7 @@ import { guardRoute } from "@/lib/api/require-session";
 import { readBoundParams } from "@/lib/api/bound-params";
 import { getExplainStrategy, type ExplainMode } from "@/lib/explain";
 import { auditExecution } from "@/lib/audit-execution";
+import { assertWriteAllowed, providerAccessOptions } from "@/lib/api/write-gate";
 import { clientAddress } from "@/lib/api/client-address";
 import type { ExplainFormat } from "@/lib/db/types";
 
@@ -72,8 +73,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: explain.message }, { status: 400 });
     }
 
+    // The datasource's write rule, before anything reaches the engine (§4.4). An explain
+    // request is judged on the statement it would explain, which the gate reads as such.
+    assertWriteAllowed({
+      route: "POST /api/db/query",
+      session: guard.session,
+      connection,
+      statements: [explain.explain ? `EXPLAIN ${sql}` : sql],
+      request: req,
+    });
+
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(guard.session.username),
+      ...providerAccessOptions(connection, guard.session),
     });
 
     // The statement that actually runs. For an explain request it is the one the

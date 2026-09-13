@@ -27,7 +27,13 @@ import { logger } from "@/lib/logger";
  * Isolated in its own try/catch for the same reason guardRoute isolates its emits: the 403 is
  * already decided, and a broken audit sink must never turn a denial into an unrelated 500.
  */
-export function auditRoleDenial(opts: { route: string; user: string; request?: Request }): void {
+export function auditRoleDenial(opts: {
+  route: string;
+  user: string;
+  request?: Request;
+  /** `insufficient_role` unless the denial is a datasource's own rule (docs/CONTEXT.md §4.4). */
+  reason?: "insufficient_role" | "read_only_datasource";
+}): void {
   const notice = consumeRateLimit("anon", opts.user);
   if (!notice.allowed && !notice.tripped) return;
   try {
@@ -37,7 +43,7 @@ export function auditRoleDenial(opts: { route: string; user: string; request?: R
       target: opts.route,
       user: opts.user,
       result: "failure",
-      reason: "insufficient_role",
+      reason: opts.reason ?? "insufficient_role",
       ...(opts.request ? { ip: clientAddress(opts.request) } : {}),
     });
   } catch (auditError) {

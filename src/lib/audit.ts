@@ -87,6 +87,8 @@ export type AuditReason =
   | "no_agent_drive_token"
   // Why a human execution failed (docs/CONTEXT.md §4.2), keyed on the driver's own error
   // CLASS - never its message, which may quote the statement or the server's reply.
+  // A write refused by the datasource's own access rule (docs/CONTEXT.md §4.4).
+  | "read_only_datasource"
   | "query_error"
   | "query_timeout"
   | "query_cancelled"

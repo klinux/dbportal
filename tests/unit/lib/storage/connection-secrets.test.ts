@@ -106,6 +106,9 @@ describe("the classification is exhaustive by construction", () => {
         "password",
         "port",
         "queryTimeout",
+        // The server's per-session verdict on writes (docs/CONTEXT.md §4.4): a fact about
+        // the caller, not a credential, so `public`.
+        "readOnly",
         "seedId",
         // Whether this browser reads the catalog when the connection opens (#765). A
         // display preference: it grants nothing and unlocks nothing.

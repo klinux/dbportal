@@ -50,6 +50,7 @@ export function filterByRoles(connections: SeedConnection[], userRoles: string[]
       createdAt: new Date(),
       managed: conn.managed ?? true,
       roles: conn.roles,
+      ...(conn.writeRoles !== undefined ? { writeRoles: conn.writeRoles } : {}),
       seedId: conn.id,
     }));
 }

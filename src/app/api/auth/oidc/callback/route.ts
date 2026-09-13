@@ -2,7 +2,15 @@ import { getBasePath, withBasePath } from "@/lib/config/base-path";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { login } from "@/lib/auth";
-import { getOIDCConfig, discoverProvider, exchangeCode, decryptState, mapOIDCRole, getPublicOrigin } from "@/lib/oidc";
+import {
+  getOIDCConfig,
+  discoverProvider,
+  exchangeCode,
+  decryptState,
+  mapOIDCRole,
+  mapOIDCGroups,
+  getPublicOrigin,
+} from "@/lib/oidc";
 import { logger } from "@/lib/logger";
 import { clientAddress } from "@/lib/api/client-address";
 import { emitAuditEvent, type AuditReason } from "@/lib/audit";
@@ -84,7 +92,7 @@ export async function GET(request: Request) {
 
     // Create local JWT session (same as password login)
     const username = claims.email || claims.preferred_username || claims.sub || role;
-    await login(role, username);
+    await login(role, username, mapOIDCGroups(claims as Record<string, unknown>, oidcConfig.groupsClaim));
 
     // Clean up state cookie
     cookieStore.delete({ name: "oidc-state", path: getBasePath() || "/" });

@@ -66,6 +66,8 @@ const FIELD_OWNERSHIP: Record<keyof DatabaseConnection, FieldOwnership> = {
   skipObjectScan: "edited",
   group: "preserved",
   managed: "preserved",
+  // Decided by the server per session; the form neither shows nor sends it.
+  readOnly: "preserved",
   seedId: "preserved",
   agentUser: "preserved",
   agentPassword: "preserved",

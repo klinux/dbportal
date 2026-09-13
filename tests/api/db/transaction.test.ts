@@ -141,6 +141,24 @@ describe("POST /api/db/transaction", () => {
     }));
   });
 
+  // docs/CONTEXT.md §4.4: the datasource's write rule, enforced before anything reaches the
+  // engine. `writeRoles: []` is read-only for everyone, this admin session included.
+  // The envelope (begin, commit, rollback) is not a write; the statement inside it is judged.
+  test("a read-only datasource opens a transaction but refuses a writing statement in it", async () => {
+    const readOnly = { ...validConnection, roles: ["*"], writeRoles: [] };
+    const step = (body: Record<string, unknown>) =>
+      POST(
+        createMockRequest("/api/db/transaction", { method: "POST", body: { connection: readOnly, ...body } }) as never,
+      );
+
+    expect((await step({ action: "begin" })).status).toBe(200);
+    expect((mockGetOrCreateProvider.mock.calls[0] as unknown[])[1]).toMatchObject({ readOnly: true });
+    expect((await step({ action: "query", sql: "SELECT 1" })).status).toBe(200);
+    expect((await step({ action: "query", sql: "UPDATE users SET name = 'x'" })).status).toBe(403);
+    expect(mockTxProvider.queryInTransaction).toHaveBeenCalledTimes(1);
+    expect((await step({ action: "rollback" })).status).toBe(200);
+  });
+
   test("returns 401 when no session exists", async () => {
     mockGetSession.mockResolvedValueOnce(null);
 

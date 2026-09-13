@@ -1604,6 +1604,10 @@ export class PostgresProvider extends SQLBaseProvider {
       ssl: sslConfig,
       // The person behind the shared role, for pg_stat_activity and pgAudit (§4.3).
       ...(this.options.applicationName ? { application_name: this.options.applicationName } : {}),
+      // The engine's own read-only enforcement for a session the datasource rule denies
+      // writes to (§4.4): every transaction on this pool starts read-only, so a SELECT
+      // that calls a writing function is refused by PostgreSQL, not by a classifier.
+      ...(this.options.readOnly ? { options: "-c default_transaction_read_only=on" } : {}),
     };
 
     if (this.config.connectionString) {

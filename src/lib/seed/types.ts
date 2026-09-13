@@ -18,8 +18,12 @@ const SSLConfigSchema = z
 
 const ConnectionEnvironmentSchema = z.enum(["production", "staging", "development", "local", "other"]);
 
-// Allowed roles in current iteration (matches JWT role: 'admin' | 'user' + wildcard)
-const AllowedRoleSchema = z.enum(["*", "admin", "user"]);
+// A principal (docs/CONTEXT.md §4.4): the wildcard, a portal role, or `group:<name>` for a
+// group the identity provider puts in the token. Not an enum any more, because group
+// names are the operator's, not this product's.
+const AllowedRoleSchema = z
+  .string()
+  .regex(/^(\*|admin|user|group:[\x21-\x7e]{1,64})$/, "Must be *, admin, user or group:<name>");
 
 // Kept in step with DatabaseType in src/lib/types.ts BY HAND: a zod enum is a value,
 // so a type-id missing here is not a compile error - it is a seed file the server
@@ -71,6 +75,9 @@ export const SeedConnectionSchema = z.object({
     .regex(/^#[0-9A-Fa-f]{6}$/)
     .optional(),
   roles: z.array(AllowedRoleSchema).min(1, "At least one role is required"),
+  // Who may WRITE (docs/CONTEXT.md §4.4). Absent: everyone who can open. Empty: nobody -
+  // the datasource is read-only for every session, administrators included.
+  writeRoles: z.array(AllowedRoleSchema).optional(),
   managed: z.boolean().optional(),
   ssl: SSLConfigSchema,
   serviceName: z.string().optional(),
@@ -111,5 +118,6 @@ export type SeedConfig = z.infer<typeof SeedConfigSchema>;
 export interface ManagedConnection extends DatabaseConnection {
   managed: boolean;
   roles: string[];
+  writeRoles?: string[];
   seedId: string;
 }

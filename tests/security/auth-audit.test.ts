@@ -32,7 +32,7 @@ const mockExchangeCode = mock(
   async () => ({ email: "user@example.com", sub: "user-123" }) as Record<string, unknown> | null,
 );
 const mockDiscoverProvider = mock(async () => "mock-config");
-const mockGetOIDCConfig = mock(() => ({ roleClaim: "roles", adminRoles: ["admin"] }));
+const mockGetOIDCConfig = mock(() => ({ roleClaim: "roles", groupsClaim: "groups", adminRoles: ["admin"] }));
 
 mock.module("@/lib/oidc", () => ({
   getOIDCConfig: mockGetOIDCConfig,
@@ -42,6 +42,7 @@ mock.module("@/lib/oidc", () => ({
   decryptState: mockDecryptState,
   exchangeCode: mockExchangeCode,
   mapOIDCRole: mock(() => "user" as "admin" | "user"),
+  mapOIDCGroups: mock(() => [] as string[]),
   resetDiscoveryCache: mock(() => {}),
   buildLogoutUrl: mock(async () => null as string | null),
   getPublicOrigin: mock((req: Request) => new URL(req.url).origin),

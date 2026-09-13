@@ -113,6 +113,24 @@ describe("POST /api/db/query", () => {
     );
   });
 
+  // docs/CONTEXT.md §4.4: the datasource's write rule, enforced before anything reaches the
+  // engine. `writeRoles: []` is read-only for everyone, this admin session included.
+  test("a read-only datasource runs reads on a read-only pool and refuses writes, explained or not", async () => {
+    const readOnly = { ...validConnection, roles: ["*"], writeRoles: [] };
+    const post = (body: Record<string, unknown>) =>
+      POST(createMockRequest("/api/db/query", { method: "POST", body }) as never);
+
+    expect((await post({ connection: readOnly, sql: "SELECT * FROM users" })).status).toBe(200);
+    expect((mockGetOrCreateProvider.mock.calls[0] as unknown[])[1]).toMatchObject({ readOnly: true });
+
+    const denied = await post({ connection: readOnly, sql: "UPDATE users SET name = 'x'" });
+    expect(denied.status).toBe(403);
+    expect((await parseResponseJSON<{ error: string }>(denied)).error).toContain("read-only");
+    const explained = await post({ connection: readOnly, sql: "DELETE FROM users", explain: { mode: "analyze" } });
+    expect(explained.status).toBe(403);
+    expect(mockGetOrCreateProvider).toHaveBeenCalledTimes(1);
+  });
+
   test("returns 401 when no session exists", async () => {
     mockGetSession.mockResolvedValueOnce(null);
 

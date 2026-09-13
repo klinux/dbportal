@@ -7,6 +7,7 @@ import { maintenanceControl, type MaintenancePlacement } from "@/lib/db/types";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 import { guardRoute } from "@/lib/api/require-session";
 import { auditRoleDenial } from "@/lib/api/role-denial";
+import { canWrite } from "@/lib/access";
 import { logger } from "@/lib/logger";
 
 export async function POST(request: Request) {
@@ -32,6 +33,18 @@ export async function POST(request: Request) {
 
     if (!type) {
       return NextResponse.json({ error: "Maintenance type is required" }, { status: 400 });
+    }
+
+    // Every maintenance operation writes, so a datasource that is read-only for this
+    // session refuses them all (§4.4) - admin role or not.
+    if (!canWrite(connection, guard.session)) {
+      auditRoleDenial({
+        route: "POST /api/db/maintenance",
+        user: guard.session.username,
+        request,
+        reason: "read_only_datasource",
+      });
+      return NextResponse.json({ error: "This datasource is read-only for you" }, { status: 403 });
     }
 
     const provider = await getOrCreateProvider(connection, {

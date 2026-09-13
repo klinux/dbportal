@@ -28,3 +28,11 @@ connections:
     host: both-pg.internal
     password: "${BOTH_PG_PASS}"
     roles: ["admin", "user"]
+
+  - id: "readonly-everyone"
+    name: "Read-only DB"
+    type: postgres
+    host: ro-pg.internal
+    password: "${SHARED_PG_PASS}"
+    roles: ["*", "group:sre"]
+    writeRoles: ["group:dba"]

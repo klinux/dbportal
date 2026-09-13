@@ -121,6 +121,21 @@ describe("POST /api/db/multi-query", () => {
     }));
   });
 
+  // docs/CONTEXT.md §4.4: the datasource's write rule, enforced before anything reaches the
+  // engine. `writeRoles: []` is read-only for everyone, this admin session included.
+  test("a script that writes anywhere is refused whole on a read-only datasource", async () => {
+    const readOnly = { ...validConnection, roles: ["*"], writeRoles: [] };
+    const post = (sql: string) =>
+      POST(createMockRequest("/api/db/multi-query", { method: "POST", body: { connection: readOnly, sql } }) as never);
+
+    const denied = await post("SELECT 1; SELECT 2; DELETE FROM users");
+    expect(denied.status).toBe(403);
+    expect(mockProvider.query).not.toHaveBeenCalled();
+
+    expect((await post("SELECT 1; SHOW TABLES")).status).toBe(200);
+    expect((mockGetOrCreateProvider.mock.calls[0] as unknown[])[1]).toMatchObject({ readOnly: true });
+  });
+
   test("returns 401 when no session exists", async () => {
     mockGetSession.mockResolvedValueOnce(null);
 

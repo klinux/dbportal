@@ -93,6 +93,20 @@ describe("filterByRoles: engine-specific fields", () => {
 });
 
 describe("filterByRoles", () => {
+  // docs/CONTEXT.md §4.4: a session's group principals open a datasource its role alone
+  // would not, and the write rule rides along to where the routes read it.
+  it("matches group principals and carries writeRoles through", () => {
+    const conns = [
+      { ...baseConn, id: "sre-only", roles: ["group:sre"], writeRoles: ["group:dba"] },
+      { ...baseConn, id: "everyone", roles: ["*"] },
+    ];
+    const asSre = filterByRoles(conns, ["*", "user", "group:sre"]);
+    expect(asSre.map((c) => c.seedId)).toEqual(["sre-only", "everyone"]);
+    expect(asSre[0].writeRoles).toEqual(["group:dba"]);
+    expect(asSre[1]).not.toHaveProperty("writeRoles");
+    expect(filterByRoles(conns, ["*", "user"]).map((c) => c.seedId)).toEqual(["everyone"]);
+  });
+
   it("includes connections with wildcard role", () => {
     const result = filterByRoles([{ ...baseConn, roles: ["*"] }], ["user"]);
     expect(result).toHaveLength(1);

@@ -387,7 +387,9 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/agent/config": `reads the agent runtime's env config and ${PROVIDER_NAMING_HELPER} (@/lib/llm/utils/config) to validate the model id, which resolves config rather than calling a model`,
     "@/lib/agent/model-tuning": "the per-model tuning table; data only",
     "@/lib/agent/runtime": `the run loop, and it ${PROVIDER_NAMING_HELPER} - but the artifacts route imports only readAgentArtifact, which reads the in-process ExecutionArtifactStore`,
-    "@/lib/api/admin-datasources": "the admin gate, body reader and error mapper the datasource routes share; reaches no provider",
+    "@/lib/access": `pure functions over the token and a datasource's access rule, and it ${PROVIDER_NAMING_HELPER} (@/lib/db/utils/query-limiter) only to classify a statement's text; opens nothing`,
+    "@/lib/api/admin-datasources":
+      "the admin gate, body reader and error mapper the datasource routes share; reaches no provider",
     "@/lib/api/agent-run-access": "resolves a run id to its ledger behind guardRoute; reads no provider",
     "@/lib/api/client-address": "parses the forwarded-for chain for the audit record",
     "@/lib/api/errors": `maps a thrown error to a response and ${PROVIDER_NAMING_HELPER} (@/lib/db/errors, @/lib/llm/types) for the error CLASSES alone - nearly every route imports it, and treating it as an entry point would fire on all fifteen`,

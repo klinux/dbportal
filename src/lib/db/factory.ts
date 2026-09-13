@@ -457,15 +457,16 @@ function startIdleSweep(): void {
 export const PER_USER_POOL_MAX = 3;
 
 /** The cache key: the datasource, and the person when the pool is labelled for one. */
-export function providerCacheKey(connectionId: string, applicationName?: string): string {
-  return applicationName ? `${connectionId}::${applicationName}` : connectionId;
+export function providerCacheKey(connectionId: string, applicationName?: string, readOnly?: boolean): string {
+  const labelled = applicationName ? `${connectionId}::${applicationName}` : connectionId;
+  return readOnly ? `${labelled}::ro` : labelled;
 }
 
 export async function getOrCreateProvider(
   connection: DatabaseConnection,
   options: ProviderOptions = {},
 ): Promise<DatabaseProvider> {
-  const cacheKey = providerCacheKey(connection.id, options.applicationName);
+  const cacheKey = providerCacheKey(connection.id, options.applicationName, options.readOnly);
   if (options.applicationName && options.pool?.max === undefined) {
     options = { ...options, pool: { ...options.pool, max: PER_USER_POOL_MAX } };
   }

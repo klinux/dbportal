@@ -220,6 +220,8 @@ export interface DatabaseConnection {
    */
   skipObjectScan?: boolean;
   managed?: boolean; // true = admin-controlled, read-only in UI
+  /** This session may open the datasource but not write to it (docs/CONTEXT.md §4.4). Server-decided; the badge in the list. */
+  readOnly?: boolean;
   seedId?: string; // stable reference to seed config ID
   agentUser?: string; // optional least-privilege role for the agent read-only execution profile (#328)
   agentPassword?: string; // password for agentUser; secret-classified, sealed at rest by connection-secrets

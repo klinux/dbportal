@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -46,6 +47,43 @@ import { toast } from "sonner";
 type Role = "admin" | "user";
 const ROLE_LABELS: Record<Role, string> = { admin: "Administrators", user: "Users" };
 
+/**
+ * Who may WRITE, as the editor offers it (docs/CONTEXT.md §4.4): everyone who can open
+ * (no `writeRoles`), administrators only, or nobody. A rule the API or the seed file wrote
+ * in another shape is shown as "custom" and kept as it is on save.
+ */
+type WriteMode = "open" | "admin" | "none" | "custom";
+const WRITE_MODE_LABELS: Record<WriteMode, string> = {
+  open: "Everyone who can open it",
+  admin: "Administrators only",
+  none: "Nobody - read-only datasource",
+  custom: "Custom rule (kept as declared)",
+};
+
+export function writeModeOf(writeRoles: string[] | undefined): WriteMode {
+  if (writeRoles === undefined) return "open";
+  if (writeRoles.length === 0) return "none";
+  if (writeRoles.length === 1 && writeRoles[0] === "admin") return "admin";
+  return "custom";
+}
+
+/** The `group:<name>` principals of a rule, as the names the operator typed. */
+export function groupNamesOf(rule: readonly string[]): string[] {
+  return rule.filter((r) => r.startsWith("group:")).map((r) => r.slice("group:".length));
+}
+
+/** Comma- or space-separated group names, as principals; empty and duplicate names dropped. */
+export function parseGroupNames(input: string): string[] {
+  return [
+    ...new Set(
+      input
+        .split(/[\s,]+/)
+        .map((g) => g.trim())
+        .filter(Boolean),
+    ),
+  ].map((g) => `group:${g}`);
+}
+
 const ENVIRONMENT_ORDER: ConnectionEnvironment[] = ["production", "staging", "development", "local", "other"];
 const ENVIRONMENT_TITLES: Record<ConnectionEnvironment, string> = {
   production: "Production",
@@ -68,6 +106,7 @@ interface StoreRow {
   group?: string;
   color?: string;
   roles: string[];
+  writeRoles?: string[];
   ssl?: DatabaseConnection["ssl"];
   serviceName?: string;
   instanceName?: string;
@@ -90,6 +129,7 @@ interface ConfigRow {
   environment?: ConnectionEnvironment;
   group?: string;
   roles: string[];
+  writeRoles?: string[];
 }
 
 type Row = StoreRow | ConfigRow;
@@ -112,7 +152,12 @@ export function slugifyDatasourceId(name: string): string {
 }
 
 /** What the API stores, from what the modal built: the connection fields the seed schema knows. */
-export function toDatasourcePayload(conn: DatabaseConnection, id: string, roles: Role[]) {
+export function toDatasourcePayload(
+  conn: DatabaseConnection,
+  id: string,
+  roles: string[],
+  writeRoles: string[] | undefined,
+) {
   return {
     id,
     name: conn.name,
@@ -132,6 +177,7 @@ export function toDatasourcePayload(conn: DatabaseConnection, id: string, roles:
     schema: conn.schema,
     skipObjectScan: conn.skipObjectScan,
     roles,
+    ...(writeRoles !== undefined ? { writeRoles } : {}),
   };
 }
 
@@ -195,6 +241,8 @@ export function DatasourcesTab() {
   const [editing, setEditing] = useState<StoreRow | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [roles, setRoles] = useState<Role[]>(["admin", "user"]);
+  const [groupsInput, setGroupsInput] = useState("");
+  const [writeMode, setWriteMode] = useState<WriteMode>("open");
   const [pendingDelete, setPendingDelete] = useState<StoreRow | null>(null);
 
   const applyListing = useCallback((body: ListResponse) => {
@@ -242,12 +290,16 @@ export function DatasourcesTab() {
   const openCreate = () => {
     setEditing(null);
     setRoles(["admin", "user"]);
+    setGroupsInput("");
+    setWriteMode("open");
     setModalOpen(true);
   };
 
   const openEdit = (row: StoreRow) => {
     setEditing(row);
     setRoles(rolesOf(row));
+    setGroupsInput(groupNamesOf(row.roles).join(", "));
+    setWriteMode(writeModeOf(row.writeRoles));
     setModalOpen(true);
   };
 
@@ -265,16 +317,25 @@ export function DatasourcesTab() {
    * of the id, so both are added here; the id of a new datasource is derived from its name.
    */
   const save = async (conn: DatabaseConnection) => {
-    if (roles.length === 0) {
-      toast.error("Choose at least one role that may open this datasource.");
+    const openRule: string[] = [...roles, ...parseGroupNames(groupsInput)];
+    if (openRule.length === 0) {
+      toast.error("Choose at least one role or group that may open this datasource.");
       return;
     }
+    const writeRule: string[] | undefined =
+      writeMode === "open"
+        ? undefined
+        : writeMode === "admin"
+          ? ["admin"]
+          : writeMode === "none"
+            ? []
+            : editing?.writeRoles;
     const id = editing ? editing.id : slugifyDatasourceId(conn.name);
     if (!id) {
       toast.error("The name must contain at least one letter or digit.");
       return;
     }
-    const payload = toDatasourcePayload(conn, id, roles);
+    const payload = toDatasourcePayload(conn, id, openRule, writeRule);
     try {
       const res = await appFetch(
         editing ? `/api/admin/datasources/${encodeURIComponent(id)}` : "/api/admin/datasources",
@@ -328,6 +389,37 @@ export function DatasourcesTab() {
             {ROLE_LABELS[role]}
           </Label>
         ))}
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="datasource-groups" className="text-xs text-fg-tertiary">
+          Groups from the identity provider (comma-separated) that may also open it
+        </Label>
+        <Input
+          id="datasource-groups"
+          value={groupsInput}
+          onChange={(e) => setGroupsInput(e.target.value)}
+          placeholder="sre, data-platform"
+          className="h-8 text-xs bg-panel border-hairline-strong"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="datasource-write-mode" className="text-xs text-fg-tertiary">
+          Who may write
+        </Label>
+        <select
+          id="datasource-write-mode"
+          value={writeMode}
+          onChange={(e) => setWriteMode(e.target.value as WriteMode)}
+          className="h-8 w-full rounded-md border border-hairline-strong bg-panel px-2 text-xs text-fg-secondary"
+        >
+          {(Object.keys(WRITE_MODE_LABELS) as WriteMode[])
+            .filter((mode) => mode !== "custom" || writeMode === "custom")
+            .map((mode) => (
+              <option key={mode} value={mode}>
+                {WRITE_MODE_LABELS[mode]}
+              </option>
+            ))}
+        </select>
       </div>
       <p className="text-xs text-fg-muted leading-relaxed" data-testid="datasource-secret-note">
         {secretNote}
@@ -431,6 +523,20 @@ export function DatasourcesTab() {
                                 {ROLE_LABELS[role]}
                               </Badge>
                             ))}
+                            {groupNamesOf(row.roles).map((group) => (
+                              <Badge key={`group:${group}`} variant="outline" className="text-[10px] font-mono">
+                                {group}
+                              </Badge>
+                            ))}
+                            {row.writeRoles !== undefined && (
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px]"
+                                title={row.writeRoles.join(", ") || "nobody"}
+                              >
+                                {writeModeOf(row.writeRoles) === "none" ? "read-only" : "writes restricted"}
+                              </Badge>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-xs">

@@ -741,6 +741,18 @@ describe("PostgresProvider", () => {
       expect(lastPoolConfig).not.toHaveProperty("application_name");
     });
 
+    // docs/CONTEXT.md §4.4: the engine's own read-only enforcement for a session the rule
+    // denies writes to, and nothing of the kind otherwise.
+    test("opens a read-only pool with default_transaction_read_only, and only then", async () => {
+      provider = new PostgresProvider(makePgConfig(), { readOnly: true });
+      await provider.connect();
+      expect(lastPoolConfig.options).toBe("-c default_transaction_read_only=on");
+      await provider.disconnect();
+      provider = new PostgresProvider(makePgConfig());
+      await provider.connect();
+      expect(lastPoolConfig).not.toHaveProperty("options");
+    });
+
     test("ssl mode verify-ca sets rejectUnauthorized to true", async () => {
       provider = new PostgresProvider(
         makePgConfig({

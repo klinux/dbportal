@@ -71,6 +71,25 @@ describe("GET /api/connections/managed", () => {
     }
   });
 
+  // docs/CONTEXT.md §4.4: the list says, per session, which datasources are read-only, and
+  // a group in the token changes the answer.
+  it("reports readOnly per session, honouring the token's groups", async () => {
+    const byId = (rows: Array<{ seedId: string; readOnly: boolean }>) =>
+      Object.fromEntries(rows.map((r) => [r.seedId, r.readOnly]));
+    (getSession as ReturnType<typeof mock>).mockImplementation(() => ({ role: "user", username: "bob" }));
+    let data = await (await GET()).json();
+    expect(byId(data.connections)["readonly-everyone"]).toBe(true);
+    expect(byId(data.connections).everyone).toBe(false);
+
+    (getSession as ReturnType<typeof mock>).mockImplementation(() => ({
+      role: "user",
+      username: "bob",
+      groups: ["dba"],
+    }));
+    data = await (await GET()).json();
+    expect(byId(data.connections)["readonly-everyone"]).toBe(false);
+  });
+
   it("returns 401 when no session", async () => {
     (getSession as ReturnType<typeof mock>).mockImplementation(() => null);
     const res = await GET();

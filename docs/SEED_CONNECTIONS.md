@@ -248,6 +248,41 @@ User sees only connections where roles includes "user" or "*"
 
 ---
 
+## Who May Open, Who May Write
+
+Two lists on every datasource, one vocabulary (docs/CONTEXT.md §4.4):
+
+- `roles` — who may **open** it. Each entry is a principal: `*` (everyone signed in),
+  `admin`, `user`, or `group:<name>` for a group the identity provider puts in the token
+  (`OIDC_GROUPS_CLAIM`, default `groups`; local accounts have no groups).
+- `writeRoles` — who may **write**. Absent: everyone who can open it. `[]`: nobody, the
+  datasource is read-only for every session, administrators included (the portal's admin
+  role is about the portal, not the database). Otherwise the same vocabulary.
+
+```yaml
+  - id: "prod-orders"
+    name: "Orders (production)"
+    type: postgres
+    host: orders.internal
+    password: "${ORDERS_PASS}"
+    roles: ["group:sre", "group:support"]
+    writeRoles: ["group:sre"]
+```
+
+A session that may not write sees the datasource with a read-only badge and may run only
+statements that read: `SELECT` (and a read-only `WITH`), `SHOW`, `DESCRIBE`, and an
+`EXPLAIN` of one of those — `EXPLAIN ANALYZE UPDATE …` runs the update and is refused.
+Anything else is refused with a 403 and an audited `permission_denied` /
+`read_only_datasource`. The whole of a multi-statement script is judged before any of it
+runs, and every maintenance operation counts as a write. On an engine whose statements are
+not SQL text (MongoDB, Redis, the search engines) a read-only rule refuses every
+execution: a rule that cannot be enforced is not reported as enforced.
+
+This is a policy gate on the statement's text. Where the engine can enforce read-only
+itself, the session's pool is opened that way too — PostgreSQL gets
+`default_transaction_read_only=on`, so a `SELECT` that calls a writing function is refused
+by the database, not by the classifier.
+
 ## Every Connection Is Managed
 
 Every datasource — seed file, runtime store, built-in sample — is opened by its seed id and

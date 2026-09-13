@@ -168,6 +168,24 @@ describe("resolve-connection", () => {
     }
   });
 
+  // docs/CONTEXT.md §4.4: a group in the token opens what the role alone would not, and
+  // the resolved datasource carries its write rule for the routes to enforce.
+  it("resolves by group principal and carries writeRoles", async () => {
+    const asUser = await resolveConnection({ connectionId: "seed:readonly-everyone" }, { role: "user", username: "t" });
+    expect(asUser.writeRoles).toEqual(["group:dba"]);
+    const asSre = await resolveConnection(
+      { connectionId: "seed:readonly-everyone" },
+      { role: "user", username: "t", groups: ["sre"] },
+    );
+    expect(asSre.id).toBe("seed:readonly-everyone");
+    try {
+      await resolveConnection({ connectionId: "seed:admin-only" }, { role: "user", username: "t", groups: ["sre"] });
+      expect(true).toBe(false);
+    } catch (err) {
+      expect((err as SeedConnectionError).statusCode).toBe(403);
+    }
+  });
+
   it("throws 404 when seed connection does not exist", async () => {
     try {
       await resolveConnection({ connectionId: "seed:nonexistent" }, { role: "admin", username: "test" });

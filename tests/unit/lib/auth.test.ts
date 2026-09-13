@@ -159,6 +159,14 @@ describe("auth", () => {
       expect(mockSetCalls.length).toBe(0);
     });
 
+    // docs/CONTEXT.md §4.4: the token carries the groups, and only when there are any.
+    test("signs the groups into the token, and omits the claim when there are none", async () => {
+      await login("user", "ana", ["sre", "dba"]);
+      expect((await verifyJWT(mockSetCalls[0].value))!.groups).toEqual(["sre", "dba"]);
+      await login("user", "bob");
+      expect((await verifyJWT(mockSetCalls[1].value))!.groups).toBeUndefined();
+    });
+
     test("sets auth-token cookie with user role", async () => {
       await login("user", "user");
       expect(mockSetCalls.length).toBeGreaterThan(0);

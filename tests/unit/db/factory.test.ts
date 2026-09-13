@@ -557,6 +557,8 @@ describe("getOrCreateProvider", () => {
     ]);
     expect(providerCacheKey("c1", "x@dbportal")).toBe("c1::x@dbportal");
     expect(providerCacheKey("c1")).toBe("c1");
+    // docs/CONTEXT.md §4.4: a read-only person's pool is never a writable one.
+    expect(providerCacheKey("c1", "x@dbportal", true)).toBe("c1::x@dbportal::ro");
   });
 
   test("a person's pool is kept small unless the caller sized it", async () => {

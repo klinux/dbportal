@@ -33,9 +33,8 @@ mock.module("@/components/ConnectionModal", () => ({
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { render, waitFor, act, cleanup, fireEvent, within } from "@testing-library/react";
 
-const { DatasourcesTab, slugifyDatasourceId, toDatasourcePayload } = await import(
-  "@/components/admin/tabs/DatasourcesTab"
-);
+const { DatasourcesTab, slugifyDatasourceId, toDatasourcePayload, writeModeOf, groupNamesOf, parseGroupNames } =
+  await import("@/components/admin/tabs/DatasourcesTab");
 
 const storeRow = {
   source: "store",
@@ -178,6 +177,54 @@ describe("DatasourcesTab", () => {
     expect(fetchMock.mock.calls.filter((c) => !(c[1] as RequestInit | undefined)?.method).length).toBe(2);
   });
 
+  // docs/CONTEXT.md §4.4: the group names typed become `group:` principals in `roles`, the
+  // write mode becomes `writeRoles` (nobody = []), and a rule the editor does not offer is
+  // shown as custom, badged on the row, and kept as declared on save.
+  test("groups and the write mode travel as roles and writeRoles; a custom rule is kept", async () => {
+    const custom = {
+      ...storeRow,
+      id: "dba-writes",
+      name: "DBA writes",
+      roles: ["user", "group:dba"],
+      writeRoles: ["group:dba"],
+    };
+    const fetchMock = mockGlobalFetch({ "/api/admin/datasources": listing({ datasources: [storeRow, custom] }) });
+    const { getByText, getByLabelText, getAllByText } = await renderLoaded();
+    expect(getAllByText("dba").length).toBeGreaterThan(0);
+    expect(getByText("writes restricted")).not.toBeNull();
+
+    fireEvent.click(getByText("New datasource"));
+    fireEvent.change(getByLabelText(/Groups from the identity provider/), { target: { value: "sre, data-platform" } });
+    fireEvent.change(getByLabelText("Who may write"), { target: { value: "none" } });
+    await act(async () => {
+      await (capturedModalProps.onConnect as (c: DatabaseConnection) => Promise<void>)(built);
+    });
+    const post = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "POST")!;
+    const posted = JSON.parse((post[1] as RequestInit).body as string);
+    expect(posted.roles).toEqual(["admin", "user", "group:sre", "group:data-platform"]);
+    expect(posted.writeRoles).toEqual([]);
+
+    fireEvent.click(getByLabelText("Edit DBA writes"));
+    expect((getByLabelText(/Groups from the identity provider/) as HTMLInputElement).value).toBe("dba");
+    expect((getByLabelText("Who may write") as HTMLSelectElement).value).toBe("custom");
+    await act(async () => {
+      await (capturedModalProps.onConnect as (c: DatabaseConnection) => Promise<void>)({ ...built, password: "" });
+    });
+    const put = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "PUT")!;
+    const putBody = JSON.parse((put[1] as RequestInit).body as string);
+    expect(putBody.roles).toEqual(["user", "group:dba"]);
+    expect(putBody.writeRoles).toEqual(["group:dba"]);
+
+    // Administrators only: the offered shape the editor writes itself.
+    fireEvent.click(getByLabelText("Edit Orders"));
+    fireEvent.change(getByLabelText("Who may write"), { target: { value: "admin" } });
+    await act(async () => {
+      await (capturedModalProps.onConnect as (c: DatabaseConnection) => Promise<void>)({ ...built, password: "" });
+    });
+    const puts = fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "PUT");
+    expect(JSON.parse((puts[1][1] as RequestInit).body as string).writeRoles).toEqual(["admin"]);
+  });
+
   test("a datasource nobody may open is refused before anything is sent", async () => {
     const fetchMock = mockGlobalFetch({ "/api/admin/datasources": listing() });
     const { getByText, getByLabelText } = await renderLoaded();
@@ -187,7 +234,7 @@ describe("DatasourcesTab", () => {
     await act(async () => {
       await (capturedModalProps.onConnect as (c: DatabaseConnection) => Promise<void>)(built);
     });
-    expect(mockToastError).toHaveBeenCalledWith("Choose at least one role that may open this datasource.");
+    expect(mockToastError).toHaveBeenCalledWith("Choose at least one role or group that may open this datasource.");
     expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === "POST")).toBe(false);
   });
 
@@ -340,11 +387,29 @@ describe("datasource helpers", () => {
   });
 
   test("toDatasourcePayload carries the connection fields the seed schema knows, and nothing else", () => {
-    const payload = toDatasourcePayload({ ...built, color: "#123456", sshTunnel: { enabled: true } as never }, "id-1", [
-      "admin",
-    ]);
+    const payload = toDatasourcePayload(
+      { ...built, color: "#123456", sshTunnel: { enabled: true } as never },
+      "id-1",
+      ["admin"],
+      undefined,
+    );
     expect(payload).toMatchObject({ id: "id-1", roles: ["admin"], name: built.name, password: "${REPORTS_PASS}" });
     expect(payload).not.toHaveProperty("sshTunnel");
     expect(payload).not.toHaveProperty("createdAt");
+    expect(payload).not.toHaveProperty("writeRoles");
+    // docs/CONTEXT.md §4.4: a write rule travels only when the editor set one.
+    expect(toDatasourcePayload(built, "id-2", ["*", "group:sre"], []).writeRoles).toEqual([]);
+  });
+
+  // docs/CONTEXT.md §4.4: the three shapes the editor offers, the shape it only preserves,
+  // and the group names as the operator types them.
+  test("writeModeOf, groupNamesOf and parseGroupNames map between the rule and the editor", () => {
+    expect(writeModeOf(undefined)).toBe("open");
+    expect(writeModeOf([])).toBe("none");
+    expect(writeModeOf(["admin"])).toBe("admin");
+    expect(writeModeOf(["group:dba"])).toBe("custom");
+    expect(groupNamesOf(["*", "group:sre", "admin", "group:dba"])).toEqual(["sre", "dba"]);
+    expect(parseGroupNames(" sre, dba sre,, ")).toEqual(["group:sre", "group:dba"]);
+    expect(parseGroupNames("")).toEqual([]);
   });
 });

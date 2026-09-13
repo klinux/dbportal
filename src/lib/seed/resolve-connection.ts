@@ -1,8 +1,9 @@
 import type { DatabaseConnection } from "@/lib/types";
-import { getSeedConnectionById, getSeedConnectionByIdUnfiltered } from "./index";
+import { getSeedConnectionById, getSeedConnectionByIdUnfiltered, type ManagedConnection } from "./index";
 import { logger } from "@/lib/logger";
 import { auditRoleDenial } from "@/lib/api/role-denial";
 import { resolveEnvPlaceholders } from "./credential-resolver";
+import { principalsOf } from "@/lib/access";
 
 /**
  * What the audit line names as the target of a refused client-supplied connection. There is
@@ -23,8 +24,8 @@ export class SeedConnectionError extends Error {
 
 export async function resolveConnection(
   body: { connection?: DatabaseConnection; connectionId?: string },
-  session: { role: string; username: string },
-): Promise<DatabaseConnection> {
+  session: { role: string; username: string; groups?: string[] },
+): Promise<ManagedConnection> {
   const { connection, connectionId } = body;
 
   if (connection && !connectionId) {
@@ -58,7 +59,7 @@ export async function resolveConnection(
     }
 
     const seedId = connectionId.slice(5);
-    const seedConn = await getSeedConnectionById(seedId, [session.role]);
+    const seedConn = await getSeedConnectionById(seedId, principalsOf(session));
 
     if (!seedConn) {
       const exists = await getSeedConnectionByIdUnfiltered(seedId);

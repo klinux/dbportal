@@ -22,6 +22,8 @@ export type Role = "admin" | "user";
 export interface UserPayload {
   role: Role;
   username: string;
+  /** The identity provider's groups, as `group:<name>` principals resolve them (docs/CONTEXT.md §4.4). */
+  groups?: string[];
 }
 
 export async function signJWT(payload: UserPayload) {
@@ -147,7 +149,7 @@ export async function shouldMarkCookieSecure(): Promise<boolean> {
   }
 }
 
-export async function login(role: Role, username?: string) {
+export async function login(role: Role, username?: string, groups: string[] = []) {
   const subject = username || role;
   // The shared datasource store lives in user_storage under this owner id, and the per-user
   // storage routes read and write whatever row the session names. No account may ever be that
@@ -155,7 +157,7 @@ export async function login(role: Role, username?: string) {
   if (subject === SHARED_DATASOURCES_OWNER) {
     throw new Error("This account name is reserved");
   }
-  const token = await signJWT({ role, username: subject });
+  const token = await signJWT({ role, username: subject, ...(groups.length > 0 ? { groups } : {}) });
   const cookieStore = await cookies();
   cookieStore.set("auth-token", token, {
     httpOnly: true,

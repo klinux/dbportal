@@ -49,6 +49,8 @@ export const CONNECTION_FIELDS: Record<keyof DatabaseConnection, FieldClass> = {
   skipObjectScan: "public",
   managed: "public",
   seedId: "public",
+  // A statement about this session's access, decided by the server; nothing secret in it.
+  readOnly: "public",
   agentUser: "public",
   agentPassword: "secret",
 };

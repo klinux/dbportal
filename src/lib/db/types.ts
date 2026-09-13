@@ -818,6 +818,13 @@ export interface ProviderOptions {
    * so the engine's own session views name the person behind the shared role.
    */
   applicationName?: string;
+  /**
+   * Open the pool under the engine's own read-only enforcement, where it has one
+   * (PostgreSQL: `default_transaction_read_only`). Decided by the server from the
+   * datasource's access rule and the session (docs/CONTEXT.md §4.4) - never from a request
+   * body - and part of the cache key, so a read-only person's pool is never a writable one.
+   */
+  readOnly?: boolean;
   /** Query timeout in milliseconds */
   queryTimeout?: number;
   /** Enable SSL/TLS connection */

@@ -148,7 +148,31 @@ the shared role — a second audit trail the database keeps itself. A side effec
 knowing: a transaction opened by one person no longer shares its pool with another's.
 `removeProvider(connectionId)` closes the shared pool and every person's pool for it.
 
-### 4.4 Real RBAC → 4.5 Ephemeral credentials (Vault) → 4.6 Approval flow → 4.7 Server-side masking
+### 4.4 Access rules: groups, and who may write — done
+
+Deliberately two lists and one vocabulary, nothing more ([`src/lib/access.ts`](../src/lib/access.ts)):
+
+- A session's **principals**: `*`, its role, and `group:<name>` for each group the identity
+  provider put in the token (`OIDC_GROUPS_CLAIM`, default `groups`; bounded to 50 × 64
+  chars before signing; local accounts have none). Carried in the JWT, so no store is
+  consulted per request.
+- A datasource's `roles` (who may open — the list the YAML always had, now accepting
+  `group:<name>`) and `writeRoles` (who may write; absent = everyone who can open, `[]` =
+  nobody, administrators included).
+- Enforcement, server-side, before the provider: `assertWriteAllowed`
+  ([`src/lib/api/write-gate.ts`](../src/lib/api/write-gate.ts)) in `query`, `multi-query`
+  (whole script judged first), `transaction` (the statement, not the envelope) and
+  `maintenance` (every operation writes). A read is SELECT / read-only WITH / SHOW /
+  DESCRIBE / EXPLAIN-of-a-read; an engine without SQL text is refused entirely under a
+  read-only rule. Refusal: 403 + audited `permission_denied` / `read_only_datasource`.
+- Defense in depth where the engine has it: a read-only session's pool is opened with
+  `default_transaction_read_only=on` on PostgreSQL (cache key `::ro`), so a SELECT calling
+  a writing function is refused by the database. Other engines rely on the gate.
+- UI: `GET /api/connections/managed` reports `readOnly` per session (the sidebar badge);
+  the datasource editor takes group names and a write mode (everyone / admins / nobody;
+  a custom rule from the API or YAML is shown and kept).
+
+### 4.5 Ephemeral credentials (Vault) → 4.6 Approval flow → 4.7 Server-side masking
 
 Design notes for these live in [DESIGN.md](DESIGN.md) §"State Management" and
 §"Interactions" (write window, awaiting-approval state, masked columns, audit rail).

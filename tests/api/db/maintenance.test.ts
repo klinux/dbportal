@@ -148,6 +148,23 @@ describe("POST /api/db/maintenance", () => {
     }));
   });
 
+  // docs/CONTEXT.md §4.4: the datasource's write rule, enforced before anything reaches the
+  // engine. `writeRoles: []` is read-only for everyone, this admin session included.
+  test("every maintenance operation is refused on a read-only datasource, with an audited reason", async () => {
+    const req = createMockRequest("/api/db/maintenance", {
+      method: "POST",
+      body: { type: "vacuum", target: "users", connection: { ...validConnection, roles: ["*"], writeRoles: [] } },
+    });
+    const res = await POST(req as never);
+    expect(res.status).toBe(403);
+    expect((await parseResponseJSON<{ error: string }>(res)).error).toContain("read-only");
+    expect(mockGetOrCreateProvider).not.toHaveBeenCalled();
+    const denial = (mockAuditPush.mock.calls as unknown[][])
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((e) => e.type === "permission_denied");
+    expect(denial).toMatchObject({ reason: "read_only_datasource", target: "POST /api/db/maintenance" });
+  });
+
   test("admin with valid params returns maintenance result", async () => {
     const req = createMockRequest("/api/db/maintenance", {
       method: "POST",

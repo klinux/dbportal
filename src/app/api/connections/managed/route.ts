@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { getManagedConnections, getPendingSeeds } from "@/lib/seed";
+import { canWrite, principalsOf } from "@/lib/access";
 import { logger } from "@/lib/logger";
 import { SEED_CONFIG_UNREADABLE_REASON } from "@/hooks/use-connection-payload";
 
@@ -20,7 +21,7 @@ export async function GET() {
     // itself. The outer catch keeps its unattributed 500 for everything else.
     let connections;
     try {
-      connections = await getManagedConnections([session.role]);
+      connections = await getManagedConnections(principalsOf(session));
     } catch (error) {
       logger.error("Failed to load the seed configuration", error, {
         route: "GET /api/connections/managed",
@@ -33,9 +34,12 @@ export async function GET() {
 
     // Every datasource is managed now (docs/CONTEXT.md §4.1): the browser opens each one by
     // its seed id and never holds a credential, so the secret fields are dropped from all.
-    const sanitized = connections.map((conn) =>
-      Object.fromEntries(Object.entries(conn).filter(([key]) => key !== "password" && key !== "connectionString")),
-    );
+    // `readOnly` is decided here, per session, so the sidebar can say it without the browser
+    // learning the matrix; the server enforces it on every execution regardless.
+    const sanitized = connections.map((conn) => ({
+      ...Object.fromEntries(Object.entries(conn).filter(([key]) => key !== "password" && key !== "connectionString")),
+      readOnly: !canWrite(conn, session),
+    }));
 
     const rawTTL = Number(process.env.SEED_CACHE_TTL_MS);
     const cacheTTL = Number.isFinite(rawTTL) ? rawTTL : 60_000;

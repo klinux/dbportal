@@ -1,4 +1,5 @@
 import * as client from "openid-client";
+import { normalizeGroups } from "@/lib/access";
 import { SignJWT, jwtVerify } from "jose";
 import { logger } from "@/lib/logger";
 import { getJwtSecret } from "@/lib/config/auth-env";
@@ -12,6 +13,7 @@ export interface OIDCConfig {
   clientSecret: string;
   scope: string;
   roleClaim: string;
+  groupsClaim: string;
   adminRoles: string[];
 }
 
@@ -50,6 +52,7 @@ export function getOIDCConfig(): OIDCConfig {
     clientSecret,
     scope: process.env.OIDC_SCOPE || "openid profile email",
     roleClaim: process.env.OIDC_ROLE_CLAIM || "",
+    groupsClaim: process.env.OIDC_GROUPS_CLAIM || "groups",
     adminRoles: (process.env.OIDC_ADMIN_ROLES || "admin")
       .split(",")
       .map((r) => r.trim())
@@ -181,6 +184,21 @@ export function mapOIDCRole(
   const isAdmin = values.some((v) => adminRoles.some((ar) => v.toLowerCase() === ar.toLowerCase()));
 
   return isAdmin ? "admin" : "user";
+}
+
+/**
+ * The groups a token carries (docs/CONTEXT.md §4.4), read from the configured claim path
+ * with the same dot-notation `mapOIDCRole` uses. A missing claim is no groups; anything
+ * that is not a string is dropped; the result is bounded (see `normalizeGroups`).
+ */
+export function mapOIDCGroups(claims: Record<string, unknown>, groupsClaim: string): string[] {
+  if (!groupsClaim) return [];
+  let value: unknown = claims;
+  for (const part of groupsClaim.split(".")) {
+    if (value == null || typeof value !== "object") return [];
+    value = (value as Record<string, unknown>)[part];
+  }
+  return normalizeGroups(value);
 }
 
 // ─── State Cookie Encryption ───────────────────────────────────────────────

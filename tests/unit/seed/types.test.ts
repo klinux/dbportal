@@ -271,3 +271,16 @@ describe("SeedConnectionSchema: Trino's schema", () => {
     expect(result.success).toBe(false);
   });
 });
+
+// docs/CONTEXT.md §4.4: a principal may name a group, and a datasource may say who writes.
+describe("SeedConnectionSchema: access rules", () => {
+  const base = { id: "ro", name: "Read-only", type: "postgres" };
+  it("accepts group principals and a writeRoles list, and rejects a malformed rule", () => {
+    const parsed = SeedConnectionSchema.parse({ ...base, roles: ["*", "group:sre"], writeRoles: [] });
+    expect(parsed.roles).toEqual(["*", "group:sre"]);
+    expect(parsed.writeRoles).toEqual([]);
+    expect(SeedConnectionSchema.parse({ ...base, roles: ["admin"] }).writeRoles).toBeUndefined();
+    expect(SeedConnectionSchema.safeParse({ ...base, roles: ["group:"] }).success).toBe(false);
+    expect(SeedConnectionSchema.safeParse({ ...base, roles: ["*"], writeRoles: ["dba"] }).success).toBe(false);
+  });
+});
