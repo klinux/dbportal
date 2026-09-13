@@ -1144,7 +1144,7 @@ altogether:
 `runMaintenance(type)` ([`search/index.ts`](../../src/lib/db/providers/sql/search/index.ts)) exists because
 the `DatabaseProvider` interface obliges every provider to implement it, and **not** because a request
 reaches it: `/api/db/maintenance` checks `supportsMaintenance` and answers 400 first. So the message
-below is what a *programmatic* caller of `@libredb/studio` sees:
+below is what a *programmatic* caller of the provider class sees:
 
 > OpenSearch has no SQL-reachable maintenance operation, so "\<type\>" cannot run here. Refreshing,
 > merging segments and clearing caches are index APIs on the cluster rather than statements, and a

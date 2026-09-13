@@ -3,8 +3,8 @@
 > Status: IMPLEMENTED (PR #98, phased; each phase green through CI before the next). A per-tool adoption
 > record for five tools, ported from the researched-then-adversarially-verified decision record in
 > `libredb-database/docs/TOOLCHAIN.md` and adapted to dbportal's reality: a Next.js 16 + React 19 + TSX
-> application that ALSO ships as the dual-format npm package `@libredb/studio` (consumed by
-> `libredb-platform`). The database record is the rationale source of truth; this document records only what
+> application. (Upstream also shipped it as an npm package; that build was removed in the snapshot,
+> so the library-packaging notes below are history.) The database record is the rationale source of truth; this document records only what
 > changes for dbportal and why. Deviations surfaced during implementation are marked "as implemented".
 
 ## Scope
@@ -201,7 +201,7 @@ invalid computed values — grounds fall to transparent, hairlines to `currentCo
 own file for that reason:
 
 ```ts
-import "@libredb/studio/styles.css"; // required once, before any studio component renders
+import "@/styles/theme.css"; // the tokens, imported once by the app's global stylesheet
 ```
 
 `build:lib` is `tsup && node scripts/copy-theme.mjs`, and the order is load-bearing: tsup runs with

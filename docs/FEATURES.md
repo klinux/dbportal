@@ -95,8 +95,7 @@
 *   **Containerization Ready:** Optimized Dockerfile using multi-stage Bun builds for minimal image size.
 *   **Kubernetes Support:** Pre-configured `standalone` Next.js mode plus an official Helm chart for production orchestration.
 *   **Local Development Pro:** Integrated `docker-compose` setup for consistent environment across the entire team.
-*   **Multi-Channel Distribution:** Beyond Docker/Helm, install via `npx @libredb/studio`, the Homebrew tap, `.deb`/`.rpm` packages (systemd service), or Snap — all backed by the same standalone server payload. See [`docs/DISTRIBUTION.md`](DISTRIBUTION.md).
-*   **Zero-Config First Run:** Missing `JWT_SECRET`/`ADMIN_PASSWORD` are generated at boot and printed once; native channels bind to `127.0.0.1` by default, while Docker/Helm resolve their own address at startup and prefer a dual-stack `::`. Set `AUTH_BOOTSTRAP=off` for strict production mode requiring explicit secrets.
+*   **Zero-Config First Run:** Missing `JWT_SECRET`/`ADMIN_PASSWORD` are generated at boot and printed once; Docker/Helm resolve their own bind address at startup and prefer a dual-stack `::`. Set `AUTH_BOOTSTRAP=off` for strict production mode requiring explicit secrets.
 
 ### 12. Advanced Query History (DBA-Level)
 *   **Full Audit Trail:** Searchable history of every query executed, including SQL content, success status, and error details.
@@ -141,7 +140,7 @@
 *   **Counts, never values:** the Assess workflow's table profiling composes aggregates only — row counts, present counts, distinct counts, and shape matches computed inside the database. There is deliberately no `min`/`max`, because on a text column those return real values.
 *   **Bounded and visible:** 18 to 45 statements, 80 to 180 s of database time, 200 rows per read, a 6 to 15 minute run deadline and 3 repair attempts, each ceiling set per workflow — with the meter on screen, and stated as a floor rather than an exact spend.
 *   **A verdict beside the status:** a run that ended `succeeded` may still have answered nothing, so the rail says "Run answered" or "Run did not answer" and names what was missing.
-*   **Your own model, standalone only:** Gemini, OpenAI, Ollama or any OpenAI-compatible endpoint through the existing `LLM_*` settings; the embedded `@libredb/studio` package carries no agent surface. See [Agent Guide](AGENT_GUIDE.md), [Agent Data Flow](AGENT_DATA_FLOW.md) and [Agent Runtime](AGENT.md).
+*   **Your own model:** Gemini, OpenAI, Ollama or any OpenAI-compatible endpoint through the existing `LLM_*` settings. See [Agent Guide](AGENT_GUIDE.md), [Agent Data Flow](AGENT_DATA_FLOW.md) and [Agent Runtime](AGENT.md).
 
 ## Roadmap
 

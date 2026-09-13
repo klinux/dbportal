@@ -1455,7 +1455,7 @@ request reaches it: `/api/db/maintenance`
 ([route.ts](../../src/app/api/db/maintenance/route.ts)) checks `supportsMaintenance` and returns
 `{ "error": "Maintenance operations not supported for this database" }` with status 400 before it
 would ever call the provider. So the message below is what a *programmatic* caller of the
-`@libredb/studio` package sees, not what the HTTP API returns — `docs/API_DOCS.md` documents the
+provider class sees, not what the HTTP API returns — `docs/API_DOCS.md` documents the
 route's own wording. It throws a `QueryError` naming the reason:
 
 > Druid has no SQL-reachable maintenance operation, so "\<type\>" cannot run here. Compaction and

@@ -56,26 +56,29 @@ aims to be the one thing you deploy that does both for the browser use case.
 - SSL/TLS and SSH tunnels for every networked engine.
 - Helm chart, Docker image, `docker compose`.
 
-## What dbportal adds (roadmap)
+## What dbportal adds
 
-In order of priority:
+Each of these is in place; [docs/CONTEXT.md](docs/CONTEXT.md) §4 records the
+design and what was deliberately left out of each.
 
-1. **Datasources are created by admins only, and shared.** Nobody else can add a
-   connection: the server is the only source of truth for what can be reached,
-   and the request path that accepts a client-supplied connection is closed.
-2. **Server-side audit of every execution** — user, datasource, SQL, duration,
-   outcome — emitted as structured log lines and persisted in a store the user
-   cannot clear. Today the query history is client-side and per user; that is
-   not an audit trail.
-3. **`application_name` per user** on database sessions, so the database's own
-   logs (pgAudit, `pg_stat_activity`) show the person, not the shared role.
-4. **Real RBAC** — groups from the identity provider mapped to a permission
-   matrix per datasource (read / write / admin), replacing the two-role model.
-5. **Ephemeral credentials** — per-user, per-session database credentials
-   issued by HashiCorp Vault's database secrets engine.
-6. **Approval flow** for destructive statements against datasources marked as
-   production.
-7. **Server-side data masking** for datasources marked as sensitive.
+1. **Datasources are created by admins only, and shared.** Declared in a YAML
+   file or in the admin page, stored server-side; the request path that
+   accepted a client-supplied connection is closed.
+2. **Server-side audit of every execution** — person, datasource, duration,
+   outcome (and the statement under `AUDIT_INCLUDE_SQL`) — as structured log
+   lines and in an append-only `audit_events` table the user cannot clear.
+3. **`application_name` per person** on database sessions, so the database's
+   own logs (pgAudit, `pg_stat_activity`) show who, not the shared role.
+4. **Access rules per datasource** — `roles` (who may open) and `writeRoles`
+   (who may write), with `group:<name>` principals from the identity provider;
+   read-only sessions get a read-only pool where the engine has one.
+5. **Ephemeral credentials** — `vault:db:<mount>/<role>` has HashiCorp Vault's
+   database secrets engine issue a credential per person, with a lease;
+   `vault:kv:…` reads a static secret.
+6. **Approval flow** — `writeApproval: true` runs a write only inside a window
+   a reviewer opened, with the reviewer on the audit line.
+7. **Server-side data masking** — the rules run before the rows leave; a
+   reveal is granted per role and audited.
 
 Things deliberately **out of scope**: desktop apps, marketplace listings, npm
 library packaging, and any AI agent work beyond what is already here.

@@ -48,11 +48,9 @@ for a web-based editor:
   edge** deployments (where the file is co-located with dbportal) and **zero-config trials** (instant,
   no server to provision) — it is **not** a multi-tenant SaaS target.
 - **It works under both Bun and Node.** The provider selects the runtime's built-in driver at
-  connect time — see [Runtime & driver selection](#runtime--driver-selection). All packaged
-  distribution channels — the official Docker image, `npx @libredb/studio`, the Homebrew tap, the
-  `.deb`/`.rpm` packages, and the standalone tarballs — run the built app with `node server.js` (the
-  Docker image's runner stage is `node:26.8.1-trixie-slim`; the other channels bundle their own pinned
-  Node 24 runtime), so they all use `node:sqlite`. `bun:sqlite` is used for local development
+  connect time — see [Runtime & driver selection](#runtime--driver-selection). The Docker image
+  runs the built app with `node server.js` (its runner stage is `node:26.8.1-trixie-slim`), so it
+  uses `node:sqlite`. `bun:sqlite` is used for local development
   (`bun dev`) and the test suite, where Next.js runs directly under Bun. Only on a runtime with
   neither driver does `connect()` throw a `DatabaseConfigError`.
 
@@ -245,9 +243,9 @@ read scope, or isolate it in a container whose mounts contain only the databases
 An optional in-app base-dir allowlist is tracked in
 [issue #125](https://github.com/libredb/libredb-studio/issues/125).
 
-### 4.1 Embedded sample database (standalone mode)
+### 4.1 Embedded sample database
 
-On standalone startup (never when embedded in libredb-platform),
+On startup,
 [`src/lib/seed/sqlite-sample.ts`](../../src/lib/seed/sqlite-sample.ts) copies the vendored
 employees database ([`seed-assets/sqlite/employee.db`](../../seed-assets/sqlite/employee.db),
 from [bytebase/employee-sample-database](https://github.com/bytebase/employee-sample-database)
@@ -270,11 +268,7 @@ Env vars:
 | `SQLITE_EMBEDDED_SAMPLE_PATH` | `<data dir>/sample-employees.db` | Runtime copy location |
 | `SQLITE_EMBEDDED_SAMPLE_TEMPLATE` | `<cwd>/seed-assets/sqlite/employee.db` | Vendored template location (packaging overrides) |
 
-The template ships as a top-level `seed-assets/` directory in every distribution payload
-(Docker image, standalone tarball, and everything derived from it: npx, deb/rpm, snap,
-Homebrew). Each channel is browser-verified by
-[`scripts/channel-embedded-sample-e2e.sh`](../../scripts/channel-embedded-sample-e2e.sh)
-(see [`docs/DISTRIBUTION.md`](../DISTRIBUTION.md)).
+The template ships as a top-level `seed-assets/` directory in the Docker image.
 
 ---
 

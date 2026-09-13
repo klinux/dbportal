@@ -147,9 +147,8 @@ These are the non-obvious choices. Read this section before changing the provide
 
 The official `couchbase` SDK is Apache-2.0 but weighs 64.6 MB unpacked across 3765 files, depends on
 `cmake-js` and `node-addon-api`, and runs a postinstall step that downloads a prebuilt binary or
-compiles from source. dbportal ships as a Docker image, Snap, AppImage, Flatpak, deb/rpm **and** the
-`@libredb/studio` npm package that `libredb-platform` consumes — every one of those would inherit
-the native module.
+compiles from source. dbportal ships as a Docker image, and every environment built from it would
+inherit the native module.
 
 HTTP is also the more deployable choice, not the weaker one: air-gapped installs have no postinstall
 download to fail; the binary KV protocol on 11210 does not traverse corporate HTTP proxies while

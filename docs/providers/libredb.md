@@ -304,16 +304,14 @@ condition as a clear `ConnectionError` (see [§10](#10-error-handling)):
 > or older. The old recovery cannot parse the header, classifies the whole file as a torn tail,
 > and silently truncates it to zero bytes. Back up before any downgrade.
 
-### 4.3 Sample connection (standalone mode)
+### 4.3 Sample connection
 
-On the first startup of a **standalone** dbportal instance (i.e. not embedded inside
-libredb-platform), dbportal automatically creates a connection named **"Sample (LibreDB)"** seeded
+On first startup dbportal automatically creates a connection named **"Sample (LibreDB)"** seeded
 with example data covering each lens (relational table, document collection, raw kv). This gives
 new users a working LibreDB file to explore immediately.
 
-The sample connection is fully editable and deletable. Once deleted it stays gone — dbportal tracks
-dismissed seeds and will not recreate it. It is never injected when dbportal runs as an embedded
-package inside libredb-platform.
+The sample is a managed datasource like any other (docs/CONTEXT.md §4.1); an administrator can
+switch it off with `DBPORTAL_EMBEDDED_SAMPLE=false`.
 
 **Env vars:**
 

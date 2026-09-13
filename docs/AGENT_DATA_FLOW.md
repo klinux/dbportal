@@ -12,7 +12,6 @@ host, and an operator writing a firewall rule needs all four:
 | **Model traffic** | The provider you configured through `LLM_*` | The rest of this page |
 | **Database traffic** | Every database host in your connections — the product's entire purpose | `src/lib/db/providers/` |
 | **OIDC** | Your issuer, when `NEXT_PUBLIC_AUTH_PROVIDER=oidc`: discovery, token and JWKS requests | `src/lib/oidc.ts` |
-| **The `npx` launcher** | `github.com` — a **hard-coded** URL, the one outbound host in this repo that you did not choose. `npx @libredb/studio` downloads the release tarball and its `SHA256SUMS` from `https://github.com/libredb/libredb-studio/releases/download/...` before any server starts. It runs once per version and caches under `~/.libredb-studio/`; the Docker, Helm and standalone paths never reach it | `bin/lib/launcher-utils.mjs:87`, called from `bin/studio.js:218-219` |
 
 **It is written from call sites, not from intent.** Every claim below names the file and the lines
 that make it true, so you can check any sentence against the code rather than believing this page.
@@ -52,7 +51,6 @@ if it only lists the good news.
 | `POST /api/ai/query-safety` | Your statement, a filtered schema context, the engine type | No |
 | `POST /api/ai/describe-schema` | A schema context. From the **Data Profiler** that context includes a per-column `min=` and `max=`, which are **real column values** | No |
 | Everything else in the **running server** | Every outbound connection goes to a host **you** configured — your databases, your OIDC issuer when `NEXT_PUBLIC_AUTH_PROVIDER=oidc` (`src/lib/oidc.ts`), and the model provider above. The one host `src/` names itself is OpenAI's default base URL, reached only if you set `LLM_PROVIDER=openai` (`src/lib/llm/utils/config.ts:23`) | — |
-| The **`npx` launcher**, before the server exists | The release tarball and `SHA256SUMS` from a hard-coded `github.com` URL (`bin/lib/launcher-utils.mjs:87`, from `bin/studio.js:218-219`). Once per version, cached in `~/.libredb-studio/`; no other install path uses it | — |
 
 ---
 
@@ -658,12 +656,11 @@ grep -rn "fenceUntrustedContent(" src/lib/agent/
 # Every request that leaves for a model provider
 grep -rn "streamText(" src/lib/agent/
 
-# Every absolute URL in the server and the launcher. Read the hits: most are
-# hrefs and comments. Exactly two are hosts a request can go to without you
-# naming them - the OpenAI default base URL, reached only if you set
-# LLM_PROVIDER=openai (src/lib/llm/utils/config.ts:23), and the release
-# download in the npx launcher (bin/lib/launcher-utils.mjs:87).
-grep -rn "https://" src/ bin/
+# Every absolute URL in the server. Read the hits: most are hrefs and comments.
+# Exactly one is a host a request can go to without you naming it - the OpenAI
+# default base URL, reached only if you set LLM_PROVIDER=openai
+# (src/lib/llm/utils/config.ts:23).
+grep -rn "https://" src/
 ```
 
 Related: [`docs/AGENT.md`](./AGENT.md) for behaviour, [`docs/AGENT_GUIDE.md`](./AGENT_GUIDE.md) for

@@ -17,9 +17,7 @@ Three properties frame everything below, and each of them is load-bearing rather
   are statically imported, so they sit in the standalone bundle either way. No agent **runtime**
   module — the ledger, the run service, the tool layer, the model adapter — is reachable from a browser
   at all.
-- **It is standalone-only.** The embedded `@libredb/studio` package carries no agent surface, no
-  agent type and none of the runtime's dependencies. See
-  [Package boundary](#package-boundary).
+- **Its dependencies stay out of the UI bundle.** See [Package boundary](#package-boundary).
 - **It can only read.** Every database reach goes through the agent's own audited operation pipeline,
   `executeAuditedOperation()` ([`execution.ts`](../src/lib/db/operations/execution.ts)), under a
   read-only execution profile and the agent's own frozen execution policy. The agent cannot exceed what that policy
@@ -2461,22 +2459,15 @@ still dies with the container** — the agent works, its ledger is written, and 
 recreate. Passing `-e WORKFLOW_LOCAL_DATA_DIR=…` still overrides the default and is how you put the
 ledger somewhere else.
 
-`npx @libredb/studio` needs none of this. The launcher defaults the variable to
-`~/.libredb-studio/workflow-data` (`resolveLedgerDir` in `bin/lib/launcher-utils.mjs`), beside the
-per-version payload cache rather than inside it: the payload is spawned with `cwd` set to that cache,
-so the SDK's cwd-relative default would litter a directory re-extraction does not preserve, and a run
-started from another folder would silently look elsewhere for its history. An operator who sets the
-variable keeps whatever they set.
-
 Upstream positions the `local` backend as designed for development rather than production. That is a
 consciously accepted risk of this phase, recorded here rather than buried.
 
 ## Package boundary
 
-The runtime's dependencies are **not** dependencies of the published `@libredb/studio` package, and
-this is enforced mechanically rather than by convention: a boundary test asserts the published
-dependency set gains neither the runtime packages nor a vendor model-provider package, and a second
-walk of the module graph asserts that no package entry point transitively imports `src/lib/agent`
+The runtime's dependencies are kept out of the UI's export surface (`src/exports/`, what the upstream
+npm package published; the build is gone, the boundary test stayed): a boundary test asserts the
+declared dependency set gains neither the runtime packages nor a vendor model-provider package, and a
+second walk of the module graph asserts that no export entry point transitively imports `src/lib/agent`
 (over both the value graph and the type graph, because code and types are reached differently). The
 type walk reaches exactly one agent module — `src/components/agent/hydration.ts`, through
 `BottomPanel`'s optional prop — and that is a pinned, enumerated exception rather than an unnoticed
@@ -2558,7 +2549,7 @@ the role's own grants are the whole boundary (A3).
 - **B9** — nothing enqueues a drive, so an interrupted run is resumable but never resumed.
 - **B11** — the rail can stop a run but cannot pause or resume one.
 - **B16** — the opt-in `@workflow/world-postgres` backend is not present in the standalone payload,
-  so it cannot load in the container image or the npx payload.
+  so it cannot load in the container image.
 - **B29** — an identifier the model quotes back into its own tool arguments reaches the transcript
   unfenced; an open injection path, bounded only by the server never handing it the raw marker.
 - **B31** — the Postgres durable backend is reported available without being contacted, so an

@@ -34,9 +34,9 @@ needs the mechanism behind it, it links there instead of restating it.
 
 ## Where the agent is
 
-The rail is part of the **standalone application only** — the embedded `@libredb/studio` package
-renders no agent surface at all (`src/workspace/StudioWorkspace.tsx`, and
-`tests/unit/agent-package-boundary.test.ts` pins it). Above the `md` breakpoint it is a resizable
+The rail is part of the studio shell (`src/components/Studio.tsx`; the workspace shell in
+`src/workspace/StudioWorkspace.tsx` renders none, and `tests/unit/agent-package-boundary.test.ts`
+pins that). Above the `md` breakpoint it is a resizable
 panel beside the editor; below it, the same rail opens as a sheet
 (`AgentRail.tsx:2241-2264` chooses the presentation, and it is one component instance either way, so
 an objective you are typing survives a window resize).

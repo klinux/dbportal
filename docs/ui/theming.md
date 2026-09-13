@@ -105,17 +105,11 @@ class on `<html>` rather than calling `useTheme()` — that class is where next-
 studio's choice *and* where an embedding host writes its own, so one source answers both
 deployments and an embedded studio needs no provider to follow along.
 
-### Embedding
+### The tokens file
 
-`globals.css` is not packaged, so an app consuming `@libredb/studio` must import the tokens
-itself or every `var(--studio-*)` resolves to nothing:
-
-```ts
-import "@libredb/studio/styles.css";
-```
-
-See [`docs/TOOLCHAIN.md`](../TOOLCHAIN.md) for how that file is staged into `dist/` and what
-guards it.
+`src/styles/theme.css` holds the tokens and `globals.css` imports it; every `var(--studio-*)`
+resolves through that one file. (Upstream published it as a package stylesheet for embedding
+hosts; the package is gone, the file stayed.)
 
 ## CSS Variables
 
@@ -408,7 +402,7 @@ reports itself as the dark-mode change it is.
    exists in one palette only silently resolves to nothing in the other
 3. Confirm `@theme inline` maps the variable to a `--color-*` utility. `inline` is required: a
    plain `@theme` resolves the value at build time and freezes whichever palette was in scope
-4. Embedded in a host app: confirm the host imports `@libredb/studio/styles.css`
+4. Confirm `globals.css` still imports `src/styles/theme.css`
 
 ### Build Errors
 

@@ -284,9 +284,9 @@ not configuration. Requested 2026-09-13.
     the agent's system prompt, the Trino kill message, the container bind-resolver log
     prefix, `.env.example` / Dockerfile / compose headers, and the product name across
     `docs/`. What `docs/` still says about the *npm package*, the *npx launcher* and
-    *libredb-platform* describes upstream channels this snapshot removed (§6); pruning
-    those is a docs audit, not a rename, and is still open. `docs/ui/login-page.md`
-    describes the upstream login hero that layer 1 replaced.
+    *libredb-platform* described upstream channels this snapshot removed (§6); that docs
+    audit was done 2026-09-13 with layer 3, and `docs/ui/login-page.md` was rewritten for
+    the page layer 1 built.
   - *Layer 3 — with migration* (done 2026-09-13):
     - `LIBREDB_*` env vars → `DBPORTAL_*` through `readEnv()` in
       [`src/lib/config/env-alias.ts`](../src/lib/config/env-alias.ts): the old name is read

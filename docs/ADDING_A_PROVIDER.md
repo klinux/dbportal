@@ -65,9 +65,8 @@ own networking, and the saving is concrete rather than aesthetic:
 
 - **No install step to fail.** The Couchbase SDK runs a postinstall that downloads a prebuilt binary
   or compiles from source; in an air-gapped or egress-restricted network that breaks `bun install`.
-- **No growth in any distribution channel.** A native module lands in the Docker image, Snap,
-  AppImage, Flatpak, deb/rpm, and in the `@libredb/studio` package that libredb-platform inherits.
-  For reference, the Couchbase SDK is 64.6 MB unpacked across 3765 files.
+- **No growth in the image.** A native module lands in the Docker image and every environment
+  that builds from it. For reference, the Couchbase SDK is 64.6 MB unpacked across 3765 files.
 - **No supply-chain surface** added, and no N-API compatibility question for the Bun runtime.
 
 The trade is real and worth stating plainly: **you take on the code the driver would have owned.**
@@ -358,8 +357,7 @@ bun add <driver-package>
 ```
 
 If your engine exposes a documented HTTP API, weigh it against the native driver before adding a
-dependency: a native module lands in the Docker image, every native distribution channel, and the
-`@libredb/studio` package that libredb-platform consumes.
+dependency: a native module lands in the Docker image and every environment built from it.
 
 **DuckDB is the counter-example, and it is worth stating rather than hiding.** It has no first-class
 HTTP query API to weigh — the engine is a library, not a server — so the native `@duckdb/node-api`
