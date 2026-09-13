@@ -1,0 +1,143 @@
+# =============================================================================
+# LibreDB Studio — Ready-to-use Docker Compose
+# =============================================================================
+# Pulls the published image (ghcr.io/libredb/libredb-studio:latest) — no source
+# build required. Works on any Docker host and PaaS that consumes a plain
+# docker-compose.yml (Dokploy, Coolify, Portainer, etc.).
+#
+# Quick start:
+#   1. cp docker-compose.example.yml docker-compose.yml
+#   2. cp .env.example .env        # then set at least JWT_SECRET / passwords
+#   3. docker compose up -d
+#   4. open http://localhost:3000
+#
+# Every supported environment variable is listed below. Commonly-used ones are
+# active; less-frequently-used ones are shown commented out — uncomment as needed.
+# Secrets are read from the .env file via ${VAR} interpolation and are never
+# hardcoded in this file.
+# =============================================================================
+
+services:
+  libredb-studio:
+    image: ghcr.io/libredb/libredb-studio:latest
+    container_name: libredb-studio
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    # Uncomment if you enable the bundled PostgreSQL service below:
+    # depends_on:
+    #   libredb-postgres:
+    #     condition: service_healthy
+    environment:
+      # -----------------------------------------------------------------------
+      # AUTHENTICATION — local provider. ADMIN_PASSWORD is required (without it
+      # the login screen shows a clear config error); USER_* is optional.
+      # -----------------------------------------------------------------------
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@libredb.org}        # admin: full access + maintenance tools
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      # Optional lower-privilege account (query execution only). Omit USER_PASSWORD
+      # to run admin-only — no default user password is ever assumed.
+      USER_EMAIL: ${USER_EMAIL:-user@libredb.org}
+      USER_PASSWORD: ${USER_PASSWORD:-}
+      # JWT signing secret — min 32 chars. Generate: openssl rand -base64 32
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (min 32 chars)}
+
+      # Auth provider: "local" (default, email/password) or "oidc" (SSO)
+      NEXT_PUBLIC_AUTH_PROVIDER: ${NEXT_PUBLIC_AUTH_PROVIDER:-local}
+
+      # -----------------------------------------------------------------------
+      # OIDC SSO  (only when NEXT_PUBLIC_AUTH_PROVIDER=oidc)
+      # Auth0 / Keycloak / Okta / Azure AD / Zitadel
+      # -----------------------------------------------------------------------
+      # OIDC_ISSUER: ${OIDC_ISSUER}                # must serve /.well-known/openid-configuration
+      # OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+      # OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      # OIDC_SCOPE: ${OIDC_SCOPE:-openid profile email}
+      # OIDC_ROLE_CLAIM: ${OIDC_ROLE_CLAIM:-}      # e.g. realm_access.roles (Keycloak), groups (Okta)
+      # OIDC_ADMIN_ROLES: ${OIDC_ADMIN_ROLES:-admin}
+
+      # -----------------------------------------------------------------------
+      # STORAGE — where connections/config are persisted (server-side)
+      #   "local"    (default) browser localStorage, zero config
+      #   "sqlite"   server file, single-node persistent (uncomment volume below)
+      #   "postgres" multi-node persistent (uncomment the postgres service below)
+      # -----------------------------------------------------------------------
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      # STORAGE_SQLITE_PATH: ${STORAGE_SQLITE_PATH:-/app/data/libredb-storage.db}
+      # STORAGE_POSTGRES_URL: ${STORAGE_POSTGRES_URL:-postgresql://postgres:postgres@libredb-postgres:5432/libredb_storage?sslmode=disable}
+
+      # -----------------------------------------------------------------------
+      # AI / LLM  (optional) — provider: gemini | openai | ollama | custom
+      # -----------------------------------------------------------------------
+      # LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      # LLM_API_KEY: ${LLM_API_KEY}                # required for gemini/openai
+      # LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash}
+      # LLM_API_URL: ${LLM_API_URL}                # ollama/custom only, e.g. http://host:11434/v1
+
+      # -----------------------------------------------------------------------
+      # AGENT RUNTIME — standalone only, and there is no flag to turn it on.
+      # It appears once a model is configured through the LLM_* settings above
+      # (there is no second place for an API key) AND the ledger path below is
+      # writable. Uncomment the line below to keep the AI configuration and have
+      # no agent — including on an upgrade, where an LLM_API_KEY that used to
+      # power NL2SQL now brings an agent with it.
+      # -----------------------------------------------------------------------
+      # LIBREDB_AGENT_ENABLED: "false"
+      # Durable backend for run state. "local" (default) keeps it on disk behind
+      # file locks — SINGLE INSTANCE ONLY. More than one replica needs
+      # "@workflow/world-postgres" plus WORKFLOW_POSTGRES_URL.
+      # WORKFLOW_TARGET_WORLD: ${WORKFLOW_TARGET_WORLD:-local}
+      # Where the "local" backend writes, and the second half of the availability
+      # answer above: if it cannot be created and written, the agent reports
+      # itself absent. The image already defaults this to /app/data/workflow, so
+      # uncomment it only to put the ledger elsewhere — and mount the data volume
+      # below either way, or runs vanish when the container is recreated.
+      # WORKFLOW_LOCAL_DATA_DIR: ${WORKFLOW_LOCAL_DATA_DIR:-/app/data/workflow}
+
+      # -----------------------------------------------------------------------
+      # SEED CONNECTIONS (optional) — pre-configure databases on boot.
+      # Uncomment the seed volume mount below, then provide seed-connections.yaml.
+      # Credentials referenced in that file via ${VAR} are read from this .env.
+      # -----------------------------------------------------------------------
+      # SEED_CONFIG_PATH: /app/config/seed-connections.yaml
+      # SEED_CACHE_TTL_MS: ${SEED_CACHE_TTL_MS:-60000}
+
+    # volumes:
+    #   # SQLite storage persistence (STORAGE_PROVIDER=sqlite):
+    #   - libredb-data:/app/data
+    #   # Seed connections file (read-only):
+    #   - ./seed-connections.yaml:/app/config/seed-connections.yaml:ro
+
+    # Image runs as node:24.16.0-trixie-slim (no curl/wget) — use Node's built-in fetch.
+    # BASE_PATH must match a custom image built with that prefix (docs/SUBPATH.md).
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000${BASE_PATH:-}/api/db/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Optional: PostgreSQL backend for STORAGE_PROVIDER=postgres
+  # To enable: uncomment this service, the STORAGE_POSTGRES_URL env above,
+  # the depends_on block above, and the pgdata volume below.
+  # ---------------------------------------------------------------------------
+  # libredb-postgres:
+  #   image: postgres:18
+  #   container_name: libredb-postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DB: libredb_storage
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U postgres"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+# volumes:
+#   libredb-data:   # SQLite storage persistence
+#   pgdata:         # PostgreSQL storage persistence

@@ -1,0 +1,305 @@
+import type { ColumnSchema, IndexSchema, ForeignKeySchema } from "@/lib/types";
+import type { StoredObject } from "@/lib/db/detailed-object";
+import type { SchemaDiff, TableDiff, ColumnDiff, IndexDiff, ForeignKeyDiff } from "./types";
+
+function diffColumns(sourceCols: readonly ColumnSchema[], targetCols: readonly ColumnSchema[]): ColumnDiff[] {
+  const diffs: ColumnDiff[] = [];
+  const sourceMap = new Map(sourceCols.map((c) => [c.name, c]));
+  const targetMap = new Map(targetCols.map((c) => [c.name, c]));
+
+  // Added columns (in target but not in source)
+  for (const [name, col] of targetMap) {
+    if (!sourceMap.has(name)) {
+      diffs.push({
+        action: "added",
+        columnName: name,
+        targetType: col.type,
+        targetNullable: col.nullable,
+        targetDefault: col.defaultValue,
+        targetIsPrimary: col.isPrimary,
+        changes: [`Added column "${name}" (${col.type})`],
+      });
+    }
+  }
+
+  // Removed columns (in source but not in target)
+  for (const [name, col] of sourceMap) {
+    if (!targetMap.has(name)) {
+      diffs.push({
+        action: "removed",
+        columnName: name,
+        sourceType: col.type,
+        sourceNullable: col.nullable,
+        sourceDefault: col.defaultValue,
+        sourceIsPrimary: col.isPrimary,
+        changes: [`Removed column "${name}" (${col.type})`],
+      });
+    }
+  }
+
+  // Modified columns (in both, check for differences)
+  for (const [name, sourceCol] of sourceMap) {
+    const targetCol = targetMap.get(name);
+    if (!targetCol) continue;
+
+    const changes: string[] = [];
+
+    if (sourceCol.type.toLowerCase() !== targetCol.type.toLowerCase()) {
+      changes.push(`Type changed: ${sourceCol.type} → ${targetCol.type}`);
+    }
+    if (sourceCol.nullable !== targetCol.nullable) {
+      changes.push(`Nullable changed: ${sourceCol.nullable} → ${targetCol.nullable}`);
+    }
+    if ((sourceCol.defaultValue || "") !== (targetCol.defaultValue || "")) {
+      changes.push(`Default changed: ${sourceCol.defaultValue || "none"} → ${targetCol.defaultValue || "none"}`);
+    }
+    if (sourceCol.isPrimary !== targetCol.isPrimary) {
+      changes.push(`Primary key changed: ${sourceCol.isPrimary} → ${targetCol.isPrimary}`);
+    }
+
+    if (changes.length > 0) {
+      diffs.push({
+        action: "modified",
+        columnName: name,
+        sourceType: sourceCol.type,
+        targetType: targetCol.type,
+        sourceNullable: sourceCol.nullable,
+        targetNullable: targetCol.nullable,
+        sourceDefault: sourceCol.defaultValue,
+        targetDefault: targetCol.defaultValue,
+        sourceIsPrimary: sourceCol.isPrimary,
+        targetIsPrimary: targetCol.isPrimary,
+        changes,
+      });
+    }
+  }
+
+  return diffs;
+}
+
+function diffIndexes(sourceIndexes: readonly IndexSchema[], targetIndexes: readonly IndexSchema[]): IndexDiff[] {
+  const diffs: IndexDiff[] = [];
+
+  // Build a stable map key from the column set. Copy before sorting so the
+  // original column order is preserved for the diff messages below. Use the
+  // default (code-point) sort, NOT localeCompare: this is an internal canonical
+  // key for set matching, so it must be deterministic and locale-independent.
+  // localeCompare would tie the key to the host locale. S2871 is suppressed for
+  // this file in sonar-project.properties for exactly this reason.
+  const columnKey = (idx: IndexSchema) => idx.name || [...idx.columns].sort().join(",");
+
+  const sourceMap = new Map<string, IndexSchema>();
+  sourceIndexes.forEach((idx) => {
+    sourceMap.set(columnKey(idx), idx);
+  });
+
+  const targetMap = new Map<string, IndexSchema>();
+  targetIndexes.forEach((idx) => {
+    targetMap.set(columnKey(idx), idx);
+  });
+
+  for (const [key, idx] of targetMap) {
+    if (!sourceMap.has(key)) {
+      diffs.push({
+        action: "added",
+        indexName: idx.name || key,
+        targetColumns: idx.columns,
+        targetUnique: idx.unique,
+        changes: [`Added index "${idx.name || key}" on (${idx.columns.join(", ")})`],
+      });
+    }
+  }
+
+  for (const [key, idx] of sourceMap) {
+    if (!targetMap.has(key)) {
+      diffs.push({
+        action: "removed",
+        indexName: idx.name || key,
+        sourceColumns: idx.columns,
+        sourceUnique: idx.unique,
+        changes: [`Removed index "${idx.name || key}"`],
+      });
+    }
+  }
+
+  for (const [key, sourceIdx] of sourceMap) {
+    const targetIdx = targetMap.get(key);
+    if (!targetIdx) continue;
+
+    const changes: string[] = [];
+    // Index columns are ordered: (a, b) and (b, a) have different leading keys.
+    // Serialize the array instead of joining, so commas inside identifiers cannot
+    // make distinct column lists compare equal. Neither input is mutated.
+    if (JSON.stringify(sourceIdx.columns) !== JSON.stringify(targetIdx.columns)) {
+      changes.push(`Columns changed: (${sourceIdx.columns.join(", ")}) → (${targetIdx.columns.join(", ")})`);
+    }
+    if (sourceIdx.unique !== targetIdx.unique) {
+      changes.push(`Unique changed: ${sourceIdx.unique} → ${targetIdx.unique}`);
+    }
+
+    if (changes.length > 0) {
+      diffs.push({
+        action: "modified",
+        indexName: sourceIdx.name || key,
+        sourceColumns: sourceIdx.columns,
+        targetColumns: targetIdx.columns,
+        sourceUnique: sourceIdx.unique,
+        targetUnique: targetIdx.unique,
+        changes,
+      });
+    }
+  }
+
+  return diffs;
+}
+
+function diffForeignKeys(
+  sourceFKs: readonly ForeignKeySchema[],
+  targetFKs: readonly ForeignKeySchema[],
+): ForeignKeyDiff[] {
+  const diffs: ForeignKeyDiff[] = [];
+
+  const makeKey = (fk: ForeignKeySchema) => `${fk.columnName}→${fk.referencedTable}.${fk.referencedColumn}`;
+
+  const sourceMap = new Map(sourceFKs.map((fk) => [makeKey(fk), fk]));
+  const targetMap = new Map(targetFKs.map((fk) => [makeKey(fk), fk]));
+
+  for (const [key, fk] of targetMap) {
+    if (!sourceMap.has(key)) {
+      diffs.push({
+        action: "added",
+        columnName: fk.columnName,
+        targetReferencedTable: fk.referencedTable,
+        targetReferencedColumn: fk.referencedColumn,
+        changes: [`Added FK: ${fk.columnName} → ${fk.referencedTable}(${fk.referencedColumn})`],
+      });
+    }
+  }
+
+  for (const [key, fk] of sourceMap) {
+    if (!targetMap.has(key)) {
+      diffs.push({
+        action: "removed",
+        columnName: fk.columnName,
+        sourceReferencedTable: fk.referencedTable,
+        sourceReferencedColumn: fk.referencedColumn,
+        changes: [`Removed FK: ${fk.columnName} → ${fk.referencedTable}(${fk.referencedColumn})`],
+      });
+    }
+  }
+
+  return diffs;
+}
+
+/**
+ * Two readings of a database, compared BY NAME (#789).
+ *
+ * The name is the key and not the path or the kind, and that is a compatibility decision with a
+ * measured reason rather than a shortcut. Both sides of this comparison may be a `SchemaSnapshot`
+ * out of the user's own storage, and a snapshot written before the object model carries no `kind`
+ * and no `path` at all. Keying on either would report every object in such a snapshot as REMOVED
+ * and every object in the current reading as ADDED, the first time somebody opened an old
+ * snapshot against a live database: a diff that invents every change there is. Nothing migrates
+ * those records, so `StoredObject` is the shape that enters here and NAME is the only field both
+ * populations are guaranteed to spell.
+ *
+ * What survives, and predates all of this: two entries colliding on one name leave `new Map()`
+ * holding the last of them.
+ *
+ * The cost, stated rather than left to be discovered: this cannot say that a table became a
+ * view. Both sides now CARRY the kind when both are current readings, so the comparison could be
+ * taught to notice it for a pair that has one; doing that while an old snapshot may be the other
+ * side means deciding what a kind-versus-no-kind pair means, which is Phase 2's to settle.
+ */
+export function diffSchemas(source: readonly StoredObject[], target: readonly StoredObject[]): SchemaDiff {
+  const sourceMap = new Map(source.map((t) => [t.name, t]));
+  const targetMap = new Map(target.map((t) => [t.name, t]));
+
+  const tables: TableDiff[] = [];
+  let added = 0,
+    removed = 0,
+    modified = 0;
+
+  // Added tables
+  for (const [name, table] of targetMap) {
+    if (!sourceMap.has(name)) {
+      tables.push({
+        action: "added",
+        tableName: name,
+        columns: table.columns.map((c) => ({
+          action: "added" as const,
+          columnName: c.name,
+          targetType: c.type,
+          targetNullable: c.nullable,
+          targetDefault: c.defaultValue,
+          targetIsPrimary: c.isPrimary,
+          changes: [`Added column "${c.name}" (${c.type})`],
+        })),
+        indexes: table.indexes.map((idx) => ({
+          action: "added" as const,
+          indexName: idx.name,
+          targetColumns: idx.columns,
+          targetUnique: idx.unique,
+          changes: [`Added index "${idx.name}"`],
+        })),
+        foreignKeys: (table.foreignKeys || []).map((fk) => ({
+          action: "added" as const,
+          columnName: fk.columnName,
+          targetReferencedTable: fk.referencedTable,
+          targetReferencedColumn: fk.referencedColumn,
+          changes: [`Added FK: ${fk.columnName} → ${fk.referencedTable}(${fk.referencedColumn})`],
+        })),
+      });
+      added++;
+    }
+  }
+
+  // Removed tables
+  for (const [name, table] of sourceMap) {
+    if (!targetMap.has(name)) {
+      tables.push({
+        action: "removed",
+        tableName: name,
+        columns: table.columns.map((c) => ({
+          action: "removed" as const,
+          columnName: c.name,
+          sourceType: c.type,
+          sourceNullable: c.nullable,
+          sourceDefault: c.defaultValue,
+          sourceIsPrimary: c.isPrimary,
+          changes: [`Removed column "${c.name}"`],
+        })),
+        indexes: [],
+        foreignKeys: [],
+      });
+      removed++;
+    }
+  }
+
+  // Modified tables
+  for (const [name, sourceTable] of sourceMap) {
+    const targetTable = targetMap.get(name);
+    if (!targetTable) continue;
+
+    const columns = diffColumns(sourceTable.columns, targetTable.columns);
+    const indexes = diffIndexes(sourceTable.indexes, targetTable.indexes);
+    const foreignKeys = diffForeignKeys(sourceTable.foreignKeys || [], targetTable.foreignKeys || []);
+
+    if (columns.length > 0 || indexes.length > 0 || foreignKeys.length > 0) {
+      tables.push({
+        action: "modified",
+        tableName: name,
+        columns,
+        indexes,
+        foreignKeys,
+      });
+      modified++;
+    }
+  }
+
+  return {
+    tables,
+    summary: { added, removed, modified },
+    hasChanges: tables.length > 0,
+  };
+}

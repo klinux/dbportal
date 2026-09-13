@@ -1,0 +1,328 @@
+import React from "react";
+import type { DetailedObject } from "@/lib/db/detailed-object";
+import type { ProviderMetadata } from "@/hooks/use-provider-metadata";
+import {
+  Search,
+  Table as TableIcon,
+  Play,
+  ChevronRight,
+  Funnel,
+  EllipsisVertical,
+  Copy,
+  Trash2,
+  Code,
+  ChartColumn,
+  WandSparkles,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { maintenanceControl } from "@/lib/db/types";
+import { cn } from "@/lib/utils";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu";
+import { toast } from "sonner";
+import { writeToClipboard } from "@/components/copy-button";
+import { ColumnList } from "./ColumnList";
+
+interface TableItemProps {
+  table: DetailedObject;
+  isExpanded: boolean;
+  onToggle: () => void;
+  // `labels` is itself optional on ProviderMetadata, so the indexed access already
+  // carries `undefined`; NonNullable keeps the `?` from restating it (#427).
+  labels?: NonNullable<ProviderMetadata["labels"]>;
+  capabilities?: ProviderMetadata["capabilities"];
+  isAdmin: boolean;
+  onTableClick?: (path: readonly string[]) => void;
+  onGenerateSelect?: (path: readonly string[]) => void;
+  // ADDRESSES, one element per segment, the same shape `onTableClick` above already takes:
+  // the shell resolves the object by path, because a label is not unique (#789, Task 35).
+  onProfileTable?: (path: readonly string[]) => void;
+  onGenerateCode?: (path: readonly string[]) => void;
+  onGenerateTestData?: (path: readonly string[]) => void;
+  onOpenMaintenance?: (tab?: "global" | "tables" | "sessions", path?: readonly string[]) => void;
+}
+
+type TableItemCallbacks = Pick<
+  TableItemProps,
+  "onTableClick" | "onGenerateSelect" | "onProfileTable" | "onGenerateCode" | "onGenerateTestData" | "onOpenMaintenance"
+>;
+
+/**
+ * What one rendering of the menu needs. The two call sites differ only in which
+ * primitives they pass (`DropdownMenu*` vs `ContextMenu*`), so everything else
+ * travels as one object rather than as a positional list.
+ */
+interface MenuItemsContext {
+  table: DetailedObject;
+  labels: TableItemProps["labels"];
+  capabilities: TableItemProps["capabilities"];
+  isAdmin: boolean;
+  callbacks: TableItemCallbacks;
+  copyToClipboard: (text: string, label: string) => void;
+  Item: React.ComponentType<{ onClick?: () => void; children: React.ReactNode }>;
+  Separator: React.ComponentType;
+}
+
+function renderMenuItems({
+  table,
+  labels,
+  capabilities,
+  isAdmin,
+  callbacks,
+  copyToClipboard,
+  Item,
+  Separator,
+}: MenuItemsContext): React.ReactNode {
+  // Rows that are derived groupings are not addressable objects: a Redis `user:*`
+  // row is this server's summary of a key prefix, so profiling it and inserting
+  // rows into it have no target and the provider answers 400 (#427). Gate on the
+  // declared capability, never on connection.type. Absent capabilities read as
+  // "ordinary objects", matching the flag's own docblock.
+  const rowsAreAddressable = capabilities?.tablesAreDerivedGroupings !== true;
+
+  // The SAME question the monitoring Tables tab and the admin Operations tab ask, so
+  // that three surfaces cannot disagree about what a provider declared (#496). Gating
+  // on `supportsMaintenance` alone is what put "Vacuum Table" on ONE SQLite table
+  // while the Tables tab correctly withheld it - SQLite's VACUUM takes no target, and
+  // the page this item deep-links to therefore has no such control. Unknown
+  // capabilities read as a denial here too: `/api/db/provider-meta` answers with
+  // nothing both while it is in flight and when it failed.
+  //
+  // The vacuum item follows `vacuumActionOperation`, not the literal `vacuum`: four
+  // providers point that wording at an operation that is not a vacuum, and it is the
+  // operation - not the label - whose targeting decides whether a table can be named.
+  const analyzeControl = maintenanceControl(capabilities, "analyze", "perEntity");
+  const vacuumControl = maintenanceControl(capabilities, labels?.vacuumActionOperation ?? "vacuum", "perEntity");
+
+  return (
+    <>
+      <Item onClick={() => callbacks.onTableClick?.(table.path)}>
+        <Play strokeWidth={1.5} className="w-3.5 h-3.5 mr-2 text-hue-green" />
+        {labels?.selectAction || "Select Top 50"}
+      </Item>
+      <Item onClick={() => callbacks.onGenerateSelect?.(table.path)}>
+        <Funnel strokeWidth={1.5} className="w-3.5 h-3.5 mr-2 text-hue-blue" />
+        {labels?.generateAction || "Generate Query"}
+      </Item>
+      <Item onClick={() => copyToClipboard(table.name, `${labels?.entityName || "Table"} name`)}>
+        <Copy strokeWidth={1.5} className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+        {"Copy Name"}
+      </Item>
+      {/* Generate Code stays visible everywhere — it names the row, it does not
+          address it — so this separator is unconditional (#427). */}
+      <Separator />
+      {rowsAreAddressable && (
+        <Item onClick={() => callbacks.onProfileTable?.(table.path)}>
+          <ChartColumn strokeWidth={1.5} className="w-3.5 h-3.5 mr-2 text-hue-cyan" />
+          {"Profile Table"}
+        </Item>
+      )}
+      <Item onClick={() => callbacks.onGenerateCode?.(table.path)}>
+        <Code strokeWidth={1.5} className="w-3.5 h-3.5 mr-2 text-hue-purple" />
+        {"Generate Code"}
+      </Item>
+      {rowsAreAddressable && (
+        <Item onClick={() => callbacks.onGenerateTestData?.(table.path)}>
+          <WandSparkles strokeWidth={1.5} className="w-3.5 h-3.5 mr-2 text-hue-amber" />
+          {"Generate Test Data"}
+        </Item>
+      )}
+      {/* A PER-ROW maintenance action needs an addressable row AND an engine with
+          maintenance to run: both items call `onOpenMaintenance("tables", table.path)`,
+          and for a derived grouping there is no such object to name — which is exactly
+          the dead end #427 reported for Redis "Key Info".
+
+          The rest of the condition is the same dead end reached the other way, and the
+          #427 gate reached only its first case. Measured in the browser on 2026-08-19
+          against Elasticsearch 9.1.4: an index IS addressable, so both items rendered
+          on an engine that declares `supportsMaintenance: false`, and the page they
+          open gates its Global Operations card on that same capability — so clicking
+          "Merge Segments" landed on a page with no maintenance controls, no error and
+          no explanation. `maintenanceControl` above closes the rest of it: an engine
+          that declares the operation but not for a single table (SQLite's VACUUM) is
+          the same dead end with the capability flag switched on (#496).
+
+          Global maintenance is unaffected wherever an engine has any: it lives on the
+          admin Operations page and still runs there.
+
+          What this gate CANNOT answer is the rest of U22: both items are deep links, and the
+          destination renders a per-table control only for a ROW it has statistics for. Nothing
+          here knows whether one will arrive: `DetailedObject.rowCount` and `.size` are optional and
+          come from the schema read, not from the monitoring statistics the destination lists, and
+          no declared capability says whether an engine publishes per-table figures - so
+          withholding the link would need a new capability flag this repo does not want. The
+          destinations were made to say so instead - `TableMaintenanceUnreachableNote` in
+          src/components/admin/tabs/OperationsTab.tsx, where an admin's link actually lands
+          (Studio.tsx `openMaintenance`), and `MaintenanceUnattachableNote` in
+          src/components/monitoring/tabs/TablesTab.tsx for the /monitoring panel. Each is the only
+          reader that knows whether a row turned up, and its answer is testable against what
+          actually renders rather than against what was declared. */}
+      {isAdmin && rowsAreAddressable && (analyzeControl.offered || vacuumControl.offered) && (
+        <>
+          <Separator />
+          {analyzeControl.offered && (
+            <Item onClick={() => callbacks.onOpenMaintenance?.("tables", table.path)}>
+              <Search strokeWidth={1.5} className="w-3.5 h-3.5 mr-2 text-hue-amber" />
+              {analyzeControl.label ?? labels?.analyzeAction ?? "Analyze Table"}
+            </Item>
+          )}
+          {vacuumControl.offered && (
+            <Item onClick={() => callbacks.onOpenMaintenance?.("tables", table.path)}>
+              <Trash2 strokeWidth={1.5} className="w-3.5 h-3.5 mr-2 text-hue-blue" />
+              {vacuumControl.label ?? labels?.vacuumAction ?? "Vacuum Table"}
+            </Item>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+export const TableItem = React.memo(function TableItem({
+  table,
+  isExpanded,
+  onToggle,
+  labels,
+  capabilities,
+  isAdmin,
+  onTableClick,
+  onGenerateSelect,
+  onProfileTable,
+  onGenerateCode,
+  onGenerateTestData,
+  onOpenMaintenance,
+}: TableItemProps) {
+  const copyToClipboard = (text: string, label: string) => {
+    // The toast waits for the write to report an outcome (B43). It used to fire in the
+    // same statement that started it, which announced a copy that never happened over
+    // plain HTTP off loopback — `navigator.clipboard` is undefined there, and several
+    // distribution channels ship exactly that way.
+    void writeToClipboard(text).then((copied) => {
+      if (copied) toast.success(`${label} copied to clipboard`);
+      else toast.error(`Could not copy ${label} — select the text and copy it yourself`);
+    });
+  };
+
+  const callbacks = {
+    onTableClick,
+    onGenerateSelect,
+    onProfileTable,
+    onGenerateCode,
+    onGenerateTestData,
+    onOpenMaintenance,
+  };
+
+  return (
+    <div className="group flex flex-col">
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            className={cn(
+              "flex items-center gap-1.5 px-2 rounded-md transition-all",
+              isExpanded ? "bg-accent/50" : "hover:bg-accent/30",
+            )}
+          >
+            <button
+              type="button"
+              aria-expanded={isExpanded}
+              className="flex items-center gap-1.5 flex-1 min-w-0 py-1.5 cursor-pointer text-left"
+              onClick={onToggle}
+            >
+              <motion.div animate={{ rotate: isExpanded ? 90 : 0 }} transition={{ duration: 0.2 }} className="shrink-0">
+                <ChevronRight strokeWidth={1.5} className="w-3.5 h-3.5 text-muted-foreground" />
+              </motion.div>
+
+              <TableIcon
+                className={cn(
+                  "w-3.5 h-3.5 shrink-0 transition-colors",
+                  isExpanded ? "text-brand" : "text-muted-foreground group-hover:text-foreground",
+                )}
+              />
+
+              <span
+                className={cn(
+                  "truncate min-w-0 flex-1 text-xs font-medium transition-colors",
+                  isExpanded ? "text-foreground" : "text-muted-foreground group-hover:text-foreground",
+                )}
+              >
+                {table.name}
+              </span>
+            </button>
+
+            <div className="shrink-0 relative w-8 h-6 flex items-center justify-center">
+              {table.rowCount !== undefined && (
+                <span className="absolute inset-0 flex items-center justify-center text-[0.625rem] font-mono text-muted-foreground/70 whitespace-nowrap opacity-100 group-hover:opacity-0 transition-opacity pointer-events-none">
+                  {table.rowCount >= 1000 ? `${(table.rowCount / 1000).toFixed(1)}k` : table.rowCount}
+                </span>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="absolute inset-0 w-full h-full opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-within:opacity-100 transition-opacity hover:bg-accent flex items-center justify-center"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <EllipsisVertical
+                      strokeWidth={1.5}
+                      className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground"
+                    />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  {renderMenuItems({
+                    table,
+                    labels,
+                    capabilities,
+                    isAdmin,
+                    callbacks,
+                    copyToClipboard,
+                    Item: DropdownMenuItem,
+                    Separator: DropdownMenuSeparator,
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-48">
+          {renderMenuItems({
+            table,
+            labels,
+            capabilities,
+            isAdmin,
+            callbacks,
+            copyToClipboard,
+            Item: ContextMenuItem,
+            Separator: ContextMenuSeparator,
+          })}
+        </ContextMenuContent>
+      </ContextMenu>
+
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <ColumnList columns={table.columns} indexes={table.indexes} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});

@@ -1,0 +1,1318 @@
+# Shared configuration for every Druid process. Druid is configured entirely through
+# `druid_*` environment variables (the image's entrypoint translates them into
+# runtime.properties), so one anchor keeps the five processes provably identical - a cluster
+# whose processes disagree about ZooKeeper or the metadata store fails in confusing ways.
+x-druid-env: &druid-env
+  # Sizes every process for a laptop. Without it each one claims cluster-scale heap and
+  # direct memory, and the five together will not fit.
+  DRUID_SINGLE_NODE_CONF: micro-quickstart
+  # druid-multi-stage-query is included on purpose: it is what makes `INSERT INTO ... SELECT`
+  # (MSQ) available on /druid/v2/sql/task. The provider does not use that endpoint - the point
+  # is that the live pass can prove the *synchronous* endpoint rejects INSERT even when the
+  # engine is fully capable of it, which is the honest reason supportsCreateTable is false.
+  druid_extensions_loadList: '["druid-histogram", "druid-datasketches", "druid-lookups-cached-global", "postgresql-metadata-storage", "druid-multi-stage-query"]'
+  druid_zk_service_host: druid-zookeeper
+  druid_metadata_storage_host: ""
+  druid_metadata_storage_type: postgresql
+  druid_metadata_storage_connector_connectURI: jdbc:postgresql://druid-metadata:5432/druid
+  druid_metadata_storage_connector_user: druid
+  druid_metadata_storage_connector_password: druid
+  # Deep storage on a shared local volume. Real deployments use S3/HDFS; local is what makes
+  # this a single-machine fixture, and the historical and middlemanager must see the same files.
+  druid_storage_type: local
+  druid_storage_storageDirectory: /opt/shared/segments
+  druid_indexer_logs_type: file
+  druid_indexer_logs_directory: /opt/shared/indexing-logs
+  druid_indexer_runner_javaOptsArray: '["-server", "-Xmx1g", "-Xms1g", "-XX:MaxDirectMemorySize=1g", "-Duser.timezone=UTC", "-Dfile.encoding=UTF-8", "-Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager"]'
+  druid_indexer_fork_property_druid_processing_buffer_sizeBytes: 100MiB
+  druid_processing_numThreads: "2"
+  druid_processing_numMergeBuffers: "2"
+  # Lets the Router at 8888 proxy Coordinator and Overlord APIs, so the whole cluster is
+  # reachable through the one port the provider targets.
+  druid_router_managementProxy_enabled: "true"
+  # info, not the upstream compose's debug: the debug logger emits one line per internal
+  # request and buries the errors a live pass is looking for.
+  druid_emitter_logging_logLevel: info
+
+services:
+  postgres:
+    image: postgres:18
+    container_name: libredb-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      # The seed this file's postgres is for. Without it the service came up with an
+      # empty `postgres` database and no `libredb_dev` at all, so the object-tree
+      # fixture in 02-sample-data.sql (#710, #789) was never applied and an acceptance
+      # run measured an absence we had created. The scripts run in alphabetical order
+      # and ONLY on a fresh data directory, so an existing container has to be
+      # recreated before they take effect.
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+  mongodb:
+    image: mongo:latest
+    container_name: libredb-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+    ports:
+      - "27017:27017"
+    volumes:
+      # The object-browser fixture (#789). The image runs every .js in this directory
+      # through mongosh once, on a FRESH data directory only, so an already-initialized
+      # container has to be recreated before an edit to that file takes effect. Connect
+      # against the `app` database it creates; `configstore` is there so the reserved
+      # database names stay excluded by exact name rather than by prefix.
+      - ./docker/mongodb-init:/docker-entrypoint-initdb.d:ro
+  mysql:
+    image: mysql:latest
+    container_name: libredb-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: mysql
+    ports:
+      - "3306:3306"
+    volumes:
+      # The object-browser fixture (#789). The image runs it once, on a FRESH data
+      # directory only, so an already-initialized container has to be recreated before an
+      # edit to that file takes effect. Connect against the `app` database it creates.
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
+  mssql:
+    # Use 2022-latest to avoid SQL Server 2025 NUMA/processor topology assert in containers.
+    # Limit CPUs to avoid: ASSERT (result * DrtlGetProcessorCoreCount() == DrtlGetProcessorCount())
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: libredb-mssql
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: Password123!
+      MSSQL_DATABASE: mssql
+    ports:
+      - "1433:1433"
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+  oracle:
+    image: gvenzl/oracle-xe
+    container_name: libredb-oracle
+    restart: unless-stopped
+    environment:
+      # Inert against this image and left alone rather than removed, because it records
+      # what somebody expected. ORACLE_PDB is the Oracle-published image's variable;
+      # gvenzl/oracle-xe reads ORACLE_DATABASE, and setting that one creates a SECOND
+      # pluggable database and adds minutes to the first start. Measured: the service name
+      # to connect to is XEPDB1.
+      ORACLE_PDB: ORCLPDB1
+      ORACLE_PASSWORD: Password123!
+    ports:
+      - "1521:1521"
+    volumes:
+      # The object-browser fixture (#789, #765): two owners, one object of every declared
+      # kind, and a package whose body deliberately does not compile. SQL*Plus runs these
+      # once and ONLY on a fresh data directory, so an existing container has to be
+      # recreated before an edit takes effect. Connect as APP / Password123! on XEPDB1.
+      - ./docker/oracle-init:/container-entrypoint-initdb.d:ro
+  couchbase:
+    # The image ships an uninitialized node: the cluster, the credentials below,
+    # the bucket and its primary index are all applied by the couchbase-init
+    # sidecar that follows.
+    image: couchbase:community-8.0.2
+    container_name: libredb-couchbase
+    restart: unless-stopped
+    environment:
+      COUCHBASE_USER: Administrator
+      COUCHBASE_PASSWORD: password123
+    ports:
+      # 8091 management REST, 8093 query service (SQL++). Those are the only two
+      # the provider needs: it speaks HTTP, never the binary KV protocol (11210).
+      - "8091:8091"
+      - "8093:8093"
+    ulimits:
+      # Couchbase warns at every start below this and degrades under load.
+      nofile:
+        soft: 200000
+        hard: 200000
+    healthcheck:
+      # Authenticated on purpose: /pools answers anonymously only until the
+      # cluster is initialized, and returns 401 for every later start, which
+      # would leave an initialized node permanently "unhealthy". With
+      # credentials it answers 200 in both states.
+      test:
+        - CMD-SHELL
+        - 'curl -sf -o /dev/null -u "$$COUCHBASE_USER:$$COUCHBASE_PASSWORD" http://localhost:8091/pools'
+      interval: 5s
+      timeout: 5s
+      retries: 40
+  couchbase-init:
+    # One-shot sidecar. A fresh node has no cluster, no bucket and no index, and
+    # SQL++ rejects a SELECT against an un-indexed keyspace with error 4000, so
+    # without this the service would come up unusable.
+    image: couchbase:community-8.0.2
+    container_name: libredb-couchbase-init
+    restart: "no"
+    depends_on:
+      couchbase:
+        condition: service_healthy
+    environment:
+      COUCHBASE_HOST: couchbase
+      COUCHBASE_USER: Administrator
+      COUCHBASE_PASSWORD: password123
+      COUCHBASE_BUCKET: travel
+    volumes:
+      # The object-browser fixture (#789). Couchbase has no
+      # /docker-entrypoint-initdb.d, so the sidecar sources it after the cluster,
+      # the bucket and the bucket-level primary index exist. The script is
+      # re-runnable, so `docker compose up couchbase-init` re-applies an edit
+      # without recreating the data node.
+      - ./docker/couchbase-init:/fixture:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      # $$ escapes compose interpolation: these expand in the container's shell.
+      - |
+        set -eu
+        couchbase-cli cluster-init -c "$$COUCHBASE_HOST" \
+          --cluster-username "$$COUCHBASE_USER" --cluster-password "$$COUCHBASE_PASSWORD" \
+          --cluster-name libredb --services data,index,query \
+          --cluster-ramsize 1024 --cluster-index-ramsize 512 --index-storage-setting default \
+          || echo "cluster already initialized - existing settings left untouched"
+        # Community Edition rejects Magma, which bucket-create defaults to, and a
+        # single node cannot honour a replica.
+        couchbase-cli bucket-create -c "$$COUCHBASE_HOST" \
+          -u "$$COUCHBASE_USER" -p "$$COUCHBASE_PASSWORD" \
+          --bucket "$$COUCHBASE_BUCKET" --bucket-type couchbase --storage-backend couchstore \
+          --bucket-ramsize 256 --bucket-replica 0 --wait \
+          || echo "bucket already exists - existing data left untouched"
+        # The query service accepts statements a few seconds after the node is
+        # initialized, so the index creation is retried rather than assumed.
+        for _ in $$(seq 1 30); do
+          if curl -sf -o /dev/null -u "$$COUCHBASE_USER:$$COUCHBASE_PASSWORD" \
+            "http://$$COUCHBASE_HOST:8093/query/service" \
+            --data-urlencode "statement=CREATE PRIMARY INDEX IF NOT EXISTS ON \`$$COUCHBASE_BUCKET\`"; then
+            echo "couchbase ready: bucket $$COUCHBASE_BUCKET has a primary index"
+            # The object-browser fixture (#789): the scope, the collections, the
+            # two same-named indexes, the two same-named scope functions, the
+            # global function and the legacy map-reduce view. Every claim the
+            # provider doc makes about this engine is re-measurable against it.
+            exec bash /fixture/01-object-fixture.sh
+          fi
+          sleep 2
+        done
+        echo "couchbase-init: the query service never accepted CREATE PRIMARY INDEX" >&2
+        exit 1
+  clickhouse:
+    # Pinned to the exact build the provider was live-verified against, so the status
+    # codes, header names and mid-stream-failure trailer recorded in
+    # docs/providers/clickhouse.md stay reproducible for the next person.
+    image: clickhouse/clickhouse-server:26.7.1.1315
+    container_name: libredb-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: libredb
+      CLICKHOUSE_PASSWORD: password123
+      CLICKHOUSE_DB: demo
+      # Lets the live pass GRANT/REVOKE a second, restricted user (needed to reproduce the
+      # ACCESS_DENIED-arrives-as-500 finding, spec section 2.5) without hand-editing users.xml.
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      # 8123 is HTTP, the only protocol the provider speaks. 9000 (native TCP) is deliberately
+      # NOT exposed: there is no native-protocol transport in this codebase to connect with it.
+      - "8123:8123"
+    volumes:
+      # The object-browser fixture (#789). The image feeds these to clickhouse-client once,
+      # on a FRESH data directory only, so an already-initialized container has to be
+      # recreated before an edit to that file takes effect. Connect against the `demo`
+      # database CLICKHOUSE_DB creates.
+      - ./docker/clickhouse-init:/docker-entrypoint-initdb.d:ro
+      # A CONFIG-FILE dictionary, which SQL cannot create. Measured: such a dictionary has
+      # no system.tables row at all and lives only in system.dictionaries with an empty
+      # database, so it is the only object that exercises the provider's dictionary union.
+      # The default config's <dictionaries_config>*_dictionary.*ml</dictionaries_config> glob
+      # is what picks this file up, so the `_dictionary.xml` suffix and this exact directory
+      # are both load-bearing.
+      - ./docker/clickhouse-config/regions_dictionary.xml:/etc/clickhouse-server/regions_dictionary.xml:ro
+    ulimits:
+      # ClickHouse warns at every start below this and degrades under load, same class of
+      # issue as the couchbase nofile setting above.
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      # /ping needs no auth and returns "Ok." once the server can accept queries. The image has
+      # no curl (unlike couchbase's), so this uses wget, which it does ship.
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    # No seed sidecar: CLICKHOUSE_DB above creates `demo` on first boot, the init mount seeds
+    # it, and unlike Couchbase there is no index prerequisite - a SELECT against a freshly
+    # created table works immediately. Do not add one.
+
+  # ---------------------------------------------------------------------------------------
+  # Apache Druid. Unlike every other service here, Druid is a distributed system and has no
+  # single-container mode: five Druid processes plus ZooKeeper plus a metadata database is
+  # the minimum that can answer a SQL query. That is why all seven carry `profiles: [druid]`
+  # - a bare `docker compose -f database-compose.yml up -d` would otherwise grow from 7
+  # containers to 14 and from roughly 6 GB of RAM to 12. Start it explicitly:
+  #
+  #   docker compose -f database-compose.yml --profile druid up -d
+  #
+  # The provider only ever talks to the Router (8888) or the Broker (8082); the other five
+  # processes are cluster internals and deliberately publish no host port. 8091, the
+  # MiddleManager's usual port, is already taken by couchbase above - another reason not to.
+  # ---------------------------------------------------------------------------------------
+  druid-metadata:
+    # Druid's metadata store (segment table, task history, supervisors, config). Distinct
+    # from the `postgres` service above on purpose: sharing it would put Druid's ~20 internal
+    # tables into the demo database the studio's own postgres connection browses.
+    image: postgres:17.6
+    container_name: libredb-druid-metadata
+    profiles: ["druid"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: druid
+      POSTGRES_PASSWORD: druid
+      POSTGRES_DB: druid
+    # No published port: only the Druid Coordinator/Overlord reads it, over the compose
+    # network. Publishing it would collide with the `postgres` service on 5432.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U druid -d druid"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  druid-zookeeper:
+    # Druid's cluster coordination: process discovery, segment load queues, task assignment.
+    image: zookeeper:3.9.3
+    container_name: libredb-druid-zookeeper
+    profiles: ["druid"]
+    restart: unless-stopped
+    environment:
+      ZOO_MY_ID: "1"
+      # zkServer.sh's own status check uses the `srvr` four-letter word, which 3.9 refuses
+      # unless it is whitelisted.
+      ZOO_4LW_COMMANDS_WHITELIST: "srvr,ruok,conf"
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep -q imok"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  druid-coordinator:
+    # Coordinator + Overlord in one process (the image's coordinator config sets
+    # druid.coordinator.asOverlord.enabled), so segment balancing and task management both
+    # live here. This is what accepts an ingestion task, which is how a datasource is
+    # created at all - Druid has no CREATE TABLE.
+    image: apache/druid:37.0.0
+    container_name: libredb-druid-coordinator
+    profiles: ["druid"]
+    restart: unless-stopped
+    command: ["coordinator"]
+    environment: *druid-env
+    volumes:
+      - druid_shared:/opt/shared
+      - druid_coordinator_var:/opt/druid/var
+    depends_on:
+      druid-metadata:
+        condition: service_healthy
+      druid-zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8081/status/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+  druid-historical:
+    # Serves published segments. Without it a datasource exists in the metadata store but
+    # returns no rows, which is the "datasource with no segments" case the provider has to
+    # render honestly.
+    image: apache/druid:37.0.0
+    container_name: libredb-druid-historical
+    profiles: ["druid"]
+    restart: unless-stopped
+    command: ["historical"]
+    environment: *druid-env
+    volumes:
+      - druid_shared:/opt/shared
+      - druid_historical_var:/opt/druid/var
+    depends_on:
+      druid-coordinator:
+        condition: service_started
+      druid-zookeeper:
+        condition: service_healthy
+  druid-middlemanager:
+    # Runs ingestion tasks as forked peon processes. Needed for the live pass to load data.
+    image: apache/druid:37.0.0
+    container_name: libredb-druid-middlemanager
+    profiles: ["druid"]
+    restart: unless-stopped
+    command: ["middleManager"]
+    environment: *druid-env
+    volumes:
+      - druid_shared:/opt/shared
+      - druid_middlemanager_var:/opt/druid/var
+    depends_on:
+      druid-coordinator:
+        condition: service_started
+      druid-zookeeper:
+        condition: service_healthy
+  druid-broker:
+    # Plans and merges queries. POST /druid/v2/sql here is the same API the Router proxies,
+    # so the provider works against 8082 directly too - published so that can be proven
+    # rather than assumed.
+    image: apache/druid:37.0.0
+    container_name: libredb-druid-broker
+    profiles: ["druid"]
+    restart: unless-stopped
+    command: ["broker"]
+    environment: *druid-env
+    volumes:
+      - druid_broker_var:/opt/druid/var
+    ports:
+      - "8082:8082"
+    depends_on:
+      druid-coordinator:
+        condition: service_started
+      druid-zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8082/status/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+  druid-router:
+    # The provider's default target. It fronts the SQL API, the web console and - because
+    # druid_router_managementProxy_enabled is set - the Coordinator and Overlord APIs, so a
+    # single port is enough for both querying and loading data.
+    image: apache/druid:37.0.0
+    container_name: libredb-druid-router
+    profiles: ["druid"]
+    restart: unless-stopped
+    command: ["router"]
+    environment: *druid-env
+    volumes:
+      - druid_router_var:/opt/druid/var
+      # The object-surface fixture (#789). Druid's image has no init-script directory
+      # and Druid has no CREATE statement at all, so the fixture is a lookup map plus
+      # three ingestion task specs and a script that applies them:
+      #
+      #   docker exec libredb-druid-router bash /opt/druid-init/apply.sh
+      #
+      # Mounted on the Router because the Router fronts the SQL endpoint AND, through
+      # the management proxy, the Coordinator and Overlord APIs the fixture needs.
+      - ./docker/druid-init:/opt/druid-init:ro
+    ports:
+      - "8888:8888"
+    depends_on:
+      druid-broker:
+        condition: service_started
+      druid-coordinator:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8888/status/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+
+  # Redis, as a service rather than a hand-started container. Its absence was the
+  # one hole in the shipped set (#424): `redis` had no compose entry, so its own
+  # gate-4 probe could not be reproduced on a clean machine.
+  redis:
+    image: redis:latest
+    container_name: libredb-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    # The object-browser fixture (#789) is NOT mounted here on purpose: this image has no
+    # init-script directory and no entrypoint hook of any kind, so there is nowhere to mount
+    # it that would run it. Apply it by hand, in one command, once the service is up:
+    #   docker exec -i libredb-redis redis-cli --no-raw < docker/redis-init/01-object-fixture.redis
+    # redis-cli reading stdin uses ONE connection for the whole file, which is what makes the
+    # `SELECT 3` in the middle of it land in database 3. See docs/providers/redis.md 11.5.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------------------------------
+  # Search engines (issue #424, Phase 1). Two type-ids, one provider module, so BOTH have to
+  # be runnable at once: every claim the provider records is a claim about which of the two
+  # answered differently, and that can only be re-measured side by side.
+  #
+  # This is the exact configuration the Phase 1 probes ran against (read back with
+  # `docker inspect`): single-node discovery, security off, and a 512 MB heap each - about
+  # 1.2 GB of RSS for the pair. No `profiles:` on purpose, unlike the druid block: these are
+  # SHIPPED providers, so a plain `docker compose up` has to be able to reproduce their
+  # integration pass, the same rule clickhouse and couchbase follow above.
+  #
+  # Security is DISABLED on both, which is what makes the fixtures reproducible - and it is
+  # also the limit of what they can prove: a bogus `Basic` header is IGNORED here (HTTP 200
+  # on both, measured), so no 401/403 body could ever be captured from these containers. The
+  # transport decides `auth` on the HTTP status alone for exactly that reason.
+  # ---------------------------------------------------------------------------------------
+  elasticsearch:
+    # Pinned to the exact build the provider was live-verified against, the same rule the
+    # clickhouse service follows: the status codes, fault names and paging behaviour recorded
+    # in docs/providers/elasticsearch.md are version-specific claims.
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.1.4
+    container_name: libredb-elasticsearch
+    restart: unless-stopped
+    environment:
+      # One node forms its own cluster; without it the node waits for a seed host it will
+      # never find and the SQL endpoint never comes up.
+      discovery.type: single-node
+      # Off, so the endpoint is plain HTTP with no bootstrap password or enrolment token. The
+      # SQL API itself needs no licence beyond basic - that is what makes SQL, and not ES|QL,
+      # the query language both products can share.
+      xpack.security.enabled: "false"
+      # Sized for a laptop. The image otherwise claims a heap from the host's total memory.
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      # The object-surface fixture (#789). Neither image has an init-script directory
+      # and neither product has DDL - an index, an alias, an ingest pipeline, an index
+      # template and a data stream are all created over REST - so the fixture is a
+      # script, mounted read-only and run by hand or by `docker exec`. The exact
+      # commands are in docs/providers/elasticsearch.md.
+      - ./docker/search-init:/opt/search-init:ro
+    ports:
+      # 9200 is the HTTP API, the only protocol this provider speaks. 9300 (transport) is
+      # deliberately not published: there is no transport-protocol client in this codebase.
+      - "9200:9200"
+    healthcheck:
+      # `_cluster/health` answers before any index exists, so it does not need seed data. A
+      # single-node cluster with a replica requested is YELLOW and never green, so waiting
+      # for green here would hang forever. The image ships curl.
+      test: ["CMD", "curl", "-sf", "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=3s"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  opensearch:
+    # Pinned for the same reason, and here the reason is sharper: the SQL PLUGIN's fault
+    # names are Java class names that its own releases rename, and `latest` resolved to 3.8.0
+    # when the provider was measured (`GET /` reported distribution `opensearch`, number
+    # 3.8.0, build_date 2026-08-01).
+    image: opensearchproject/opensearch:3.8.0
+    container_name: libredb-opensearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      # The fork's own switch, and NOT the same key as Elasticsearch's: the security plugin
+      # is installed rather than a licensed feature, so it is disabled by name. Without this
+      # the node serves HTTPS with a self-signed certificate and a default admin password.
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      # The same fixture script, unchanged: every endpoint it calls answered identically
+      # on both products (#789). See docs/providers/opensearch.md for the commands.
+      - ./docker/search-init:/opt/search-init:ro
+    ports:
+      # 9201 on the host because both products ship on 9200 in the container and the
+      # elasticsearch service above already publishes it. The provider's default port stays
+      # 9200 - this is a collision on THIS machine, not a fact about the product.
+      - "9201:9200"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=3s"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    # No seed sidecar, and one thing to expect instead: a stock node ships its own indices.
+    # Measured on an empty 3.8.0 cluster, `.plugins-ml-config` and `top_queries-<date>-<n>`
+    # are already there, so two thirds of the index listing is the engine's bookkeeping. The
+    # provider hides both; the second one carries no leading dot, so the dot convention alone
+    # does not catch it.
+
+  # ---------------------------------------------------------------------------------------
+  # libSQL server (issue #424, Phase 5). SQLite over a network: one container is the whole
+  # server, and it is the SELF-HOSTED half of the `libsql` type-id. The other half is Turso
+  # Cloud, which cannot be a compose service - it is an account - so the doc records what was
+  # measured there and this service is what anyone can repeat.
+  # ---------------------------------------------------------------------------------------
+  libsql:
+    # Pinned to the exact build the provider was live-verified against, the same rule the
+    # trino and clickhouse services follow: the refusal wording recorded in
+    # docs/providers/libsql.md ("unsupported statement: VACUUM") is a claim about sqld
+    # 0.24.33, and Turso Cloud words the identical refusal differently.
+    #
+    # The tag is needed even though `:latest` reports the same 0.24.33: measured 2026-08-27,
+    # `:latest` is a ROLLING REBUILD of that version - it answers `/version` with
+    # `sqld 0.24.33 (f8fb14f3 2026-08-11)` where `v0.24.33` answers
+    # `sqld 0.24.33 (40a151bd 2025-12-19)`, two different digests under one version number.
+    # So `:latest` is not reproducible even while the number it prints looks pinned.
+    image: ghcr.io/tursodatabase/libsql-server:v0.24.33
+    container_name: libredb-libsql
+    restart: unless-stopped
+    environment:
+      # A single primary with no replica. Without it sqld starts in a mode that expects a
+      # primary to follow, and the first write fails rather than the server failing to start.
+      SQLD_NODE: primary
+    ports:
+      # 8080 carries the Hrana HTTP API AND the version route - one port, and there is no
+      # second protocol port to publish. Mapped to 18080 so it cannot collide with the trino
+      # service above, which owns 8080 on the host.
+      - "18080:8080"
+    healthcheck:
+      # sqld's own route, and it answers WITHOUT a token - which is exactly why it is a
+      # health check and not a connection test: the provider proves the credential with
+      # `SELECT 1` instead (see connect() in the provider).
+      #
+      # Spoken through bash's /dev/tcp rather than curl, because the image ships NEITHER
+      # curl NOR wget (checked before writing this, the same way the trino service's
+      # comment says to: `command -v wget || command -v curl` answers nothing, while
+      # /bin/bash and /bin/sqld are both there). A `CMD curl` here would have marked the
+      # service permanently unhealthy while the server answered every request.
+      # `CMD bash -c`, never `CMD-SHELL`: CMD-SHELL runs /bin/sh, which is dash here, and
+      # dash has no /dev/tcp - measured, the check failed with "cannot create
+      # /dev/tcp/localhost/8080: Directory nonexistent" while the server was answering.
+      test:
+        - CMD
+        - bash
+        - -c
+        - exec 3<>/dev/tcp/localhost/8080 && printf 'GET /health HTTP/1.0\r\n\r\n' >&3 && head -1 <&3 | grep -q 200
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------------------
+  # DuckDB (issue #424) has NO service here, and that is not an oversight.
+  #
+  # It is an EMBEDDED engine: the driver is a native N-API addon this app loads into its own
+  # process, and the whole connection is a file path (or `:memory:`). There is no server to
+  # start and nothing listening on a port, so a container would have nothing to run - the same
+  # reason `sqlite` and the embedded `libredb` have no service either. The file also admits
+  # exactly ONE operating-system process, measured refused even in read-only mode, so a
+  # sidecar holding it open would lock the app out rather than help it.
+  #
+  # To repeat the live pass, build a local file instead of starting a service - see
+  # docs/providers/duckdb.md.
+  # ---------------------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------------------
+  # Apache Trino (issue #424, Phase 2). One container is the whole cluster: the coordinator
+  # runs the worker in-process by default, which is enough to answer every statement the
+  # provider sends. Nothing else is needed to exercise it.
+  # ---------------------------------------------------------------------------------------
+  trino:
+    # Pinned to the exact build the provider was live-verified against, the same rule the
+    # clickhouse and elasticsearch services follow: the fault names, the page count of an
+    # exchange, the `SHOW STATS` shape and the 401 body recorded in docs/providers/trino.md
+    # are claims about 476, not about Trino in general. `version()` here returns the bare
+    # string "476", so the pin and the engine's own answer are the same token.
+    image: trinodb/trino:476
+    container_name: libredb-trino
+    restart: unless-stopped
+    volumes:
+      # The object-surface fixture (#789). Mounted at /fixtures and NOT at the
+      # /docker-entrypoint-initdb.d most services here use, because that name is a promise
+      # this image does not keep: the Trino image has no init-script directory and runs no
+      # seed script of its own. The `trino-init` sidecar below is what applies the file, and
+      # mounting it on the coordinator too is what makes the re-apply after a restart a
+      # one-liner with no bind flags:
+      #
+      #   docker exec libredb-trino trino --server localhost:8080 \
+      #     --file /fixtures/01-object-fixture.sql
+      #
+      # That re-apply is not optional housekeeping. The `memory` connector holds its schemas,
+      # tables, views and functions in the COORDINATOR'S HEAP, so a restart loses all of them
+      # and the sidecar, being a one-shot, does not run again by itself.
+      - ./docker/trino-init:/fixtures:ro
+    ports:
+      # 8080 is the client protocol AND the web UI - one port, two surfaces, which is why
+      # the provider's default port is a generic number and the dialect is declared rather
+      # than inferred from it. There is no second protocol port to publish: Trino has no
+      # native wire beyond this HTTP one.
+      - "8080:8080"
+    healthcheck:
+      # The image's own script, not a bare `curl /v1/info`. Measured on a cold start: the
+      # statement endpoint answers at ~3.0s, `/v1/info` starts answering 200 at ~5.9s while
+      # still reporting `"starting": true`, and only at ~8.8s does it report false. A plain
+      # `curl -sf http://localhost:8080/v1/info` would therefore call the service healthy
+      # three seconds before it can plan a query. This script reads the port out of
+      # /etc/trino/config.properties and greps for `"starting": false`, which is the
+      # condition that actually matters.
+      test: ["CMD", "/usr/lib/trino/bin/health-check"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    # No `depends_on`: the image ships the `tpch` catalog configured, so `tpch.tiny.nation`
+    # (25 rows) and `tpch.tiny.lineitem` (60175 rows) are queryable the moment the
+    # healthcheck passes - generated on read, never stored. `tpcds`, `memory`, `system` and
+    # `jmx` are configured too. Point a connection's Database field at `tpch`; `jmx` is what
+    # makes the overview's uptime readable, so leave that catalog in place.
+    #
+    # THERE IS NO ICEBERG CATALOG HERE, and that is a deliberate limit rather than an
+    # oversight. A materialized view is the one object kind Trino cannot create without one,
+    # and on 476 only a HIVE-METASTORE-backed Iceberg catalog will create one at all: the
+    # JDBC and REST catalog types both answer `createMaterializedView is not supported`. So
+    # an Iceberg catalog here would mean a metastore service, a warehouse volume and a
+    # second image in this file for one object kind. The object surface therefore answers
+    # `materialized_view: 0` everywhere on this cluster, which is the TRUE answer for it, and
+    # docs/providers/trino.md carries the catalog properties and the exact statements that
+    # reproduce the materialized-view measurements on a cluster that does have one.
+
+  trino-init:
+    # One-shot sidecar, the same shape as couchbase-init above. The Trino image has no
+    # init-script convention of its own, so the seeding is a CLI run rather
+    # than a mount the server reads: the CLI ships in this image at /usr/bin/trino, which is
+    # why the sidecar reuses the coordinator's image instead of adding a second one.
+    image: trinodb/trino:476
+    container_name: libredb-trino-init
+    restart: "no"
+    depends_on:
+      trino:
+        condition: service_healthy
+    volumes:
+      - ./docker/trino-init:/fixtures:ro
+    # `--server trino:8080`, the compose service name, not localhost: this is a separate
+    # container. The image's own entrypoint launches a coordinator, so it is replaced here.
+    entrypoint: ["/usr/bin/trino"]
+    command:
+      - "--server"
+      - "trino:8080"
+      - "--file"
+      - "/fixtures/01-object-fixture.sql"
+
+  cassandra:
+    # Pinned to the exact build the provider was live-verified against, the same rule
+    # the clickhouse, elasticsearch and trino services follow: the error codes, the
+    # `system_views` table set, the type codes for `duration` and `vector`, and the
+    # size_estimates behaviour recorded in docs/providers/cassandra.md are claims about
+    # 5.0.9 (`system.local.release_version`), not about Cassandra in general.
+    image: cassandra:5.0.9
+    container_name: libredb-cassandra
+    restart: unless-stopped
+    # TWO SETTINGS THAT SHIP DISABLED, rewritten into cassandra.yaml before the node
+    # starts. Without them this service measures a CONFIGURATION rather than an engine
+    # (issue #789): `CREATE MATERIALIZED VIEW` answers "Materialized views are disabled.
+    # Enable in cassandra.yaml to use." and `CREATE FUNCTION` answers "User-defined
+    # functions are disabled in cassandra.yaml - set user_defined_functions_enabled=true
+    # to enable", so the object fixture would build neither and the tree would show two
+    # empty folders that look like facts about Cassandra.
+    #
+    # A sed rather than a mounted cassandra.yaml: the file is ~2000 lines and version
+    # specific, so a copy pinned here would silently strip whatever 5.0.10 adds. The
+    # image's own entrypoint is still what starts the node. Cassandra 5.0 logs an
+    # experimental warning beside the first setting, which is the engine's own wording
+    # and not a problem with this service.
+    command: >
+      bash -c "sed -i
+      -e 's/^materialized_views_enabled:.*/materialized_views_enabled: true/'
+      -e 's/^user_defined_functions_enabled:.*/user_defined_functions_enabled: true/'
+      /etc/cassandra/cassandra.yaml && exec docker-entrypoint.sh cassandra -f"
+    environment:
+      CASSANDRA_CLUSTER_NAME: libredb-probe
+      # 2G of a 4G limit. The image otherwise sizes the heap from the HOST's memory,
+      # which on a developer machine claims several gigabytes for a probe node.
+      MAX_HEAP_SIZE: 2G
+      # HEAP_NEWSIZE is deliberately NOT set. Cassandra 5.0 runs G1 by default and logs
+      # "heap_newsize is erroneously set" while ignoring it, so setting it only adds a
+      # warning to every start.
+    ports:
+      # 9042 is the native protocol, the only one this provider speaks. 7000/7001 are
+      # internode and 7199 is JMX - the latter is what `nodetool` uses, and no
+      # maintenance operation here goes through it (see the provider's empty
+      # maintenanceOperations). The old Thrift port 9160 no longer exists.
+      - "9042:9042"
+    mem_limit: 4g
+    healthcheck:
+      # `nodetool status` reporting UN (Up/Normal) for a node is the condition that
+      # actually matters: `cqlsh` connects a second later, and the native port accepts
+      # a socket well before either. MEASURED FROM COLD: 206 seconds to UN on this
+      # image, so any fixed sleep a future gate writes will be wrong - the retries
+      # below cover 300s and the healthcheck is what a `depends_on` must wait for.
+      test: ["CMD-SHELL", "nodetool status | grep -q '^UN'"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+    volumes:
+      # THE IMAGE HAS NO INIT-SCRIPT DIRECTORY. Its entrypoint runs `cassandra -f` and
+      # never scans a mounted folder, and the node is not accepting CQL at the moment
+      # the entrypoint starts anyway. The mount puts the fixture INSIDE the container so
+      # it can be applied by hand once `nodetool status` reports UN:
+      #
+      #   docker exec libredb-cassandra cqlsh -f \
+      #     /fixtures/01-object-fixture.cql
+      #
+      # The target is /fixtures and NOT the /docker-entrypoint-initdb.d every other
+      # service here uses, because that name is a promise this image does not keep: it
+      # would tell a reader the file runs itself at start, and nothing runs it.
+      #
+      # The full recipe, including the optional trigger step, is in
+      # docs/providers/cassandra.md.
+      - ./docker/cassandra-init:/fixtures:ro
+    # No seed sidecar, because there is nothing for one to hook into: see the volume
+    # above. The object fixture (issue #789) builds keyspace `probe` with three tables, a
+    # materialized view, three indexes of two different catalog kinds, a user-defined
+    # type, four functions including an overloaded pair, an aggregate and - after the
+    # documented trigger step - one trigger. It also creates a keyspace called
+    # `system_reports`, which exists to keep the "a system keyspace is excluded by exact
+    # name, never by a `system%` prefix" measurement refutable.
+
+  # ==========================================================================
+  # Wire-compatible engines (issue #424, Phase 0)
+  #
+  # These have no provider of their own: each speaks the wire protocol of a driver
+  # we already ship, and the entries below are the instances a gate-4 probe
+  # actually ran against. They exist so the compatibility claims in
+  # `src/lib/db/compatibility.ts` can be re-measured rather than trusted.
+  #
+  # All of them carry `profiles: ["compat"]`, so a plain `docker compose up` still
+  # starts only the shipped engines. Bring them up deliberately:
+  #   docker compose -f database-compose.yml --profile compat up -d
+  # ==========================================================================
+
+  # -- PostgreSQL wire ------------------------------------------------------
+
+  citus:
+    image: citusdata/citus:latest
+    container_name: libredb-citus
+    profiles: ["compat"]
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+
+  # network_mode: host is not a shortcut here. CockroachDB 26.x refuses an insecure
+  # cluster whose --listen-addr is not 127.0.0.1/localhost, and a loopback bind
+  # inside the container namespace cannot be published with -p. Host networking is
+  # the only way to reach an insecure single node; the alternative is a secure
+  # cluster with --accept-sql-without-tls.
+  #
+  # LINUX ONLY. Docker Desktop (macOS, Windows) runs containers inside a VM, where
+  # `host` is the VM rather than your machine, so 127.0.0.1:26257 will not answer
+  # there. On those platforms run a secure cluster with --accept-sql-without-tls and
+  # a normal port mapping instead. The probe behind this entry ran on Linux.
+  cockroachdb:
+    image: cockroachdb/cockroach:latest
+    container_name: libredb-cockroachdb
+    profiles: ["compat"]
+    network_mode: host
+    command: start-single-node --insecure --listen-addr=localhost:26257 --http-addr=localhost:18080
+    healthcheck:
+      test: ["CMD", "./cockroach", "sql", "--insecure", "--host=127.0.0.1:26257", "-e", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  materialize:
+    image: materialize/materialized:latest
+    container_name: libredb-materialize
+    profiles: ["compat"]
+    ports:
+      - "6875:6875"
+
+  # QuestDB speaks the PostgreSQL wire protocol on 8812 and its own HTTP API on 9000.
+  #
+  # This service exists to reproduce a REFUSAL, not a working connection: QuestDB was probed
+  # on 2026-08-26 and earns no registry row, because the editor cannot run anything there -
+  # every run with a `queryId` is preceded by `SELECT pg_backend_pid()`, which QuestDB does
+  # not have. It stays here so that finding can be re-measured rather than trusted; see
+  # `docs/providers/README.md`, "Measured, and refused a row".
+  #
+  # The HTTP port is published because the fixture recipe seeds through it: QuestDB has no
+  # `psql`-friendly bulk insert, and `long_sequence()` over /exec is the documented way.
+  #
+  # PINNED to 10.0.1, which is what the 2026-08-26 probe measured. `:latest` moved during
+  # that probe run - the tag served 10.0.1 while `version()` still answers PostgreSQL 12.3,
+  # so a rolling tag would change the engine under a version string that never moves.
+  questdb:
+    image: questdb/questdb:10.0.1
+    container_name: libredb-questdb
+    profiles: ["compat"]
+    ports:
+      - "18812:8812"
+      - "19000:9000"
+
+  risingwave:
+    image: risingwavelabs/risingwave:latest
+    container_name: libredb-risingwave
+    profiles: ["compat"]
+    command: single_node
+    ports:
+      - "4566:4566"
+
+  # TimescaleDB is an extension, not a fork: the server is a stock PostgreSQL 17 and
+  # `SELECT version()` says so. The extension version comes from pg_extension, which
+  # is why the probed version records both.
+  timescaledb:
+    image: timescale/timescaledb:latest-pg17
+    container_name: libredb-timescaledb
+    profiles: ["compat"]
+    environment:
+      POSTGRES_PASSWORD: probe
+      POSTGRES_DB: probe
+    ports:
+      - "15432:5432"
+
+  # Percona Distribution for PostgreSQL. Same reasoning as `percona-mysql` above, and the
+  # one measured difference is the opposite of that one's: this build DOES put its own name
+  # in `version()`, so the product displays it.
+  percona-postgresql:
+    image: percona/percona-distribution-postgresql:18.6
+    container_name: libredb-percona-postgresql
+    profiles: ["compat"]
+    environment:
+      POSTGRES_PASSWORD: "Probe123pass!"
+      POSTGRES_DB: probe
+    ports:
+      - "15440:5432"
+
+  # ParadeDB: PostgreSQL plus nine extensions (pg_search, pgvector, PostGIS, pg_ivm and the
+  # rest). PINNED to a RELEASE tag rather than `latest`, because `version()` names only
+  # PostgreSQL here - the tag is the only record of which ParadeDB was measured.
+  #
+  # Expect a crowded object browser: 41 objects for 2 user tables on a fresh database, and
+  # agent plan mode fails on it (B52). That is the finding, not a misconfiguration.
+  paradedb:
+    image: paradedb/paradedb:0.25.4
+    container_name: libredb-paradedb
+    profiles: ["compat"]
+    environment:
+      POSTGRES_PASSWORD: "Probe123pass!"
+      POSTGRES_DB: probe
+    ports:
+      - "15441:5432"
+
+  # OrioleDB: a storage-engine extension on PostgreSQL, and the tables a fresh database
+  # creates already use it (`default_table_access_method` is `orioledb`) - verified, since a
+  # probe against heap tables would measure PostgreSQL and not OrioleDB.
+  #
+  # The tag is a DATED NIGHTLY on purpose: the project publishes no release tags at all, so
+  # `pg18-nightly-ubuntu` moves under you. This is the build the 2026-08-27 probe measured.
+  orioledb:
+    image: orioledb/orioledb:pg18-nightly-20260824-cc35a80-ubuntu
+    container_name: libredb-orioledb
+    profiles: ["compat"]
+    environment:
+      POSTGRES_PASSWORD: "Probe123pass!"
+      POSTGRES_DB: probe
+    ports:
+      - "15442:5432"
+
+  # `yugabyted` is the single-node launcher: it starts the master and the tserver in
+  # one container, and --background=false keeps it in the foreground so Docker owns
+  # the process and the container does not exit immediately. YSQL listens on 5433,
+  # NOT the PostgreSQL default 5432 - connecting to 5432 here reaches nothing. Sign
+  # in as user `yugabyte`, database `yugabyte`, no password.
+  yugabytedb:
+    image: yugabytedb/yugabyte:2.25.2.0-b359
+    container_name: libredb-yugabytedb
+    profiles: ["compat"]
+    command: bin/yugabyted start --background=false
+    ports:
+      - "15433:5433"
+
+  # THIRD-PARTY IMAGE, stated because it is unusual here: Apache publishes only
+  # BUILD images for Cloudberry - you compile the server inside them - so the
+  # project itself ships nothing runnable, and this is a community image. The probe
+  # behind this entry ran on it; nothing is claimed about an Apache-built server.
+  #
+  # Boot takes about two minutes before Postgres answers: the entrypoint initialises
+  # a coordinator and its segments first. `shm_size: 1gb` is what the probe ran with,
+  # the segment processes communicating through shared memory. Sign in as user
+  # `gpadmin`, password `probe`, database `probe`.
+  #
+  # `gpadmin` is a superuser, and the agent's execution profile refuses it as too
+  # broad, so an agent run here needs a least-privilege role created by hand - and
+  # even then the grounding read is refused, because gp_toolkit alone answers more
+  # rows than its budget allows (B52).
+  cloudberry:
+    image: woblerr/cloudberry:2.1.0-incubating
+    container_name: libredb-cloudberry
+    profiles: ["compat"]
+    shm_size: 1gb
+    environment:
+      CLOUDBERRY_PASSWORD: probe
+      CLOUDBERRY_DATABASE_NAME: probe
+    ports:
+      - "15435:5432"
+
+  # AlloyDB Omni is Google's downloadable AlloyDB, and it needs nothing unusual to
+  # run: `POSTGRES_PASSWORD` is the only variable the probe behind this entry set.
+  # No licence key, no `ulimit` change, no memory floor, and no `shm_size` - unlike
+  # the cloudberry service above, which needs one. Sign in as user `postgres` with
+  # the password below, database `postgres` (the entrypoint's default when
+  # POSTGRES_DB is unset).
+  #
+  # The tag is pinned, and the pin is free: the registry carries 87 tags including
+  # 15.x, 16.x, 17.5.0 and 17.7.0, and 17.9.0's digest is currently the same digest
+  # `:latest` serves. Only 17.9.0 was probed.
+  #
+  # `SELECT version()` here says "PostgreSQL 17.9" and nothing else - the string
+  # names AlloyDB nowhere - so the overview cannot be told apart from a stock
+  # PostgreSQL 17. Confirm which server you are on from the `alloydb.*` settings, or
+  # from this tag.
+  #
+  # Two things a probe here should expect. The columnar engine is OFF: switching it
+  # on takes ALTER SYSTEM plus a container restart, not a reload. And an agent run
+  # needs a least-privilege role created by hand, because the image's own `postgres`
+  # superuser is refused as too broad - after which the grounding read is refused
+  # anyway, at 536 rows against a 200-row budget, most of them the extension views
+  # this image installs into `public` itself (B52).
+  alloydb:
+    image: google/alloydbomni:17.9.0
+    container_name: libredb-alloydb
+    profiles: ["compat"]
+    environment:
+      POSTGRES_PASSWORD: probe
+    ports:
+      - "15436:5432"
+
+  # -- MySQL wire ----------------------------------------------------------
+
+  mariadb:
+    image: mariadb:latest
+    container_name: libredb-mariadb
+    profiles: ["compat"]
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: probe
+    ports:
+      - "3307:3306"
+    volumes:
+      # The MariaDB half of the object-browser fixture (#789), and it is a SEPARATE file
+      # from the MySQL one on purpose: this provider's `objectKinds` is resolved from the
+      # server's own version string, and MariaDB declares `package` and `sequence`, which
+      # MySQL does not have at all. See docs/providers/mysql.md.
+      - ./docker/mariadb-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-uroot", "-proot", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Percona Server for MySQL, a drop-in build of MySQL. Nothing here is Percona-specific:
+  # the point of the entry is that the probe ran against a real one rather than assuming a
+  # drop-in behaves like the thing it drops into.
+  #
+  # PINNED to 8.4: `version()` answers a bare 8.4.11-11 there and the product name is only in
+  # `@@version_comment`, so the tag is the only durable record of which build was measured.
+  percona-mysql:
+    image: percona/percona-server:8.4
+    container_name: libredb-percona-mysql
+    profiles: ["compat"]
+    environment:
+      MYSQL_ROOT_PASSWORD: "Probe123pass!"
+    ports:
+      - "13307:3306"
+
+  # Databend serves a MySQL wire handler on 3307 (not 3306) beside its own HTTP API on 8000.
+  # Connect as `mysql` on the published 13308.
+  #
+  # It earns a `query-only` row and the reason is ours: every parameterised read answers
+  # `Prepare is not support in Databend`. So this service exists to reproduce that, and to
+  # re-measure it when the prepared-protocol question is settled.
+  #
+  # PINNED to a patch release rather than `nightly`, which is what the tag list mostly holds.
+  databend:
+    image: datafuselabs/databend:v1.2.925-patch-11
+    container_name: libredb-databend
+    profiles: ["compat"]
+    environment:
+      QUERY_DEFAULT_USER: root
+      QUERY_DEFAULT_PASSWORD: "Probe123pass!"
+    ports:
+      - "13308:3307"
+      - "18000:8000"
+
+  # TiDB needs no PD and no TiKV to run here: --store=unistore is its embedded
+  # single-node storage engine, so this is one container like every other entry, and
+  # an empty --path keeps that store in memory. TiDB speaks the MySQL protocol on
+  # 4000, not 3306. Sign in as user `root`, no password. The probe behind this entry
+  # ran on unistore only, never against a PD + TiKV cluster.
+  tidb:
+    image: pingcap/tidb:v8.5.1
+    container_name: libredb-tidb
+    profiles: ["compat"]
+    command: ["--store=unistore", "--path=", "--host=0.0.0.0"]
+    ports:
+      - "14000:4000"
+
+  # allin1 is StarRocks in one container - the frontend and the backend together -
+  # and it is the form the probe behind this entry ran against. StarRocks speaks the
+  # MySQL protocol on 9030, not 3306. Sign in as user `root`, no password.
+  starrocks:
+    image: starrocks/allin1-ubuntu:3.3-latest
+    container_name: libredb-starrocks
+    profiles: ["compat"]
+    ports:
+      - "19030:9030"
+
+  # Apache Doris, the engine StarRocks above was forked from. The all-in-one image is
+  # an FE and a BE in one container and needs no cluster, so this entry is a single
+  # service like the StarRocks one.
+  #
+  # The tag is PINNED. `all-in-one-4.1.3` is what the 2026-08-26 probe measured, and
+  # Doris publishes its real build only in `@@version_comment` - `version()` answers a
+  # fictitious 5.7.99 - so a rolling tag would silently move the version this fixture
+  # reproduces while every panel kept displaying the same 5.7.99.
+  #
+  # `nofile` is raised for the same reason the OceanBase entry raises it: the BE opens
+  # a file handle per tablet and the container default of 1024 is not enough for a
+  # loaded table.
+  #
+  # `root` has no password on a fresh image. Set one before probing - the fixture
+  # recipe in docs/providers/README.md does - because the connection dialog treats an
+  # empty password as a field the user has not filled in yet.
+  doris:
+    image: apache/doris:all-in-one-4.1.3
+    container_name: libredb-doris
+    profiles: ["compat"]
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "19035:9030"
+      - "18035:8030"
+
+  # vttestserver is Vitess in one container: it brings up the topology, a vtctld, a
+  # vtgate and a mysqld for the keyspace named in KEYSPACES, so this entry needs no
+  # cluster of its own.
+  #
+  # The tag is PINNED deliberately. The rolling `:mysql80` tag serves a
+  # 25.0.0-SNAPSHOT built from main - not a release, and not reproducible - so the
+  # probe behind this entry ran on v24.0.2 and this file names it.
+  #
+  # PORT is the base of the range vttestserver allocates, and vtgate's MySQL port is
+  # 33577, which is what this entry publishes; 3306 reaches nothing. Sign in as user
+  # `root`, no password, database `probe`. NUM_SHARDS=1 is the shape that was probed:
+  # a sharded keyspace was not.
+  #
+  # This fixture cannot be used to test a permission error. vttestserver accepts any
+  # username with any password and grants it full rights, and CREATE USER is a vtgate
+  # parse error, so no restricted role can be made here. That is the fixture, not
+  # Vitess.
+  vitess:
+    image: vitess/vttestserver:v24.0.2-mysql80
+    container_name: libredb-vitess
+    profiles: ["compat"]
+    environment:
+      PORT: 33574
+      KEYSPACES: probe
+      NUM_SHARDS: 1
+      MYSQL_BIND_HOST: 0.0.0.0
+    ports:
+      - "33577:33577"
+
+  # THE DOCUMENTED RUN COMMAND FOR THIS IMAGE FAILS, and the `ulimits` block below is
+  # the whole reason this entry is longer than the others. The container's default
+  # soft `nofile` is 1024 and OceanBase's own deployer requires at least 20000, so
+  # without the override the boot dies after about 12 seconds with `OBD-1007` and no
+  # server ever listens. Keep the ulimit, or the next person repeats that failure.
+  #
+  # The memory floor is real too: the project documents 2 cores and 8 GB as the
+  # minimum, and the probe behind this entry ran with a 12 GB limit. `MODE=mini` is
+  # what makes a single container viable at all - it is the small-footprint
+  # deployment, and it creates ONE user tenant named `test`.
+  #
+  # So sign in as `root@test`, no password, database `test` - the BUSINESS tenant,
+  # not `sys`. Connecting to the `sys` tenant instead shows nine databases including
+  # Oracle-mode artifacts (LBACSYS, ORAAUDITOR, SYS, ocs, sys_external_tbs) that a
+  # user tenant does not have. OceanBase speaks the MySQL protocol on 2881, not 3306.
+  # Wait for `boot success!` in the log before connecting; the container is up long
+  # before the server is.
+  #
+  # The tag is pinned, and the pin is free: 4.4.2-lts had the same digest as
+  # `:latest` at probe time. 507 MB compressed, 1.5 GB on disk.
+  #
+  # A probe here should expect no performance_schema database at all - health is the
+  # one surface that fails outright (ERROR 1049) - and every size reading 0 B,
+  # because information_schema.TABLES reports DATA_LENGTH 0 and INDEX_LENGTH 0. Row
+  # counts are correct after `ANALYZE TABLE t`, which must be the MySQL-mode form:
+  # the Oracle-mode `ANALYZE TABLE t COMPUTE STATISTICS` is rejected with ERROR 1235.
+  oceanbase:
+    image: oceanbase/oceanbase-ce:4.4.2-lts
+    container_name: libredb-oceanbase
+    profiles: ["compat"]
+    environment:
+      MODE: mini
+    ulimits:
+      nofile:
+        soft: 655350
+        hard: 655350
+    ports:
+      - "12881:2881"
+
+  # NO LICENCE KEY IS NEEDED, which is worth stating because issue #424 recorded the
+  # opposite as the reason this engine went unprobed. The dev image self-licenses
+  # with `ROOT_PASSWORD` as the only variable set: its log records
+  # `SetLicenseV4: Expiration = unlimited` and `Options = 72 (Developer Image
+  # edition)`, and every query in the probe behind this entry ran. There is one
+  # harmless WARN about exceeding a 1-unit capacity licence.
+  #
+  # SingleStore speaks the MySQL protocol on 3306, which the always-on `mysql`
+  # service already claims on the host, hence 13306 here. 8080 is its own Studio UI,
+  # published on 18081 for the same reason. Sign in as user `root` with the password
+  # below, database `probe` after you create one. No `ulimit` change is needed here,
+  # unlike the oceanbase service above; the probe behind this entry ran the container
+  # with `--cpus=8`.
+  #
+  # A probe here should expect five surfaces to fail on ONE cause that is ours, not
+  # SingleStore's: the provider sends every statement through mysql2's binary
+  # prepared protocol, and SingleStore answers `This command is not supported in the
+  # prepared statement protocol yet` to the parameterless SHOW and EXPLAIN
+  # statements that Test Connection, health, the overview and the monitoring
+  # dashboard need (D8 in docs/BACKLOG.md). Row counts and sizes read 0 for a
+  # populated table because information_schema.TABLES is left zeroed, and `ANALYZE`
+  # does not change it.
+  singlestore:
+    image: ghcr.io/singlestore-labs/singlestoredb-dev:0.2.82
+    container_name: libredb-singlestore
+    profiles: ["compat"]
+    environment:
+      ROOT_PASSWORD: "Probe123pass!"
+    ports:
+      - "13306:3306"
+      - "18081:8080"
+
+  # -- Redis wire ----------------------------------------------------------
+
+  valkey:
+    image: valkey/valkey:latest
+    container_name: libredb-valkey
+    profiles: ["compat"]
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    container_name: libredb-dragonfly
+    profiles: ["compat"]
+    ulimits:
+      memlock: -1
+    ports:
+      - "6381:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keydb:
+    image: eqalpha/keydb:latest
+    container_name: libredb-keydb
+    profiles: ["compat"]
+    ports:
+      - "6382:6379"
+    healthcheck:
+      test: ["CMD", "keydb-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Microsoft Garnet, the fourth RESP relative. Single container, no configuration, and it
+  # needs no password - it starts with none, like the `redis` service above.
+  #
+  # PINNED to 2.1.5: Garnet publishes its own version (`garnet_version` in INFO), as Valkey
+  # and DragonflyDB do, so the tag and the caveat about which version the product displays
+  # have to stay in step.
+  #
+  # No volume, deliberately: Garnet holds everything in memory here and a restart empties it
+  # (measured - `dbsize` 71 before a `docker stop`, 0 after), so re-run the key seeding from
+  # docs/providers/README.md rather than expecting the fixture to survive.
+  garnet:
+    image: ghcr.io/microsoft/garnet:2.1.5
+    container_name: libredb-garnet
+    profiles: ["compat"]
+    ports:
+      - "16380:6379"
+
+  # -- MongoDB wire --------------------------------------------------------
+
+  # FerretDB is a proxy, not a database: it needs its own PostgreSQL-with-
+  # DocumentDB backend, which is why it is the only two-service entry here. Sign in
+  # with the BACKEND's PostgreSQL credentials - FerretDB rejects authMechanism=PLAIN.
+  ferretdb-backend:
+    image: ghcr.io/ferretdb/postgres-documentdb:latest
+    container_name: libredb-ferretdb-backend
+    profiles: ["compat"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ferretdb:
+    image: ghcr.io/ferretdb/ferretdb:latest
+    container_name: libredb-ferretdb
+    profiles: ["compat"]
+    depends_on:
+      ferretdb-backend:
+        condition: service_healthy
+    environment:
+      FERRETDB_POSTGRESQL_URL: postgres://postgres:postgres@ferretdb-backend:5432/postgres
+    ports:
+      - "27018:27017"
+
+  # -- CQL wire ------------------------------------------------------------
+
+  # Pinned to the exact build the Phase 4 probe ran against, the same rule the
+  # cassandra service above follows: `system.local.release_version` here is `3.0.8`,
+  # a Cassandra compatibility number, and the real build is only in
+  # `system.versions` (`2026.2.4-0.20260810.e54224b8cebb`).
+  #
+  # The compatibility row this reproduces covers TWO lines, and only one of them is
+  # here: `scylladb/scylla:2025.1` (`2025.1.14-0.20260612.103b84070f3b`) was probed in
+  # the same pass and behaved identically on every surface. To re-measure that half,
+  # run the same image tag by hand on a free host port - `9242` was the probe's - with
+  # these same flags; a second service would publish a name the docs table does not.
+  #
+  # The command flags are the sizing that was measured to work, not a
+  # conservative guess. `--memory 2G` inside a 3 GiB container is REFUSED outright
+  # with `insufficient physical memory: needed 2095054848 available 1488977920`;
+  # `--smp 1 --memory 1G --overprovisioned 1 --developer-mode 1` came up in well
+  # under a minute, against ~206 seconds for the cassandra image. `mem_limit: 4g`
+  # is the container the working combination was measured in, pinned for the same
+  # reason the cassandra service pins its own.
+  #
+  # The other thing a probe here must know: the 2026.2 line REFUSES SimpleStrategy
+  # (`SimpleStrategy doesn't support tablet replication`), so a keyspace has to be
+  # created with `{'class':'NetworkTopologyStrategy','datacenter1':1}` and the
+  # recipe in docs/providers/cassandra.md does not run unchanged.
+  #
+  # 9142 on the host because the cassandra service already publishes 9042; the
+  # native port is 9042 in the container on both, so this is a collision on THIS
+  # machine, not a fact about the product. No auth, data centre `datacenter1`.
+  #
+  # No healthcheck: none was measured on this image, and a wrong one would be worse
+  # than none - see the cassandra service above, where the readiness condition that
+  # actually matters was found by timing a cold start.
+  scylla:
+    image: scylladb/scylla:2026.2.4
+    container_name: libredb-scylla
+    profiles: ["compat"]
+    command: --smp 1 --memory 1G --overprovisioned 1 --developer-mode 1
+    ports:
+      - "9142:9042"
+    mem_limit: 4g
+
+volumes:
+  # Named volumes only for Druid: it is the one service here whose processes must share
+  # state (deep storage) and whose task history is worth surviving a restart. Everything
+  # above uses the image's own anonymous volumes.
+  #
+  # druid_shared is the deep-storage + indexing-log volume, mounted by the three processes
+  # that write or read segments. A `down -v` resets the cluster to empty.
+  druid_shared: {}
+  druid_coordinator_var: {}
+  druid_historical_var: {}
+  druid_middlemanager_var: {}
+  druid_broker_var: {}
+  druid_router_var: {}

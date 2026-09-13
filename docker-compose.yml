@@ -1,0 +1,55 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_PATH: ${BASE_PATH:-}
+    ports:
+      - "3000:3000"
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_MODEL=${LLM_MODEL:-gemini-2.5-flash}
+      - LLM_API_URL=${LLM_API_URL}
+      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-local}
+      - STORAGE_SQLITE_PATH=${STORAGE_SQLITE_PATH:-/app/data/libredb-storage.db}
+      - STORAGE_POSTGRES_URL=${STORAGE_POSTGRES_URL}
+      # The agent's run history, and half of what decides whether the agent exists
+      # at all: it appears once LLM_API_KEY above is set AND this path is writable
+      # (docs/AGENT.md). The image already defaults this to the same path, so this
+      # line is an explicit restatement plus the override hook - without either,
+      # the workflow SDK would resolve ".workflow-data" against the working
+      # directory, i.e. /app/.workflow-data, which is writable but is NOT the
+      # mounted volume below: nothing would fail loudly, and runs would disappear
+      # on the next `docker compose up` that recreates the container. Keep it
+      # inside /app/data. A plain `docker run` inherits the image default and
+      # needs only a volume on /app/data, or the run history dies with the
+      # container.
+      - WORKFLOW_LOCAL_DATA_DIR=${WORKFLOW_LOCAL_DATA_DIR:-/app/data/workflow}
+      # Uncomment to keep the AI configuration above and have no agent. Unset means
+      # derive: with a key configured, the agent appears.
+      # - LIBREDB_AGENT_ENABLED=false
+    # Uncomment to enable pre-configured database connections:
+    # volumes:
+    #   - ./seed-connections.yaml:/app/config/seed-connections.yaml:ro
+    # environment:
+    #   SEED_CONFIG_PATH: /app/config/seed-connections.yaml
+    volumes:
+      - storage-data:/app/data
+
+  libredb-postgres:
+    image: postgres:18
+    container_name: libredb-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: libredb_storage
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  storage-data:
+  pgdata:

@@ -1,0 +1,115 @@
+import { z } from "zod";
+import type { DatabaseConnection } from "@/lib/types";
+
+// SSLMode matches the union in src/lib/types.ts — NO 'prefer'. Kept in step BY HAND: a zod
+// enum is a value, so a mode missing here is not a compile error, it is a seed file the
+// server rejects with "invalid enum value" for a mode the product supports.
+const SSLModeSchema = z.enum(["disable", "require", "verify-system", "verify-ca", "verify-full"]);
+
+const SSLConfigSchema = z
+  .object({
+    mode: SSLModeSchema.optional(),
+    rejectUnauthorized: z.boolean().optional(),
+    caCert: z.string().optional(),
+    clientCert: z.string().optional(),
+    clientKey: z.string().optional(),
+  })
+  .optional();
+
+const ConnectionEnvironmentSchema = z.enum(["production", "staging", "development", "local", "other"]);
+
+// Allowed roles in current iteration (matches JWT role: 'admin' | 'user' + wildcard)
+const AllowedRoleSchema = z.enum(["*", "admin", "user"]);
+
+// Kept in step with DatabaseType in src/lib/types.ts BY HAND: a zod enum is a value,
+// so a type-id missing here is not a compile error - it is a seed file the server
+// rejects with "invalid enum value" for a connection type the product supports.
+const SeedDatabaseType = z.enum([
+  "postgres",
+  "mysql",
+  "sqlite",
+  "mongodb",
+  "redis",
+  "oracle",
+  "mssql",
+  "libredb",
+  "couchbase",
+  "clickhouse",
+  "druid",
+  "elasticsearch",
+  "opensearch",
+  "trino",
+  "cassandra",
+  "libsql",
+  "duckdb",
+]);
+
+export const SeedDefaultsSchema = z.object({
+  managed: z.boolean().optional(),
+  environment: ConnectionEnvironmentSchema.optional(),
+  ssl: SSLConfigSchema,
+});
+
+export const SeedConnectionSchema = z.object({
+  id: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9-]+$/, "ID must be lowercase alphanumeric with hyphens"),
+  name: z.string().min(1).max(128),
+  type: SeedDatabaseType,
+  host: z.string().optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  database: z.string().optional(),
+  user: z.string().optional(),
+  password: z.string().optional(),
+  connectionString: z.string().optional(),
+  environment: ConnectionEnvironmentSchema.optional(),
+  group: z.string().max(64).optional(),
+  color: z
+    .string()
+    .regex(/^#[0-9A-Fa-f]{6}$/)
+    .optional(),
+  roles: z.array(AllowedRoleSchema).min(1, "At least one role is required"),
+  managed: z.boolean().optional(),
+  ssl: SSLConfigSchema,
+  serviceName: z.string().optional(),
+  instanceName: z.string().optional(),
+  // Cassandra only, and REQUIRED by that driver rather than optional to it: a seeded
+  // Cassandra connection without it cannot open at all. Optional here because the
+  // other thirteen type-ids have no use for the field; the provider is what refuses a
+  // connection that omits it.
+  localDataCenter: z.string().optional(),
+  // MongoDB only: the database its credentials live in (`admin` in the ordinary
+  // deployment). Optional because the driver falls back to the database being opened,
+  // which is right only when the two are the same.
+  authSource: z.string().optional(),
+  schema: z.string().optional(),
+  // Read no catalog when this connection opens (#765). Declarable in the seed file
+  // because the deployment that ships a 40,000-object owner is the one that knows, and
+  // a managed connection is read-only in the UI, so nobody could tick the box there.
+  // Unlike the maps in `connection-secrets.ts` and `use-connection-payload.ts`, this
+  // schema fails SILENTLY when a field is missing: zod strips an unknown key, so a seed
+  // file setting it would round-trip as `undefined` with no error anywhere.
+  skipObjectScan: z.boolean().optional(),
+});
+
+export const SeedConfigSchema = z
+  .object({
+    version: z.literal("1"),
+    defaults: SeedDefaultsSchema.optional(),
+    connections: z.array(SeedConnectionSchema).min(1, "At least one connection is required"),
+  })
+  .refine((cfg) => new Set(cfg.connections.map((c) => c.id)).size === cfg.connections.length, {
+    message: "Connection IDs must be unique",
+  });
+
+export type SeedConnection = z.infer<typeof SeedConnectionSchema>;
+export type SeedDefaults = z.infer<typeof SeedDefaultsSchema>;
+export type SeedConfig = z.infer<typeof SeedConfigSchema>;
+
+export interface ManagedConnection extends DatabaseConnection {
+  managed: boolean;
+  roles: string[];
+  seedId: string;
+}

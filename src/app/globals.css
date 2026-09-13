@@ -1,0 +1,233 @@
+@import "tailwindcss";
+/*
+ * The studio surface/text token layer. Kept in its own file because it is the one
+ * part of this stylesheet that ALSO ships in the package (`dist/styles.css`), for
+ * an app embedding the library surface to import — see the file's own header.
+ */
+@import "../styles/theme.css";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/*
+ * shadcn/ui + Tailwind v4 Theme Configuration
+ * Using @theme inline to map CSS variables to Tailwind utilities
+ * See: https://ui.shadcn.com/docs/tailwind-v4
+ */
+
+:root {
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --primary: #171717;
+  --primary-foreground: #fafafa;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #171717;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --accent: #f5f5f5;
+  --accent-foreground: #171717;
+  --destructive: #ef4444;
+  --destructive-foreground: #fafafa;
+  --border: #e5e5e5;
+  --input: #e5e5e5;
+  --ring: #0a0a0a;
+  --radius: 0.5rem;
+  --chart-1: #e76e50;
+  --chart-2: #2a9d90;
+  --chart-3: #274754;
+  --chart-4: #e8c468;
+  --chart-5: #f4a462;
+}
+
+.dark {
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #0a0a0a;
+  --card-foreground: #fafafa;
+  --popover: #0a0a0a;
+  --popover-foreground: #fafafa;
+  --primary: #fafafa;
+  --primary-foreground: #171717;
+  --secondary: #27272a;
+  --secondary-foreground: #fafafa;
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa;
+  --accent: #27272a;
+  --accent-foreground: #fafafa;
+  --destructive: #7f1d1d;
+  --destructive-foreground: #fafafa;
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #d4d4d8;
+  --chart-1: #3b82f6;
+  --chart-2: #22c55e;
+  --chart-3: #f59e0b;
+  --chart-4: #a855f7;
+  --chart-5: #ec4899;
+}
+
+/* Map CSS variables to Tailwind color utilities */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /*
+   * Interactive affordance: pointer cursor for clickable / selectable controls.
+   * Tailwind v4 dropped `cursor: pointer` from the button reset; this is the
+   * restore snippet from Tailwind's own v4 upgrade guide, widened to the ARIA
+   * roles our primitives render.
+   *
+   * Disabled is matched by `aria-disabled="true"` and `data-disabled=""` (the
+   * empty-string form Radix emits) — never by bare `[data-disabled]`, because
+   * cmdk renders `data-disabled="false"` on ENABLED items, which would make
+   * every command-palette row look disabled. shadcn's own command.tsx guards
+   * the same way with `data-[disabled=true]:`.
+   */
+  button:not(:disabled):not([aria-disabled="true"]),
+  [role="button"]:not([aria-disabled="true"]):not([data-disabled=""]),
+  [role="tab"]:not([aria-disabled="true"]):not([data-disabled=""]),
+  [role="checkbox"]:not([aria-disabled="true"]):not([data-disabled=""]),
+  [role="radio"]:not([aria-disabled="true"]):not([data-disabled=""]),
+  [role="switch"]:not([aria-disabled="true"]):not([data-disabled=""]),
+  [role="combobox"]:not([aria-disabled="true"]):not([data-disabled=""]),
+  [role="treeitem"]:not([aria-disabled="true"]):not([data-disabled=""]),
+  summary,
+  label[for],
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="file"]:not(:disabled),
+  input[type="submit"]:not(:disabled),
+  input[type="button"]:not(:disabled),
+  input[type="reset"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"],
+  [data-disabled=""],
+  select:disabled,
+  input:disabled {
+    cursor: not-allowed;
+  }
+}
+
+/*
+ * Menu / listbox item affordance — deliberately UNLAYERED.
+ *
+ * shadcn/ui ships `cursor-default` on every menu, select and command item. That
+ * is a utility-layer class, so any `@layer base` rule loses to it regardless of
+ * specificity (layer order beats specificity). Unlayered declarations outrank
+ * every layer, so this is the only way to override those items without editing
+ * `src/components/ui/**`, which must stay upstream-pure so `shadcn add` re-syncs
+ * cleanly (see .oxlintrc.json). This block is also why CSS is excluded from the
+ * Biome formatter - see docs/TOOLCHAIN.md.
+ *
+ * Keyed on ARIA roles rather than `data-slot` so it survives upstream renames:
+ * Radix menu items render role="menuitem|menuitemcheckbox|menuitemradio",
+ * Radix Select.Item and cmdk CommandItem render role="option". Both set
+ * `aria-disabled="true"` when disabled, so one guard covers every primitive.
+ */
+[role="menuitem"]:not([aria-disabled="true"]),
+[role="menuitemcheckbox"]:not([aria-disabled="true"]),
+[role="menuitemradio"]:not([aria-disabled="true"]),
+[role="option"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+/*
+ * Disabled counterpart, unlayered for the same reason: the `cursor-default`
+ * utility on these items also outranks the `@layer base` not-allowed rule, so
+ * without this the disabled affordance declared above is silently inert on
+ * exactly the primitives it was written for.
+ */
+[role="menuitem"][aria-disabled="true"],
+[role="menuitemcheckbox"][aria-disabled="true"],
+[role="menuitemradio"][aria-disabled="true"],
+[role="option"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+@layer components {
+  .glass-panel {
+    background-color: var(--studio-panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--studio-hairline);
+  }
+
+  .editor-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .editor-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /*
+   * The thumb has a token pair of its own — see the note in theme.css for why
+   * neither the hairline ramp nor the text ramp could stand in for it.
+   */
+  .editor-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--studio-scrollbar);
+    border-radius: 10px;
+  }
+
+  .editor-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--studio-scrollbar-hover);
+  }
+
+  /* Monaco Execution Highlight */
+  .executed-query-highlight {
+    background-color: rgba(37, 99, 235, 0.15) !important;
+    border-left: 2px solid #2563eb !important;
+  }
+  .executed-query-inline-highlight {
+    background-color: rgba(37, 99, 235, 0.1) !important;
+    border-radius: 2px;
+  }
+}

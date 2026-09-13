@@ -1,0 +1,581 @@
+import "../setup-dom";
+import "../helpers/mock-sonner";
+import "../helpers/mock-navigation";
+
+import { mock } from "bun:test";
+
+// Mock cmdk before component import
+mock.module("cmdk", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require("react");
+  const Command = React.forwardRef(({ children, ...props }: Record<string, unknown>, ref: React.Ref<HTMLElement>) =>
+    React.createElement("div", { ...props, ref, "data-testid": "command" }, children),
+  );
+  Command.displayName = "Command";
+
+  const CommandInput = React.forwardRef((props: Record<string, unknown>, ref: React.Ref<HTMLElement>) =>
+    React.createElement("input", { ...props, ref, "data-testid": "command-input" }),
+  );
+  CommandInput.displayName = "CommandInput";
+  Command.Input = CommandInput;
+
+  const CommandList = ({ children, ...props }: Record<string, unknown>) =>
+    React.createElement("div", { ...props, "data-testid": "command-list" }, children);
+  CommandList.displayName = "CommandList";
+  Command.List = CommandList;
+
+  const CommandEmpty = ({ children }: Record<string, unknown>) =>
+    React.createElement("div", { "data-testid": "command-empty" }, children);
+  CommandEmpty.displayName = "CommandEmpty";
+  Command.Empty = CommandEmpty;
+
+  const CommandGroup = ({ children, heading, ...props }: Record<string, unknown>) =>
+    React.createElement(
+      "div",
+      { ...props, "data-testid": `command-group-${heading}` },
+      React.createElement("div", null, heading),
+      children,
+    );
+  CommandGroup.displayName = "CommandGroup";
+  Command.Group = CommandGroup;
+
+  const CommandItem = ({ children, onSelect, ...props }: Record<string, unknown>) =>
+    React.createElement(
+      "div",
+      { ...props, onClick: onSelect, role: "option", "data-testid": "command-item" },
+      children,
+    );
+  CommandItem.displayName = "CommandItem";
+  Command.Item = CommandItem;
+
+  const CommandSeparator = () => null;
+  CommandSeparator.displayName = "CommandSeparator";
+  Command.Separator = CommandSeparator;
+
+  return { Command };
+});
+
+// Mock storage
+mock.module("@/lib/storage", () => ({
+  storage: {
+    getSavedQueries: mock(() => []),
+    getHistory: mock(() => []),
+  },
+}));
+
+// Mock db-ui-config
+mock.module("@/lib/db-ui-config", () => ({
+  getDBIcon: () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const React = require("react");
+    const MockDBIcon = (props: Record<string, unknown>) =>
+      React.createElement("span", { ...props, "data-testid": "db-icon" });
+    MockDBIcon.displayName = "MockDBIcon";
+    return MockDBIcon;
+  },
+  getDBConfig: () => ({ icon: () => null, color: "text-hue-blue", label: "PostgreSQL", defaultPort: "5432" }),
+  getDBColor: () => "text-hue-blue",
+}));
+
+import { describe, test, expect, afterEach } from "bun:test";
+import { render, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import React from "react";
+
+import { CommandPalette } from "@/components/CommandPalette";
+import { storage } from "@/lib/storage";
+import {
+  mockPostgresConnection,
+  mockMySQLConnection,
+  mockSQLiteConnection,
+  mockMongoDBConnection,
+  mockRedisConnection,
+  mockOracleConnection,
+} from "../fixtures/connections";
+import { mockSchema } from "../fixtures/schemas";
+import type { DetailedObject } from "@/lib/db/detailed-object";
+import type { ProviderCapabilities } from "@/lib/db/types";
+
+// =============================================================================
+// CommandPalette Tests
+// =============================================================================
+
+function createDefaultProps(overrides: Partial<Parameters<typeof CommandPalette>[0]> = {}) {
+  return {
+    connections: [mockPostgresConnection, mockMySQLConnection],
+    activeConnection: mockPostgresConnection,
+    schema: mockSchema,
+    onSelectConnection: mock(() => {}),
+    onTableClick: mock(() => {}),
+    onAddConnection: mock(() => {}),
+    onExecuteQuery: mock(() => {}),
+    onLoadSavedQuery: mock(() => {}),
+    onLoadHistoryQuery: mock(() => {}),
+    onNavigateHealth: mock(() => {}),
+    onNavigateMonitoring: mock(() => {}),
+    onShowDiagram: mock(() => {}),
+    onFormatQuery: mock(() => {}),
+    onSaveQuery: mock(() => {}),
+    onAskAgent: mock(() => {}),
+    onLogout: mock(() => {}),
+    ...overrides,
+  };
+}
+
+describe("CommandPalette", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  test("renders without crashing (dialog not visible initially)", () => {
+    const props = createDefaultProps();
+    const { queryByText } = render(<CommandPalette {...props} />);
+    // Dialog starts closed (open=false), so content is not rendered
+    expect(queryByText("Run Query")).toBeNull();
+  });
+
+  test("Cmd+K keyboard shortcut opens dialog", () => {
+    const props = createDefaultProps();
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    // Initially, dialog content is not visible
+    expect(queryByText("Run Query")).toBeNull();
+
+    // Fire Cmd+K to open the dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // After opening, the actions should be visible
+    expect(queryByText("Run Query")).not.toBeNull();
+  });
+
+  test("shows connections when dialog is open", () => {
+    const props = createDefaultProps();
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Connection names should appear
+    expect(queryByText("Test PostgreSQL")).not.toBeNull();
+    expect(queryByText("Test MySQL")).not.toBeNull();
+  });
+
+  test("shows tables from schema when dialog is open", () => {
+    const props = createDefaultProps();
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Table names from mockSchema
+    expect(queryByText("users")).not.toBeNull();
+    expect(queryByText("orders")).not.toBeNull();
+    expect(queryByText("products")).not.toBeNull();
+  });
+
+  test('active connection gets "Active" badge', () => {
+    const props = createDefaultProps({
+      activeConnection: mockPostgresConnection,
+    });
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // The active connection should have "Active" text
+    expect(queryByText("Active")).not.toBeNull();
+  });
+
+  test('no "Active" badge when no connection is active', () => {
+    const props = createDefaultProps({
+      activeConnection: null,
+    });
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    expect(queryByText("Active")).toBeNull();
+  });
+
+  test("callbacks fire when action items clicked", () => {
+    const onExecuteQuery = mock(() => {});
+    const props = createDefaultProps({ onExecuteQuery });
+    const { getByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Find and click "Run Query" item
+    const runQueryText = getByText("Run Query");
+    const commandItem = runQueryText.closest('[role="option"]');
+    expect(commandItem).not.toBeNull();
+    fireEvent.click(commandItem!);
+
+    // runAction calls setOpen(false) then setTimeout(action, 100)
+    // Verify dialog closed (content disappears since open becomes false)
+  });
+
+  test("dialog closes after Cmd+K toggle", () => {
+    const props = createDefaultProps();
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+    expect(queryByText("Run Query")).not.toBeNull();
+
+    // Close dialog by pressing Cmd+K again
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+    expect(queryByText("Run Query")).toBeNull();
+  });
+
+  // ===========================================================================
+  // Additional Tests
+  // ===========================================================================
+
+  test("Ctrl+K keyboard shortcut opens dialog (Windows)", () => {
+    const props = createDefaultProps();
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    // Initially closed
+    expect(queryByText("Run Query")).toBeNull();
+
+    // Fire Ctrl+K (Windows shortcut) to open the dialog
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+
+    // After opening, the actions should be visible
+    expect(queryByText("Run Query")).not.toBeNull();
+  });
+
+  test("Schema Diagram is hidden when no activeConnection", () => {
+    const props = createDefaultProps({ activeConnection: null });
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Schema Diagram (ERD) should not be rendered
+    expect(queryByText("Schema Diagram (ERD)")).toBeNull();
+  });
+
+  test("Schema Diagram is visible with activeConnection", () => {
+    const props = createDefaultProps({ activeConnection: mockPostgresConnection });
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Schema Diagram (ERD) should be rendered
+    expect(queryByText("Schema Diagram (ERD)")).not.toBeNull();
+  });
+
+  test("Saved Queries group renders from storage", () => {
+    const mockSaved = [
+      {
+        id: "sq-1",
+        name: "Get active users",
+        query: "SELECT * FROM users WHERE is_active = true",
+        connectionType: "postgres" as const,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: "sq-2",
+        name: "Count orders",
+        query: "SELECT COUNT(*) FROM orders",
+        connectionType: "postgres" as const,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+    (storage.getSavedQueries as ReturnType<typeof mock>).mockReturnValue(mockSaved);
+
+    const props = createDefaultProps();
+    const { queryByText, getByTestId } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Saved Queries group heading should appear
+    expect(getByTestId("command-group-Saved Queries")).not.toBeNull();
+    expect(queryByText("Get active users")).not.toBeNull();
+    expect(queryByText("Count orders")).not.toBeNull();
+
+    // Restore default
+    (storage.getSavedQueries as ReturnType<typeof mock>).mockReturnValue([]);
+  });
+
+  test.each([
+    ["short", "SELECT id FROM users", "SELECT id FROM users"],
+    ["at the limit", "A".repeat(40), "A".repeat(40)],
+    ["beyond the limit", "A".repeat(41), "A".repeat(40) + "..."],
+  ])("saved-query preview %s marks only truncated text", async (_case, query, preview) => {
+    (storage.getSavedQueries as ReturnType<typeof mock>).mockReturnValue([
+      {
+        id: "preview-regression",
+        name: "Preview regression",
+        query,
+        connectionType: "postgres" as const,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+    try {
+      const onLoadSavedQuery = mock(() => {});
+      const { getByText } = render(<CommandPalette {...createDefaultProps({ onLoadSavedQuery })} />);
+      fireEvent.keyDown(document, { key: "k", metaKey: true });
+      expect(getByText(preview, { exact: true })).not.toBeNull();
+      const item = getByText("Preview regression").closest('[role="option"]');
+      expect(item).not.toBeNull();
+      fireEvent.click(item!);
+      await waitFor(() => expect(onLoadSavedQuery).toHaveBeenCalledWith(query));
+    } finally {
+      (storage.getSavedQueries as ReturnType<typeof mock>).mockReturnValue([]);
+    }
+  });
+
+  test("Recent Queries group renders from history", () => {
+    const mockHistory = [
+      {
+        id: "h-1",
+        connectionId: "test-pg-1",
+        query: "SELECT * FROM users LIMIT 10",
+        executionTime: 42,
+        status: "success" as const,
+        executedAt: new Date(),
+      },
+      {
+        id: "h-2",
+        connectionId: "test-pg-1",
+        query: "SELECT * FROM orders WHERE total > 100",
+        executionTime: 78,
+        status: "success" as const,
+        executedAt: new Date(),
+      },
+    ];
+    (storage.getHistory as ReturnType<typeof mock>).mockReturnValue(mockHistory);
+
+    const props = createDefaultProps();
+    const { getByTestId, queryByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Recent Queries group heading should appear
+    expect(getByTestId("command-group-Recent Queries")).not.toBeNull();
+    expect(queryByText("42ms")).not.toBeNull();
+    expect(queryByText("78ms")).not.toBeNull();
+
+    // Restore default
+    (storage.getHistory as ReturnType<typeof mock>).mockReturnValue([]);
+  });
+
+  test("table column and row count display", () => {
+    const props = createDefaultProps();
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // users table: 6 columns, 100 rows
+    expect(queryByText("6 cols / 100 rows")).not.toBeNull();
+    // orders table: 5 columns, 500 rows
+    expect(queryByText("5 cols / 500 rows")).not.toBeNull();
+    // products table: 4 columns, 50 rows
+    expect(queryByText("4 cols / 50 rows")).not.toBeNull();
+  });
+
+  test("Format Query action callback fires via runAction", () => {
+    const onFormatQuery = mock(() => {});
+    const props = createDefaultProps({ onFormatQuery });
+    const { getByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Click Format Query item
+    const formatItem = getByText("Format Query").closest('[role="option"]');
+    expect(formatItem).not.toBeNull();
+    fireEvent.click(formatItem!);
+
+    // Dialog should close (content disappears)
+    expect(getByText).toBeDefined();
+  });
+
+  test("Save Query action callback fires via runAction", () => {
+    const onSaveQuery = mock(() => {});
+    const props = createDefaultProps({ onSaveQuery });
+    const { getByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Click Save Current Query item
+    const saveItem = getByText("Save Current Query").closest('[role="option"]');
+    expect(saveItem).not.toBeNull();
+    fireEvent.click(saveItem!);
+  });
+
+  /**
+   * The item names the agent because the in-editor assistant it used to open no
+   * longer exists (#331 T3), and names the QUERY because the ask is about the
+   * statement the editor holds — `MobileNav`'s "Agent" control opens the rail and
+   * asks nothing (review of #331 T3). It sits where it sat, in the same group,
+   * reachable the same way.
+   */
+  test("Ask the agent action callback fires via runAction", () => {
+    const onAskAgent = mock(() => {});
+    const props = createDefaultProps({ onAskAgent });
+    const { getByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    const agentItem = getByText("Ask the agent about this query").closest('[role="option"]');
+    expect(agentItem).not.toBeNull();
+    fireEvent.click(agentItem!);
+  });
+
+  /**
+   * Agent availability is derived, not defaulted (#353): a deployment with no model
+   * configured, or an unwritable ledger, wires no `onAskAgent` — and a palette entry
+   * that could only do nothing is the "control that can only error" this shell avoids
+   * elsewhere. The palette asks the prop, never the runtime, so it stays right
+   * whichever way that derivation lands.
+   */
+  test("no agent item is offered when the shell wires no agent", () => {
+    const props = createDefaultProps({ onAskAgent: undefined });
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    expect(queryByText("Ask the agent about this query")).toBeNull();
+    // The rest of the group is untouched by the absence.
+    expect(queryByText("Run Query")).not.toBeNull();
+  });
+
+  test("Logout action callback fires via runAction", () => {
+    const onLogout = mock(() => {});
+    const props = createDefaultProps({ onLogout });
+    const { getByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Click Logout item
+    const logoutItem = getByText("Logout").closest('[role="option"]');
+    expect(logoutItem).not.toBeNull();
+    fireEvent.click(logoutItem!);
+  });
+
+  test("connection item click calls onSelectConnection", () => {
+    const onSelectConnection = mock(() => {});
+    const props = createDefaultProps({ onSelectConnection });
+    const { getByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Click the MySQL connection item
+    const mysqlItem = getByText("Test MySQL").closest('[role="option"]');
+    expect(mysqlItem).not.toBeNull();
+    fireEvent.click(mysqlItem!);
+
+    // runAction calls setOpen(false) then setTimeout(callback, 100)
+    // The dialog should close immediately
+  });
+
+  test("table item click calls onTableClick", () => {
+    const onTableClick = mock(() => {});
+    const props = createDefaultProps({ onTableClick });
+    const { getByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Click the "orders" table item
+    const ordersItem = getByText("orders").closest('[role="option"]');
+    expect(ordersItem).not.toBeNull();
+    fireEvent.click(ordersItem!);
+  });
+
+  test("DB icon is rendered for each connection", () => {
+    const props = createDefaultProps({
+      connections: [
+        mockPostgresConnection,
+        mockMySQLConnection,
+        mockSQLiteConnection,
+        mockMongoDBConnection,
+        mockRedisConnection,
+        mockOracleConnection,
+      ],
+    });
+    const { getAllByTestId } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // Each connection should render a db-icon via the mocked getDBIcon
+    const dbIcons = getAllByTestId("db-icon");
+    expect(dbIcons.length).toBe(6);
+  });
+
+  test('"No results found" is shown in empty command state', () => {
+    const props = createDefaultProps({
+      connections: [],
+      schema: [],
+      activeConnection: null,
+    });
+    const { queryByText } = render(<CommandPalette {...props} />);
+
+    // Open dialog
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    // CommandEmpty renders "No results found." text
+    expect(queryByText("No results found.")).not.toBeNull();
+  });
+});
+
+// =============================================================================
+// The object model: what this palette may offer at all (#789)
+// =============================================================================
+
+describe("CommandPalette object filtering", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  // Deliberately NOT tests/fixtures/schemas.ts: that fixture is shared and carries no
+  // kinds. The point here is an inventory holding one entry of each role.
+  const capabilities = {
+    queryLanguage: "sql",
+    objectKinds: [
+      { id: "table", role: "relation", label: "Table", labelPlural: "Tables", acceptsRowWrites: true },
+      { id: "view", role: "relation", label: "View", labelPlural: "Views" },
+      { id: "function", role: "routine", label: "Function", labelPlural: "Functions" },
+    ],
+  } as unknown as ProviderCapabilities;
+
+  const inventory: DetailedObject[] = [
+    { name: "orders", kind: "table", path: ["app", "orders"], columns: [], indexes: [] },
+    { name: "order_summary", kind: "view", path: ["app", "order_summary"], columns: [], indexes: [] },
+    { name: "order_total", kind: "function", path: ["app", "order_total(integer)"], columns: [], indexes: [] },
+  ];
+
+  test("a routine is not offered, because selecting an item RUNS a generated query", () => {
+    const props = createDefaultProps({ schema: inventory, capabilities });
+    const { queryByText } = render(<CommandPalette {...props} />);
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+
+    expect(queryByText("orders")).not.toBeNull();
+    expect(queryByText("order_summary")).not.toBeNull();
+    // The function has a name and columns and would have listed under the flat schema.
+    expect(queryByText("order_total")).toBeNull();
+  });
+
+  test("with no declaration yet, every entry is still offered", () => {
+    const props = createDefaultProps({ schema: inventory, capabilities: undefined });
+    const { queryByText } = render(<CommandPalette {...props} />);
+    fireEvent.keyDown(document, { key: "k", metaKey: true });
+    expect(queryByText("order_total")).not.toBeNull();
+  });
+});

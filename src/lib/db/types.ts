@@ -1,0 +1,1331 @@
+/**
+ * Database Provider Types & Interfaces
+ * Strategy Pattern implementation for multi-database support
+ */
+
+// Re-export common types from main types file
+export type {
+  DatabaseType,
+  DatabaseConnection,
+  ColumnSchema,
+  // `ObjectDetail` below is defined over these two, so a provider implementing
+  // `describeObject` needs them from here rather than reaching past this module (#789).
+  IndexSchema,
+  ForeignKeySchema,
+  QueryResult,
+  QueryWarning,
+} from "../types";
+
+import type {
+  DatabaseType,
+  DatabaseConnection,
+  QueryResult,
+  ColumnSchema,
+  IndexSchema,
+  ForeignKeySchema,
+} from "../types";
+
+// ============================================================================
+// Pool Configuration
+// ============================================================================
+
+export interface PoolConfig {
+  /** Minimum number of connections in pool (default: 2) */
+  min: number;
+  /** Maximum number of connections in pool (default: 10) */
+  max: number;
+  /** Close idle connections after this time in ms (default: 30000) */
+  idleTimeout: number;
+  /** Wait for connection timeout in ms (default: 60000) */
+  acquireTimeout: number;
+}
+
+export const DEFAULT_POOL_CONFIG: PoolConfig = {
+  min: 2,
+  max: 10,
+  idleTimeout: 30000,
+  acquireTimeout: 60000,
+};
+
+/** Query timeout in milliseconds (default: 60 seconds) */
+export const DEFAULT_QUERY_TIMEOUT = 60000;
+
+// ============================================================================
+// Health Information
+// ============================================================================
+
+export interface SlowQuery {
+  query: string;
+  calls: number;
+  avgTime: string;
+}
+
+export interface ActiveSession {
+  pid: number | string;
+  user: string;
+  database: string;
+  state: string;
+  query: string;
+  duration: string;
+}
+
+export interface HealthInfo {
+  /**
+   * The count of connections currently open, or absent when the engine cannot
+   * measure it at all.
+   *
+   * Optional for the same reason `DatabaseOverview.activeConnections` is: absence
+   * and zero are different facts, and a provider that cannot read the figure must
+   * omit the key rather than send a fabricated 0. This is the field the agent's
+   * curated "health" reading forwards to the model (`src/lib/agent/tools.ts`), so a
+   * fabricated 0 here is not a display quirk - it is telling the model a fact about
+   * a server it could not measure. Most providers compose this straight from
+   * `DatabaseOverview.activeConnections`, which is where the absence already comes
+   * from (ScyllaDB has no `system_views` keyspace; a Cassandra role can be denied
+   * the grant); no `?? 0` fallback belongs at that seam.
+   */
+  activeConnections?: number;
+  databaseSize: string;
+  cacheHitRatio: string;
+  slowQueries: SlowQuery[];
+  activeSessions: ActiveSession[];
+}
+
+// ============================================================================
+// Maintenance Operations
+// ============================================================================
+
+export type MaintenanceType = "vacuum" | "analyze" | "reindex" | "kill" | "optimize" | "check";
+
+export interface MaintenanceResult {
+  success: boolean;
+  executionTime: number;
+  message: string;
+}
+
+/**
+ * What ONE maintenance operation can be pointed at on ONE engine, declared next to
+ * that engine's own wording for it.
+ *
+ * `maintenanceOperations` says only that an operation EXISTS here, and #427 measured
+ * what a surface built on that alone offers. Oracle declares `optimize`, so the
+ * per-table button sent `optimize` with a TABLE name - and `oracle.ts` built
+ * `ALTER INDEX "<target>" REBUILD` from it, so every click answered ORA-01418
+ * (reproduced 2026-08-25 against Oracle AI Database 26ai Free before this change). The target
+ * grammar differs between engines that declare the SAME `MaintenanceType`, so a
+ * generic label-to-operation mapping is wrong by construction and the declaration has
+ * to travel with the provider.
+ *
+ * `perEntity` and `global` are independent because both halves occur: Couchbase's
+ * `reindex` is BUILD INDEX for ONE keyspace and has no whole-database form (its global
+ * card answered *"The reindex operation requires a target"*), while SQLite's `VACUUM`
+ * rewrites the whole file and ignores a target entirely (a per-table control there
+ * names one table and vacuums the database). An operation whose target is a session or
+ * query id - every engine's `kill` - is `false` for both: the Sessions panel supplies
+ * that id, and no table or global control can.
+ */
+export interface MaintenanceOperationSpec {
+  /** This engine's own wording for a control that runs the operation. */
+  label: string;
+  /** Runs against ONE object the browser lists: a table, a collection, a keyspace. */
+  perEntity: boolean;
+  /** Runs with no target at all, over the whole database. */
+  global: boolean;
+}
+
+/** Where a surface wants to put a control: on one row, or on a whole-database card. */
+export type MaintenancePlacement = "perEntity" | "global";
+
+/**
+ * Whether ONE maintenance control may be offered in ONE place, and the wording to
+ * give it - the single gate both maintenance surfaces ask, so that they cannot
+ * disagree about what a provider declared.
+ *
+ * `label` is undefined rather than a fallback string on purpose: only the provider
+ * may name the operation, so a caller that gets no name keeps its own generic word.
+ * That is also the whole of the compatibility story for the optional
+ * `maintenanceOperationSpecs` - a provider that declares no spec is offered in both
+ * placements under the caller's own wording, which is what both surfaces did before
+ * #U9.
+ */
+export function maintenanceControl(
+  capabilities: ProviderCapabilities | undefined,
+  type: MaintenanceType,
+  placement: MaintenancePlacement,
+): { offered: boolean; label?: string } {
+  // Unknown capabilities are not a permission: `/api/db/provider-meta` answers with
+  // nothing both while it is in flight and when it failed, and failing open there
+  // puts the dead buttons back on exactly the connections the #272/#282 gates exist
+  // for.
+  if (capabilities?.supportsMaintenance !== true || !capabilities.maintenanceOperations.includes(type)) {
+    return { offered: false };
+  }
+
+  const spec = capabilities.maintenanceOperationSpecs?.[type];
+  if (spec === undefined) {
+    return { offered: true };
+  }
+
+  return { offered: spec[placement], label: spec.label };
+}
+
+// ============================================================================
+// Provider Capabilities & Labels
+// ============================================================================
+
+/**
+ * Dialect discriminant for client-side EXPLAIN handling (issue #194).
+ * Each id selects one strategy module in `src/lib/explain`. Extended per
+ * provider as explain support lands.
+ */
+export type ExplainFormat =
+  | "postgres-json"
+  | "postgres-text"
+  | "postgres-text-analyze"
+  | "mysql-json"
+  | "mysql-text"
+  | "sqlite-queryplan"
+  | "couchbase-json"
+  | "clickhouse-json"
+  | "druid-native"
+  | "trino-json"
+  | "duckdb-json";
+
+/**
+ * How deep an engine's container chain is, in the TYPE rather than only in a derivation.
+ *
+ * Phase 1's tree models zero, one or two levels and `containerDepth()` answers `0 | 1 | 2`, so a
+ * provider declaring a third level used to have it silently clamped away: the level would exist in
+ * the declaration, `ContainerLevelSpec.level` indices would still point at it, and nothing would
+ * read it. Spelling the ceiling as a tuple union makes that declaration a compile error at the
+ * provider that writes it, which is where the person who meant to add it is standing. No engine in
+ * this repository declares three; the first one that needs to is a Phase 2 question about the tree,
+ * not a number to widen here (#789).
+ */
+export type ContainerLevels =
+  | readonly []
+  | readonly [ContainerLevelSpec]
+  | readonly [ContainerLevelSpec, ContainerLevelSpec];
+
+export interface ProviderCapabilities {
+  queryLanguage: "sql" | "json";
+  /**
+   * Optional client-side query dialect. `queryLanguage` only says SQL vs JSON;
+   * for non-SQL providers the query generators otherwise assume MongoDB syntax.
+   * A provider sets `queryDialect` to opt its tables into a custom client-side
+   * generator (see `query-generators.ts`), and it is checked BEFORE
+   * `queryLanguage` everywhere. Left undefined by SQL and MongoDB, so their
+   * generation is unchanged; Redis declares `"redis"` because it too says
+   * `queryLanguage: "json"` while speaking neither MongoDB JSON nor SQL, and
+   * silently got MongoDB commands its own driver rejected (#427).
+   */
+  queryDialect?: "libredb" | "redis";
+  supportsExplain: boolean;
+  /**
+   * Present iff supportsExplain is true (enforced by provider tests).
+   * Undefined = no explain support; the UI hides the Explain button and tab.
+   */
+  explainFormat?: ExplainFormat;
+  supportsExternalQueryLimiting: boolean;
+  supportsCreateTable: boolean;
+  /**
+   * Whether this engine accepts the single-table row update the results grid's
+   * inline editor builds — `UPDATE <table> SET <col> = <val> WHERE <pk> = <val>`
+   * (`src/hooks/use-inline-editing.ts`). False hides the editing affordance
+   * entirely rather than offering a control that can only produce an error
+   * (issue #269): ClickHouse spells a row mutation `ALTER TABLE ... UPDATE`,
+   * Druid SQL has no row-level DML, and the JSON-language providers have no
+   * `UPDATE` statement at all.
+   *
+   * Optional because this interface is published (`src/exports/types.ts`) and a
+   * required field added after the fact stops every external implementer from
+   * compiling. Every provider in this repo declares it; the UI gates on
+   * `=== true`, so an absent flag reads as unsupported rather than inheriting a
+   * permissive default.
+   */
+  supportsInlineRowEdit?: boolean;
+  /**
+   * Whether THIS PROVIDER implements the interactive transaction session that
+   * `POST /api/db/transaction` drives — `beginTransaction()` / `commitTransaction()`
+   * / `rollbackTransaction()` over one held connection. It is a statement about the
+   * provider's surface, not about whether the engine has a transaction concept
+   * somewhere: SQLite has `BEGIN`, and this provider still declares `false`, because
+   * it holds no session for one and the route refuses the call.
+   *
+   * It exists because the route's own gate is `isTransactionProvider(provider)`, a
+   * runtime shape check no client can read. `Studio.tsx` therefore supplied
+   * BEGIN/COMMIT/ROLLBACK — and SANDBOX, which auto-rolls-back through the same
+   * route — on every connection. Measured 2026-08-19 on OpenSearch: HTTP 400,
+   * "Transaction control is not supported for this database type", for both `begin`
+   * and `rollback`. Elasticsearch, Druid, Couchbase, MongoDB, Redis, Trino,
+   * Cassandra, SQLite and LibreDB were all in that position.
+   *
+   * Optional for the same published-interface reason as `supportsInlineRowEdit`
+   * (`src/exports/types.ts`): a required field added after the fact stops every
+   * external implementer compiling. Every provider in this repo declares it, and the
+   * UI gates on `=== true`, so an absent flag — and an unresolved `metadata` — reads
+   * as no transactions rather than inheriting a permissive default.
+   */
+  supportsTransactions?: boolean;
+  /**
+   * Whether this engine has foreign keys to declare at all — not whether any
+   * particular schema declares one, and not whether the current role can see them.
+   *
+   * It exists because an empty foreign-key list means two different things
+   * and the reader cannot tell them apart. On PostgreSQL an empty list means this
+   * schema declares none, or that the role this connection reads with cannot see the
+   * ones it declares — an empty read cannot tell those two apart, which is why the
+   * agent's relations block reports neither of them as fact; on MongoDB, Redis, LibreDB, Druid, ClickHouse and Couchbase it means the
+   * engine has no such constraint in its model, so no reading of any kind could ever
+   * return one. A consumer that hedges between "the schema is like that" and "the
+   * application enforces them" is wrong in BOTH branches on those six, and #414 hit
+   * that when grounding reached them. Reading `connection.type` at the consumer was
+   * the alternative and is forbidden by `CLAUDE.md`: engine behaviour is declared by
+   * the provider that has it.
+   *
+   * Optional for the same published-interface reason as `supportsInlineRowEdit`
+   * (`src/exports/types.ts`): a required field added after the fact stops every
+   * external implementer compiling. Consumers therefore gate on `=== false`, so an
+   * absent flag reads as "this engine may declare foreign keys" — the weaker claim,
+   * which keeps the existing hedge rather than asserting an absence nobody declared.
+   */
+  declaresForeignKeys?: boolean;
+  /**
+   * Whether this provider's relation-shaped rows are objects the engine holds, or
+   * groupings this server derived from a bounded scan of what it found.
+   *
+   * True on Redis and LibreDB and nowhere else. Neither engine has a schema to read:
+   * the walk scans a bounded slice of the keyspace — 1000 keys on Redis, 10000 on
+   * LibreDB — and collapses the real key names it found into one row per common
+   * prefix. So a row named `user:*` is not a key, was never named by anybody, and no
+   * command can be given it; and the set of rows is what that one scan happened to
+   * reach rather than everything the database holds.
+   *
+   * It exists because a consumer cannot tell the two apart from the inventory itself,
+   * and #414 measured what that costs: plan mode, grounded on a seeded Redis with 17
+   * real prefixes, drafted `KEYS user:*` and `ZCARD user:*` against rows it had been
+   * handed under the word "table". Both name a key that does not exist. The model was
+   * not wrong to treat them as addressable — nothing it was shown said they were not,
+   * and only this server knows, because the grouping is this server's own.
+   *
+   * Optional for the same published-interface reason as `declaresForeignKeys`
+   * (`src/exports/types.ts`): a required field added after the fact stops every
+   * external implementer compiling. Consumers therefore gate on `=== true`, so an
+   * absent flag reads as "these rows are real objects" — the ordinary case, and the
+   * one every SQL engine and every document engine is in. Reading `connection.type` at
+   * the consumer was the alternative and is forbidden by `CLAUDE.md` for the reason
+   * this pair of engines demonstrates: the two that answer true are not the two a
+   * reader would guess, and a third would be added to a provider and forgotten here.
+   */
+  tablesAreDerivedGroupings?: boolean;
+  /**
+   * True when the engine admits exactly ONE open handle per database FILE, because
+   * opening the file takes an exclusive lock: a second open of a file this process
+   * already holds does not return a second handle, it throws.
+   *
+   * `libredb` is the only engine that declares it. `lib.open({ path })` takes an
+   * exclusive `<path>.lock` sidecar and a second open of the same path throws
+   * `LibreDbError` with `code: "LOCKED"` - measured 2026-08-25 against
+   * `@libredb/libredb` 0.2.2, in one process. SQLite is the engine a reader would
+   * expect beside it and does NOT belong: measured the same day on `bun:sqlite`, a
+   * second `new Database(path, { readwrite: true })` on a WAL file this process
+   * already holds both opens and writes, because SQLite takes its file locks per
+   * transaction rather than at open.
+   *
+   * It exists because three code paths open a SECOND handle on a file the connection's
+   * own cached provider is already holding, and on this engine the lock defeated every
+   * one of them every time (#498): `POST /api/db/test-connection`
+   * reported the lock as a failed connection test - which made the built-in LibreDB
+   * sample impossible to EDIT, because the dialog tests before it saves;
+   * `acquireExecutionProfileProvider` lost every agent grounding read on the
+   * connection to it, silently, since a `ConnectionError` becomes an unavailable
+   * capture rather than a failure; and `POST /api/db/schema-snapshot` answered 503, so
+   * the Schema Diff tab could not snapshot a schema the sidebar was listing.
+   * `findOpenSingleWriterProvider` (`factory.ts`) now hands all three the handle that
+   * is already open, keyed by the RESOLVED FILE PATH rather than the connection id: the
+   * second opener is usually a different connection record pointing at the same file.
+   *
+   * Optional for the same published-interface reason as `supportsInlineRowEdit`
+   * (`src/exports/types.ts`): a required field added after the fact stops every
+   * external implementer compiling. Consumers therefore gate on `=== true`, so an
+   * absent flag reads as "this engine serves as many handles as we open" - the
+   * ordinary case, and the one every client-server engine is in. Reading
+   * `connection.type` at the consumer was the alternative and is forbidden by
+   * `CLAUDE.md`.
+   */
+  singleWriterFile?: boolean;
+  supportsMaintenance: boolean;
+  maintenanceOperations: MaintenanceType[];
+  /**
+   * Per-operation targeting for the operations above, keyed by `MaintenanceType`.
+   *
+   * Optional for the published-interface reason `supportsInlineRowEdit` records
+   * (`src/exports/types.ts`): a required field added after the fact stops every
+   * external implementer compiling. Absent means "gate on `maintenanceOperations`
+   * alone", which is what both maintenance surfaces did before #U9 - so an
+   * implementation that declares nothing here behaves exactly as it did.
+   */
+  maintenanceOperationSpecs?: Partial<Record<MaintenanceType, MaintenanceOperationSpec>>;
+  supportsConnectionString: boolean;
+  defaultPort: number | null;
+  /**
+   * How this engine quotes an identifier, when the port cannot say.
+   *
+   * `src/lib/query-generators.ts` has always derived the dialect from
+   * `defaultPort`, which worked only because every engine had a distinct one. That
+   * assumption broke with #424 Phase 1: Elasticsearch and OpenSearch BOTH ship on
+   * 9200 and they disagree about the quote character, so one port had to answer for
+   * two dialects. The consequence was measured, and it is the worst kind: on
+   * OpenSearch 3.8.0 a double-quoted identifier is a STRING LITERAL, so
+   * `SELECT customer FROM probe_orders WHERE "customer" = 'acme'` answers HTTP 200
+   * with `total: 0` - a generated query silently returning no rows instead of
+   * failing. Backticks return the row.
+   *
+   * Absent means "keep deriving it from the port", so no existing provider changes
+   * and nothing about the old behaviour moves. A provider sets this when the port
+   * is not a faithful proxy for its dialect - which is any engine that shares a
+   * default port with a differently-quoting one.
+   */
+  identifierQuoting?: "double" | "backtick";
+  /**
+   * Whether a statement this product runs may end with `;`.
+   *
+   * Absent means it may, which is every engine that shipped before #424 Phase 1 and
+   * is what `src/lib/query-generators.ts` has always emitted. `"none"` says the
+   * terminator is not in the grammar at all.
+   *
+   * Measured 2026-08-19 on Elasticsearch 9.1.4: the generator's own
+   * `SELECT * FROM orders LIMIT 50;` - the query behind "Select Top 50 Documents",
+   * the first thing a user clicks on an index - answered `parsing_exception`,
+   * "line 1:30: extraneous input ';' expecting <EOF>". The same shape without the
+   * `;` returns the rows. OpenSearch 3.8.0 accepts both spellings, so the two
+   * products need no separate answer: omitting it runs everywhere, and declaring it
+   * here keeps `query-generators.ts` from having to know which engine it is
+   * generating for.
+   *
+   * Oracle is the second product that declares it, and for a different reason worth
+   * keeping apart: `;` is a SQL*Plus convention rather than Oracle SQL, and node-oracledb
+   * sends one statement with no terminator in it. Measured on Oracle AI Database 26ai Free
+   * on 2026-09-12 by clicking a table in the object browser -
+   * `SELECT * FROM app_customers FETCH FIRST 50 ROWS ONLY;` answers ORA-00933 "SQL command
+   * not properly ended" and the same statement without the `;` returns the rows (#789).
+   *
+   * This bounds the GENERATORS only. A user who types a `;` still has it stripped
+   * by the editor's statement reader before the statement is sent, and the raw API
+   * passes text through untouched - neither of those is this field's business.
+   */
+  statementTerminator?: "none";
+  /**
+   * The container levels this engine nests its objects in, outermost first (#789).
+   *
+   * Absent or empty means the engine has none, and that is a claim about the engine
+   * rather than a gap in the declaration: SQLite, libSQL, Elasticsearch, OpenSearch and
+   * LibreDB address every object by a bare name, so the tree draws objects directly
+   * under the connection. One level is a database, a keyspace or a bucket; two is a
+   * catalog plus a schema. The per-engine inventory each provider declares from is on
+   * the epic, issue #789.
+   *
+   * Read it through `containerDepth()` in `src/lib/db/object-kinds.ts` and never by
+   * length here, so the empty and the absent cases cannot be answered differently by
+   * two callers.
+   *
+   * Optional for the same published-interface reason as `supportsInlineRowEdit`
+   * (`src/exports/types.ts`): a required field added after the fact stops every external
+   * implementer compiling.
+   */
+  containerLevels?: ContainerLevels;
+  /**
+   * Every object kind this engine has, each declared in full by the provider that has
+   * it (#789).
+   *
+   * Absent means no object kind is declared, so the tree stays empty for this engine
+   * rather than falling back to a table-shaped default. The permissive default is wrong
+   * here for the reason the flat model was replaced: it would claim a concept on an
+   * engine nobody asked: Druid has no view, no materialized view, no routine and no
+   * trigger, Cassandra has no view, and MySQL has never had a materialized view. The
+   * per-engine inventory behind those absences is on issue #789.
+   *
+   * A kind that is absent from this list is a different fact from a kind that is
+   * declared and holds nothing, which is what `KindCount` carries. Read this through
+   * `declaredKinds()` in `src/lib/db/object-kinds.ts`.
+   *
+   * Optional for the same published-interface reason as `containerLevels` above.
+   *
+   * WHAT AN EMPTY DECLARATION COSTS, said here because the type is what an external
+   * implementer of this interface reads. Since the flat schema reading was deleted, this
+   * list is the ONLY thing that grounds a database: a provider declaring no kind draws no
+   * folder in the object browser, and its agent runs are ungrounded. That is refused
+   * LOUDLY rather than silently - `readObjectInventoryForGrounding()` answers
+   * `unsupported` before it spends a statement, and the run is told
+   * "the provider declares no object kinds, so there is nothing to list" as a
+   * `CATALOG_READ_REFUSED` capture - so a run is never handed an empty inventory as
+   * though it were an empty database. It is deliberately not a construction-time throw:
+   * every one of the seventeen shipped type ids declares kinds, so the shape is
+   * unreachable here, and refusing to CONNECT over it would take a connection away from
+   * an implementer whose query editor works perfectly well while their catalog reading is
+   * still being written (#789).
+   */
+  objectKinds?: readonly ObjectKindSpec[];
+  schemaRefreshPattern: string;
+}
+
+export interface ProviderLabels {
+  entityName: string;
+  entityNamePlural: string;
+  rowName: string;
+  rowNamePlural: string;
+  selectAction: string;
+  generateAction: string;
+  analyzeAction: string;
+  vacuumAction: string;
+  /**
+   * Which operation `vacuumAction` and the `vacuumGlobal*` triad actually NAME.
+   *
+   * Four providers point that wording at something that is not `vacuum`: ClickHouse's
+   * *"Optimize Table"* and SQL Server's, Oracle's and MySQL's *"Rebuild Indexes"* /
+   * *"Optimize Table"* each stand for the `optimize` the provider declares. MySQL
+   * rendered the base default *"Vacuum Table"* for an engine whose operations
+   * are `analyze`/`optimize`/`check`/`kill`. The global vacuum card was gated on the
+   * literal `vacuum`, so every one of those provider's own words was written and never
+   * shown, and the per-row item named an operation the page behind it could not run.
+   *
+   * Absent means `vacuum`, so no provider that really vacuums declares anything - and
+   * a provider whose vacuum wording names NOTHING it can run leaves this absent too:
+   * Couchbase's *"Compact"* says in its own description that the server compacts
+   * automatically and there is no manual equivalent, so `vacuum` stays undeclared and
+   * the card stays withheld, which is the honest outcome rather than pointing the
+   * words at the unrelated `reindex` it does declare.
+   * `analyzeAction` needs no twin of this, but not because every engine's analyze
+   * wording stands for `analyze`: read across the providers, three point it at nothing
+   * runnable - Trino's *"Table Statistics"*, the search family's *"Index Statistics"*
+   * and the embedded LibreDB's *"Key Info"*. What makes the twin unnecessary is the
+   * other half of each of those three: none of them declares an `analyze` operation
+   * (`maintenanceOperations` is `['kill']` on Trino and `[]` on the other two), so the
+   * control is withheld there by the declaration alone. Not one provider points its
+   * analyze wording at a DIFFERENT operation it does declare, which is the only case a
+   * twin field would resolve.
+   */
+  vacuumActionOperation?: MaintenanceType;
+  searchPlaceholder: string;
+  analyzeGlobalLabel: string;
+  analyzeGlobalTitle: string;
+  analyzeGlobalDesc: string;
+  vacuumGlobalLabel: string;
+  vacuumGlobalTitle: string;
+  vacuumGlobalDesc: string;
+  /**
+   * The Operations tab's global Reindex card, in this engine's own terms.
+   *
+   * The analyze and vacuum cards have carried per-provider wording since #427; the
+   * reindex card stayed hardcoded to PostgreSQL's "Run Reindex" / "Rebuild Indexes" /
+   * "Reconstructs all indexes in the database." Three providers declare the `reindex`
+   * maintenance operation — Postgres, SQLite and Couchbase — and on Couchbase that
+   * copy is wrong the way the analyze copy was wrong for Redis: its reindex builds
+   * deferred GSI indexes, which is not a table reindex.
+   *
+   * Optional, unlike the `analyzeGlobal*` and `vacuumGlobal*` triads above, because
+   * `ProviderLabels` is published (`src/exports/types.ts`) and a required field added
+   * after the fact stops every external implementer compiling — the rule
+   * `supportsInlineRowEdit` records, and the one the newer `statementLanguage` and
+   * `slowQueriesEmptyState` follow. `OperationsTab` keeps the hardcoded strings as
+   * its fallback, which it needs anyway: `metadata` may carry capabilities with no
+   * labels at all.
+   */
+  reindexGlobalLabel?: string;
+  reindexGlobalTitle?: string;
+  reindexGlobalDesc?: string;
+  /**
+   * What a statement for this engine is WRITTEN IN, named for a model rather than
+   * for a person, and declared only where the engine's own name misleads one.
+   *
+   * Read by the agent's plan contract (`src/lib/agent/investigation.ts`). Every
+   * other engine leaves it absent: a connection stamped `postgres` needs nobody to
+   * add that its statements are PostgreSQL SQL, and a sentence saying so would spend
+   * prompt on a fact the dialect line already carries.
+   *
+   * It exists because `queryLanguage: "sql"` is not always believable from outside.
+   * Measured 2026-08-19: a plan run on an OpenSearch connection, asked for one
+   * runnable statement, produced a native aggregation body - correct for the
+   * product, unrunnable through a SQL endpoint - and the two search engines are the
+   * only shipped engines whose names carry a stronger prior than their capability.
+   * A provider sets this when a model asked for "a statement" would reasonably write
+   * the wrong language.
+   */
+  statementLanguage?: string;
+  /**
+   * Why the monitoring Queries tab's "Slowest Queries" panel is empty on this
+   * engine, in that engine's own terms.
+   *
+   * Read by `QueriesTab`, which defaults to PostgreSQL's "Enable
+   * pg_stat_statements extension to see query stats." — the sentence it hardcoded
+   * for every engine until #U12, measured 2026-08-19 in Chrome telling an
+   * OpenSearch cluster to install a PostgreSQL extension. `postgres` therefore
+   * declares nothing, and so does any engine whose statement store really is an
+   * extension away.
+   *
+   * A provider sets this when the Postgres sentence is actively false for it:
+   * either the engine keeps no aggregate of finished statements at all, or the
+   * one it keeps is switched on somewhere else entirely. One field, not one per
+   * sentence — the panel's badge names an extension rather than a category, so it
+   * is dropped where this label is set instead of being re-worded from it.
+   */
+  slowQueriesEmptyState?: string;
+
+  /**
+   * Why the monitoring Sessions panel and the admin Operations session list are
+   * empty on this engine, in that engine's own terms.
+   *
+   * The counterpart of `slowQueriesEmptyState` for the other half of the same
+   * absence (#518). Both panels default to "No active sessions found.", which a
+   * reader takes as "nothing is running right now" - true on PostgreSQL, and false
+   * on an engine that publishes no session list at all and can never show a row.
+   *
+   * A provider sets this when its `getActiveSessions()` can only ever answer `[]`.
+   * The failure branch beside it is a different fact: it renders a reason only when
+   * the READ failed (`activeSessions` absent from the payload, the reason under
+   * `errors`), and an absence is not an error.
+   */
+  sessionsEmptyState?: string;
+}
+
+/**
+ * Enforcement caps for a single statement executed through an agent read-only
+ * execution profile (#328). The timeout is enforced database-side
+ * (transaction-local), the row/byte caps result-side after the statement
+ * returns. Every field must be a positive integer — queryReadOnly refuses the
+ * whole call otherwise (fail closed).
+ */
+export interface ReadOnlyStatementBudget {
+  statementTimeoutMs: number;
+  maxResultRows: number;
+  maxResultBytes: number;
+}
+
+export interface PreparedQuery {
+  query: string;
+  wasLimited: boolean;
+  limit: number;
+  offset: number;
+}
+
+export interface QueryPrepareOptions {
+  limit?: number;
+  offset?: number;
+  unlimited?: boolean;
+}
+
+// ============================================================================
+// Provider Interface (Strategy Pattern)
+// ============================================================================
+
+export interface DatabaseProvider {
+  /** Database type identifier */
+  readonly type: DatabaseType;
+
+  /** Connection configuration */
+  readonly config: DatabaseConnection;
+
+  /**
+   * Initialize connection pool or single connection
+   */
+  connect(): Promise<void>;
+
+  /**
+   * Close all connections and cleanup resources
+   */
+  disconnect(): Promise<void>;
+
+  /**
+   * Check if provider is currently connected
+   */
+  isConnected(): boolean;
+
+  /**
+   * Execute a SQL query
+   * @param sql - SQL query string
+   * @param params - Optional query parameters for prepared statements
+   * @returns Query result with rows, fields, and execution time
+   */
+  query(sql: string, params?: unknown[]): Promise<QueryResult>;
+
+  /**
+   * Execute exactly one statement under the DATABASE's own read-only
+   * enforcement (#328): the engine, not a parser, rejects writes through this
+   * path. Optional on purpose — only providers with a verified database-native
+   * boundary implement it, and execution-profile acquisition
+   * (`acquireExecutionProfileProvider` in factory.ts) refuses provider types
+   * that lack it rather than falling back to `query()` (fail closed).
+   */
+  queryReadOnly?(sql: string, budget: ReadOnlyStatementBudget): Promise<QueryResult>;
+
+  /**
+   * Containers at `parent`, or the top level when `parent` is absent (#789).
+   *
+   * REQUIRED, along with the four below. They were optional through the phase that landed
+   * them one provider at a time, and that phase is over: the flat reading they replaced
+   * (`getSchema`, `getSchemaList`, `getSchemaRelations`) no longer exists, so a provider
+   * that does not implement these answers nothing at all about what a database holds.
+   * Optionality also bought a 501 the object routes had to carry for a provider gap, and a
+   * gap that cannot occur is a guard nothing executes.
+   */
+  listContainers(parent?: readonly string[]): Promise<Container[]>;
+  /** Per-kind counts for one container. A refused read is `{ unavailable }`, never 0. */
+  countObjects(container: readonly string[]): Promise<Record<string, KindCount>>;
+  /** Objects of one kind in one container. Names only: columns come from describeObject. */
+  listObjects(container: readonly string[], kind: string): Promise<DatabaseObject[]>;
+  /**
+   * Columns, indexes and foreign keys for one object.
+   *
+   * `kind` is required, not a convenience. Without it a provider has to work out what it
+   * is holding from what the path's last segment happens to match in a catalog, and
+   * "answers nothing because no relation is called that" is not the same as "this is a
+   * routine and routines have no columns" - the first is correct by accident and stops
+   * being correct the moment a name collides. The caller always has the kind, because an
+   * object is only ever reached through its kind's folder.
+   */
+  describeObject(path: readonly string[], kind: string): Promise<ObjectDetail>;
+
+  /**
+   * Columns, indexes and foreign keys for EVERY object of one kind in one container, in
+   * one round trip (#789).
+   *
+   * The fifth method, and it exists because a consumer none of the other four serves was
+   * measured rather than imagined: `src/lib/agent/tools.ts` read the agent's whole column,
+   * index and foreign-key grounding through the flat reading, and deleting that reading
+   * would otherwise have left the agent with no columns at all on fifteen engines. It is
+   * the object-model-shaped successor of that method, not a new invention, so each provider
+   * reshaped the old body rather than writing a new statement: those bodies carried which
+   * catalog answers which fact, which system schemas are excluded and how an
+   * extension-owned relation is hidden.
+   *
+   * ONE ROUND TRIP PER CONTAINER AND KIND, never one per object. `includeColumns` on the
+   * inventory route was built as one `describeObject` per object, up to 5000 sequential
+   * round trips, and removed as an N+1 this epic should not ship. A provider that loops
+   * `describeObject` here has re-introduced it.
+   *
+   * The arguments are a container and a kind, the same pair `listObjects` takes, and not
+   * a list of paths. Three reasons, in order of how much they cost. A caller's fan-out is
+   * then bounded by the SAME container-and-kind product it already bounds for listing
+   * (`INVENTORY_PAIR_LIMIT`), instead of by a second, differently shaped budget. A path
+   * list would have to reach the engine as an IN list, which on a two-level engine is an
+   * IN list over TUPLES and on a kind with mixed path depth (an Oracle schema-level
+   * trigger against a table-level one) is two of them, so the statement's shape would
+   * depend on the caller's selection rather than on the engine. And a caller holding 5000
+   * paths would have to chunk them itself, which is a fan-out no bound in this repo
+   * describes.
+   *
+   * `limit` bounds ONE read, which nothing else in the object surface does: the inventory
+   * route's own docblock records that it can bound the number of listings and the number
+   * of objects returned, and cannot bound a single listing from the outside. Absent means
+   * unbounded, and a provider must not invent a cap of its own and stay silent about it -
+   * it may cap, but then `truncated` says so.
+   *
+   * A kind that legitimately has no columns - a routine, a trigger, a sequence on some
+   * engines - answers an empty `details` array without a round trip, exactly as
+   * `describeObject` answers three empty arrays for one of them.
+   */
+  describeObjects(container: readonly string[], kind: string, limit?: number): Promise<ObjectDetailBatch>;
+
+  /**
+   * Get health and performance metrics
+   */
+  getHealth(): Promise<HealthInfo>;
+
+  /**
+   * Get comprehensive monitoring data
+   * @param options - What to include in the monitoring data
+   */
+  getMonitoringData(options?: MonitoringOptions): Promise<MonitoringData>;
+
+  /**
+   * Get database overview metrics
+   */
+  getOverview(): Promise<DatabaseOverview>;
+
+  /**
+   * Get performance metrics
+   */
+  getPerformanceMetrics(): Promise<PerformanceMetrics>;
+
+  /**
+   * Get slow query statistics
+   * @param options - Query options (limit)
+   */
+  getSlowQueries(options?: { limit?: number }): Promise<SlowQueryStats[]>;
+
+  /**
+   * Get active sessions with details
+   * @param options - Query options (limit)
+   */
+  getActiveSessions(options?: { limit?: number }): Promise<ActiveSessionDetails[]>;
+
+  /**
+   * Get table statistics
+   * @param options - Query options (schema filter)
+   */
+  getTableStats(options?: { schema?: string }): Promise<TableStats[]>;
+
+  /**
+   * Get index statistics
+   * @param options - Query options (schema filter)
+   */
+  getIndexStats(options?: { schema?: string }): Promise<IndexStats[]>;
+
+  /**
+   * Get storage/tablespace statistics
+   */
+  getStorageStats(): Promise<StorageStats[]>;
+
+  /**
+   * Run maintenance operations
+   * @param type - Type of maintenance operation
+   * @param target - Optional target (table name or process ID)
+   */
+  runMaintenance(type: MaintenanceType, target?: string): Promise<MaintenanceResult>;
+
+  /**
+   * Validate provider configuration
+   * @throws DatabaseConfigError if configuration is invalid
+   */
+  validate(): void;
+
+  /**
+   * Get provider capabilities (query language, supported features, etc.)
+   */
+  getCapabilities(): ProviderCapabilities;
+
+  /**
+   * Get UI labels for this provider (entity names, action labels, etc.)
+   */
+  getLabels(): ProviderLabels;
+
+  /**
+   * Prepare a query for execution (apply limits, analyze query type, etc.)
+   */
+  prepareQuery(query: string, options?: QueryPrepareOptions): PreparedQuery;
+}
+
+// ============================================================================
+// Provider Configuration Options
+// ============================================================================
+
+export interface ProviderOptions {
+  /** Connection pool configuration */
+  pool?: Partial<PoolConfig>;
+  /** Query timeout in milliseconds */
+  queryTimeout?: number;
+  /** Enable SSL/TLS connection */
+  ssl?: boolean | { rejectUnauthorized: boolean };
+  /** Connection timezone */
+  timezone?: string;
+}
+
+/**
+ * Server-injected construction context for an execution-profile provider
+ * (#328). Deliberately NOT a member of `ProviderOptions`: that object is
+ * caller-supplied and flows all the way into `getOrCreateProvider`, so a
+ * profile flag living there could be set — or cleared — by whoever builds the
+ * options for a request. Only `acquireExecutionProfileProvider` passes this.
+ */
+export interface ProviderExecutionContext {
+  /**
+   * Open the connection under the database's own read-only enforcement.
+   * Only providers whose read-only boundary is established at OPEN time read
+   * this (SQLite); PostgreSQL establishes it per transaction inside
+   * `queryReadOnly` instead, so its provider ignores the context.
+   */
+  readOnly?: boolean;
+}
+
+// ============================================================================
+// Internal Types
+// ============================================================================
+
+export interface ConnectionState {
+  connected: boolean;
+  lastConnected?: Date;
+  lastError?: Error;
+  activeQueries: number;
+}
+
+// ============================================================================
+// Monitoring Types (Extended)
+// ============================================================================
+
+/**
+ * Database overview metrics
+ */
+export interface DatabaseOverview {
+  version: string;
+  uptime: string;
+  startTime?: Date;
+  /**
+   * The count of connections currently open, or absent when the engine cannot
+   * measure it at all.
+   *
+   * Optional for the same reason `databaseSizeBytes` below is: absence and zero are
+   * different facts, and a provider that cannot read the figure must omit the key
+   * rather than send a fabricated 0. ScyllaDB is the case that forced this - the
+   * count lives in Cassandra's `system_views` keyspace, which ScyllaDB does not
+   * have - and a Cassandra role denied that same grant has answered a fabricated 0
+   * since the provider shipped (#476). `HealthInfo.activeConnections`
+   * is optional for the identical reason and the absence travels THROUGH that seam:
+   * a provider composing one from the other must carry the missing key across rather
+   * than flatten it with `?? 0`, which is what the docblock on that field says and
+   * what MSSQL, Oracle and MongoDB were corrected to do - all three initialised a
+   * local to 0 and swallowed the read's failure into it, so a denied DMV, an
+   * unprivileged `V$SESSION` and a whole failed `serverStatus` each reached the
+   * agent's curated reading as a measured zero.
+   */
+  activeConnections?: number;
+  /**
+   * The published ceiling, where `0` MEANS "no limit published" rather than "no
+   * capacity" - unlike `activeConnections` above, `0` and absence are the SAME fact
+   * here, so this field stays a required number. See `OverviewTab.tsx`'s
+   * `connectionLimit`.
+   */
+  maxConnections: number;
+  databaseSize: string;
+  /**
+   * Total on-disk size in bytes, or absent when the engine publishes no byte figure
+   * at all.
+   *
+   * Optional because absence and zero are different facts: a 0 is a measurement, and
+   * the Storage tab formats whatever it is given. Apache Cassandra is the case - its
+   * `system_views.disk_usage` reports whole mebibytes (measured: "1 MiB" for a
+   * 19,476-byte table), so it omits this field rather than send a zero that renders
+   * as "0 B" and a 0.0% breakdown (#424).
+   */
+  databaseSizeBytes?: number;
+  tableCount: number;
+  indexCount: number;
+}
+
+/**
+ * Performance metrics for the database
+ */
+export interface PerformanceMetrics {
+  /**
+   * Cache hit ratio as percentage (0-100), or absent when the engine does not
+   * measure one.
+   *
+   * Optional because "not measured" and "measured as zero" are different facts
+   * and only one of them should raise an alarm. `DEFAULT_THRESHOLDS` treats this
+   * metric as `direction: "below"` with `critical: 80`, so a provider that has no
+   * ratio to report and substitutes a neutral-looking `0` makes every healthy
+   * cluster show a red critical cache fault. Apache Druid is that case - its cache
+   * statistics reach a metrics emitter and never a SQL-readable table - and the
+   * monitoring tabs already read this field as optional, defaulting the THRESHOLD
+   * to a healthy 100 when it is absent.
+   */
+  cacheHitRatio?: number;
+  /** Transactions per second */
+  transactionsPerSecond?: number;
+  /** Queries per second */
+  queriesPerSecond?: number;
+  /** Buffer pool usage as percentage (0-100) */
+  bufferPoolUsage?: number;
+  /** Number of deadlocks */
+  deadlocks?: number;
+  /** Checkpoint write time */
+  checkpointWriteTime?: string;
+}
+
+/**
+ * Slow query with detailed statistics
+ */
+export interface SlowQueryStats {
+  queryId?: string;
+  query: string;
+  calls: number;
+  totalTime: number;
+  avgTime: number;
+  minTime?: number;
+  maxTime?: number;
+  rows: number;
+  sharedBlksHit?: number;
+  sharedBlksRead?: number;
+}
+
+/**
+ * Active session with detailed information
+ */
+export interface ActiveSessionDetails {
+  pid: number | string;
+  user: string;
+  database: string;
+  applicationName?: string;
+  clientAddr?: string;
+  state: string;
+  query: string;
+  queryStart?: Date;
+  duration: string;
+  durationMs: number;
+  waitEventType?: string;
+  waitEvent?: string;
+  blocked?: boolean;
+}
+
+/**
+ * Table statistics
+ */
+export interface TableStats {
+  schemaName: string;
+  tableName: string;
+  rowCount: number;
+  liveRowCount?: number;
+  deadRowCount?: number;
+  /**
+   * The table's own bytes, and its formatted spelling. BOTH are omitted when the engine
+   * publishes no per-table size at all: SQLite's per-object page counts live in the
+   * `dbstat` virtual table, which is a compile-time option the build behind the driver
+   * decides - present on node:sqlite, absent on bun:sqlite through Bun 1.3.14 ("no such
+   * table: dbstat", measured 2026-08-24 on SQLite 3.53.0) and present again from Bun
+   * 1.4.0 / SQLite 3.53.2 (re-measured 2026-08-31 on Linux x86_64, where both drivers
+   * return identical bytes). Those are Bun's Linux/Windows builds: on macOS `bun:sqlite`
+   * dlopens Apple's `/usr/lib/libsqlite3.dylib` rather than Bun's own amalgamation
+   * (oven-sh/bun#16717, open, reproduced upstream), so the SQLite behind it there is
+   * Apple's and is not measured by any row here. So the omission is a property of the
+   * build, not of the driver's name, and
+   * the fields stay optional for every build that still has nothing to read. It used to be
+   * required, and what filled it was `rowCount * 100` ("Assume 100 bytes average per
+   * row"), which the Storage tab then summed into the Data figure it draws beside the
+   * measured database size: a guess presented as a measurement. A `0` would be the
+   * same lie in a different digit, so absence is the answer, and every consumer of the
+   * aggregate gates on it - see `StorageTab`'s `tableSizeKnown`.
+   */
+  tableSize?: string;
+  tableSizeBytes?: number;
+  indexSize?: string;
+  indexSizeBytes?: number;
+  totalSize: string;
+  totalSizeBytes: number;
+  lastVacuum?: Date;
+  lastAnalyze?: Date;
+  bloatRatio?: number;
+}
+
+/**
+ * Index statistics
+ */
+export interface IndexStats {
+  schemaName: string;
+  tableName: string;
+  indexName: string;
+  indexType?: string;
+  columns: string[];
+  isUnique: boolean;
+  isPrimary: boolean;
+  indexSize: string;
+  /**
+   * Omitted when the engine publishes no size for this index. MySQL keeps per-index sizes in
+   * `mysql.innodb_index_stats`, which a restricted user cannot read and which holds no row for a
+   * MyISAM table, so a `0` there would be a fabricated measurement rather than a small index.
+   */
+  indexSizeBytes?: number;
+  scans: number;
+  usageRatio?: number;
+}
+
+/**
+ * Storage statistics
+ */
+export interface StorageStats {
+  name: string;
+  location?: string;
+  size: string;
+  sizeBytes: number;
+  usagePercent?: number;
+  walSize?: string;
+  walSizeBytes?: number;
+}
+
+/**
+ * Comprehensive monitoring data combining all metrics
+ */
+export interface MonitoringData {
+  timestamp: Date;
+  /**
+   * Every panel is optional, and ABSENCE is not ZERO here - the same distinction the
+   * `activeConnections` comment above draws for a single field, applied to a whole panel.
+   * `getMonitoringData` reads the seven panels independently, so one read failing costs
+   * only its own panel: the field it would have filled is left absent and its own message
+   * is recorded under `errors`. An absent panel means "this engine could not answer",
+   * which is a different fact from an empty array or a zero - StarRocks 3.3 has no
+   * `information_schema.PROCESSLIST`, so `activeSessions` is absent there while an idle
+   * PostgreSQL answers `[]`. Rendering the first as the second would claim a measurement
+   * the engine refused to make (the very error QueriesTab.tsx:68 documents for
+   * `slowQueries`). A consumer therefore gates on the field being present, and shows the
+   * `errors` entry in place of that panel.
+   */
+  overview?: DatabaseOverview;
+  performance?: PerformanceMetrics;
+  slowQueries?: SlowQueryStats[];
+  activeSessions?: ActiveSessionDetails[];
+  tables?: TableStats[];
+  indexes?: IndexStats[];
+  storage?: StorageStats[];
+  /**
+   * Per-panel failure messages, keyed by the panel whose read rejected. The value is the
+   * ENGINE's own sentence (`Error.message`, not a generic stand-in), because it is the only
+   * text that tells the user what the database actually refused. Absence of a panel plus its
+   * entry here is how a partial read is reported; a panel that is absent with no entry here
+   * was simply not requested (`includeTables` and friends).
+   */
+  errors?: Partial<
+    Record<"overview" | "performance" | "slowQueries" | "activeSessions" | "tables" | "indexes" | "storage", string>
+  >;
+}
+
+/**
+ * Options for monitoring queries
+ */
+export interface MonitoringOptions {
+  /** Include table statistics */
+  includeTables?: boolean;
+  /** Include index statistics */
+  includeIndexes?: boolean;
+  /** Include storage/tablespace info */
+  includeStorage?: boolean;
+  /** Limit for slow queries (default: 10) */
+  slowQueryLimit?: number;
+  /** Limit for active sessions (default: 50) */
+  sessionLimit?: number;
+  /** Schema filter (default: 'public' for PostgreSQL) */
+  schemaFilter?: string;
+}
+
+// ============================================================================
+// Object Model
+// ============================================================================
+
+/**
+ * Behaviour the UI may derive from an object. CLOSED on purpose: a new engine adds
+ * kinds, never roles. The UI switches on this and never on `ObjectKindSpec.id`, which
+ * is what keeps `CLAUDE.md`'s "never branch on the type id" rule true one level up.
+ */
+export type ObjectRole =
+  | "relation" // has rows, is selected from
+  | "routine" // is called, has source
+  | "group" // holds routines: an Oracle package
+  | "attached" // belongs to another object: a trigger
+  | "config"; // defined by text or JSON: a dictionary, a lookup, a pipeline
+
+/**
+ * One object kind, declared in full by the provider that has it.
+ *
+ * `id` is an OPEN string, and that is the design rather than a shortcut. DBeaver's
+ * `DBSObjectType`, CloudBeaver's `nodeType`, Azure Data Studio's `nodeType` and
+ * pgAdmin's `node_type` are all open for the same reason, and JDBC's closed model is
+ * the counter-example: it cannot express a trigger, a sequence, a materialized view or
+ * a package at all. A ClickHouse dictionary, a Druid lookup and an Oracle package
+ * therefore reach the tree through a provider-local declaration and no core change.
+ */
+export interface ObjectKindSpec {
+  readonly id: string;
+  readonly role: ObjectRole;
+  /** The engine's own word, singular. Rendered as-is. */
+  readonly label: string;
+  readonly labelPlural: string;
+  /** Phase 2. Absent means this kind has no readable definition, so no Source tab. */
+  readonly hasSource?: boolean;
+  /** Phase 2. The Monaco language id the source renders in. */
+  readonly sourceLanguage?: string;
+  /** Kinds nested under an object of this kind: a package holds procedures. */
+  readonly childKinds?: readonly string[];
+  /** This kind hangs off another object rather than off the container: a trigger. */
+  readonly attachedTo?: string;
+  /**
+   * Whether a row write against an object of this kind is meaningful.
+   *
+   * Absent reads as false, so a kind that declares nothing never appears as an import
+   * or inline-edit target. The permissive default is wrong here: writing rows into a
+   * view is meaningless on most engines and only sometimes possible on PostgreSQL, and
+   * only the provider knows which.
+   *
+   * The engine-wide `supportsInlineRowEdit` stays, and it is a SEPARATE fact rather than
+   * the other half of a conjunction. It has one reader, `src/components/Studio.tsx:144`,
+   * where it gates the results grid's inline row editor and nothing else. MongoDB,
+   * Couchbase and Cassandra declare it false, and #789 declares a kind that accepts row
+   * writes on each of those three, so requiring both would refuse an import all three
+   * engines do support.
+   * Read this field through `kindAcceptsRowWrites()` in `src/lib/db/object-kinds.ts`,
+   * whose name states that scope; a caller that needs the editor gate as well reads
+   * both.
+   */
+  readonly acceptsRowWrites?: boolean;
+}
+
+/** One container level. Zero, one or two of these; the engine says which. */
+export interface ContainerLevelSpec {
+  /** Structural role, used for ordering only. */
+  readonly id: "catalog" | "schema";
+  /** The engine's own word: Schema, Keyspace, Bucket, Scope, User, Database. */
+  readonly label: string;
+  readonly labelPlural: string;
+}
+
+export interface Container {
+  readonly path: readonly string[];
+  readonly name: string;
+  /** Index into `containerLevels`. */
+  readonly level: number;
+  /**
+   * Whether this container is the one the session is already in (#789).
+   *
+   * Absent means the engine does not publish the fact, which is most of them: on
+   * PostgreSQL a `search_path` names several schemas and none of them owns the session.
+   * Oracle is the case this exists for, and there it is not decoration: the connecting
+   * user IS a container, every other owner in `ALL_USERS` is a peer of it, and without
+   * this a user connecting as `SYSADM` gets an alphabetical list with no indication which
+   * entry is their own.
+   */
+  readonly isSessionDefault?: boolean;
+}
+
+/**
+ * One object. `path` ADDRESSES it and `name` LABELS it, and they are allowed to differ.
+ *
+ * `path` is never a joined string: the old flat model spelled a qualified name
+ * `"sales.orders"`, and `query-generators.ts` split it back on `.`, so a table literally
+ * named `a.b` in `public` generated `"a"."b"`. An array cannot be misread that way.
+ */
+export interface DatabaseObject {
+  /**
+   * The container path, then one segment per nesting level down to this object, each
+   * segment being the identifier that is UNIQUE WITHIN ITS PARENT.
+   *
+   * Two consequences, and both are engines this repo serves rather than hypotheticals.
+   * A kind that declares `attachedTo` nests under the object it is attached to, so a
+   * PostgreSQL trigger is `[schema, table, trigger]`: a trigger name is unique per table
+   * and not per schema, and `[schema, trigger]` gives two triggers on two tables one
+   * address. A routine's segment carries the engine's own disambiguated form, so an
+   * overloaded PostgreSQL function is `["app", "order_total(integer)"]`: PostgreSQL
+   * identifies a routine by name AND ARGUMENT TYPES, and a bare `proname` gives two
+   * overloads one address.
+   *
+   * That segment is the argument TYPES and never the parameter names. Overloads differ by
+   * types and never by names, so a name adds nothing to identity while making the identity
+   * change when somebody renames a parameter, and a segment carrying information
+   * irrelevant to identity is wrong even where it round-trips through DDL. PostgreSQL's
+   * `pg_get_function_identity_arguments()` is the obvious candidate and is the wrong one
+   * for exactly that reason: measured on postgres:18 it answers
+   * `order_total(order_id integer)`. See `src/lib/db/providers/sql/postgres.ts` for the
+   * expression that is used instead.
+   */
+  readonly path: readonly string[];
+  /**
+   * The display label, which is NOT required to equal the last path segment.
+   *
+   * A tree renders this and addresses with `path`, so the disambiguation the path needs
+   * never has to be read by a person: the overloaded function above shows as
+   * `order_total` while its path stays unique. Where the two would be the same string,
+   * they are, and every relation kind on every engine is in that case.
+   */
+  readonly name: string;
+  readonly kind: string;
+  /**
+   * The engine's own word for a state a reader should act on, and PRESENT ONLY THEN (#789).
+   *
+   * Absence means ordinary, not unknown. Oracle publishes `VALID` for nearly every row in
+   * a real schema and SQL Server calls almost every trigger `ENABLED`, so a provider that
+   * set this field on every object put a badge beside every name that carried no
+   * information, and a reader learns to skip a field that is always there. What survives
+   * is `INVALID` on an Oracle object and `DISABLED` on a SQL Server trigger: the cases
+   * somebody has something to do about.
+   *
+   * The decision belongs to the PROVIDER and cannot be moved to a reader. Only the
+   * provider knows which of its engine's words is the ordinary one, and a renderer that
+   * knew the strings `VALID` and `ENABLED` would be a branch on the database type moved up
+   * a layer, which this codebase refuses inside `src/lib/db` for the same reason. So a new
+   * provider sets this field where its engine reports something notable, in the engine's
+   * own vocabulary rather than a normalised one, and leaves it unset otherwise.
+   */
+  readonly status?: string;
+  /** Relations only, and only where the engine counts. */
+  readonly rowCount?: number;
+  readonly sizeBytes?: number;
+}
+
+/**
+ * Four facts, not two.
+ *
+ * A kind that is not declared draws no folder at all: the engine has no such concept.
+ * `{ count: 0 }` is the engine answering none. `{ unavailable }` is a read that was
+ * refused, carrying the engine's own sentence. All three collapsed into an empty array
+ * before this change, and `docs/providers/postgres.md` section 3.1.2 records what that
+ * costs a reader on the monitoring side.
+ *
+ * The fourth is `{ count, sampledFrom }`: a number that is REAL but BOUNDED, because the
+ * provider counted what a capped read saw rather than what the engine holds. It is a
+ * FLOOR, so the tree badges it `1,204+` and never `1,204`. Two engines answer this way
+ * and neither does so for all of its kinds, which is why the state is per KIND and not a
+ * provider-wide flag: Redis counts its key groupings from a 1000-key `SCAN` while
+ * `FUNCTION LIST` is complete, and LibreDB counts `table` and `collection` from a
+ * persisted catalog while `keyspace` comes from the bounded key walk. MongoDB is NOT one
+ * of them: its `countObjects` tallies a complete `listCollections` (#789).
+ *
+ * `sampledFrom` is the provider's own sentence for what bounded the read, phrased to
+ * follow "counted from": `"one 1,000-key SCAN walk"`. It is the same discipline
+ * `unavailable` carries, which is that the thing a person reads comes from whoever knows
+ * the fact, not from the renderer.
+ *
+ * ADDITIVE ON PURPOSE. This type is published through `src/exports/types.ts`, so the two
+ * existing spellings stay valid unchanged: a required field on `{ count }` would break
+ * every external implementer of the provider surface. A consumer that has not heard of
+ * the fourth state still reads `.count` off it and gets a number that is true, only
+ * imprecise, rather than failing to narrow.
+ */
+export type KindCount =
+  | { readonly count: number }
+  | { readonly count: number; readonly sampledFrom: string }
+  | { readonly unavailable: string };
+
+export interface ObjectDetail {
+  readonly path: readonly string[];
+  readonly columns: readonly ColumnSchema[];
+  readonly indexes: readonly IndexSchema[];
+  readonly foreignKeys: readonly ForeignKeySchema[];
+}
+
+/**
+ * What one bulk column read answered, and whether it was complete (#789).
+ *
+ * `details` is keyed by `ObjectDetail.path`, which is the only key this surface has: a
+ * joined name is what `query-generators.ts` used to split back on `.`, and every
+ * dot-splitting defect this epic fixed came from a name standing in for an address. A
+ * caller matches these against the objects `listObjects` named, path against path.
+ *
+ * `truncated` carries the bound the provider actually applied and its own sentence for
+ * why, the same two fields `POST /api/db/objects/inventory` answers with. It is present
+ * whenever the read stopped short and absent whenever it did not, because a bounded read
+ * handed over as a complete one is what makes its reader treat a missing table as an
+ * absent one - the #414 defect, measured against the agent. `details.length` never
+ * exceeds `truncated.limit`.
+ *
+ * `limit` is the bound where the bound IS an object count, which is every caller-bounded
+ * read. Where the bound is not one - redis and libredb stop a key walk after a fixed
+ * number of KEYS and derive their objects from what it saw - there is no object count to
+ * report, and those two answer `details.length`, the number the read actually produced. So
+ * read `limit` as an upper bound on `details.length` that a caller may not read back as a
+ * cap somebody set: `reason` is the field that says WHICH bound bit, and it is the one to
+ * show a person. Making the field optional was considered and refused: it is published
+ * through `src/exports/types.ts`, every consumer compares against it, and an absent number
+ * would buy accuracy on two engines by making the comparison conditional on all seventeen.
+ *
+ * `reason` is ONE SENTENCE for one event across every engine, and that is a rule rather
+ * than a convention: build the caller's half with `callerBoundTruncationReason()` in
+ * `src/lib/db/object-kinds.ts` and never spell it per provider. Eleven implementers wrote
+ * three unrelated phrasings for the same bound before this was written down, so the same
+ * event read three ways depending on which engine was open, and once the flat surface is
+ * gone this sentence is the only thing explaining a short answer. A provider that applies
+ * a SECOND bound of its own, a bounded key walk say, names that one in its own words and
+ * joins the two: they are two different bounds, not two phrasings of one. The shared
+ * conformance guard asks that a caller-bounded batch's reason CONTAIN the shared sentence,
+ * never that it equal it.
+ */
+export interface ObjectDetailBatch {
+  readonly details: readonly ObjectDetail[];
+  /** Absent when every object of that kind in that container was described. */
+  readonly truncated?: { readonly limit: number; readonly reason: string };
+}

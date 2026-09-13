@@ -1,0 +1,114 @@
+# Dependencies
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun-debug.log*
+.pnpm-debug.log*
+
+# Build outputs
+.next
+out
+build
+dist
+.turbo
+.swc
+*.tsbuildinfo
+
+# Sibling-product trees and their build artifacts. None of these are inputs to
+# `next build`, and without them a local `docker build` copies whatever the
+# developer happens to have built - a Rust target/ dir alone put 2.3 GB of
+# desktop-shell objects inside the production image, so the image being smoke
+# tested locally was not the image CI publishes (CI checkouts are clean).
+desktop
+dist-desktop
+dist-rel
+operator
+packaging
+charts
+.attw
+
+# Test and automation trees
+e2e
+tests
+playwright-report
+test-results
+data-e2e-offline
+data-e2e-base-path
+.loop
+loop
+.claude
+
+# Local runtime state. None of it is an input to `next build`, and the builder
+# stage copies the whole context, so a developer's checkout would otherwise put
+# its own sample databases, generated bootstrap credentials and agent run
+# ledgers into a layer of a locally built image. The runner stage creates its
+# own empty `data`, and the agent's ledger dir is steered by
+# WORKFLOW_LOCAL_DATA_DIR.
+data
+.workflow-data
+
+# Environment files
+.env
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Git
+.git
+.gitignore
+.github
+
+# Docker
+.dockerignore
+docker-compose.yml
+
+# Documentation (not needed in production image)
+docs
+*.md
+!README.md
+!LICENSE
+
+# Development files
+.vscode
+.idea
+.devcontainer
+*.swp
+*.swo
+*~
+
+# Testing
+coverage
+*.lcov
+**/__tests__/**
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+
+# CI/CD
+.github
+
+# OS
+.DS_Store
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.tmp
+*.temp
+.cache
+.bun
+
+# TypeScript
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# Other
+CLAUDE.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+render.yaml

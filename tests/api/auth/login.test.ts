@@ -1,0 +1,532 @@
+import { describe, test, expect, mock, spyOn, beforeEach, afterEach } from "bun:test";
+import { createMockRequest, parseResponseJSON } from "../../helpers/mock-next";
+import { AuthConfigError } from "@/lib/auth-errors";
+import { clearRateLimitState } from "@/lib/api/rate-limit";
+import { clearTotpReplayState } from "@/lib/totp";
+import { RFC6238_SECRET } from "../../helpers/rfc6238";
+
+// ─── Mock @/lib/auth BEFORE importing the route ─────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const mockLogin = mock(async (_role: string, _email?: string) => {});
+
+mock.module("@/lib/auth", () => ({
+  login: mockLogin,
+  signJWT: mock(async () => "mock-token"),
+  verifyJWT: mock(async () => null),
+  getSession: mock(async () => null),
+  logout: mock(async () => {}),
+}));
+
+// ─── Import route handler AFTER mocking ─────────────────────────────────────
+const { POST } = await import("@/app/api/auth/login/route");
+
+// ─── Tests ──────────────────────────────────────────────────────────────────
+describe("POST /api/auth/login", () => {
+  // Snapshot the env vars these tests mutate and always restore them in
+  // afterEach — so a failing assertion mid-test can never leak env state into
+  // later tests (a plain restore() at the end of a test body would be skipped
+  // when an earlier expect() throws).
+  const MUTATED_ENV_KEYS = ["ADMIN_PASSWORD", "USER_PASSWORD", "ADMIN_TOTP_SECRET", "USER_TOTP_SECRET"] as const;
+  const envSnapshot: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    clearRateLimitState();
+    mockLogin.mockClear();
+    for (const key of MUTATED_ENV_KEYS) envSnapshot[key] = process.env[key];
+    // The TOTP variables are absent for every case that predates MFA, so the single-step flow is
+    // what those cases actually exercise regardless of the ambient environment.
+    delete process.env.ADMIN_TOTP_SECRET;
+    delete process.env.USER_TOTP_SECRET;
+  });
+
+  afterEach(() => {
+    // Delete-on-undefined so an originally-unset var is never set to the literal string "undefined".
+    for (const key of MUTATED_ENV_KEYS) {
+      const value = envSnapshot[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  test("returns 200 with role admin when admin credentials are provided", async () => {
+    const req = createMockRequest("/api/auth/login", {
+      method: "POST",
+      body: { email: "admin@libredb.org", password: "LibreDB.2026" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ success: boolean; role: string }>(res);
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.role).toBe("admin");
+  });
+
+  test("returns 200 with role user when user credentials are provided", async () => {
+    const req = createMockRequest("/api/auth/login", {
+      method: "POST",
+      body: { email: "user@libredb.org", password: "LibreDB.2026" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ success: boolean; role: string }>(res);
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.role).toBe("user");
+  });
+
+  test("returns 401 when wrong password is provided", async () => {
+    const req = createMockRequest("/api/auth/login", {
+      method: "POST",
+      body: { email: "admin@libredb.org", password: "wrong-password" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ success: boolean; message: string }>(res);
+
+    expect(res.status).toBe(401);
+    expect(data.success).toBe(false);
+    expect(data.message).toBe("Invalid email or password");
+  });
+
+  test("returns 401 when wrong email is provided", async () => {
+    const req = createMockRequest("/api/auth/login", {
+      method: "POST",
+      body: { email: "unknown@example.com", password: "LibreDB.2026" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ success: boolean; message: string }>(res);
+
+    expect(res.status).toBe(401);
+    expect(data.success).toBe(false);
+    expect(data.message).toBe("Invalid email or password");
+  });
+
+  test("returns 401 when empty credentials are provided", async () => {
+    const req = createMockRequest("/api/auth/login", {
+      method: "POST",
+      body: { email: "", password: "" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ success: boolean; message: string }>(res);
+
+    expect(res.status).toBe(401);
+    expect(data.success).toBe(false);
+    expect(data.message).toBe("Invalid email or password");
+  });
+
+  test("returns 400, not 500, when body is not valid JSON", async () => {
+    const req = new Request("http://localhost:3000/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "not-json",
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ success: boolean; message: string }>(res);
+
+    // A malformed body is a client error, not a server error - it never reached credential
+    // comparison, so the uniform-failure property below does not apply to it.
+    expect(res.status).toBe(400);
+    expect(data.success).toBe(false);
+    expect(data.message).toBe("Invalid request body");
+  });
+
+  test("returns 400, not 500, when body is empty", async () => {
+    const req = new Request("http://localhost:3000/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "",
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ success: boolean; message: string }>(res);
+
+    expect(res.status).toBe(400);
+    expect(data.success).toBe(false);
+    expect(data.message).toBe("Invalid request body");
+  });
+
+  test("repeated malformed bodies from one address are eventually refused, not answered indefinitely", async () => {
+    const malformed = () =>
+      new Request("http://localhost:3000/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.201" },
+        body: "not-json",
+      });
+
+    // RATE_LIMIT_LOGIN_MAX defaults to 5: the first five spend the client bucket (one per
+    // malformed body, the same budget a wrong password would spend), the sixth trips it.
+    for (let i = 0; i < 5; i += 1) {
+      const res = await POST(malformed() as never);
+      expect(res.status).toBe(400);
+    }
+
+    const res = await POST(malformed() as never);
+    const data = await parseResponseJSON<{ error: string; code: string }>(res);
+
+    expect(res.status).toBe(429);
+    expect(data.code).toBe("RATE_LIMITED");
+  });
+
+  // The malformed body's audit-line content and its bounded-log-volume property are covered in
+  // tests/security/login-enumeration.test.ts ("what the audit trail records"), not here: that
+  // suite runs as its own bun process, isolated from tests/api/db/maintenance.test.ts's
+  // mock.module("@/lib/audit", ...) stub (an incomplete getServerAuditBuffer with no .getAll) -
+  // mock.module is process-wide, and this file shares a process with that stub whenever `bun run
+  // test` runs tests/unit, tests/api and tests/integration together.
+
+  test("still returns 400 when the login_failure audit emit throws for a malformed body", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {
+      throw new Error("audit sink unavailable");
+    });
+    try {
+      const req = new Request("http://localhost:3000/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "not-json",
+      });
+
+      const res = await POST(req as never);
+      const data = await parseResponseJSON<{ success: boolean; message: string }>(res);
+
+      expect(res.status).toBe(400);
+      expect(data.success).toBe(false);
+      expect(data.message).toBe("Invalid request body");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("calls login() with role and email for admin", async () => {
+    const req = createMockRequest("/api/auth/login", {
+      method: "POST",
+      body: { email: "admin@libredb.org", password: "LibreDB.2026" },
+    });
+
+    await POST(req as never);
+
+    expect(mockLogin).toHaveBeenCalledTimes(1);
+    expect(mockLogin).toHaveBeenCalledWith("admin", "admin@libredb.org");
+  });
+
+  test("calls login() with role and email for user", async () => {
+    const req = createMockRequest("/api/auth/login", {
+      method: "POST",
+      body: { email: "user@libredb.org", password: "LibreDB.2026" },
+    });
+
+    await POST(req as never);
+
+    expect(mockLogin).toHaveBeenCalledTimes(1);
+    expect(mockLogin).toHaveBeenCalledWith("user", "user@libredb.org");
+  });
+
+  test("returns 503 with an actionable message when ADMIN_PASSWORD is missing", async () => {
+    delete process.env.ADMIN_PASSWORD;
+
+    const req = createMockRequest("/api/auth/login", {
+      method: "POST",
+      body: { email: "admin@libredb.org", password: "LibreDB.2026" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ success: boolean; message: string }>(res);
+
+    // A misconfiguration is an operator error, not bad credentials: it must be
+    // clearly distinguishable (503) and carry a message the login screen shows
+    // via `data.message` — never the misleading "Invalid email or password".
+    expect(res.status).toBe(503);
+    expect(data.success).toBe(false);
+    expect(data.message).toContain("ADMIN_PASSWORD");
+    expect(data.message).not.toBe("Invalid email or password");
+  });
+
+  test("surfaces a JWT_SECRET config error as a 503 with its message (credentials are valid)", async () => {
+    // Credentials match, but signing the session fails because JWT_SECRET is
+    // missing/too short: login() throws AuthConfigError. The route must surface
+    // that actionable message, not the misleading "Invalid email or password".
+    const jwtMessage =
+      "Login is unavailable: the server's JWT_SECRET is not configured. " +
+      "Set JWT_SECRET (at least 32 characters) and restart the server.";
+    mockLogin.mockImplementationOnce(async () => {
+      throw new AuthConfigError(jwtMessage);
+    });
+
+    const req = createMockRequest("/api/auth/login", {
+      method: "POST",
+      body: { email: "admin@libredb.org", password: "LibreDB.2026" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ success: boolean; message: string }>(res);
+
+    expect(res.status).toBe(503);
+    expect(data.success).toBe(false);
+    expect(data.message).toBe(jwtMessage);
+    expect(data.message).not.toBe("Invalid email or password");
+  });
+
+  test("still authenticates admin when USER_PASSWORD is not set", async () => {
+    delete process.env.USER_PASSWORD;
+
+    const req = createMockRequest("/api/auth/login", {
+      method: "POST",
+      body: { email: "admin@libredb.org", password: "LibreDB.2026" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ success: boolean; role: string }>(res);
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.role).toBe("admin");
+  });
+
+  test("still returns 200 and success when the login_success audit emit throws", async () => {
+    // Isolated in its own try/catch, matching logout and the OIDC callback: a real session has
+    // already been created by this point (login() succeeded, the cookie is set), so a broken
+    // audit sink must never turn that into a 500 for a user who is in fact logged in.
+    const logSpy = spyOn(console, "log").mockImplementation(() => {
+      throw new Error("audit sink unavailable");
+    });
+    try {
+      const req = createMockRequest("/api/auth/login", {
+        method: "POST",
+        body: { email: "admin@libredb.org", password: "LibreDB.2026" },
+      });
+
+      const res = await POST(req as never);
+      const data = await parseResponseJSON<{ success: boolean; role: string }>(res);
+
+      expect(res.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(data.role).toBe("admin");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("still returns 429 when the rate_limit_exceeded audit emit throws", async () => {
+    // Trip login_client first (default max 5) with a broken console.log, then confirm the 429
+    // itself still arrives rather than degrading to a 500.
+    for (let i = 0; i < 5; i += 1) {
+      const req = createMockRequest("/api/auth/login", {
+        method: "POST",
+        headers: { "x-forwarded-for": "203.0.113.77" },
+        body: { email: "admin@libredb.org", password: "wrong" },
+      });
+      await POST(req as never);
+    }
+
+    const logSpy = spyOn(console, "log").mockImplementation(() => {
+      throw new Error("audit sink unavailable");
+    });
+    try {
+      const req = createMockRequest("/api/auth/login", {
+        method: "POST",
+        headers: { "x-forwarded-for": "203.0.113.77" },
+        body: { email: "admin@libredb.org", password: "wrong" },
+      });
+
+      const res = await POST(req as never);
+
+      expect(res.status).toBe(429);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("still returns 401 when the login_failure audit emit throws", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {
+      throw new Error("audit sink unavailable");
+    });
+    try {
+      const req = createMockRequest("/api/auth/login", {
+        method: "POST",
+        body: { email: "admin@libredb.org", password: "wrong-password" },
+      });
+
+      const res = await POST(req as never);
+      const data = await parseResponseJSON<{ success: boolean; message: string }>(res);
+
+      expect(res.status).toBe(401);
+      expect(data.success).toBe(false);
+      expect(data.message).toBe("Invalid email or password");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("rejects user login when USER_PASSWORD is not set (account is optional, no default)", async () => {
+    delete process.env.USER_PASSWORD;
+
+    const req = createMockRequest("/api/auth/login", {
+      method: "POST",
+      body: { email: "user@libredb.org", password: "LibreDB.2026" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ success: boolean; message: string }>(res);
+
+    expect(res.status).toBe(401);
+    expect(data.success).toBe(false);
+    expect(data.message).toBe("Invalid email or password");
+  });
+
+  describe("TOTP second factor", () => {
+    /** RFC 6238 Appendix B seed; "287082" is its six-digit code for the step containing T=59. */
+    const SECRET = RFC6238_SECRET;
+    const CODE = "287082";
+    const FROZEN_NOW = 59_000;
+
+    let nowSpy: ReturnType<typeof spyOn<DateConstructor, "now">>;
+
+    beforeEach(() => {
+      // Both the code check and the replay guard read the wall clock, so the whole flow is
+      // pinned to the instant the published vector is valid at.
+      nowSpy = spyOn(Date, "now").mockReturnValue(FROZEN_NOW);
+      clearTotpReplayState();
+      process.env.ADMIN_TOTP_SECRET = SECRET;
+    });
+
+    afterEach(() => {
+      nowSpy.mockRestore();
+      clearTotpReplayState();
+    });
+
+    type MfaBody = { success: boolean; message: string; mfaRequired?: boolean; role?: string };
+
+    function attempt(body: Record<string, unknown>, address = "203.0.113.40") {
+      return POST(
+        createMockRequest("/api/auth/login", {
+          method: "POST",
+          headers: { "x-forwarded-for": address },
+          body,
+        }) as never,
+      );
+    }
+
+    test("asks for a code instead of signing in when the account carries a secret", async () => {
+      const res = await attempt({ email: "admin@libredb.org", password: "LibreDB.2026" });
+      const data = await parseResponseJSON<MfaBody>(res);
+
+      expect(res.status).toBe(401);
+      expect(data.mfaRequired).toBe(true);
+      expect(data.message).toBe("Enter the 6-digit code from your authenticator app");
+      // The decisive assertion: no session was created on the strength of the password alone.
+      expect(mockLogin).not.toHaveBeenCalled();
+    });
+
+    test("signs in once the correct code is presented", async () => {
+      const res = await attempt({ email: "admin@libredb.org", password: "LibreDB.2026", totp: CODE });
+      const data = await parseResponseJSON<MfaBody>(res);
+
+      expect(res.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(data.role).toBe("admin");
+      expect(mockLogin).toHaveBeenCalledWith("admin", "admin@libredb.org");
+    });
+
+    test("distinguishes a wrong code from a missing one", async () => {
+      const res = await attempt({ email: "admin@libredb.org", password: "LibreDB.2026", totp: "000000" });
+      const data = await parseResponseJSON<MfaBody>(res);
+
+      expect(res.status).toBe(401);
+      expect(data.mfaRequired).toBe(true);
+      expect(data.message).toBe("Invalid authentication code");
+      expect(mockLogin).not.toHaveBeenCalled();
+    });
+
+    test("refuses a code that has already been spent (RFC 6238 replay guard)", async () => {
+      expect((await attempt({ email: "admin@libredb.org", password: "LibreDB.2026", totp: CODE })).status).toBe(200);
+
+      const replay = await attempt({ email: "admin@libredb.org", password: "LibreDB.2026", totp: CODE });
+      const data = await parseResponseJSON<MfaBody>(replay);
+
+      expect(replay.status).toBe(401);
+      expect(data.message).toBe("Invalid authentication code");
+      expect(mockLogin).toHaveBeenCalledTimes(1);
+    });
+
+    test("treats a non-string code as no code rather than a 500", async () => {
+      const res = await attempt({ email: "admin@libredb.org", password: "LibreDB.2026", totp: 287082 });
+      const data = await parseResponseJSON<MfaBody>(res);
+
+      expect(res.status).toBe(401);
+      expect(data.message).toBe("Enter the 6-digit code from your authenticator app");
+    });
+
+    test("keeps the uniform 401 when the password is wrong, even alongside a valid code", async () => {
+      const res = await attempt({ email: "admin@libredb.org", password: "wrong", totp: CODE });
+      const data = await parseResponseJSON<MfaBody>(res);
+
+      expect(res.status).toBe(401);
+      expect(data.message).toBe("Invalid email or password");
+      // No mfaRequired flag: whether this account has a second factor must stay unstated to
+      // anyone who has not already proved they hold the password.
+      expect(data.mfaRequired).toBeUndefined();
+    });
+
+    test("leaves an account without a secret on the single-step flow", async () => {
+      delete process.env.ADMIN_TOTP_SECRET;
+
+      const res = await attempt({ email: "admin@libredb.org", password: "LibreDB.2026" });
+
+      expect(res.status).toBe(200);
+    });
+
+    test("does not spend the client budget on the code prompt itself", async () => {
+      // The client bucket allows five FAILURES. Six prompts is past that, so if the prompt were
+      // charged, the code below would meet a 429 instead of a session — five ordinary logins a
+      // window is not a usable limit.
+      for (let i = 0; i < 6; i += 1) {
+        const res = await attempt({ email: "admin@libredb.org", password: "LibreDB.2026" });
+        expect(res.status).toBe(401);
+      }
+
+      const res = await attempt({ email: "admin@libredb.org", password: "LibreDB.2026", totp: CODE });
+
+      expect(res.status).toBe(200);
+    });
+
+    test("does spend the budget on a wrong code, so guessing is bounded", async () => {
+      for (let i = 0; i < 5; i += 1) {
+        const res = await attempt({ email: "admin@libredb.org", password: "LibreDB.2026", totp: "000000" });
+        expect(res.status).toBe(401);
+      }
+
+      const res = await attempt({ email: "admin@libredb.org", password: "LibreDB.2026", totp: CODE });
+
+      expect(res.status).toBe(429);
+    });
+
+    test("returns an actionable 503 when the configured secret is not base32", async () => {
+      process.env.ADMIN_TOTP_SECRET = "not-base32!";
+
+      const res = await attempt({ email: "admin@libredb.org", password: "LibreDB.2026" });
+      const data = await parseResponseJSON<MfaBody>(res);
+
+      expect(res.status).toBe(503);
+      expect(data.message).toContain("ADMIN_TOTP_SECRET");
+    });
+
+    test("still returns 401 when the mfa_required audit emit throws", async () => {
+      const logSpy = spyOn(console, "log").mockImplementation(() => {
+        throw new Error("audit sink unavailable");
+      });
+      try {
+        const res = await attempt({ email: "admin@libredb.org", password: "LibreDB.2026" });
+        const data = await parseResponseJSON<MfaBody>(res);
+
+        expect(res.status).toBe(401);
+        expect(data.mfaRequired).toBe(true);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+  });
+});

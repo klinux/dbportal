@@ -1,0 +1,2766 @@
+/**
+ * Apache Cassandra provider, end to end (issue #424, Phase 4)
+ *
+ * Every payload below was captured on 2026-08-20 from a live **Apache Cassandra
+ * 5.0.9** (`system.local.release_version`) through `cassandra-driver` 4.9.0, on a
+ * `probe` keyspace holding `customers` (500 rows), `orders` (2000), `events` (10
+ * partitions x 50 clustering rows), a secondary index and a 28-column type matrix.
+ * A second instance with `PasswordAuthenticator` + `CassandraAuthorizer` supplied
+ * the authentication, permission and materialized-view payloads.
+ *
+ * The REAL provider, the REAL introspection and the REAL driver adapter all execute
+ * here. Only the session is a stand-in, and it replays driver ResultSets - column
+ * declarations with their type codes, rows carrying the driver's own `Long`,
+ * `BigDecimal`, `Duration` and `Vector` instances - so the mapping under test is the
+ * one a cluster feeds. `mock.module()` is not used: it is process-wide in bun and
+ * poisons sibling files.
+ *
+ * Six measured behaviours drive what is asserted:
+ *
+ * 1. THERE IS NO HONEST ROW COUNT AND NO HONEST SIZE. `system.size_estimates` counts
+ *    PARTITIONS per token range from flushed SSTables only, and measured it said 143
+ *    for a 500-row clustered table; `system_views.disk_usage` and
+ *    `max_partition_size` are whole mebibytes and both reported "1 MiB" for a
+ *    19,476-byte table. So the schema tree carries no `rowCount` and no `size`, the
+ *    overview reports no database size, and the table, index and storage panels are
+ *    empty rather than wrong.
+ * 2. `OFFSET` IS NOT IN THE GRAMMAR: `… LIMIT 5 OFFSET 5` is "line 1:45 mismatched
+ *    input 'OFFSET' expecting EOF". Nothing after the first page can be requested.
+ * 3. `ALLOW FILTERING` MUST STAY LAST: `… LIMIT 3 ALLOW FILTERING` returns rows,
+ *    `… ALLOW FILTERING LIMIT 3` is a syntax error.
+ * 4. A LINE COMMENT MUST BE CLOSED BY A NEWLINE. `SELECT * FROM probe.customers
+ *    LIMIT 3 -- note` with nothing after it is "line 1:45 mismatched character
+ *    '<EOF>' expecting set null", and CQL has a THIRD comment form, `//`, that the
+ *    shared readers do not know at all.
+ * 5. EVERY CONNECT-TIME FAULT IS A `NoHostAvailableError` with `code === undefined`
+ *    and the real fault in `innerErrors`.
+ * 6. `system_schema.columns.position` IS -1 FOR EVERY REGULAR COLUMN and the rows
+ *    come back alphabetically, so declaration order is not recoverable - the tree
+ *    orders partition key, then clustering, then the rest by name, and says so.
+ */
+import { describe, expect, spyOn, test } from "bun:test";
+import { types } from "cassandra-driver";
+import { AuthenticationError, ConnectionError, DatabaseConfigError, QueryError, TimeoutError } from "@/lib/db/errors";
+import { CassandraDriverTransport, type CassandraSession } from "@/lib/db/providers/sql/cassandra/driver-transport";
+import { CassandraProvider } from "@/lib/db/providers/sql/cassandra/index";
+import { CassandraTransportError } from "@/lib/db/providers/sql/cassandra/transport";
+import { asBytes, binaryText } from "@/lib/export/binary";
+import {
+  CASSANDRA_CACHE_CQL,
+  CASSANDRA_CLIENT_COUNT_CQL,
+  CASSANDRA_IDENTITY_CQL,
+  CASSANDRA_INDEX_STATS_REFUSAL,
+  CASSANDRA_RUNNING_QUERY_CQL,
+  CASSANDRA_SIZE_UNAVAILABLE,
+  CASSANDRA_STORAGE_STATS_REFUSAL,
+  CASSANDRA_TABLE_STATS_REFUSAL,
+  CASSANDRA_UNKNOWN_TEXT,
+  CASSANDRA_VIRTUAL_KEYSPACE_CQL,
+  cassandraColumnListCql,
+  cassandraIndexCountCql,
+  cassandraIndexListCql,
+  cassandraTableCountCql,
+  cassandraTableListCql,
+  cassandraViewListCql,
+} from "@/lib/db/providers/sql/cassandra/introspect";
+import {
+  CASSANDRA_KEYSPACE_LIST_CQL,
+  cassandraObjectColumnsCql,
+  cassandraObjectListCql,
+  cassandraTypeFieldsCql,
+  cassandraKeyspaceColumnsCql,
+  cassandraKeyspaceTypesCql,
+} from "@/lib/db/providers/sql/cassandra/objects";
+import { callerBoundTruncationReason } from "@/lib/db/object-kinds";
+import { assertObjectSurface } from "../../helpers/object-surface-conformance";
+import type { DatabaseConnection } from "@/lib/types";
+import { comparePaths } from "@/lib/db/object-path";
+
+const KEYSPACE = "probe";
+
+function makeConnection(overrides: Partial<DatabaseConnection> = {}): DatabaseConnection {
+  return {
+    id: "cassandra-1",
+    name: "Probe ring",
+    type: "cassandra",
+    host: "cassandra.test",
+    port: 9042,
+    database: KEYSPACE,
+    localDataCenter: "datacenter1",
+    createdAt: new Date("2026-08-20T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+// ============================================================================
+// Wire payloads (captured from Apache Cassandra 5.0.9 over the native protocol)
+// ============================================================================
+
+type ColumnType = { code: number; info?: unknown };
+type Declaration = { name: string; type: ColumnType };
+
+const TEXT: ColumnType = { code: 13, info: null };
+const INT: ColumnType = { code: 9, info: null };
+const BIGINT: ColumnType = { code: 2, info: null };
+const TIMESTAMP: ColumnType = { code: 11, info: null };
+const MAP_TEXT_TEXT: ColumnType = { code: 33, info: [TEXT, TEXT] };
+const DOUBLE: ColumnType = { code: 7, info: null };
+
+function declare(...names: [string, ColumnType][]): Declaration[] {
+  return names.map(([name, type]) => ({ name, type }));
+}
+
+function result(columns: Declaration[] | null, rows: Record<string, unknown>[] = []) {
+  return { columns, rows, pageState: null };
+}
+
+/** A statement that changed something: no declaration and no rows (measured). */
+const VOID_RESULT = result(null);
+
+/**
+ * `SELECT release_version, cluster_name, data_center, gossip_generation,
+ * toTimestamp(now()) AS server_now FROM system.local`, verbatim.
+ *
+ * `gossip_generation` is the node's own start time in epoch SECONDS. Measured on two
+ * independent instances: 1787249337 against a container started at 18:08:53.9Z (the
+ * gossiper's first heartbeat, 3s later), and the second node's generation differed
+ * from the first by 4997s against a container start difference of 4998s.
+ */
+const IDENTITY_ROW = {
+  release_version: "5.0.9",
+  cluster_name: "libredb-probe",
+  data_center: "datacenter1",
+  gossip_generation: 1787249337,
+  server_now: new Date("2026-08-20T20:02:13.073Z"),
+};
+
+const IDENTITY_RESULT = result(
+  declare(
+    ["release_version", TEXT],
+    ["cluster_name", TEXT],
+    ["data_center", TEXT],
+    ["gossip_generation", INT],
+    ["server_now", TIMESTAMP],
+  ),
+  [IDENTITY_ROW],
+);
+
+/** `system_schema.tables`, the four tables the probe keyspace holds. */
+const TABLE_LIST = result(declare(["table_name", TEXT]), [
+  { table_name: "customers" },
+  { table_name: "events" },
+  { table_name: "orders" },
+  { table_name: "type_matrix" },
+]);
+
+/**
+ * `system_schema.columns` for the keyspace, exactly as the server ordered them:
+ * alphabetically by table and then by column, with `position` -1 for every regular
+ * column.
+ */
+const COLUMN_LIST = result(
+  declare(
+    ["table_name", TEXT],
+    ["column_name", TEXT],
+    ["type", TEXT],
+    ["kind", TEXT],
+    ["position", INT],
+    ["clustering_order", TEXT],
+  ),
+  [
+    {
+      table_name: "customers",
+      column_name: "country",
+      type: "text",
+      kind: "regular",
+      position: -1,
+      clustering_order: "none",
+    },
+    {
+      table_name: "customers",
+      column_name: "id",
+      type: "int",
+      kind: "partition_key",
+      position: 0,
+      clustering_order: "none",
+    },
+    {
+      table_name: "customers",
+      column_name: "name",
+      type: "text",
+      kind: "regular",
+      position: -1,
+      clustering_order: "none",
+    },
+    { table_name: "events", column_name: "ck", type: "int", kind: "clustering", position: 0, clustering_order: "asc" },
+    {
+      table_name: "events",
+      column_name: "pk",
+      type: "int",
+      kind: "partition_key",
+      position: 0,
+      clustering_order: "none",
+    },
+    { table_name: "events", column_name: "v", type: "text", kind: "regular", position: -1, clustering_order: "none" },
+    {
+      table_name: "orders",
+      column_name: "amount",
+      type: "decimal",
+      kind: "regular",
+      position: -1,
+      clustering_order: "none",
+    },
+    {
+      table_name: "orders",
+      column_name: "country",
+      type: "text",
+      kind: "regular",
+      position: -1,
+      clustering_order: "none",
+    },
+    {
+      table_name: "orders",
+      column_name: "customer_id",
+      type: "int",
+      kind: "regular",
+      position: -1,
+      clustering_order: "none",
+    },
+    {
+      table_name: "orders",
+      column_name: "id",
+      type: "int",
+      kind: "partition_key",
+      position: 0,
+      clustering_order: "none",
+    },
+    {
+      table_name: "type_matrix",
+      column_name: "c_vector",
+      type: "vector<float, 3>",
+      kind: "regular",
+      position: -1,
+      clustering_order: "none",
+    },
+    {
+      table_name: "type_matrix",
+      column_name: "id",
+      type: "int",
+      kind: "partition_key",
+      position: 0,
+      clustering_order: "none",
+    },
+    // A view's columns live in this same table, keyed by the VIEW name (measured on
+    // the authenticated instance, where materialized views are enabled).
+    {
+      table_name: "orders_by_country",
+      column_name: "amount",
+      type: "decimal",
+      kind: "regular",
+      position: -1,
+      clustering_order: "none",
+    },
+    {
+      table_name: "orders_by_country",
+      column_name: "country",
+      type: "text",
+      kind: "partition_key",
+      position: 0,
+      clustering_order: "none",
+    },
+    {
+      table_name: "orders_by_country",
+      column_name: "customer_id",
+      type: "int",
+      kind: "regular",
+      position: -1,
+      clustering_order: "none",
+    },
+    {
+      table_name: "orders_by_country",
+      column_name: "id",
+      type: "int",
+      kind: "clustering",
+      position: 0,
+      clustering_order: "asc",
+    },
+  ],
+);
+
+/** `system_schema.indexes`: one legacy secondary index per table, target in `options`. */
+const INDEX_LIST = result(
+  declare(["table_name", TEXT], ["index_name", TEXT], ["kind", TEXT], ["options", MAP_TEXT_TEXT]),
+  [
+    {
+      table_name: "customers",
+      index_name: "customers_country_idx",
+      kind: "COMPOSITES",
+      options: { target: "country" },
+    },
+    { table_name: "orders", index_name: "orders_country_idx", kind: "COMPOSITES", options: { target: "country" } },
+  ],
+);
+
+/** `system_schema.views`, from the instance where materialized views are enabled. */
+const VIEW_LIST = result(declare(["view_name", TEXT], ["base_table_name", TEXT]), [
+  { view_name: "orders_by_country", base_table_name: "orders" },
+]);
+
+const EMPTY_VIEW_LIST = result(declare(["view_name", TEXT], ["base_table_name", TEXT]), []);
+
+/** `SELECT COUNT(*)` answers a `Long`, never a number (measured). */
+function countResult(count: string) {
+  return result(declare(["count", BIGINT]), [{ count: types.Long.fromString(count) }]);
+}
+
+/**
+ * `system_virtual_schema.keyspaces`, verbatim from 5.0.9 - the whole answer, two rows.
+ *
+ * This is the keyspace catalog the virtual tables live in, and it is NOT
+ * `system_schema.keyspaces`: measured 2026-08-24, `SELECT keyspace_name FROM
+ * system_schema.keyspaces` on 5.0.9 answers exactly `["probe", "system",
+ * "system_auth", "system_distributed", "system_schema", "system_traces"]` - no
+ * `system_views` in it - so keying the degradation on that catalog would have emptied
+ * all five panels on the engine that answers them.
+ */
+const VIRTUAL_KEYSPACE_LIST = result(declare(["keyspace_name", TEXT]), [
+  { keyspace_name: "system_views" },
+  { keyspace_name: "system_virtual_schema" },
+]);
+
+/** `system_views.caches`, all three rows, hit_ratio as the server reported it. */
+const CACHE_RESULT = result(declare(["name", TEXT], ["hit_ratio", DOUBLE]), [
+  { name: "counters", hit_ratio: null },
+  { name: "keys", hit_ratio: 0.8305084745762712 },
+  { name: "rows", hit_ratio: null },
+]);
+
+/** `system_views.queries` - "currently running queries", including this read itself. */
+const RUNNING_QUERY_RESULT = result(
+  declare(["thread_id", TEXT], ["queued_micros", BIGINT], ["running_micros", BIGINT], ["task", TEXT]),
+  [
+    {
+      thread_id: "Native-Transport-Requests-1",
+      queued_micros: types.Long.fromString("43"),
+      running_micros: types.Long.fromString("1118"),
+      task: "QUERY SELECT * FROM system_views.queries [pageSize = 5000] at consistency LOCAL_ONE",
+    },
+  ],
+);
+
+/** The same view with three rows, for the assertions a one-row reply cannot make. */
+const MANY_RUNNING = result(
+  declare(["thread_id", TEXT], ["queued_micros", BIGINT], ["running_micros", BIGINT], ["task", TEXT]),
+  ["one", "two", "three"].map((name, index) => ({
+    thread_id: `Native-Transport-Requests-${name}`,
+    queued_micros: types.Long.fromString("43"),
+    running_micros: types.Long.fromString(`${1118 + index}`),
+    task: "QUERY SELECT * FROM system_views.queries [pageSize = 5000] at consistency LOCAL_ONE",
+  })),
+);
+
+// ============================================================================
+// The session stand-in
+// ============================================================================
+
+type Reply = ReturnType<typeof result> | Error;
+
+/**
+ * A session that answers exactly the statements it was given, and nothing else.
+ *
+ * An unknown statement THROWS rather than answering empty: a provider whose CQL
+ * drifts must fail here rather than quietly reporting no rows, which is how a
+ * mock-shaped test stops testing anything.
+ */
+function fakeSession(replies: Record<string, Reply>): CassandraSession & { asked: string[] } {
+  const asked: string[] = [];
+
+  return {
+    asked,
+    connect: async () => {},
+    execute: async (cql: string) => {
+      asked.push(cql);
+      const reply = replies[cql];
+      if (reply === undefined) throw new Error(`unexpected statement: ${cql}`);
+      if (reply instanceof Error) throw reply;
+      return reply;
+    },
+    shutdown: async () => {},
+  };
+}
+
+/** The catalog and monitoring answers a healthy connection gets. */
+function healthyReplies(overrides: Record<string, Reply> = {}): Record<string, Reply> {
+  return {
+    [CASSANDRA_IDENTITY_CQL]: IDENTITY_RESULT,
+    [CASSANDRA_VIRTUAL_KEYSPACE_CQL]: VIRTUAL_KEYSPACE_LIST,
+    [cassandraTableListCql(KEYSPACE)]: TABLE_LIST,
+    [cassandraViewListCql(KEYSPACE)]: VIEW_LIST,
+    [cassandraColumnListCql(KEYSPACE)]: COLUMN_LIST,
+    [cassandraIndexListCql(KEYSPACE)]: INDEX_LIST,
+    [cassandraTableCountCql(KEYSPACE)]: countResult("4"),
+    [cassandraIndexCountCql(KEYSPACE)]: countResult("2"),
+    [CASSANDRA_CLIENT_COUNT_CQL]: countResult("2"),
+    [CASSANDRA_CACHE_CQL]: CACHE_RESULT,
+    [CASSANDRA_RUNNING_QUERY_CQL]: RUNNING_QUERY_RESULT,
+    ...overrides,
+  };
+}
+
+async function connectedProvider(
+  replies: Record<string, Reply> = healthyReplies(),
+  overrides: Partial<DatabaseConnection> = {},
+): Promise<{ provider: CassandraProvider; session: CassandraSession & { asked: string[] } }> {
+  const config = makeConnection(overrides);
+  const session = fakeSession(replies);
+  const provider = new CassandraProvider(config, {}, new CassandraDriverTransport(config, 60_000, session));
+  await provider.connect();
+
+  return { provider, session };
+}
+
+/** A ResponseError as the driver builds one. */
+function responseError(code: number, message: string): Error {
+  const error = new Error(message) as Error & { code: number };
+  error.name = "ResponseError";
+  error.code = code;
+  return error;
+}
+
+/** The envelope every connect-time fault arrives in. */
+function noHostAvailable(inner: Record<string, unknown>): Error {
+  const error = new Error("All host(s) tried for query failed. See innerErrors.");
+  error.name = "NoHostAvailableError";
+  Object.assign(error, { innerErrors: inner });
+  return error;
+}
+
+// ============================================================================
+// Capabilities and labels
+// ============================================================================
+
+describe("capabilities", () => {
+  const capabilities = new CassandraProvider(makeConnection()).getCapabilities();
+
+  test("CQL is SQL for the editor's purposes", () => {
+    expect(capabilities.queryLanguage).toBe("sql");
+    expect(capabilities.defaultPort).toBe(9042);
+  });
+
+  test("there is no EXPLAIN to offer, so none is claimed", () => {
+    // `EXPLAIN SELECT * FROM probe.customers WHERE id = 1` is "line 1:0 no viable
+    // alternative at input 'EXPLAIN'" - the keyword is not in the grammar at all.
+    // The only substitute is post-hoc tracing, which profiles a statement already
+    // RUN and is therefore not a plan; it is deliberately not exposed here.
+    expect(capabilities.supportsExplain).toBe(false);
+    expect(capabilities.explainFormat).toBeUndefined();
+  });
+
+  test("the inline row editor is off, because its one statement shape is not safe here", () => {
+    // Two measurements. Editing a key column: `UPDATE probe.customers SET id = 2
+    // WHERE id = 1` is "PRIMARY KEY part id found in SET part". And the editor names
+    // ONE column it guessed from the result fields (`id` or `*_id`), while CQL needs
+    // the WHOLE primary key restricted: `UPDATE probe.events SET v = 'x' WHERE ck = 0`
+    // is "Some partition key parts are missing: pk", and `UPDATE probe.orders SET
+    // amount = 1 WHERE customer_id = 3` - a plausible guess on a real table - is
+    // "Some partition key parts are missing: id".
+    expect(capabilities.supportsInlineRowEdit).toBe(false);
+    // CQL has no transaction; BATCH is not one (#464).
+    expect(capabilities.supportsTransactions).toBe(false);
+  });
+
+  test("there are no foreign keys in the model at all", () => {
+    // `ALTER TABLE probe.customers ADD CONSTRAINT … FOREIGN KEY …` is a syntax error:
+    // the clause does not exist. An empty relations list is the engine's answer here,
+    // not the schema's.
+    expect(capabilities.declaresForeignKeys).toBe(false);
+  });
+
+  test("Create Table is off, because the modal cannot emit valid CQL", () => {
+    // `CREATE TABLE probe.t (id int PRIMARY KEY, name text)` works, but what
+    // CreateTableModal emits does not: its default column is an auto-increment primary
+    // key, which CQL has no spelling of (measured as `id SERIAL PRIMARY KEY`, "Unknown
+    // type probe.serial"; #648 made that spelling per-engine and added no CQL row), its
+    // type list offers `VARCHAR(255)`,
+    // `DECIMAL(10,2)`, `INTEGER` and `JSONB` - the first two are syntax errors and
+    // the last two are "Unknown type" - and its NOT NULL, UNIQUE and DEFAULT
+    // checkboxes each produce "no viable alternative at input". DDL typed into the
+    // editor works normally, which is how a CQL user creates a table.
+    expect(capabilities.supportsCreateTable).toBe(false);
+  });
+
+  test("no maintenance operation is claimed, because none is reachable from CQL", () => {
+    // Compaction, repair, flush and cleanup are `nodetool`/JMX operations, not
+    // statements. There is no `KILL` either: the protocol has no cancel and the
+    // driver publishes no cancel method (measured on the client's own API surface).
+    expect(capabilities.supportsMaintenance).toBe(false);
+    expect(capabilities.maintenanceOperations).toEqual([]);
+  });
+
+  test("no connection string is offered, because no URI carries the data centre", () => {
+    expect(capabilities.supportsConnectionString).toBe(false);
+  });
+
+  test("a trailing semicolon is accepted, so the generators keep emitting one", () => {
+    // Measured: `SELECT id FROM probe.customers WHERE id = 1;` returns the row. Two
+    // statements separated by `;` are refused, but that is the splitter's business.
+    expect(capabilities.statementTerminator).toBeUndefined();
+  });
+
+  test("the schema tree reloads on the DDL that changes it", () => {
+    const pattern = new RegExp(capabilities.schemaRefreshPattern, "i");
+
+    expect(pattern.test("CREATE TABLE probe.t (id int PRIMARY KEY)")).toBe(true);
+    expect(pattern.test("ALTER TABLE probe.customers ADD extra text")).toBe(true);
+    expect(pattern.test("DROP TABLE probe.t")).toBe(true);
+    expect(pattern.test("SELECT * FROM probe.customers")).toBe(false);
+  });
+});
+
+describe("labels", () => {
+  const labels = new CassandraProvider(makeConnection()).getLabels();
+
+  test("table and row are CQL's own words, so they are left alone", () => {
+    expect(labels.entityName).toBe("Table");
+    expect(labels.rowName).toBe("row");
+  });
+
+  test("the maintenance blurbs say where the work actually happens", () => {
+    // The cards do not render (no operations are offered), but the inherited copy
+    // would promise a planner-statistics update and a space reclaim, and Cassandra
+    // does neither from a statement.
+    expect(labels.analyzeGlobalDesc).toContain("nodetool");
+    expect(labels.vacuumGlobalDesc).toContain("nodetool");
+  });
+
+  test("the empty slow-query panel says Cassandra keeps no such aggregate", () => {
+    // `getSlowQueries()` is empty by design here, so this panel is ALWAYS empty - and
+    // until #U12 it told the reader to enable a PostgreSQL extension (#427's defect in
+    // another panel). The log file is the fact, so it is what the sentence names.
+    expect(labels.slowQueriesEmptyState).toContain("no aggregate of finished statements");
+    expect(labels.slowQueriesEmptyState).toContain("log file");
+    expect(labels.slowQueriesEmptyState).not.toContain("pg_stat_statements");
+  });
+
+  test("the statement language is named, because CQL is not SQL", () => {
+    // A model asked for "a statement" against a connection called Cassandra will
+    // write SQL: a JOIN, a subquery, an OFFSET. Each is a syntax error here.
+    expect(labels.statementLanguage).toContain("CQL");
+  });
+});
+
+// ============================================================================
+// Validation and connect
+// ============================================================================
+
+describe("validate", () => {
+  test("a host is required", () => {
+    expect(() => new CassandraProvider(makeConnection({ host: "" }))).toThrow(DatabaseConfigError);
+  });
+
+  test("the local data centre is required, because the driver refuses without one", () => {
+    // Measured: `'localDataCenter' is not defined in Client options and also was not
+    // specified in constructor. At least one is required. Available DCs are:
+    // [datacenter1]`. Refusing here names the field a user can fill instead.
+    expect(() => new CassandraProvider(makeConnection({ localDataCenter: undefined }))).toThrow(
+      /localDataCenter|data cent/i,
+    );
+  });
+});
+
+describe("connect", () => {
+  test("the identity read is the connect probe, and the version is recorded whole", async () => {
+    const { provider, session } = await connectedProvider();
+
+    expect(provider.isConnected()).toBe(true);
+    // Two statements and no more: the identity read that proves the session can carry
+    // one, then the virtual-keyspace catalog the monitoring degradation keys on. The
+    // second is the whole cost of that discriminator, paid once per connection.
+    expect(session.asked).toEqual([CASSANDRA_IDENTITY_CQL, CASSANDRA_VIRTUAL_KEYSPACE_CQL]);
+    expect((await provider.getOverview()).version).toBe("Apache Cassandra 5.0.9");
+  });
+
+  test("a refused credential is an authentication failure, not a connectivity one", async () => {
+    const config = makeConnection();
+    const session = fakeSession({});
+    session.connect = async () => {
+      throw noHostAvailable({
+        "127.0.0.1:19043": {
+          name: "AuthenticationError",
+          message: "Provided username cassandra and/or password are incorrect",
+        },
+      });
+    };
+    const provider = new CassandraProvider(config, {}, new CassandraDriverTransport(config, 60_000, session));
+
+    await expect(provider.connect()).rejects.toThrow(AuthenticationError);
+    expect(provider.isConnected()).toBe(false);
+  });
+
+  test("a refused socket is a connection failure naming host and port", async () => {
+    const config = makeConnection();
+    const session = fakeSession({});
+    session.connect = async () => {
+      throw noHostAvailable({
+        "127.0.0.1:19999": { name: "Error", code: "ECONNREFUSED", message: "connect ECONNREFUSED 127.0.0.1:19999" },
+      });
+    };
+    const provider = new CassandraProvider(config, {}, new CassandraDriverTransport(config, 60_000, session));
+
+    await expect(provider.connect()).rejects.toThrow(ConnectionError);
+  });
+
+  test("a keyspace that does not exist fails the connect, with the server's own words", async () => {
+    // Measured: the driver pins the keyspace at connect time, so this is a CONNECT
+    // failure rather than a first-statement one - `Keyspace 'nosuchks' does not exist`.
+    const config = makeConnection({ database: "nosuchks" });
+    const session = fakeSession({});
+    session.connect = async () => {
+      throw responseError(8704, "Keyspace 'nosuchks' does not exist");
+    };
+    const provider = new CassandraProvider(config, {}, new CassandraDriverTransport(config, 60_000, session));
+
+    await expect(provider.connect()).rejects.toThrow(/nosuchks/);
+  });
+
+  test("a wrong data centre is a configuration fault, not a connectivity one", async () => {
+    // Measured: the driver refuses and NAMES the data centres it found, which is the
+    // useful half of the message - so it must not be wrapped in "failed to connect",
+    // which would send the user to check their host.
+    const config = makeConnection({ localDataCenter: "dc-does-not-exist" });
+    const session = fakeSession({});
+    session.connect = async () => {
+      throw noHostAvailable({
+        "127.0.0.1:19042": {
+          name: "ArgumentError",
+          message:
+            "localDataCenter was configured as 'dc-does-not-exist', but only found hosts in data centers: [datacenter1]",
+        },
+      });
+    };
+    // A fresh provider per assertion: a failed connect closes the pool it opened, and
+    // the adapter forgets its session when it closes - so a second attempt on the same
+    // provider would build a real driver client and go to the network.
+    const attempt = () => new CassandraProvider(config, {}, new CassandraDriverTransport(config, 60_000, session));
+
+    await expect(attempt().connect()).rejects.toThrow(DatabaseConfigError);
+    await expect(attempt().connect()).rejects.toThrow(/\[datacenter1\]/);
+  });
+
+  test("a failure that is not a transport failure is not dressed as a database error", async () => {
+    // A bug in this provider's own mapping is not something the cluster said. The seam
+    // always classifies, so this can only arrive from a defect above it - and it must
+    // reach the shared message-based mapping rather than being reported as an engine
+    // fault with a category it never had.
+    const config = makeConnection();
+    const provider = new CassandraProvider(
+      config,
+      {},
+      {
+        kind: "native" as const,
+        connect: async () => {},
+        execute: async () => {
+          throw new TypeError("undefined is not an object");
+        },
+        close: async () => {},
+      },
+    );
+
+    await expect(provider.connect()).rejects.toThrow(/undefined is not an object/);
+  });
+
+  test("disconnect closes the session and forgets it", async () => {
+    const config = makeConnection();
+    const session = fakeSession(healthyReplies());
+    let shutdowns = 0;
+    session.shutdown = async () => {
+      shutdowns += 1;
+    };
+    const provider = new CassandraProvider(config, {}, new CassandraDriverTransport(config, 60_000, session));
+
+    await provider.connect();
+    await provider.disconnect();
+
+    expect(shutdowns).toBe(1);
+    expect(provider.isConnected()).toBe(false);
+    // A second disconnect is a no-op rather than a second shutdown.
+    await provider.disconnect();
+    expect(shutdowns).toBe(1);
+  });
+
+  test("a statement before connect is refused", async () => {
+    const provider = new CassandraProvider(makeConnection());
+
+    await expect(provider.query("SELECT * FROM probe.customers")).rejects.toThrow();
+  });
+});
+
+// ============================================================================
+// Query execution
+// ============================================================================
+
+describe("query", () => {
+  const SELECT = "SELECT * FROM probe.type_matrix WHERE id = 1";
+
+  test("driver values reach the grid as something a reader can use", async () => {
+    const declaration = declare(
+      ["id", INT],
+      ["c_bigint", BIGINT],
+      ["c_blob", { code: 3, info: null }],
+      ["c_duration", { code: 0, info: "org.apache.cassandra.db.marshal.DurationType" }],
+      [
+        "c_vector",
+        { code: 0, info: "org.apache.cassandra.db.marshal.VectorType(org.apache.cassandra.db.marshal.FloatType , 3)" },
+      ],
+    );
+    const row = {
+      id: 1,
+      c_bigint: types.Long.fromString("9223372036854775807"),
+      c_blob: Buffer.from("4c69627265444200c3bf6279746573", "hex"),
+      c_duration: new types.Duration(1, 2, types.Long.fromString("10800000000000")),
+      c_vector: new types.Vector(Float32Array.of(1.5, 2.5, 3.5), "float"),
+    };
+    const { provider } = await connectedProvider(healthyReplies({ [SELECT]: result(declaration, [row]) }));
+
+    const answer = await provider.query(SELECT);
+
+    expect(answer.fields).toEqual(["id", "c_bigint", "c_blob", "c_duration", "c_vector"]);
+    expect(answer.rows).toEqual([
+      {
+        id: 1,
+        c_bigint: "9223372036854775807",
+        // AS BYTES, not as the string `0x4c69…` this used to answer: the shared
+        // binary module reads the wire shape a Buffer serializes to, so the blob
+        // reaches the grid, the CSV and the SQL export the same way a Postgres
+        // `bytea` does, spelled `\x4c69…` on every surface.
+        c_blob: Buffer.from("4c69627265444200c3bf6279746573", "hex"),
+        c_duration: "1mo2d3h",
+        c_vector: [1.5, 2.5, 3.5],
+      },
+    ]);
+    const blob = (answer.rows[0] as Record<string, unknown>).c_blob;
+    expect(binaryText(asBytes(blob) as Uint8Array)).toBe("\\x4c69627265444200c3bf6279746573");
+    expect(answer.rowCount).toBe(1);
+    // The declared type per column, including the two the code alone cannot name.
+    expect(answer.columnTypes).toEqual({
+      id: "int",
+      c_bigint: "bigint",
+      c_blob: "blob",
+      c_duration: "duration",
+      c_vector: "vector<float, 3>",
+    });
+  });
+
+  test("a write reports no columns and no invented row count", async () => {
+    const insert = "INSERT INTO probe.customers (id, name) VALUES (1, 'a')";
+    const { provider } = await connectedProvider(healthyReplies({ [insert]: VOID_RESULT }));
+
+    const answer = await provider.query(insert);
+
+    expect(answer.rows).toEqual([]);
+    expect(answer.fields).toEqual([]);
+    // The protocol reports no affected-row count for a write, so none is claimed.
+    expect(answer.rowCount).toBe(0);
+    expect(answer.columnTypes).toBeUndefined();
+  });
+
+  test.each([
+    ["a syntax error", 8192, "line 1:0 no viable alternative at input 'SELEC' ([SELEC]...)"],
+    ["an unknown table", 8704, "table nosuchtable does not exist"],
+    [
+      "a query that needs filtering",
+      8704,
+      "Cannot execute this query as it might involve data filtering and thus may have unpredictable performance. If you want to execute this query despite the performance unpredictability, use ALLOW FILTERING",
+    ],
+    ["a refused grant", 8448, "User lowpriv has no SELECT permission on <table probe.orders> or any of its parents"],
+    [
+      "an unavailable replica set",
+      4096,
+      "Not enough replicas available for query at consistency TWO (2 required but only 1 alive)",
+    ],
+  ])("%s surfaces as a query error carrying the server's own sentence", async (_label, code, message) => {
+    const { provider } = await connectedProvider(healthyReplies({ [SELECT]: responseError(code, message) }));
+
+    await expect(provider.query(SELECT)).rejects.toThrow(QueryError);
+    await expect(provider.query(SELECT)).rejects.toThrow(message.slice(0, 40));
+  });
+
+  test("the server's own read timeout is a timeout, not a query error", async () => {
+    // Measured with FallthroughRetryPolicy: `Server timeout during read query at
+    // consistency LOCAL_ONE (0 replica(s) responded over 1 required)`, code 4608.
+    // Under the DEFAULT retry policy the same statement silently succeeded on retry,
+    // which is why nothing here depends on a retry outcome.
+    const failure = responseError(
+      4608,
+      "Server timeout during read query at consistency LOCAL_ONE (0 replica(s) responded over 1 required)",
+    );
+    const { provider } = await connectedProvider(healthyReplies({ [SELECT]: failure }));
+
+    await expect(provider.query(SELECT)).rejects.toThrow(TimeoutError);
+  });
+
+  test("the client's own deadline is a timeout too", async () => {
+    const failure = new Error("The host 127.0.0.1:19042 did not reply before timeout 1 ms");
+    failure.name = "OperationTimedOutError";
+    const { provider } = await connectedProvider(healthyReplies({ [SELECT]: failure }));
+
+    await expect(provider.query(SELECT)).rejects.toThrow(TimeoutError);
+  });
+
+  test("positional parameters are refused rather than spliced into the statement", async () => {
+    const { provider } = await connectedProvider();
+
+    await expect(provider.query("SELECT * FROM probe.customers WHERE id = ?", [1])).rejects.toThrow(QueryError);
+  });
+
+  test("an empty parameter list is not a parameter list", async () => {
+    const { provider } = await connectedProvider(
+      healthyReplies({ [SELECT]: result(declare(["id", INT]), [{ id: 1 }]) }),
+    );
+
+    expect((await provider.query(SELECT, [])).rowCount).toBe(1);
+  });
+
+  test("no cancellation method is published, because the engine has no cancellation", async () => {
+    // The protocol has no cancel frame, CQL has no KILL, and the driver's Client
+    // publishes no cancel/abort method at all (checked against its own API surface).
+    // Both routes detect support by the method's PRESENCE (`"cancelQuery" in
+    // provider`), so declining to define it is what makes /api/db/cancel answer
+    // "cancellation is not supported for this database type" instead of reporting a
+    // cancellation that silently failed. `search/index.ts` declined it the same way.
+    const { provider } = await connectedProvider();
+
+    expect("cancelQuery" in provider).toBe(false);
+  });
+});
+
+// ============================================================================
+// prepareQuery: the row bound
+// ============================================================================
+
+describe("prepareQuery", () => {
+  const provider = new CassandraProvider(makeConnection());
+
+  test("a plain SELECT gets the bound the shared limiter builds", () => {
+    const prepared = provider.prepareQuery("SELECT * FROM probe.customers", { limit: 500 });
+
+    expect(prepared.query).toBe("SELECT * FROM probe.customers LIMIT 500");
+    expect(prepared.wasLimited).toBe(true);
+  });
+
+  test("a statement carrying its own LIMIT is left exactly as written", () => {
+    // Measured: a SECOND `LIMIT` is a syntax error ("line 1:38 mismatched input
+    // 'LIMIT' expecting EOF"), so the shared limiter's leave-it-alone rule is also
+    // the only correct one here.
+    const prepared = provider.prepareQuery("SELECT * FROM probe.customers LIMIT 5", { limit: 500 });
+
+    expect(prepared.query).toBe("SELECT * FROM probe.customers LIMIT 5");
+    expect(prepared.wasLimited).toBe(false);
+  });
+
+  test("a second page is refused, because CQL has no OFFSET", () => {
+    // `… LIMIT 5 OFFSET 5` is "line 1:45 mismatched input 'OFFSET' expecting EOF",
+    // and `OFFSET` alone is refused too. Dropping the offset and sending `LIMIT n`
+    // would return page ONE while the editor appends it to what it already shows -
+    // duplicate rows presented as new ones, which is a wrong ANSWER.
+    expect(() => provider.prepareQuery("SELECT * FROM probe.customers", { limit: 50, offset: 50 })).toThrow(QueryError);
+  });
+
+  test("a first page is not a second one, so no offset means no refusal", () => {
+    expect(provider.prepareQuery("SELECT * FROM probe.customers", { limit: 50, offset: 0 }).wasLimited).toBe(true);
+  });
+
+  test("a statement the limiter left alone is never refused for its offset", () => {
+    // Nothing was rewritten, so there is nothing to refuse: the user's own bound is
+    // what runs, exactly as on every other provider here.
+    const prepared = provider.prepareQuery("INSERT INTO probe.customers (id) VALUES (1)", { limit: 50, offset: 50 });
+
+    expect(prepared.wasLimited).toBe(false);
+  });
+
+  test("the bound goes BEFORE a trailing ALLOW FILTERING, where CQL accepts it", () => {
+    // Measured both ways: `… LIMIT 3 ALLOW FILTERING` returns rows, while
+    // `… ALLOW FILTERING LIMIT 3` is "line 1:60 mismatched input 'LIMIT' expecting
+    // EOF". The shared limiter appends, so the two clauses are transposed.
+    const prepared = provider.prepareQuery("SELECT * FROM probe.orders WHERE amount > 5 ALLOW FILTERING", {
+      limit: 500,
+    });
+
+    expect(prepared.query).toBe("SELECT * FROM probe.orders WHERE amount > 5 LIMIT 500 ALLOW FILTERING");
+    expect(prepared.wasLimited).toBe(true);
+  });
+
+  test("the transposition keeps the writer's own spacing", () => {
+    const prepared = provider.prepareQuery("SELECT * FROM probe.orders WHERE amount > 5 ALLOW  FILTERING", {
+      limit: 10,
+    });
+
+    expect(prepared.query).toBe("SELECT * FROM probe.orders WHERE amount > 5 LIMIT 10 ALLOW  FILTERING");
+  });
+
+  test("a statement ending in a `--` comment is not rewritten", () => {
+    // The shared limiter inserts the clause BEFORE trailing trivia and re-attaches
+    // the comment (#280), which on every other engine is right. Here it is not: the
+    // trim drops the newline that CLOSED the comment, and measured,
+    // `SELECT * FROM probe.customers LIMIT 3 -- note` with nothing after it is "line
+    // 1:45 mismatched character '<EOF>' expecting set null". So a VALID statement
+    // would become a syntax error. It runs unbounded instead, and says so.
+    const prepared = provider.prepareQuery("SELECT * FROM probe.customers -- note\n", { limit: 500 });
+
+    expect(prepared.query).toBe("SELECT * FROM probe.customers -- note\n");
+    expect(prepared.wasLimited).toBe(false);
+  });
+
+  test("a statement ending in a `//` comment is not rewritten either", () => {
+    // CQL's THIRD line-comment form, and it is a shared grammar fact now
+    // (`doubleSlashComment`) rather than a scan this provider kept to itself - so the
+    // mechanism here is exactly the `--` one above: the limiter inserts before the
+    // comment and `sql.trim()` drops the newline that closed it, leaving
+    // `… LIMIT 500 // note` at end of input, which CQL refuses. Left as written.
+    const prepared = provider.prepareQuery("SELECT * FROM probe.customers // note\n", { limit: 500 });
+
+    expect(prepared.query).toBe("SELECT * FROM probe.customers // note\n");
+    expect(prepared.wasLimited).toBe(false);
+  });
+
+  test("a `//` inside a string literal is not a comment", () => {
+    // The shared span reader is what makes this true, and it is the reason the private
+    // `//` scan could be dropped: a literal reader sits in front of the comment branch.
+    const prepared = provider.prepareQuery("SELECT * FROM probe.customers WHERE name = 'http://x'", { limit: 5 });
+
+    expect(prepared.query).toBe("SELECT * FROM probe.customers WHERE name = 'http://x' LIMIT 5");
+  });
+
+  test("a comment in the MIDDLE of a statement is left to be a comment", () => {
+    const prepared = provider.prepareQuery("SELECT id // pick\nFROM probe.customers", { limit: 5 });
+
+    expect(prepared.query).toBe("SELECT id // pick\nFROM probe.customers LIMIT 5");
+    expect(prepared.wasLimited).toBe(true);
+  });
+
+  test("a trailing block comment is fine, because CQL closes it", () => {
+    const prepared = provider.prepareQuery("SELECT * FROM probe.customers /* note */", { limit: 5 });
+
+    expect(prepared.query).toContain("LIMIT 5");
+    expect(prepared.wasLimited).toBe(true);
+  });
+});
+
+// ============================================================================
+// Schema
+// ============================================================================
+
+// ============================================================================
+// Monitoring
+// ============================================================================
+
+describe("getOverview", () => {
+  test("what the cluster is, and how long this node has been up", async () => {
+    const { provider } = await connectedProvider();
+
+    const overview = await provider.getOverview();
+
+    expect(overview.version).toBe("Apache Cassandra 5.0.9");
+    // The gossip generation IS the node's start time in epoch seconds, and the
+    // server's own clock is what it is subtracted from - never this process's.
+    expect(overview.startTime).toEqual(new Date(1787249337 * 1000));
+    expect(overview.uptime).toBe("1.89h");
+    expect(overview.activeConnections).toBe(2);
+    expect(overview.tableCount).toBe(4);
+    expect(overview.indexCount).toBe(2);
+  });
+
+  test("no database size is claimed, because the server publishes only whole mebibytes", async () => {
+    const { provider } = await connectedProvider();
+
+    const overview = await provider.getOverview();
+
+    expect(overview.databaseSize).toBe(CASSANDRA_SIZE_UNAVAILABLE);
+    // The FIELD IS ABSENT rather than zero. A zero is a measurement: the Storage tab
+    // read `databaseSizeBytes ?? 0` and rendered "0 B" for the tables, "0 B" for the
+    // indexes and a 0.0% breakdown bar - a fabricated size for a provider whose whole
+    // reason for existing is refusing to fabricate one (verified in the browser
+    // against the live 5.0.9 node).
+    expect(overview.databaseSizeBytes).toBeUndefined();
+    expect("databaseSizeBytes" in overview).toBe(false);
+  });
+
+  test("no connection ceiling is invented", async () => {
+    // Cassandra publishes no maximum-connections figure a statement can read, and a
+    // made-up ceiling would render a usage percentage of nothing.
+    const { provider } = await connectedProvider();
+
+    expect((await provider.getOverview()).maxConnections).toBe(0);
+  });
+
+  test("a restricted role loses the connection count and keeps the rest", async () => {
+    // Measured with a least-privilege role: `system_views.clients` answers 8448
+    // while `system_schema` answers every table in every keyspace. A denied
+    // monitoring surface must not break a working connection.
+    const denied = responseError(
+      8448,
+      "User lowpriv has no SELECT permission on <table system_views.clients> or any of its parents",
+    );
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_CLIENT_COUNT_CQL]: denied }));
+
+    const overview = await provider.getOverview();
+
+    // The FIELD IS ABSENT rather than zero, the same shape `databaseSizeBytes` uses:
+    // a role denied the grant has nothing to report, and 0 is a headcount some
+    // engine actually took.
+    expect(overview.activeConnections).toBeUndefined();
+    expect("activeConnections" in overview).toBe(false);
+    expect(overview.tableCount).toBe(4);
+  });
+
+  test("a role refused the CACHE view keeps the overview it can read", async () => {
+    // Measured with a least-privilege role: `system_views.caches` and
+    // `system_views.queries` answer 8448 exactly as `clients` does, while
+    // `system.local`, `system.peers_v2` and all of `system_schema` are readable. So the
+    // identity read is the one surface that does NOT degrade - the driver's own control
+    // connection reads `system.local` before this provider can send anything - and the
+    // three virtual-table reads are the ones that do.
+    const denied = responseError(
+      8448,
+      "User lowpriv has no SELECT permission on <table system_views.caches> or any of its parents",
+    );
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_CACHE_CQL]: denied }));
+
+    const overview = await provider.getOverview();
+
+    expect(overview.version).toBe("Apache Cassandra 5.0.9");
+    expect(await provider.getPerformanceMetrics()).toEqual({});
+  });
+
+  test("a surface that fails for any other reason still fails", async () => {
+    // An `invalid` is also what a typo in this provider's own CQL would produce, and
+    // an empty panel that hides that hides it forever.
+    const broken = responseError(8704, "unconfigured table clients");
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_CLIENT_COUNT_CQL]: broken }));
+
+    await expect(provider.getOverview()).rejects.toThrow(QueryError);
+  });
+
+  test("a real count of zero is kept, not read as an absence", async () => {
+    // The distinction the fix has to get right in both directions: a row that says
+    // `count: 0` is a measurement (nobody is connected right now), not the empty
+    // result set a denied grant or an absent keyspace produces.
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_CLIENT_COUNT_CQL]: countResult("0") }));
+
+    const overview = await provider.getOverview();
+
+    expect(overview.activeConnections).toBe(0);
+    expect("activeConnections" in overview).toBe(true);
+  });
+});
+
+// ============================================================================
+// A build with no `system_views` keyspace at all (ScyllaDB)
+// ============================================================================
+
+/*
+  ScyllaDB speaks this provider's CQL and has no `system_views` keyspace, so the
+  three virtual-table reads are refused by a server that is otherwise healthy. That
+  used to take five surfaces down with them and, through
+  `POST /api/db/test-connection`, the connection dialog's save as well.
+
+  Measured 2026-08-24 through `cassandra-driver` 4.9.0 against
+  scylladb/scylla:2026.2.4 on port 9242 and cassandra:5.0.9 on port 9142, the same
+  statement text sent to both:
+
+    scylla   SELECT COUNT(*) AS count FROM system_views.clients
+             ResponseError code=8704 "Keyspace system_views does not exist"
+    scylla   SELECT release_version FROM system.local            -> 3.0.8
+    5.0.9    SELECT COUNT(*) AS count FROM system_views.cliets
+             ResponseError code=8704 "table cliets does not exist"
+    5.0.9    SELECT hit_ratioo FROM system_views.caches
+             ResponseError code=8704 "Undefined column name hit_ratioo in table system_views.caches"
+    5.0.9    SELECT COUNT(*) AS count FROM system_viewz.clients
+             ResponseError code=8704 "keyspace system_viewz does not exist"
+
+  So the ONE protocol code carries all four cases and the driver's `keyspace` and
+  `table` properties are `undefined` on both builds - the REFUSAL carries no
+  structured discriminator. Those four spellings are pinned below as a regression pin,
+  but nothing keys on them any more: since 2026-08-24 the degradation keys on a structural
+  fact asked once per connection instead - whether `system_virtual_schema.keyspaces`
+  lists `system_views`. Measured the same day through the same transport:
+
+    5.0.9    SELECT keyspace_name FROM system_virtual_schema.keyspaces
+             -> ["system_views", "system_virtual_schema"]
+    scylla   SELECT keyspace_name FROM system_virtual_schema.keyspaces
+             ResponseError code=8704 "Keyspace system_virtual_schema does not exist"
+
+  A refused probe is itself the answer - a build with no virtual-schema catalog has no
+  virtual tables to read - and the code, not the sentence, is what is read. The
+  consequence is stronger than a caught error: on such a build the three
+  `system_views` statements are NEVER SENT, which the `asked` list below asserts.
+*/
+
+/** The refusal ScyllaDB answers every `system_views` read with, verbatim. */
+const NO_SYSTEM_VIEWS = responseError(8704, "Keyspace system_views does not exist");
+
+/** The refusal ScyllaDB answers the PROBE with, verbatim - it has no virtual-schema catalog either. */
+const NO_VIRTUAL_SCHEMA = responseError(8704, "Keyspace system_virtual_schema does not exist");
+
+/** What a whole ScyllaDB session sees: `system.local` and `system_schema` answer, `system_views` does not. */
+function scyllaReplies(overrides: Record<string, Reply> = {}): Record<string, Reply> {
+  return healthyReplies({
+    [CASSANDRA_VIRTUAL_KEYSPACE_CQL]: NO_VIRTUAL_SCHEMA,
+    [CASSANDRA_CLIENT_COUNT_CQL]: NO_SYSTEM_VIEWS,
+    [CASSANDRA_CACHE_CQL]: NO_SYSTEM_VIEWS,
+    [CASSANDRA_RUNNING_QUERY_CQL]: NO_SYSTEM_VIEWS,
+    ...overrides,
+  });
+}
+
+describe("a server with no system_views keyspace", () => {
+  test("the overview keeps everything system.local and system_schema answer", async () => {
+    const { provider } = await connectedProvider(scyllaReplies());
+
+    const overview = await provider.getOverview();
+
+    expect(overview.version).toBe("Apache Cassandra 5.0.9");
+    expect(overview.tableCount).toBe(4);
+    expect(overview.indexCount).toBe(2);
+    // No ScyllaDB build has a `system_views` keyspace at all, so this is the same
+    // absence as the denied-role case above rather than the fabricated 0 the field
+    // used to answer with.
+    expect(overview.activeConnections).toBeUndefined();
+    expect("activeConnections" in overview).toBe(false);
+  });
+
+  test("the performance panel is ABSENT with its own sentence, not an empty reading", async () => {
+    // D24: `{}` said every field was looked up and found to have no value. The key
+    // cache's hit ratio is this panel's only source, and this build publishes no
+    // `system_views.caches` at all, so the panel cannot be answered rather than
+    // answering nothing.
+    const { provider } = await connectedProvider(scyllaReplies());
+
+    await expect(provider.getPerformanceMetrics()).rejects.toThrow(QueryError);
+    await expect(provider.getPerformanceMetrics()).rejects.toThrow(/system_views\.caches/);
+    await expect(provider.getPerformanceMetrics()).rejects.toThrow(/no system_virtual_schema catalog at all/);
+  });
+
+  test("the session panel is ABSENT with its own sentence, not an empty list", async () => {
+    // The reading this entry exists for, measured in the browser against ScyllaDB
+    // 2026.2.4: an empty list rendered as "Active 0 / Idle 0 / Wait 0 / Sessions (0) /
+    // No active sessions found." for a question the build cannot answer at all.
+    const { provider } = await connectedProvider(scyllaReplies());
+
+    await expect(provider.getActiveSessions()).rejects.toThrow(QueryError);
+    await expect(provider.getActiveSessions()).rejects.toThrow(/system_views\.queries/);
+  });
+
+  test("health answers, which is what Test Connection and the header badge ride on", async () => {
+    // `POST /api/db/test-connection` calls exactly this, and the dialog's save is
+    // gated on that request: while this threw, no ScyllaDB connection could be
+    // created through the dialog at all.
+    const { provider } = await connectedProvider(scyllaReplies());
+
+    const health = await provider.getHealth();
+
+    expect(health.activeSessions).toEqual([]);
+    expect(health.slowQueries).toEqual([]);
+    // "N/A" rather than "0%": nothing measured the cache.
+    expect(health.cacheHitRatio).toBe(CASSANDRA_SIZE_UNAVAILABLE);
+  });
+
+  test("the monitoring dashboard gets data instead of one connection-error page", async () => {
+    // Still a partial dashboard rather than an error page - the panels this build CAN
+    // answer are unchanged. What changed is the two it cannot: absent, each with the
+    // sentence `PanelUnavailable` renders, instead of a zero and an empty table.
+    const { provider } = await connectedProvider(scyllaReplies());
+
+    const data = await provider.getMonitoringData();
+
+    expect(data.overview?.version).toBe("Apache Cassandra 5.0.9");
+    expect(data.performance).toBeUndefined();
+    expect(data.activeSessions).toBeUndefined();
+    expect(data.errors?.performance).toContain("system_views.caches");
+    expect(data.errors?.activeSessions).toContain("system_views.queries");
+    // The panel that is empty by convention on every build keeps its empty array: an
+    // absent slow-query panel would hide the label the tab already renders.
+    expect(data.slowQueries).toEqual([]);
+  });
+
+  test("a typo in a TABLE name inside system_views still fails loudly", async () => {
+    // Measured on 5.0.9: `table cliets does not exist`. Not keyspace-shaped, so the
+    // degradation cannot reach it - which is the whole reason §3.6 kept the condition
+    // narrow.
+    const typo = responseError(8704, "table cliets does not exist");
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_CLIENT_COUNT_CQL]: typo }));
+
+    await expect(provider.getOverview()).rejects.toThrow(QueryError);
+  });
+
+  test("a typo in a COLUMN name inside system_views still fails loudly", async () => {
+    const typo = responseError(8704, "Undefined column name hit_ratioo in table system_views.caches");
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_CACHE_CQL]: typo }));
+
+    await expect(provider.getPerformanceMetrics()).rejects.toThrow(QueryError);
+  });
+
+  test("a typo in the KEYSPACE name itself still fails loudly", async () => {
+    // `keyspace system_viewz does not exist` is keyspace-shaped and IS a fault in this
+    // provider's own CQL, which is why the discriminator is an allowlist of the
+    // keyspaces this provider reads and knows to be optional, not "any absent
+    // keyspace".
+    const typo = responseError(8704, "keyspace system_viewz does not exist");
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_RUNNING_QUERY_CQL]: typo }));
+
+    await expect(provider.getActiveSessions()).rejects.toThrow(QueryError);
+  });
+
+  test("an absent system_schema is not degraded, because the tree needs it", async () => {
+    // `system_schema` is not optional on any measured build - it is readable even by a
+    // least-privilege role - so a server that refuses the whole keyspace is a fault
+    // rather than a dialect difference.
+    const absent = responseError(8704, "Keyspace system_schema does not exist");
+    const { provider } = await connectedProvider(healthyReplies({ [cassandraTableCountCql(KEYSPACE)]: absent }));
+
+    await expect(provider.getOverview()).rejects.toThrow(QueryError);
+  });
+
+  test("the three system_views statements are never sent at all", async () => {
+    // The point of keying on the catalog rather than on the refusal: a build that has
+    // no virtual tables is not asked for them, so the three round trips per
+    // monitoring refresh are not spent either. The replies above would THROW if they
+    // were reached.
+    const { provider, session } = await connectedProvider(scyllaReplies());
+
+    await provider.getOverview();
+    await expect(provider.getPerformanceMetrics()).rejects.toThrow(QueryError);
+    await expect(provider.getActiveSessions()).rejects.toThrow(QueryError);
+    // `getHealth` reaches the same two reads and must NOT throw - the connection
+    // dialog's save is gated on it - so it degrades where the panels refuse.
+    await provider.getHealth();
+
+    expect(session.asked).not.toContain(CASSANDRA_CLIENT_COUNT_CQL);
+    expect(session.asked).not.toContain(CASSANDRA_CACHE_CQL);
+    expect(session.asked).not.toContain(CASSANDRA_RUNNING_QUERY_CQL);
+    // The reads that do NOT need the virtual keyspace still go out.
+    expect(session.asked).toContain(cassandraTableCountCql(KEYSPACE));
+  });
+
+  test("the probe costs one statement per connection, not one per read", async () => {
+    // The whole cost of the structural discriminator, stated as a number: ONE extra
+    // statement at connect time (measured 1.5 ms against 5.0.9), whatever a session
+    // then reads.
+    const { provider, session } = await connectedProvider();
+
+    await provider.getOverview();
+    await provider.getPerformanceMetrics();
+    await provider.getActiveSessions();
+    await provider.getHealth();
+
+    expect(session.asked.filter((cql) => cql === CASSANDRA_VIRTUAL_KEYSPACE_CQL)).toEqual([
+      CASSANDRA_VIRTUAL_KEYSPACE_CQL,
+    ]);
+  });
+
+  test("a build whose virtual catalog answers WITHOUT system_views degrades too", async () => {
+    // The catalog is read for the name, not for the fact that it answered: a relative
+    // that publishes `system_virtual_schema` but not `system_views` is the same
+    // absence as ScyllaDB's, and nothing about it is text.
+    const withoutViews = result(declare(["keyspace_name", TEXT]), [{ keyspace_name: "system_virtual_schema" }]);
+    const { provider, session } = await connectedProvider(
+      scyllaReplies({ [CASSANDRA_VIRTUAL_KEYSPACE_CQL]: withoutViews }),
+    );
+
+    // Its own sentence, and not ScyllaDB's: the catalog answered here, it just did not
+    // list the keyspace. Three causes, three sentences.
+    await expect(provider.getPerformanceMetrics()).rejects.toThrow(/does not list a system_views keyspace/);
+    expect(session.asked).not.toContain(CASSANDRA_CACHE_CQL);
+  });
+
+  test("a role that may not read the virtual catalog gets its own sentence, not a broken connection", async () => {
+    // 8448 on the probe, which is the measured shape of a least-privilege role
+    // (§3.6): it cannot establish that the virtual tables are there, so the panels whose
+    // only source is one report their own absence - naming the GRANT, because that is a
+    // different place to send the reader than a build that has no virtual schema.
+    const denied = responseError(
+      8448,
+      "User lowpriv has no SELECT permission on <table system_virtual_schema.keyspaces> or any of its parents",
+    );
+    const { provider } = await connectedProvider(scyllaReplies({ [CASSANDRA_VIRTUAL_KEYSPACE_CQL]: denied }));
+
+    // A grant, not a dialect: the panel says so rather than telling the user their
+    // server has no virtual tables, which would send them to the wrong place.
+    await expect(provider.getPerformanceMetrics()).rejects.toThrow(/the connected role may not read/);
+    // Health still answers, so the connection can still be created and saved.
+    expect((await provider.getHealth()).activeSessions).toEqual([]);
+  });
+
+  test("a probe that fails for an unrelated reason leaves the reads exactly as they were", async () => {
+    // A client-side timeout says nothing about which keyspaces exist, so the probe
+    // does not get to claim an absence from it: the reads are still sent, and their
+    // own failure is still the one the caller sees. The probe never fails a connect.
+    const timeout = new CassandraTransportError("The host did not reply before timeout 1 ms", "client-timeout", null);
+    const { provider, session } = await connectedProvider(
+      healthyReplies({ [CASSANDRA_VIRTUAL_KEYSPACE_CQL]: timeout }),
+    );
+
+    expect(await provider.getPerformanceMetrics()).toEqual({ cacheHitRatio: 83.05 });
+    expect(session.asked).toContain(CASSANDRA_CACHE_CQL);
+  });
+});
+
+describe("getPerformanceMetrics", () => {
+  test("the key cache's own hit ratio, as a percentage", async () => {
+    const { provider } = await connectedProvider();
+
+    expect(await provider.getPerformanceMetrics()).toEqual({ cacheHitRatio: 83.05 });
+  });
+
+  test("a cache nobody has read reports no ratio rather than a zero", async () => {
+    // Measured: `hit_ratio` is NULL until the cache has been asked for something. A
+    // zero would score as a critical cache fault on a cluster that is merely idle.
+    const cold = result(declare(["name", TEXT], ["hit_ratio", DOUBLE]), [{ name: "keys", hit_ratio: null }]);
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_CACHE_CQL]: cold }));
+
+    expect(await provider.getPerformanceMetrics()).toEqual({});
+  });
+
+  test("a restricted role gets an empty panel rather than a broken connection", async () => {
+    const denied = responseError(
+      8448,
+      "User lowpriv has no SELECT permission on <table system_views.caches> or any of its parents",
+    );
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_CACHE_CQL]: denied }));
+
+    expect(await provider.getPerformanceMetrics()).toEqual({});
+  });
+});
+
+describe("getSlowQueries", () => {
+  test("empty, and nothing is asked of the server", async () => {
+    // There is no slow-query log to read: `system_views.system_logs` exists and
+    // returns 0 rows on this image, and it is a log tail rather than an aggregate of
+    // finished statements. Sending a statement to discover that would be noise.
+    const { provider, session } = await connectedProvider();
+    session.asked.length = 0;
+
+    expect(await provider.getSlowQueries()).toEqual([]);
+    expect(session.asked).toEqual([]);
+  });
+});
+
+describe("getActiveSessions", () => {
+  test("the statements running right now, with the duration the server measured", async () => {
+    const { provider } = await connectedProvider();
+
+    const sessions = await provider.getActiveSessions();
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].pid).toBe("Native-Transport-Requests-1");
+    expect(sessions[0].query).toContain("SELECT * FROM system_views.queries");
+    expect(sessions[0].durationMs).toBe(1.118);
+    expect(sessions[0].state).toBe("running");
+  });
+
+  test("no user and no keyspace are invented, because the row carries neither", async () => {
+    // `system_views.queries` publishes a thread, a task and two microsecond
+    // readings. The connected role is NOT borrowed for the row: it would credit this
+    // connection with a statement another client is running.
+    const { provider } = await connectedProvider();
+
+    const [session] = await provider.getActiveSessions();
+
+    expect(session.user).toBe(CASSANDRA_UNKNOWN_TEXT);
+    expect(session.database).toBe(CASSANDRA_UNKNOWN_TEXT);
+  });
+
+  test("a restricted role gets an empty list", async () => {
+    const denied = responseError(
+      8448,
+      "User lowpriv has no SELECT permission on <table system_views.queries> or any of its parents",
+    );
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_RUNNING_QUERY_CQL]: denied }));
+
+    expect(await provider.getActiveSessions()).toEqual([]);
+  });
+
+  test("the caller's limit bounds the list", async () => {
+    // Bounded against a THREE-row reply, because the one-row fixture cannot tell a
+    // bound from its absence: every limit above zero returns that single row, so an
+    // assertion made on it holds whatever the guard does.
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_RUNNING_QUERY_CQL]: MANY_RUNNING }));
+
+    expect(await provider.getActiveSessions({ limit: 2 })).toHaveLength(2);
+    expect(await provider.getActiveSessions()).toHaveLength(3);
+  });
+
+  test("a limit of zero is a limit, not a missing one", async () => {
+    // Three SQL siblings were read to settle what zero means, and all three honour it:
+    // PostgreSQL passes it to `LIMIT $2`, MSSQL to `SELECT TOP`, Oracle to
+    // `ROWNUM <= 0` - each answering no rows. Substituting the default here would make
+    // this the one engine where asking for none returns fifty.
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_RUNNING_QUERY_CQL]: MANY_RUNNING }));
+
+    expect(await provider.getActiveSessions({ limit: 0 })).toEqual([]);
+  });
+
+  test("a negative limit falls back to the default, because it is not an amount", async () => {
+    // The guard the three SQL siblings do NOT have: they would hand a negative straight
+    // to the server. Nothing asks for it, and keeping it costs one comparison.
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_RUNNING_QUERY_CQL]: MANY_RUNNING }));
+
+    expect(await provider.getActiveSessions({ limit: -1 })).toHaveLength(3);
+  });
+});
+
+describe("the panels that report nothing rather than something wrong", () => {
+  /*
+    ABSENT, not empty (D24). These three used to answer `[]`, which says "the engine
+    looked and found nothing" - and the schema tree in the very same frame lists the
+    tables and the secondary indexes the panel just reported none of. What is missing is
+    the FIGURES, so the panel now carries the reason and `getMonitoringData` leaves it
+    absent under `errors`, exactly as a rejected read from any other engine.
+  */
+  test("table statistics are refused with the reason, and the cluster is still asked nothing", async () => {
+    // `size_estimates` counts PARTITIONS from flushed SSTables and was measured at
+    // 143 for a 500-row clustered table; `disk_usage` reported 1 MiB for 19,476
+    // bytes. Both are numbers that would look exactly like right ones on screen.
+    const { provider, session } = await connectedProvider();
+    session.asked.length = 0;
+
+    await expect(provider.getTableStats()).rejects.toThrow(QueryError);
+    await expect(provider.getTableStats()).rejects.toThrow(CASSANDRA_TABLE_STATS_REFUSAL);
+    expect(session.asked).toEqual([]);
+  });
+
+  test("the table refusal names both unusable sources rather than saying unavailable", async () => {
+    // The sentence is the only text the user sees where the rows would have been, so
+    // it has to name what was refused and why - not that something was.
+    expect(CASSANDRA_TABLE_STATS_REFUSAL).toContain("system.size_estimates");
+    expect(CASSANDRA_TABLE_STATS_REFUSAL).toContain("system_views.disk_usage");
+  });
+
+  test("index statistics are refused: an index has no size and no scan counter here", async () => {
+    const { provider } = await connectedProvider();
+
+    await expect(provider.getIndexStats()).rejects.toThrow(QueryError);
+    await expect(provider.getIndexStats()).rejects.toThrow(CASSANDRA_INDEX_STATS_REFUSAL);
+  });
+
+  test("storage statistics are refused for the same reason as the database size", async () => {
+    const { provider } = await connectedProvider();
+
+    await expect(provider.getStorageStats()).rejects.toThrow(QueryError);
+    await expect(provider.getStorageStats()).rejects.toThrow(CASSANDRA_STORAGE_STATS_REFUSAL);
+  });
+
+  test("the slow-query panel stays EMPTY, because its sentence already reaches the user", async () => {
+    // The one always-empty panel that is not converted: `QueriesTab` renders
+    // `ProviderLabels.slowQueriesEmptyState` in place of the empty table, and this
+    // provider declares one. Converting it would move the same sentence from a label
+    // the panel already shows to an error entry, and buy nothing.
+    const { provider } = await connectedProvider();
+
+    expect(await provider.getSlowQueries()).toEqual([]);
+    expect(provider.getLabels().slowQueriesEmptyState).toContain("no aggregate of finished statements");
+  });
+});
+
+describe("getHealth", () => {
+  test("the connection count, the sessions, and no size", async () => {
+    const { provider } = await connectedProvider();
+
+    const health = await provider.getHealth();
+
+    expect(health.activeConnections).toBe(2);
+    expect(health.databaseSize).toBe(CASSANDRA_SIZE_UNAVAILABLE);
+    expect(health.cacheHitRatio).toBe("83.05%");
+    expect(health.slowQueries).toEqual([]);
+    expect(health.activeSessions).toHaveLength(1);
+  });
+
+  test("a cluster with no cache reading reports none", async () => {
+    const cold = result(declare(["name", TEXT], ["hit_ratio", DOUBLE]), [{ name: "keys", hit_ratio: null }]);
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_CACHE_CQL]: cold }));
+
+    expect((await provider.getHealth()).cacheHitRatio).toBe(CASSANDRA_SIZE_UNAVAILABLE);
+  });
+
+  test("a denied connection count is omitted here too, not fabricated as zero", async () => {
+    // `HealthInfo.activeConnections` is optional now, same as `DatabaseOverview`'s.
+    // `getHealth` composes straight from the overview, so a denied grant stays an
+    // omission all the way to the agent's curated health reading.
+    const denied = responseError(
+      8448,
+      "User lowpriv has no SELECT permission on <table system_views.clients> or any of its parents",
+    );
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_CLIENT_COUNT_CQL]: denied }));
+
+    const health = await provider.getHealth();
+
+    expect(health.activeConnections).toBeUndefined();
+  });
+
+  test("a real count of zero survives getHealth too, not read as an absence", async () => {
+    // Same distinction as getOverview's "a real count of zero" test, one seam
+    // further downstream: the `?? 0` this provider's getHealth used to carry would
+    // have made this pass by accident even after the fix regressed to a fabricated
+    // zero, so the absence case above and this one both have to hold.
+    const { provider } = await connectedProvider(healthyReplies({ [CASSANDRA_CLIENT_COUNT_CQL]: countResult("0") }));
+
+    const health = await provider.getHealth();
+
+    expect(health.activeConnections).toBe(0);
+  });
+});
+
+describe("getMonitoringData", () => {
+  test("the orchestrated read carries every panel the engine can fill", async () => {
+    const { provider } = await connectedProvider();
+
+    const data = await provider.getMonitoringData({ includeTables: true, includeIndexes: true, includeStorage: true });
+
+    expect(data.overview?.version).toBe("Apache Cassandra 5.0.9");
+    expect(data.performance?.cacheHitRatio).toBe(83.05);
+    // The three panels this engine refuses on every build are absent WITH their reason,
+    // and one failing read no longer costs the panels that answered (#477).
+    expect(data.tables).toBeUndefined();
+    expect(data.errors?.tables).toBe(CASSANDRA_TABLE_STATS_REFUSAL);
+    expect(data.errors?.indexes).toBe(CASSANDRA_INDEX_STATS_REFUSAL);
+    expect(data.errors?.storage).toBe(CASSANDRA_STORAGE_STATS_REFUSAL);
+  });
+});
+
+// ============================================================================
+// Maintenance
+// ============================================================================
+
+describe("runMaintenance", () => {
+  test.each(["vacuum", "analyze", "reindex", "kill", "optimize", "check"] as const)(
+    "%s is refused with the reason, not mapped onto the nearest statement",
+    async (operation) => {
+      const { provider } = await connectedProvider();
+
+      await expect(provider.runMaintenance(operation)).rejects.toThrow(QueryError);
+      await expect(provider.runMaintenance(operation)).rejects.toThrow(/nodetool/);
+    },
+  );
+});
+
+// ============================================================================
+// prepareQuery: paging is refused by STATEMENT KIND, not by who added the bound
+// ============================================================================
+
+describe("prepareQuery offsets on an already-bounded SELECT", () => {
+  const provider = new CassandraProvider(makeConnection());
+
+  test("a SELECT carrying its own LIMIT is refused a second page too", () => {
+    // The refusal has to be about the statement KIND, not about whether the shared
+    // limiter happened to be the one that added the bound. Measured again on the live
+    // node: `SELECT id, name FROM probe.customers LIMIT 5 OFFSET 5` is "line 1:45
+    // mismatched input 'OFFSET' expecting EOF", so no page after the first exists for
+    // this statement either. Returning page one instead makes the editor append rows
+    // it already shows, and the user cannot tell them from new ones.
+    expect(() =>
+      provider.prepareQuery("SELECT id, name FROM probe.customers LIMIT 5", { limit: 5, offset: 5 }),
+    ).toThrow(QueryError);
+  });
+
+  test("a SELECT ending in a line comment is refused a second page as well", () => {
+    // This shape runs UNBOUNDED on purpose (the trim would break the comment), and it
+    // is still a SELECT that cannot be paged - pinned so the refusal keeps being read
+    // from the statement kind rather than from what the rewrite decided.
+    expect(() => provider.prepareQuery("SELECT * FROM probe.customers -- note\n", { limit: 5, offset: 5 })).toThrow(
+      QueryError,
+    );
+  });
+
+  test("a non-SELECT statement is still never refused for its offset", () => {
+    // Nothing is paged here: the offset the route carries is meaningless for a write,
+    // and refusing it would break a statement CQL accepts.
+    const prepared = provider.prepareQuery("INSERT INTO probe.customers (id) VALUES (1)", { limit: 50, offset: 50 });
+
+    expect(prepared.wasLimited).toBe(false);
+    expect(prepared.query).toBe("INSERT INTO probe.customers (id) VALUES (1)");
+  });
+});
+
+// ============================================================================
+// connect: the transport a failed probe opened
+// ============================================================================
+
+describe("connect closes what it opened", () => {
+  /** A transport whose pool opens, then fails the identity probe. */
+  function probeFailingTransport(closed: { count: number }) {
+    return {
+      kind: "native" as const,
+      connect: async () => {},
+      execute: async () => {
+        throw new CassandraTransportError("Keyspace 'probe' does not exist", "invalid", 8704);
+      },
+      close: async () => {
+        closed.count += 1;
+      },
+    };
+  }
+
+  test("a failed identity probe closes the pool the connect already opened", async () => {
+    // `connect()` opens driver sockets and timers before the probe runs, so a probe
+    // that fails leaks them unless this path closes the transport - and the connection
+    // dialog retries, so the leak is per attempt. Druid and Couchbase close first,
+    // then map and rethrow.
+    const closed = { count: 0 };
+    const provider = new CassandraProvider(makeConnection(), {}, probeFailingTransport(closed));
+
+    await expect(provider.connect()).rejects.toThrow(QueryError);
+    expect(closed.count).toBe(1);
+    expect(provider.isConnected()).toBe(false);
+  });
+
+  test("a connect that succeeds keeps its transport open", async () => {
+    const closed = { count: 0 };
+    const provider = new CassandraProvider(
+      makeConnection(),
+      {},
+      {
+        kind: "native" as const,
+        connect: async () => {},
+        execute: async () => ({ rows: [], fieldNames: null, columnTypes: null, pageState: null }),
+        close: async () => {
+          closed.count += 1;
+        },
+      },
+    );
+
+    await provider.connect();
+
+    expect(provider.isConnected()).toBe(true);
+    expect(closed.count).toBe(0);
+  });
+});
+
+// ============================================================================
+// The object surface (issue #789)
+// ============================================================================
+
+/**
+ * Every payload in this section was captured on 2026-09-11 from the live Apache
+ * Cassandra 5.0.9 that `docker/cassandra-init/01-object-fixture.cql` builds, applied
+ * exactly as `docs/providers/cassandra.md` documents. The fixture is committed, so
+ * each of these can be re-measured rather than trusted.
+ *
+ * Five measurements shape what is asserted:
+ *
+ * 1. `CREATE KEYSPACE system_reports` SUCCEEDS, so the system-keyspace exclusion
+ *    cannot be a `system%` prefix rule. The fixture creates that keyspace and the
+ *    container listing must SHOW it.
+ * 2. AN INDEX NAME IS UNIQUE PER KEYSPACE: `CREATE INDEX customers_by_city ON
+ *    probe.events (payload)` answers "Index 'customers_by_city' already exists" while
+ *    the name is taken on `probe.customers`. So an index is addressed
+ *    `[keyspace, index]`.
+ * 3. A TRIGGER NAME IS NOT: `CREATE TRIGGER probe_audit ON probe.orders` SUCCEEDED
+ *    while `probe_audit` already existed on `probe.customers`. So a trigger is
+ *    addressed `[keyspace, table, trigger]`, which is what `attachedTo: "table"` says.
+ * 4. A FUNCTION IS OVERLOADED BY ARGUMENT TYPES: `system_schema.functions` holds two
+ *    `render` rows, `['int']` and `['text']`, so the name alone cannot address one.
+ *    `answer` takes none and its `argument_types` is the empty list.
+ * 5. `system_schema.indexes.kind` carries COMPOSITES and CUSTOM in one keyspace, and
+ *    the provider branches on neither: a vocabulary derived from the kinds one fixture
+ *    happens to hold would lose every other one (standing ruling 5a).
+ */
+
+const KEYSPACE_LIST = result(declare(["keyspace_name", TEXT]), [
+  { keyspace_name: "system_reports" },
+  { keyspace_name: "system_auth" },
+  { keyspace_name: "system_schema" },
+  { keyspace_name: "system_distributed" },
+  { keyspace_name: "system" },
+  { keyspace_name: "system_traces" },
+  { keyspace_name: KEYSPACE },
+]);
+
+const OBJECT_TABLE_LIST = result(declare(["table_name", TEXT]), [
+  { table_name: "customers" },
+  { table_name: "events" },
+  { table_name: "orders" },
+]);
+
+const OBJECT_VIEW_LIST = result(declare(["view_name", TEXT]), [{ view_name: "customers_by_city" }]);
+
+const OBJECT_TYPE_LIST = result(declare(["type_name", TEXT]), [{ type_name: "address" }]);
+
+const LIST_TEXT: ColumnType = { code: 32, info: TEXT };
+const MAP_OPTIONS = MAP_TEXT_TEXT;
+
+/** Three indexes, two COMPOSITES and one CUSTOM (`sai`), all three in one keyspace. */
+const OBJECT_INDEX_LIST = result(declare(["index_name", TEXT], ["table_name", TEXT], ["options", MAP_OPTIONS]), [
+  { index_name: "customers_by_city", table_name: "customers", options: { target: "city" } },
+  { index_name: "customers_by_tag", table_name: "customers", options: { target: "keys(tags)" } },
+  { index_name: "orders_by_amount", table_name: "orders", options: { class_name: "sai", target: "amount" } },
+]);
+
+/** `answer()` takes no argument, and `render` is overloaded on `int` and `text`. */
+const OBJECT_FUNCTION_LIST = result(declare(["function_name", TEXT], ["argument_types", LIST_TEXT]), [
+  { function_name: "answer", argument_types: [] },
+  { function_name: "render", argument_types: ["int"] },
+  { function_name: "render", argument_types: ["text"] },
+  { function_name: "sum_state", argument_types: ["int", "int"] },
+]);
+
+const OBJECT_AGGREGATE_LIST = result(declare(["aggregate_name", TEXT], ["argument_types", LIST_TEXT]), [
+  { aggregate_name: "total", argument_types: ["int"] },
+]);
+
+const OBJECT_TRIGGER_LIST = result(declare(["trigger_name", TEXT], ["table_name", TEXT]), [
+  { trigger_name: "probe_audit", table_name: "customers" },
+]);
+
+/** `probe.customers`, verbatim: `position` is -1 for every regular column. */
+const CUSTOMERS_COLUMN_LIST = result(
+  declare(["column_name", TEXT], ["type", TEXT], ["kind", TEXT], ["position", INT], ["clustering_order", TEXT]),
+  [
+    { column_name: "city", type: "text", kind: "regular", position: -1, clustering_order: "none" },
+    { column_name: "home", type: "frozen<address>", kind: "regular", position: -1, clustering_order: "none" },
+    { column_name: "id", type: "int", kind: "partition_key", position: 0, clustering_order: "none" },
+    { column_name: "name", type: "text", kind: "regular", position: -1, clustering_order: "none" },
+    { column_name: "tags", type: "map<text, text>", kind: "regular", position: -1, clustering_order: "none" },
+  ],
+);
+
+const TYPE_FIELD_LIST = result(declare(["field_names", LIST_TEXT], ["field_types", LIST_TEXT]), [
+  { field_names: ["street", "city", "postcode"], field_types: ["text", "text", "text"] },
+]);
+
+/**
+ * `system_reports` holds NOTHING, and the double has to say so rather than not answer.
+ *
+ * The fixture creates that keyspace to prove the system-keyspace exclusion is not a
+ * `system%` prefix rule, and it creates no object in it. The conformance guard resolves a
+ * flat name against every container `listContainers` answered (#789), so it now lists the
+ * relation kinds here too; a double that simply had no reply for those statements failed
+ * with `unexpected statement`, which says nothing about the provider.
+ */
+const EMPTY_KEYSPACE_KINDS = [
+  "table",
+  "materialized_view",
+  "index",
+  "type",
+  "function",
+  "aggregate",
+  "trigger",
+] as const;
+
+/**
+ * `system_schema.columns` for the WHOLE keyspace: three tables and the materialized view,
+ * verbatim from the live 5.0.9 node holding the committed fixture.
+ *
+ * The single-object column replies below are DERIVED from this array rather than written
+ * out beside it, so the fixture cannot make the bulk read and the single read disagree
+ * where the engine would not (#789).
+ */
+const KEYSPACE_COLUMN_ROWS: Record<string, unknown>[] = [
+  {
+    table_name: "customers",
+    column_name: "city",
+    type: "text",
+    kind: "regular",
+    position: -1,
+    clustering_order: "none",
+  },
+  {
+    table_name: "customers",
+    column_name: "home",
+    type: "frozen<address>",
+    kind: "regular",
+    position: -1,
+    clustering_order: "none",
+  },
+  {
+    table_name: "customers",
+    column_name: "id",
+    type: "int",
+    kind: "partition_key",
+    position: 0,
+    clustering_order: "none",
+  },
+  {
+    table_name: "customers",
+    column_name: "name",
+    type: "text",
+    kind: "regular",
+    position: -1,
+    clustering_order: "none",
+  },
+  {
+    table_name: "customers",
+    column_name: "tags",
+    type: "map<text, text>",
+    kind: "regular",
+    position: -1,
+    clustering_order: "none",
+  },
+  {
+    table_name: "customers_by_city",
+    column_name: "city",
+    type: "text",
+    kind: "partition_key",
+    position: 0,
+    clustering_order: "none",
+  },
+  {
+    table_name: "customers_by_city",
+    column_name: "id",
+    type: "int",
+    kind: "clustering",
+    position: 0,
+    clustering_order: "asc",
+  },
+  {
+    table_name: "customers_by_city",
+    column_name: "name",
+    type: "text",
+    kind: "regular",
+    position: -1,
+    clustering_order: "none",
+  },
+  {
+    table_name: "events",
+    column_name: "ck",
+    type: "timeuuid",
+    kind: "clustering",
+    position: 0,
+    clustering_order: "asc",
+  },
+  {
+    table_name: "events",
+    column_name: "payload",
+    type: "map<text, text>",
+    kind: "regular",
+    position: -1,
+    clustering_order: "none",
+  },
+  {
+    table_name: "events",
+    column_name: "pk",
+    type: "int",
+    kind: "partition_key",
+    position: 0,
+    clustering_order: "none",
+  },
+  { table_name: "orders", column_name: "amount", type: "int", kind: "regular", position: -1, clustering_order: "none" },
+  {
+    table_name: "orders",
+    column_name: "customer_id",
+    type: "int",
+    kind: "partition_key",
+    position: 0,
+    clustering_order: "none",
+  },
+  {
+    table_name: "orders",
+    column_name: "order_id",
+    type: "timeuuid",
+    kind: "clustering",
+    position: 0,
+    clustering_order: "asc",
+  },
+];
+
+const COLUMN_ROW_DECL = declare(
+  ["table_name", TEXT],
+  ["column_name", TEXT],
+  ["type", TEXT],
+  ["kind", TEXT],
+  ["position", INT],
+  ["clustering_order", TEXT],
+);
+
+const KEYSPACE_COLUMN_LIST = result(COLUMN_ROW_DECL, KEYSPACE_COLUMN_ROWS);
+
+const KEYSPACE_TYPE_LIST = result(
+  declare(["type_name", TEXT], ["field_names", LIST_TEXT], ["field_types", LIST_TEXT]),
+  [{ type_name: "address", field_names: ["street", "city", "postcode"], field_types: ["text", "text", "text"] }],
+);
+
+/** The single-object column read for every relation the keyspace holds, derived. */
+function singleColumnReplies(): Record<string, Reply> {
+  const owners = [...new Set(KEYSPACE_COLUMN_ROWS.map((row) => String(row.table_name)))];
+  return Object.fromEntries(
+    owners.map((owner) => [
+      cassandraObjectColumnsCql(KEYSPACE, owner),
+      result(
+        COLUMN_ROW_DECL,
+        KEYSPACE_COLUMN_ROWS.filter((row) => row.table_name === owner),
+      ),
+    ]),
+  );
+}
+
+/** The catalog answers a healthy object-surface read gets, on top of `healthyReplies()`. */
+function objectReplies(overrides: Record<string, Reply> = {}): Record<string, Reply> {
+  return {
+    ...healthyReplies(),
+    ...Object.fromEntries(
+      EMPTY_KEYSPACE_KINDS.map((kind) => [
+        cassandraObjectListCql("system_reports", kind)!,
+        result(declare(["keyspace_name", TEXT]), []),
+      ]),
+    ),
+    [CASSANDRA_KEYSPACE_LIST_CQL]: KEYSPACE_LIST,
+    [cassandraObjectListCql(KEYSPACE, "table")!]: OBJECT_TABLE_LIST,
+    [cassandraObjectListCql(KEYSPACE, "materialized_view")!]: OBJECT_VIEW_LIST,
+    [cassandraObjectListCql(KEYSPACE, "type")!]: OBJECT_TYPE_LIST,
+    [cassandraObjectListCql(KEYSPACE, "index")!]: OBJECT_INDEX_LIST,
+    [cassandraObjectListCql(KEYSPACE, "function")!]: OBJECT_FUNCTION_LIST,
+    [cassandraObjectListCql(KEYSPACE, "aggregate")!]: OBJECT_AGGREGATE_LIST,
+    [cassandraObjectListCql(KEYSPACE, "trigger")!]: OBJECT_TRIGGER_LIST,
+    [cassandraObjectColumnsCql(KEYSPACE, "customers")]: CUSTOMERS_COLUMN_LIST,
+    [cassandraTypeFieldsCql(KEYSPACE, "address")]: TYPE_FIELD_LIST,
+    // The bulk column read's three statement shapes (#789). They are here rather than in
+    // that block's own helper because the shared conformance contract now drives
+    // `describeObjects` for every declared kind, so every object-surface test needs them.
+    [cassandraKeyspaceColumnsCql(KEYSPACE)]: KEYSPACE_COLUMN_LIST,
+    [cassandraKeyspaceTypesCql(KEYSPACE)]: KEYSPACE_TYPE_LIST,
+    [cassandraKeyspaceColumnsCql("system_reports")]: result(COLUMN_ROW_DECL, []),
+    [cassandraKeyspaceTypesCql("system_reports")]: result(declare(["type_name", TEXT]), []),
+    // The BOUNDED targets. `limit + 1` reaches the statement, so a bound of 1 asks for 2
+    // and a bound of 2 asks for 3, which is what tells a saturated read from an exact one
+    // without a second count. The shared conformance contract bounds the richest kind at
+    // 1, so these belong to every object-surface test and not only to the bulk block.
+    [cassandraObjectListCql(KEYSPACE, "table", 2)!]: result(declare(["table_name", TEXT]), [
+      { table_name: "customers" },
+      { table_name: "events" },
+    ]),
+    [cassandraObjectListCql(KEYSPACE, "table", 3)!]: OBJECT_TABLE_LIST,
+    [cassandraObjectListCql(KEYSPACE, "table", 4)!]: OBJECT_TABLE_LIST,
+    [cassandraObjectListCql(KEYSPACE, "index", 2)!]: result(
+      declare(["index_name", TEXT], ["table_name", TEXT], ["options", MAP_OPTIONS]),
+      [
+        { index_name: "customers_by_city", table_name: "customers", options: { target: "city" } },
+        { index_name: "customers_by_tag", table_name: "customers", options: { target: "keys(tags)" } },
+      ],
+    ),
+    ...singleColumnReplies(),
+    ...overrides,
+  };
+}
+
+describe("the object surface declaration", () => {
+  test("declares one keyspace level and the seven kinds CQL has", () => {
+    const capabilities = new CassandraProvider(makeConnection()).getCapabilities();
+
+    expect(capabilities.containerLevels).toEqual([{ id: "schema", label: "Keyspace", labelPlural: "Keyspaces" }]);
+    expect(capabilities.objectKinds?.map((kind) => [kind.id, kind.role])).toEqual([
+      ["table", "relation"],
+      ["materialized_view", "relation"],
+      ["index", "config"],
+      ["type", "config"],
+      ["function", "routine"],
+      ["aggregate", "routine"],
+      ["trigger", "attached"],
+    ]);
+  });
+
+  test("declares no plain view, because CQL has no CREATE VIEW", () => {
+    const capabilities = new CassandraProvider(makeConnection()).getCapabilities();
+
+    expect(capabilities.objectKinds?.some((kind) => kind.id === "view")).toBe(false);
+  });
+
+  test("only a table takes a row write, and only a trigger hangs off one", () => {
+    const capabilities = new CassandraProvider(makeConnection()).getCapabilities();
+    const kinds = capabilities.objectKinds ?? [];
+
+    expect(kinds.filter((kind) => kind.acceptsRowWrites === true).map((kind) => kind.id)).toEqual(["table"]);
+    expect(kinds.filter((kind) => kind.attachedTo !== undefined).map((kind) => [kind.id, kind.attachedTo])).toEqual([
+      ["trigger", "table"],
+    ]);
+  });
+});
+
+/**
+ * The statement text itself, pinned by LITERAL.
+ *
+ * `objectReplies()` above keys every reply by calling `cassandraObjectListCql`, the same
+ * builder the provider calls, so the fake dispatches on a statement the test itself
+ * built. That is standing ruling 5b's blind spot: a mutation to a catalog table name, to
+ * a projection or to the `WHERE keyspace_name =` clause moves BOTH sides together and no
+ * behavioural assertion in this file can see it. Task 16 found the identical shape in its
+ * own suite.
+ *
+ * These assertions bound it. The literals below are the statements measured against
+ * Apache Cassandra 5.0.9 and they are written out by hand, so the builder has one reader
+ * that does not move with it. The second test then drives the real provider and asserts
+ * the statements it ISSUED against the same literals, which pins the dispatch too: a
+ * builder that answered something else would still be matched by the fake, and would no
+ * longer be matched here.
+ */
+describe("the object-surface statement text, pinned by literal", () => {
+  const LISTING_CQL: Readonly<Record<string, string>> = {
+    table: "SELECT table_name FROM system_schema.tables WHERE keyspace_name = 'probe'",
+    materialized_view: "SELECT view_name FROM system_schema.views WHERE keyspace_name = 'probe'",
+    index: "SELECT index_name, table_name, options FROM system_schema.indexes WHERE keyspace_name = 'probe'",
+    type: "SELECT type_name FROM system_schema.types WHERE keyspace_name = 'probe'",
+    function: "SELECT function_name, argument_types FROM system_schema.functions WHERE keyspace_name = 'probe'",
+    aggregate: "SELECT aggregate_name, argument_types FROM system_schema.aggregates WHERE keyspace_name = 'probe'",
+    trigger: "SELECT trigger_name, table_name FROM system_schema.triggers WHERE keyspace_name = 'probe'",
+  };
+
+  test("every kind's listing statement is the catalog, the projection and the keyspace predicate", () => {
+    for (const [kind, cql] of Object.entries(LISTING_CQL)) {
+      expect(cassandraObjectListCql(KEYSPACE, kind)).toBe(cql);
+    }
+  });
+
+  test("the three statements outside the listing builder are pinned the same way", () => {
+    expect(CASSANDRA_KEYSPACE_LIST_CQL).toBe("SELECT keyspace_name FROM system_schema.keyspaces");
+    expect(cassandraObjectColumnsCql(KEYSPACE, "customers")).toBe(
+      "SELECT column_name, type, kind, position, clustering_order FROM system_schema.columns " +
+        "WHERE keyspace_name = 'probe' AND table_name = 'customers'",
+    );
+    expect(cassandraTypeFieldsCql(KEYSPACE, "address")).toBe(
+      "SELECT field_names, field_types FROM system_schema.types WHERE keyspace_name = 'probe' AND type_name = 'address'",
+    );
+  });
+
+  test("a keyspace holding a quote is escaped into the predicate rather than closing it", () => {
+    expect(cassandraObjectListCql("o'brien", "table")).toBe(
+      "SELECT table_name FROM system_schema.tables WHERE keyspace_name = 'o''brien'",
+    );
+  });
+
+  test("countObjects ISSUES those seven statements, so the fake's dispatch is pinned too", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    session.asked.length = 0;
+
+    await provider.countObjects!([KEYSPACE]);
+
+    expect([...session.asked].sort()).toEqual(Object.values(LISTING_CQL).sort());
+  });
+
+  test("listObjects and describeObject issue them too, by literal", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    session.asked.length = 0;
+
+    await provider.listObjects!([KEYSPACE], "function");
+    await provider.describeObject!([KEYSPACE, "customers"], "table");
+    await provider.describeObject!([KEYSPACE, "address"], "type");
+
+    expect(session.asked).toEqual([
+      LISTING_CQL.function!,
+      "SELECT column_name, type, kind, position, clustering_order FROM system_schema.columns " +
+        "WHERE keyspace_name = 'probe' AND table_name = 'customers'",
+      LISTING_CQL.index!,
+      "SELECT field_names, field_types FROM system_schema.types WHERE keyspace_name = 'probe' AND type_name = 'address'",
+    ]);
+  });
+});
+
+describe("the object surface, against the committed fixture", () => {
+  test("satisfies the shared conformance contract", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    await assertObjectSurface(provider, {
+      containers: [[KEYSPACE], ["system_reports"]],
+      kinds: {
+        table: 3,
+        materialized_view: 1,
+        index: 3,
+        type: 1,
+        function: 4,
+        aggregate: 1,
+        trigger: 1,
+      },
+      sampleObject: { path: [KEYSPACE, "customers"], kind: "table" },
+    });
+  });
+
+  test("lists the user keyspaces and marks the session's own, and does NOT hide system_reports", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    const containers = await provider.listContainers!();
+
+    expect(containers).toEqual([
+      { path: [KEYSPACE], name: KEYSPACE, level: 0, isSessionDefault: true },
+      { path: ["system_reports"], name: "system_reports", level: 0, isSessionDefault: false },
+    ]);
+  });
+
+  test("a connection pinning NO keyspace still opens the tree, with no container marked default", async () => {
+    const { provider } = await connectedProvider(objectReplies(), { database: undefined });
+
+    const containers = await provider.listContainers!();
+
+    expect(containers).toEqual([
+      { path: [KEYSPACE], name: KEYSPACE, level: 0, isSessionDefault: false },
+      { path: ["system_reports"], name: "system_reports", level: 0, isSessionDefault: false },
+    ]);
+  });
+
+  test('an EMPTY keyspace string is the same fact as none, and matches no keyspace named ""', async () => {
+    const { provider } = await connectedProvider(objectReplies(), { database: "" });
+
+    expect((await provider.listContainers!()).every((container) => container.isSessionDefault === false)).toBe(true);
+  });
+
+  test("nothing nests under a keyspace, so a parent answers an empty list", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    session.asked.length = 0;
+
+    expect(await provider.listContainers!([KEYSPACE])).toEqual([]);
+    expect(session.asked).toEqual([]);
+  });
+
+  test("a routine is addressed by its argument types, and displayed by its name", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    const functions = await provider.listObjects!([KEYSPACE], "function");
+
+    expect(functions.map((object) => [object.path, object.name])).toEqual([
+      [[KEYSPACE, "answer()"], "answer"],
+      [[KEYSPACE, "render(int)"], "render"],
+      [[KEYSPACE, "render(text)"], "render"],
+      [[KEYSPACE, "sum_state(int,int)"], "sum_state"],
+    ]);
+  });
+
+  test("an aggregate carries the same disambiguated identity", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    expect((await provider.listObjects!([KEYSPACE], "aggregate")).map((object) => object.path)).toEqual([
+      [KEYSPACE, "total(int)"],
+    ]);
+  });
+
+  test("an index is addressed at keyspace level and a trigger under its table", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    expect((await provider.listObjects!([KEYSPACE], "index")).map((object) => object.path)).toEqual([
+      [KEYSPACE, "customers_by_city"],
+      [KEYSPACE, "customers_by_tag"],
+      [KEYSPACE, "orders_by_amount"],
+    ]);
+    expect((await provider.listObjects!([KEYSPACE], "trigger")).map((object) => object.path)).toEqual([
+      [KEYSPACE, "customers", "probe_audit"],
+    ]);
+  });
+
+  test("describes a table with its columns in key order and its indexes", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    const detail = await provider.describeObject!([KEYSPACE, "customers"], "table");
+
+    expect(detail.columns.map((column) => [column.name, column.type, column.isPrimary])).toEqual([
+      ["id", "int", true],
+      ["city", "text", false],
+      ["home", "frozen<address>", false],
+      ["name", "text", false],
+      ["tags", "map<text, text>", false],
+    ]);
+    expect(detail.indexes).toEqual([
+      { name: "customers_by_city", columns: ["city"], unique: false },
+      { name: "customers_by_tag", columns: ["keys(tags)"], unique: false },
+    ]);
+    expect(detail.foreignKeys).toEqual([]);
+  });
+
+  test("describes a user-defined type as its declared fields", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    const detail = await provider.describeObject!([KEYSPACE, "address"], "type");
+
+    expect(detail.columns).toEqual([
+      { name: "street", type: "text", nullable: true, isPrimary: false },
+      { name: "city", type: "text", nullable: true, isPrimary: false },
+      { name: "postcode", type: "text", nullable: true, isPrimary: false },
+    ]);
+    expect(detail.indexes).toEqual([]);
+  });
+
+  test("describes an index as its own definition, target and all", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    const detail = await provider.describeObject!([KEYSPACE, "orders_by_amount"], "index");
+
+    expect(detail.columns).toEqual([]);
+    expect(detail.indexes).toEqual([{ name: "orders_by_amount", columns: ["amount"], unique: false }]);
+  });
+
+  test("a routine and a trigger describe without a round trip", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    session.asked.length = 0;
+
+    expect(await provider.describeObject!([KEYSPACE, "render(int)"], "function")).toEqual({
+      path: [KEYSPACE, "render(int)"],
+      columns: [],
+      indexes: [],
+      foreignKeys: [],
+    });
+    expect(await provider.describeObject!([KEYSPACE, "customers", "probe_audit"], "trigger")).toEqual({
+      path: [KEYSPACE, "customers", "probe_audit"],
+      columns: [],
+      indexes: [],
+      foreignKeys: [],
+    });
+    expect(session.asked).toEqual([]);
+  });
+
+  test("the count and the listing read ONE statement per kind, so they cannot drift", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    session.asked.length = 0;
+
+    await provider.countObjects!([KEYSPACE]);
+    const counting = [...session.asked];
+    session.asked.length = 0;
+    await provider.listObjects!([KEYSPACE], "index");
+
+    expect(counting).toContain(session.asked[0]);
+  });
+
+  test("a refused catalog read reports the server's own sentence, and ONLY against the kind it refused", async () => {
+    const refusal = responseError(8448, "User probe has no SELECT permission on <table system_schema.tables>");
+    const { provider } = await connectedProvider(
+      objectReplies({ [cassandraObjectListCql(KEYSPACE, "table")!]: refusal }),
+    );
+
+    const counts = await provider.countObjects!([KEYSPACE]);
+
+    expect(counts.table).toEqual({
+      unavailable: "User probe has no SELECT permission on <table system_schema.tables>",
+    });
+    // The six reads that SUCCEEDED keep the numbers they measured. One refusal used to
+    // take all seven down with it, which threw away six measured facts and told the tree
+    // six folders were unreadable when they had just been read.
+    expect(counts).toEqual({
+      table: { unavailable: "User probe has no SELECT permission on <table system_schema.tables>" },
+      materialized_view: { count: 1 },
+      index: { count: 3 },
+      type: { count: 1 },
+      function: { count: 4 },
+      aggregate: { count: 1 },
+      trigger: { count: 1 },
+    });
+  });
+
+  test("two kinds refused for DIFFERENT reasons each carry their own sentence", async () => {
+    const { provider } = await connectedProvider(
+      objectReplies({
+        [cassandraObjectListCql(KEYSPACE, "table")!]: responseError(8448, "no SELECT permission on tables"),
+        [cassandraObjectListCql(KEYSPACE, "trigger")!]: responseError(8448, "no SELECT permission on triggers"),
+      }),
+    );
+
+    const counts = await provider.countObjects!([KEYSPACE]);
+
+    expect(counts.table).toEqual({ unavailable: "no SELECT permission on tables" });
+    expect(counts.trigger).toEqual({ unavailable: "no SELECT permission on triggers" });
+    expect(counts.index).toEqual({ count: 3 });
+  });
+
+  test("an undeclared kind is refused by name rather than answered empty", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    await expect(provider.listObjects!([KEYSPACE], "sequence")).rejects.toThrow(/declares no object kind "sequence"/);
+    await expect(provider.describeObject!([KEYSPACE, "x"], "sequence")).rejects.toThrow(
+      /declares no object kind "sequence"/,
+    );
+  });
+
+  test("a container path of the wrong length is refused rather than read", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    await expect(provider.countObjects!([])).rejects.toThrow(/container path is \[keyspace\]/);
+    await expect(provider.listObjects!([KEYSPACE, "extra"], "table")).rejects.toThrow(/container path is \[keyspace\]/);
+  });
+
+  test("an object path of the wrong depth is refused, per kind", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    await expect(provider.describeObject!([KEYSPACE], "table")).rejects.toThrow(/"table" path is \[keyspace, name\]/);
+    await expect(provider.describeObject!([KEYSPACE, "probe_audit"], "trigger")).rejects.toThrow(
+      /"trigger" path is \[keyspace, table, name\]/,
+    );
+  });
+});
+
+/**
+ * Standing ruling 5g, pinned on a ONE-LEVEL engine.
+ *
+ * Cassandra declares a single container level, so `container[0]`, `path[0]` and
+ * `container.length !== 1` are all behaviour-identical to the derived spellings here
+ * and this provider's own fixture can never tell them apart. Swapping a TWO-level
+ * declaration in through `getCapabilities` can, and it is driven all the way to a
+ * BOUND VALUE rather than to a refusal: a test that stops at the refusal path is
+ * exactly how the third spelling of this defect survived two providers.
+ */
+describe("the container derivation, under a two-level declaration", () => {
+  const TWO_LEVELS = [
+    { id: "catalog", label: "Catalog", labelPlural: "Catalogs" },
+    { id: "schema", label: "Keyspace", labelPlural: "Keyspaces" },
+  ] as const;
+
+  function twoLevel(provider: CassandraProvider): void {
+    const real = provider.getCapabilities();
+    spyOn(provider, "getCapabilities").mockReturnValue({ ...real, containerLevels: TWO_LEVELS });
+  }
+
+  test("listObjects binds the SCHEMA segment, not the first one", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    twoLevel(provider);
+    session.asked.length = 0;
+
+    const objects = await provider.listObjects!(["ring", KEYSPACE], "table");
+
+    expect(session.asked).toEqual([cassandraObjectListCql(KEYSPACE, "table")!]);
+    expect(objects.map((object) => object.path)).toEqual([
+      ["ring", KEYSPACE, "customers"],
+      ["ring", KEYSPACE, "events"],
+      ["ring", KEYSPACE, "orders"],
+    ]);
+  });
+
+  test("describeObject binds the SCHEMA segment and the LAST segment", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    twoLevel(provider);
+    session.asked.length = 0;
+
+    const detail = await provider.describeObject!(["ring", KEYSPACE, "customers"], "table");
+
+    expect(session.asked).toContain(cassandraObjectColumnsCql(KEYSPACE, "customers"));
+    expect(detail.columns.map((column) => column.name)).toEqual(["id", "city", "home", "name", "tags"]);
+  });
+
+  test("countObjects accepts the two-level path and counts it", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+    twoLevel(provider);
+
+    expect(await provider.countObjects!(["ring", KEYSPACE])).toMatchObject({ table: { count: 3 } });
+  });
+});
+
+describe("the object surface, at its edges", () => {
+  test("an empty keyspace answers zero for every declared kind rather than dropping the folder", async () => {
+    const empty = Object.fromEntries(
+      (new CassandraProvider(makeConnection()).getCapabilities().objectKinds ?? []).map((kind) => [
+        cassandraObjectListCql("system_reports", kind.id)!,
+        result(declare(["keyspace_name", TEXT]), []),
+      ]),
+    );
+    const { provider } = await connectedProvider(objectReplies(empty));
+
+    expect(await provider.countObjects!(["system_reports"])).toEqual({
+      table: { count: 0 },
+      materialized_view: { count: 0 },
+      index: { count: 0 },
+      type: { count: 0 },
+      function: { count: 0 },
+      aggregate: { count: 0 },
+      trigger: { count: 0 },
+    });
+  });
+
+  test("a kind with no catalog is refused by name rather than answered empty", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+    const real = provider.getCapabilities();
+    spyOn(provider, "getCapabilities").mockReturnValue({
+      ...real,
+      objectKinds: [...(real.objectKinds ?? []), { id: "sequence", role: "relation", label: "S", labelPlural: "S" }],
+    });
+
+    await expect(provider.listObjects!([KEYSPACE], "sequence")).rejects.toThrow(/has no statement that lists it/);
+    await expect(provider.describeObject!([KEYSPACE, "s"], "sequence")).rejects.toThrow(
+      /has no statement that describes it/,
+    );
+    // It is still ANSWERED FOR, because the conformance contract's first invariant is
+    // that every declared kind appears in `countObjects`. It is answered unavailable
+    // rather than zero: nobody measured a zero here.
+    expect((await provider.countObjects!([KEYSPACE])).sequence).toEqual({
+      unavailable: 'Cassandra has no statement that lists the kind "sequence"',
+    });
+  });
+
+  test("cassandraObjectListCql answers nothing for an inherited property name", () => {
+    expect(cassandraObjectListCql(KEYSPACE, "toString")).toBeUndefined();
+    expect(cassandraObjectListCql(KEYSPACE, "constructor")).toBeUndefined();
+  });
+
+  test("a declaration with no keyspace level is refused, not read as segment zero", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+    const real = provider.getCapabilities();
+    spyOn(provider, "getCapabilities").mockReturnValue({
+      ...real,
+      containerLevels: [{ id: "catalog", label: "Catalog", labelPlural: "Catalogs" }],
+    });
+
+    await expect(provider.countObjects!([KEYSPACE])).rejects.toThrow(/needs a "schema" container level/);
+  });
+
+  test("an object that is not there is reported by name rather than as an empty shell", async () => {
+    const { provider } = await connectedProvider(
+      objectReplies({
+        [cassandraObjectColumnsCql(KEYSPACE, "ghost")]: result(declare(["column_name", TEXT]), []),
+        [cassandraTypeFieldsCql(KEYSPACE, "ghost")]: result(declare(["field_names", LIST_TEXT]), []),
+      }),
+    );
+
+    await expect(provider.describeObject!([KEYSPACE, "ghost"], "table")).rejects.toThrow(
+      /No Cassandra table named ghost in probe/,
+    );
+    await expect(provider.describeObject!([KEYSPACE, "ghost"], "type")).rejects.toThrow(
+      /No Cassandra type named ghost in probe/,
+    );
+    await expect(provider.describeObject!([KEYSPACE, "ghost"], "index")).rejects.toThrow(
+      /No Cassandra index named ghost in probe/,
+    );
+  });
+
+  test("comparePaths orders by segment, so a prefix sorts above what nests under it", () => {
+    expect(comparePaths(["probe", "orders"], ["probe", "orders", "stamp"])).toBeLessThan(0);
+    expect(comparePaths(["probe", "orders", "stamp"], ["probe", "orders"])).toBeGreaterThan(0);
+    // The pair `JSON.stringify` gets wrong: `,` (0x2C) is below `]` (0x5D), so a joined
+    // sort puts the deeper path first and a trigger above the table it hangs off.
+    expect(
+      [
+        ["probe", "orders", "a"],
+        ["probe", "orders"],
+      ].sort(comparePaths),
+    ).toEqual([
+      ["probe", "orders"],
+      ["probe", "orders", "a"],
+    ]);
+    expect(comparePaths(["probe", "a"], ["probe", "b"])).toBeLessThan(0);
+    expect(comparePaths(["probe", "b"], ["probe", "a"])).toBeGreaterThan(0);
+    expect(comparePaths(["probe", "a"], ["probe", "a"])).toBe(0);
+  });
+});
+
+/**
+ * The bulk column read (#789), the fifth method.
+ *
+ * Cassandra was one of the two type-ids that fell out of the four implementation waves,
+ * and nothing went red because the shared conformance helper skipped a provider that did
+ * not declare the method at all. So the property that helper could not check until this
+ * wave is asserted here directly: the batch describes EVERY object `listObjects` names for
+ * that container and kind, and an unbounded call leaves `truncated` absent.
+ *
+ * Everything below was measured against a live Apache Cassandra 5.0.9 holding the committed
+ * fixture, in a container this task created and removed. The measurements that shaped it:
+ *
+ * 1. `ORDER BY` accepts only the FIRST clustering column. `ORDER BY index_name` on
+ *    `system_schema.indexes` is server error 2200, "Order by currently only supports the
+ *    ordering of columns following their declared order in the PRIMARY KEY", because that
+ *    catalog clusters on `(table_name, index_name)`. So the order column is declared per
+ *    CATALOG and is not the name column for every kind.
+ * 2. `LIMIT 0` is server error 2200, "LIMIT must be strictly positive". The
+ *    positive-whole-number guard is therefore this engine's own rule as well as the
+ *    contract's.
+ * 3. A CQL identifier holds ALPHANUMERIC AND UNDERSCORE CHARACTERS ONLY, quoted or not:
+ *    `CREATE TABLE ordprobe."<U+1F600>"` and `CREATE KEYSPACE "ks<U+1F600>"` are both
+ *    rejected by the server. So the UTF-8 against UTF-16 divergence Task 26a-2 measured on
+ *    four engines is UNREACHABLE here, and the fourth measurement records why rather than
+ *    leaving it unasked.
+ */
+describe("the bulk column read", () => {
+  const TABLES = [
+    [KEYSPACE, "customers"],
+    [KEYSPACE, "events"],
+    [KEYSPACE, "orders"],
+  ];
+
+  test("describes EVERY table the listing names, with no truncation and a CONSTANT statement set", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    const listed = await provider.listObjects!([KEYSPACE], "table");
+    session.asked.length = 0;
+
+    const batch = await provider.describeObjects!([KEYSPACE], "table");
+
+    // The property the helper could not check until this wave. Not "every detail was
+    // listed", which a batch dropping one table also satisfies, but the two sets being
+    // EQUAL.
+    expect(batch.details.map((detail) => detail.path)).toEqual(listed.map((object) => object.path));
+    expect(batch.details.map((detail) => detail.path)).toEqual(TABLES);
+    expect(batch.truncated).toBeUndefined();
+    // THREE statements for the whole folder, not one per table: the target, the
+    // keyspace's columns and the keyspace's indexes. CQL has no join and no subquery, so
+    // a composed single statement is not available on this engine - what matters is that
+    // the number is constant per folder rather than per object.
+    expect([...session.asked].sort()).toEqual(
+      [
+        cassandraObjectListCql(KEYSPACE, "table")!,
+        cassandraKeyspaceColumnsCql(KEYSPACE),
+        cassandraObjectListCql(KEYSPACE, "index")!,
+      ].sort(),
+    );
+  });
+
+  test("every column set is what describeObject answers for the same object, for all four kinds", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    let compared = 0;
+    for (const kind of ["table", "materialized_view", "index", "type"]) {
+      const batch = await provider.describeObjects!([KEYSPACE], kind);
+      expect(batch.details.length).toBeGreaterThan(0);
+      for (const detail of batch.details) {
+        expect(detail).toEqual(await provider.describeObject!(detail.path, kind));
+        compared += 1;
+      }
+    }
+    // The control: a loop that ran zero times certifies nothing (standing ruling 5b).
+    expect(compared).toBe(8);
+  });
+
+  test("a routine, an aggregate and a trigger answer an empty batch with NO round trip", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    session.asked.length = 0;
+
+    for (const kind of ["function", "aggregate", "trigger"]) {
+      expect(await provider.describeObjects!([KEYSPACE], kind)).toEqual({ details: [] });
+    }
+    // A true fact about those kinds rather than a failed read, so it costs nothing.
+    expect(session.asked).toEqual([]);
+  });
+
+  test("an index folder and a type folder each cost ONE statement", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    session.asked.length = 0;
+
+    const indexes = await provider.describeObjects!([KEYSPACE], "index");
+    const indexAsked = [...session.asked];
+    session.asked.length = 0;
+    const types = await provider.describeObjects!([KEYSPACE], "type");
+
+    // The index listing already projects `options`, which is the whole content of an
+    // index detail, and `system_schema.types` carries a UDT's fields on the row that
+    // names it. So neither kind needs a second catalog at all.
+    expect(indexAsked).toEqual([cassandraObjectListCql(KEYSPACE, "index")!]);
+    expect(session.asked).toEqual([cassandraKeyspaceTypesCql(KEYSPACE)]);
+    expect(indexes.details.map((detail) => detail.indexes[0]!.name)).toEqual([
+      "customers_by_city",
+      "customers_by_tag",
+      "orders_by_amount",
+    ]);
+    expect(types.details[0]!.columns.map((column) => column.name)).toEqual(["street", "city", "postcode"]);
+  });
+
+  test("a bounded read returns the bound, orders the cut, and reports the CALLER's limit", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    session.asked.length = 0;
+
+    const batch = await provider.describeObjects!([KEYSPACE], "table", 2);
+
+    expect(batch.details.map((detail) => detail.path)).toEqual(TABLES.slice(0, 2));
+    // The ONE sentence, built by the shared helper rather than spelled here: a reason a
+    // provider phrased for itself is how the same bound came to read three ways.
+    expect(batch.truncated).toEqual({ limit: 2, reason: callerBoundTruncationReason(2) });
+    expect(batch.truncated!.reason).toBe("the bulk column read was bounded at 2 objects by its caller");
+    // `limit + 1` reaches the statement, which is what tells a saturated read from an
+    // exact one without a second count.
+    expect(session.asked).toContain(
+      "SELECT table_name FROM system_schema.tables WHERE keyspace_name = 'probe' ORDER BY table_name ASC LIMIT 3",
+    );
+  });
+
+  test("a bound that is not reached reports no truncation", async () => {
+    const { provider } = await connectedProvider(objectReplies());
+
+    const exact = await provider.describeObjects!([KEYSPACE], "table", 3);
+
+    expect(exact.details).toHaveLength(3);
+    expect(exact.truncated).toBeUndefined();
+  });
+
+  test("the index cut is ordered by the base TABLE, which is not the order its paths take", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    session.asked.length = 0;
+
+    const batch = await provider.describeObjects!([KEYSPACE], "index", 1);
+
+    // Measured on 5.0.9: `system_schema.indexes` clusters on `(table_name, index_name)`
+    // and `ORDER BY index_name` is server error 2200, so the ORDER column is the
+    // catalog's first clustering column and NOT the name column. An index is addressed
+    // `[keyspace, index_name]`, so on this one kind the MEMBERSHIP of a bounded cut
+    // follows the base table's order while the ANSWER is sorted by path.
+    expect(session.asked).toEqual([
+      "SELECT index_name, table_name, options FROM system_schema.indexes WHERE keyspace_name = 'probe' " +
+        "ORDER BY table_name ASC LIMIT 2",
+    ]);
+    expect(batch.details.map((detail) => detail.path)).toEqual([[KEYSPACE, "customers_by_city"]]);
+    expect(batch.truncated).toEqual({ limit: 1, reason: callerBoundTruncationReason(1) });
+  });
+
+  test("the answer is sorted by PATH, which on the index kind is not the order it arrived in", async () => {
+    // The one shape on this engine where the catalog's order and the path order really
+    // disagree, and the fixture does not hold it. `system_schema.indexes` clusters on
+    // `(table_name, index_name)`, so an index whose NAME sorts early on a table whose name
+    // sorts late arrives after one that sorts later by path. The rows below are in the
+    // order the SERVER would return them.
+    //
+    // The committed fixture has no such index, because adding one changes the count every
+    // other test in this file asserts. It is one statement to create:
+    //   CREATE INDEX aaa_orders_ck ON probe.orders (order_id);
+    // and `docs/providers/cassandra.md` carries that alongside this measurement.
+    const { provider } = await connectedProvider(
+      objectReplies({
+        [cassandraObjectListCql(KEYSPACE, "index")!]: result(
+          declare(["index_name", TEXT], ["table_name", TEXT], ["options", MAP_OPTIONS]),
+          [
+            { index_name: "customers_by_city", table_name: "customers", options: { target: "city" } },
+            { index_name: "aaa_orders_ck", table_name: "orders", options: { target: "order_id" } },
+          ],
+        ),
+      }),
+    );
+
+    const batch = await provider.describeObjects!([KEYSPACE], "index");
+
+    expect(batch.details.map((detail) => detail.path)).toEqual([
+      [KEYSPACE, "aaa_orders_ck"],
+      [KEYSPACE, "customers_by_city"],
+    ]);
+  });
+
+  test("a limit that is not a positive whole number is refused rather than clamped", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    session.asked.length = 0;
+
+    for (const limit of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await expect(provider.describeObjects!([KEYSPACE], "table", limit)).rejects.toThrow(/positive whole number/);
+    }
+    // Refused BEFORE the wire, which matters twice here. This transport refuses to bind
+    // a parameter into a catalog read at all, so the guard is what keeps anything but
+    // digits out of the statement text - and `LIMIT 0` is the SERVER's own error on
+    // 5.0.9 ("LIMIT must be strictly positive"), so a clamp would trade a caller's
+    // mistake for a server refusal.
+    expect(session.asked).toEqual([]);
+  });
+
+  test("an undeclared kind, a kind with no catalog and a wrong container path are each refused", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    const real = provider.getCapabilities();
+    session.asked.length = 0;
+
+    await expect(provider.describeObjects!([KEYSPACE], "sequence")).rejects.toThrow(
+      /declares no object kind "sequence"/,
+    );
+    await expect(provider.describeObjects!([KEYSPACE, "extra"], "table")).rejects.toThrow(
+      /container path is \[keyspace\]/,
+    );
+    spyOn(provider, "getCapabilities").mockReturnValue({
+      ...real,
+      objectKinds: [...(real.objectKinds ?? []), { id: "sequence", role: "relation", label: "S", labelPlural: "S" }],
+    });
+    await expect(provider.describeObjects!([KEYSPACE], "sequence")).rejects.toThrow(/has no statement that lists it/);
+    expect(session.asked).toEqual([]);
+  });
+
+  test("membership is the TARGET's: a column row for an object the target did not name is dropped", async () => {
+    // And the other direction with it: an object the target DID name but the column
+    // catalog holds nothing for is still in the batch, with an empty column list. No CQL
+    // table can be columnless - a primary key is mandatory - so neither case comes from
+    // this engine, and a bulk read whose membership came from the COLUMN read would lose
+    // an object the folder lists the moment one did.
+    const { provider } = await connectedProvider(
+      objectReplies({
+        [cassandraKeyspaceColumnsCql(KEYSPACE)]: result(
+          declare(
+            ["table_name", TEXT],
+            ["column_name", TEXT],
+            ["type", TEXT],
+            ["kind", TEXT],
+            ["position", INT],
+            ["clustering_order", TEXT],
+          ),
+          [
+            {
+              table_name: "ghost",
+              column_name: "x",
+              type: "int",
+              kind: "partition_key",
+              position: 0,
+              clustering_order: "none",
+            },
+            {
+              table_name: "orders",
+              column_name: "order_id",
+              type: "timeuuid",
+              kind: "partition_key",
+              position: 0,
+              clustering_order: "none",
+            },
+          ],
+        ),
+      }),
+    );
+
+    const batch = await provider.describeObjects!([KEYSPACE], "table");
+
+    expect(batch.details.map((detail) => [detail.path[1], detail.columns.length])).toEqual([
+      ["customers", 0],
+      ["events", 0],
+      ["orders", 1],
+    ]);
+  });
+
+  test("the three new statements are pinned by literal, as measured on 5.0.9", async () => {
+    expect(cassandraKeyspaceColumnsCql(KEYSPACE)).toBe(
+      "SELECT table_name, column_name, type, kind, position, clustering_order FROM system_schema.columns " +
+        "WHERE keyspace_name = 'probe'",
+    );
+    expect(cassandraKeyspaceTypesCql(KEYSPACE)).toBe(
+      "SELECT type_name, field_names, field_types FROM system_schema.types WHERE keyspace_name = 'probe'",
+    );
+    // The bounded target is the LISTING statement plus the catalog's first clustering
+    // column and the bound. Every one of these was run against the live server.
+    expect(cassandraObjectListCql(KEYSPACE, "materialized_view", 5)).toBe(
+      "SELECT view_name FROM system_schema.views WHERE keyspace_name = 'probe' ORDER BY view_name ASC LIMIT 5",
+    );
+    expect(cassandraObjectListCql(KEYSPACE, "type", 5)).toBe(
+      "SELECT type_name FROM system_schema.types WHERE keyspace_name = 'probe' ORDER BY type_name ASC LIMIT 5",
+    );
+    // And a keyspace holding a quote is escaped into both, rather than closing them.
+    expect(cassandraKeyspaceColumnsCql("o'brien")).toContain("keyspace_name = 'o''brien'");
+    expect(cassandraKeyspaceTypesCql("o'brien")).toContain("keyspace_name = 'o''brien'");
+  });
+
+  test("a two-level declaration binds the KEYSPACE segment and builds paths at the declared depth", async () => {
+    const { provider, session } = await connectedProvider(objectReplies());
+    const real = provider.getCapabilities();
+    spyOn(provider, "getCapabilities").mockReturnValue({
+      ...real,
+      containerLevels: [
+        { id: "catalog", label: "Catalog", labelPlural: "Catalogs" },
+        { id: "schema", label: "Keyspace", labelPlural: "Keyspaces" },
+      ],
+    });
+    session.asked.length = 0;
+
+    const batch = await provider.describeObjects!(["ring", KEYSPACE], "table");
+
+    // Standing ruling 5g, driven to a BOUND VALUE rather than to a refusal.
+    // `container[0]` would bind `ring` into all three statements.
+    expect([...session.asked].sort()).toEqual(
+      [
+        cassandraObjectListCql(KEYSPACE, "table")!,
+        cassandraKeyspaceColumnsCql(KEYSPACE),
+        cassandraObjectListCql(KEYSPACE, "index")!,
+      ].sort(),
+    );
+    expect(batch.details.map((detail) => detail.path)).toEqual(TABLES.map(([, name]) => ["ring", KEYSPACE, name]));
+    // And a hardcoded depth would have accepted the one-segment path it must now refuse.
+    await expect(provider.describeObjects!([KEYSPACE], "table")).rejects.toThrow(
+      /container path is \[catalog, keyspace\]/,
+    );
+  });
+
+  test("a refused catalog read raises rather than reporting a short batch as a complete one", async () => {
+    const { provider } = await connectedProvider(
+      objectReplies({
+        [cassandraKeyspaceColumnsCql(KEYSPACE)]: responseError(
+          8448,
+          "User probe has no SELECT permission on <table system_schema.columns>",
+        ),
+      }),
+    );
+
+    // `countObjects` answers `{ unavailable }` per kind because a folder badge has a
+    // state for it. A batch has none: `{ details: [] }` is "this container holds no such
+    // object", so a refusal handed back as an empty batch is the #414 absence exactly.
+    await expect(provider.describeObjects!([KEYSPACE], "table")).rejects.toThrow(/no SELECT permission/);
+  });
+});

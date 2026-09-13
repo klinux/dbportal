@@ -1,0 +1,288 @@
+"use client";
+
+import { appFetch } from "@/lib/config/base-path";
+import React, { useState } from "react";
+import { FileText, LoaderCircle, Search, Sparkles, Download } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { relationObjects, type DetailedObject } from "@/lib/db/detailed-object";
+import { objectPathLabel, pathKey } from "@/lib/db/object-path";
+import type { ProviderCapabilities } from "@/lib/db/types";
+import { renderInline } from "@/components/rich-text";
+import { downloadText } from "@/lib/export/download";
+
+interface DatabaseDocsProps {
+  schema: readonly DetailedObject[];
+  schemaContext: string;
+  databaseType?: string;
+  /**
+   * The provider's own declaration, used to decide which of `schema`'s entries this page
+   * documents: a reference of columns is a statement about relations, and a routine or a
+   * trigger has none to print. Optional because the metadata read is asynchronous, and
+   * until it answers nothing has said any entry is not a relation (#789).
+   */
+  capabilities?: ProviderCapabilities;
+}
+
+interface ParsedSchemaTable {
+  name: string;
+  rowCount?: number;
+  columns?: { name: string; type: string; isPrimary?: boolean; isNullable?: boolean }[];
+}
+
+export function DatabaseDocs({ schema, schemaContext, databaseType, capabilities }: DatabaseDocsProps) {
+  const [search, setSearch] = useState("");
+  const [aiDocs, setAiDocs] = useState("");
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // By the declared ROLE and never by a kind id, so a new engine's relation kind is
+  // documented without a change here (#789).
+  const relations = relationObjects(schema, capabilities);
+
+  // The search matches the label a person typed AND the address the card shows, so typing a
+  // container narrows to it and typing a bare name still finds every namesake (#789).
+  const filteredSchema = relations.filter(
+    (t) =>
+      t.name.toLowerCase().includes(search.toLowerCase()) ||
+      objectPathLabel(t.path).toLowerCase().includes(search.toLowerCase()) ||
+      t.columns?.some((c) => c.name.toLowerCase().includes(search.toLowerCase())),
+  );
+
+  const generateAiDocs = async () => {
+    setIsAiLoading(true);
+    setError(null);
+    setAiDocs("");
+
+    try {
+      let filteredSchemaStr = "";
+      if (schemaContext) {
+        try {
+          const tables = JSON.parse(schemaContext);
+          filteredSchemaStr = tables
+            .slice(0, 50)
+            .map((t: ParsedSchemaTable) => {
+              const cols =
+                t.columns
+                  ?.map(
+                    (c) =>
+                      `${c.name} (${c.type}${c.isPrimary ? ", PK" : ""}${c.isNullable === false ? ", NOT NULL" : ""})`,
+                  )
+                  .join(", ") || "";
+              return `Table: ${t.name} (${t.rowCount || 0} rows)\nColumns: ${cols}`;
+            })
+            .join("\n\n");
+        } catch {
+          filteredSchemaStr = schemaContext.substring(0, 5000);
+        }
+      }
+
+      const response = await appFetch("/api/ai/describe-schema", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schemaContext: filteredSchemaStr,
+          databaseType,
+          mode: "full",
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || "Documentation generation failed");
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No reader");
+
+      let full = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        full += new TextDecoder().decode(value);
+        setAiDocs(full);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const exportMarkdown = () => {
+    let md = `# Database Documentation\n\n`;
+    md += `**Type:** ${databaseType || "Unknown"}\n`;
+    md += `**Tables:** ${relations.length}\n\n`;
+
+    if (aiDocs) {
+      md += `## AI Analysis\n\n${aiDocs}\n\n---\n\n`;
+    }
+
+    md += `## Table Reference\n\n`;
+
+    for (const table of relations) {
+      // The ADDRESS, because this document is read away from the app: two objects in two
+      // containers share a label, and two identical headings say nothing about which is
+      // which (#789).
+      md += `### ${objectPathLabel(table.path)}\n\n`;
+      if (table.rowCount !== undefined) md += `Rows: ${table.rowCount.toLocaleString()}\n\n`;
+
+      if (table.columns && table.columns.length > 0) {
+        md += `| Column | Type | Primary | Nullable |\n|--------|------|---------|----------|\n`;
+        for (const col of table.columns) {
+          md += `| ${col.name} | ${col.type} | ${col.isPrimary ? "Yes" : ""} | ${col.nullable !== false ? "Yes" : "No"} |\n`;
+        }
+        md += "\n";
+      }
+    }
+
+    downloadText(md, "text/markdown", "database-docs.md");
+  };
+
+  // Simple markdown rendering for AI docs
+  const renderMarkdown = (text: string) => {
+    return text.split("\n").map((line, i) => {
+      if (line.startsWith("## "))
+        return (
+          <h2 key={i} className="text-xs font-medium text-fg mt-4 mb-2">
+            {line.slice(3)}
+          </h2>
+        );
+      if (line.startsWith("### "))
+        return (
+          <h3 key={i} className="text-xs font-medium text-fg-secondary mt-3 mb-1">
+            {line.slice(4)}
+          </h3>
+        );
+      if (line.startsWith("- ")) {
+        return (
+          <li key={i} className="text-xs text-fg-tertiary ml-4 leading-relaxed">
+            {renderInline(line.slice(2))}
+          </li>
+        );
+      }
+      if (line.match(/^\d+\.\s/)) {
+        return (
+          <li key={i} className="text-xs text-fg-tertiary ml-4 leading-relaxed list-decimal">
+            {renderInline(line)}
+          </li>
+        );
+      }
+      if (line.trim()) {
+        return (
+          <p key={i} className="text-xs text-fg-tertiary leading-relaxed">
+            {renderInline(line)}
+          </p>
+        );
+      }
+      return <div key={i} className="h-1.5" />;
+    });
+  };
+
+  return (
+    <div className="h-full flex flex-col bg-sunken">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-hairline bg-surface">
+        <div className="flex items-center gap-2">
+          <div className="p-1 rounded bg-hue-teal-tint/10">
+            <FileText strokeWidth={1.5} className="w-3 h-3 text-hue-teal" />
+          </div>
+          <span className="text-xs font-medium text-hue-teal">Database Docs</span>
+          <span className="text-[0.625rem] text-fg-muted font-mono">{relations.length} tables</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={generateAiDocs}
+            disabled={isAiLoading}
+            className={cn(
+              "flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors",
+              isAiLoading
+                ? "bg-hue-teal-solid/20 text-hue-teal cursor-wait"
+                : "bg-hue-teal-solid hover:bg-hue-teal-solid-hover text-white",
+            )}
+          >
+            {isAiLoading && <LoaderCircle strokeWidth={1.5} className="w-3 h-3 animate-spin" />}
+            {!isAiLoading && <Sparkles strokeWidth={1.5} className="w-3 h-3" />}
+            {aiDocs ? "Regenerate" : "AI Describe"}
+          </button>
+          <button
+            onClick={exportMarkdown}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-fill text-fg-tertiary text-xs font-medium hover:bg-fill-strong transition-colors"
+          >
+            <Download strokeWidth={1.5} className="w-3 h-3" /> Export MD
+          </button>
+        </div>
+      </div>
+
+      <div className="px-4 py-2 border-b border-hairline bg-surface">
+        <div className="relative">
+          <Search strokeWidth={1.5} className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-fg-muted" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search tables or columns..."
+            className="w-full bg-overlay border border-hairline-strong rounded-lg pl-7 pr-3 py-1.5 text-xs text-fg placeholder:text-fg-subtle outline-none focus:border-hue-teal-tint/30"
+          />
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-auto p-4 space-y-3">
+        {error && (
+          <div className="bg-danger-tint/10 border border-danger-tint/20 rounded-lg p-3 text-xs text-danger">
+            {error}
+          </div>
+        )}
+
+        {(aiDocs || isAiLoading) && (
+          <div className="bg-hue-teal-tint/5 border border-hue-teal-tint/10 rounded-lg p-4 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles strokeWidth={1.5} className="w-3 h-3 text-hue-teal" />
+              <span className="text-xs font-medium text-hue-teal">AI-Generated Documentation</span>
+              {isAiLoading && <LoaderCircle strokeWidth={1.5} className="w-3 h-3 animate-spin text-hue-teal" />}
+            </div>
+            {aiDocs && <div className="prose prose-invert prose-xs max-w-none">{renderMarkdown(aiDocs)}</div>}
+          </div>
+        )}
+
+        <h3 className="text-xs font-medium text-fg-tertiary">Table Reference</h3>
+        {filteredSchema.map((table) => (
+          <div key={pathKey(table.path)} className="bg-surface border border-hairline rounded-lg overflow-hidden">
+            <div className="px-3 py-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-fg">{objectPathLabel(table.path)}</span>
+                {table.rowCount !== undefined && (
+                  <span className="text-xs text-fg-muted font-mono">{table.rowCount.toLocaleString()} rows</span>
+                )}
+              </div>
+              <span className="text-xs text-fg-subtle">{table.columns?.length || 0} columns</span>
+            </div>
+            {table.columns && table.columns.length > 0 && (
+              <div className="border-t border-hairline">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-fg-muted">
+                      <th className="text-left px-3 py-1 font-normal">Column</th>
+                      <th className="text-left px-3 py-1 font-normal">Type</th>
+                      <th className="text-left px-3 py-1 font-normal">PK</th>
+                      <th className="text-left px-3 py-1 font-normal">Nullable</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {table.columns.map((col) => (
+                      <tr key={col.name} className="border-t border-hairline hover:bg-fill-subtle">
+                        <td className="px-3 py-1 text-fg-secondary font-mono">{col.name}</td>
+                        <td className="px-3 py-1 text-fg-muted font-mono">{col.type}</td>
+                        <td className="px-3 py-1">
+                          {col.isPrimary && <span className="text-hue-amber text-[0.625rem] font-medium">PK</span>}
+                        </td>
+                        <td className="px-3 py-1 text-fg-subtle">{col.nullable !== false ? "Yes" : "No"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

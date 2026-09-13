@@ -1,0 +1,1201 @@
+# Redis Provider
+
+> Key-value store support for LibreDB Studio, built on [`ioredis`](https://github.com/redis/ioredis).
+> This document is the single reference point for the Redis provider: design, architecture,
+> usage, and tests. If you are reading the code, extending Redis support, or authoring a new
+> provider, start here.
+
+| | |
+|---|---|
+| **Status** | ✅ Implemented & shipped |
+| **Database type id** | `redis` |
+| **Family** | Key-Value |
+| **Driver** | `ioredis` (`^5.9.2`) |
+| **Query language** | `json` (plain command **or** JSON command object) |
+| **Default port** | `6379` |
+| **Connection pooling** | None — single lazy connection |
+| **SSL** | Yes — `connection.ssl` → ioredis `tls` ([§4.3](#43-ssl--tls)) |
+| **Source** | [`src/lib/db/providers/keyvalue/redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts) |
+| **Tests** | [`tests/integration/db/redis-provider.test.ts`](../../tests/integration/db/redis-provider.test.ts) |
+| **Tracking issue** | [#7 — Implement Redis Provider](https://github.com/libredb/libredb-studio/issues/7) |
+
+---
+
+## 1. Overview
+
+Redis is an in-memory key-value store. It has no tables, no rows, no SQL, and no relational
+schema. LibreDB Studio is a SQL-oriented IDE, so the central design problem is:
+
+> **How do you present a key-value store through the same `DatabaseProvider` interface that
+> PostgreSQL, MySQL, and the rest implement — without emulating SQL and without leaking
+> Redis-specific concepts into the shared UI?**
+
+The answer is **mapping by convention, not emulation**. The provider does not pretend Redis is
+relational. Instead it maps Redis concepts onto the slots the interface already exposes, and
+relabels the UI through the provider-metadata hooks (`getCapabilities()` / `getLabels()`) so the
+generic components render Redis-appropriate wording.
+
+### Concept mapping
+
+| `DatabaseProvider` slot | Redis realisation | Redis primitive used |
+|-------------------------|-------------------|----------------------|
+| "Table" (the relation kind) | A **key prefix** (e.g. `user:*`) | `SCAN` + prefix grouping |
+| "Row" | A **key** | — |
+| `query(sql)` | A Redis command (plain text or JSON) | generic `client.call()` |
+| `getHealth()` / `getOverview()` | Server stats | `INFO` |
+| `getSlowQueries()` | Slow command log | `SLOWLOG GET` |
+| `getActiveSessions()` | Connected clients | `CLIENT LIST` |
+| `getStorageStats()` | Memory usage | `INFO memory` |
+| `runMaintenance('analyze')` | Server info snapshot | `INFO` |
+| Indexes / table stats | Not applicable | returns `[]` |
+
+### Valkey, DragonflyDB, KeyDB and Garnet
+
+This provider is what a Valkey connection uses: there is no `valkey` type id, and choosing Redis in
+the connection dialog is the documented way to reach it. `ioredis` speaks the protocol all five
+servers share, and the connection dialog's wire-compatibility hint names the engines this driver has
+been measured against, from the same data
+([`compatibility.ts`](../../src/lib/db/compatibility.ts)). The full per-engine table is in
+[`README.md`](./README.md#wire-compatible-engines); three behaviours belong here because they are
+this provider's code, not the engine's.
+
+**The overview names the server when `INFO` names itself.** `getOverview()` calls
+`labelServerVersion()` ([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts), in
+`getOverview()`), the same self-naming-wins rule the MySQL provider's own `labelServerVersion()`
+applies to `VERSION()` ([mysql.md §1.1](./mysql.md#11-mariadb-and-the-other-mysql-protocol-engines)):
+when the reply names a vendor, show that name; `redis_version` alone is the fallback for when it
+does not. Three of the four relatives publish a version field of their own beside
+`redis_version` — Valkey 9.1.1 publishes `valkey_version:9.1.1` and `server_name:valkey`,
+DragonflyDB df-v1.40.1 publishes `dragonfly_version:df-v1.40.1`, and Garnet 2.1.5 publishes
+`garnet_version:2.1.5` and `server_name:garnet` — and the overview shows each labeled ahead of the
+compat level, e.g. **"Garnet 2.1.5 (Redis 7.4.3)"**. KeyDB 6.3.4 publishes no version field of its
+own at all, so `redis_version` there already is the real version and the overview shows it bare,
+same as a stock Redis 6.
+
+**`maxclients` is not universal.** `maxConnections` reads `parsed.maxclients`, falling back to
+`parsed.max_clients` (Dragonfly's underscored name for the same limit — `max_clients:64000`
+measured live), and `0` when neither is present. Redis, Valkey and KeyDB each publish
+`maxclients:10000`; Dragonfly publishes the limit under the underscored name instead. Garnet's
+`INFO` carries no client-limit field under either name at all, so its panel reads 0 — an absent
+limit shown as a zero, not a measured one. **Garnet extends that to two more numbers**: it publishes no
+`used_memory`, so `getOverview().databaseSize` and the memory storage panel read `0 B` for a
+populated server, and neither `keyspace_hits` nor `keyspace_misses`, so the cache hit ratio reads
+the `: 100` fallback and the dashboard rates it *Excellent* (recorded as D14 in
+[`../BACKLOG.md`](../BACKLOG.md)). Its `connected_clients` also stays 0 with a client attached,
+though `CLIENT LIST` itself answers correctly - the session list is right while the count above it
+is not.
+
+**Every `CLIENT LIST` field is optional, and the absent ones surface as defaults.**
+`getActiveSessions()` ([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts)) splits each
+line into `key=value` pairs and substitutes a default for anything missing: the session's user is
+`user` falling back to `default`, its pid `id` falling back to `0`, its state `flags` falling back
+to `N`, its command `cmd` falling back to `idle`. A relative that omits a field therefore produces a
+plausible-looking row rather than an error.
+
+Three relatives diverge, all measured on the versions above:
+
+- **Dragonfly publishes no `user=` field at all**, so the user column reads `default` regardless of
+  which ACL user the connection authenticated as — the fallback is always the answer there, not the
+  exception. Its line also carries no `cmd=` and no `flags=` at all, so the query column reads
+  `idle` and the state column `N` for every session, whatever that session is doing.
+- **KeyDB reports a command without its subcommand** (`cmd=client` where Redis and Valkey both send
+  `cmd=client|list`), which the query column shows verbatim.
+- **Garnet answers `CLIENT LIST` in full** - the session row is complete and correct - so the
+  divergence there is not in this reply but in the counters above it, listed under `maxclients`.
+
+Valkey is otherwise the closest of the four: every surface in this document answered against
+Valkey 9.1.1, with the version panel the single caveat. Garnet answers every surface too, and its
+key browser grouped 71 keys into `user:*`, `session:*` and `queue:*` exactly as Redis does — what
+separates it is the three numbers above, not a missing surface. It also keeps nothing on disk: a
+restart empties it (measured, `dbsize` 71 before and 0 after), so a fixture there has to be
+re-seeded rather than restarted into.
+
+---
+
+## 2. Architecture
+
+### 2.1 Where it sits
+
+The database layer uses the **Strategy Pattern**. Every provider implements the
+[`DatabaseProvider`](../../src/lib/db/types.ts) interface, and most of the shared mechanics live
+in the abstract [`BaseDatabaseProvider`](../../src/lib/db/base-provider.ts). Providers are grouped
+by family on disk:
+
+```
+src/lib/db/
+├── base-provider.ts          # abstract base: state, helpers, default metadata, getMonitoringData()
+├── types.ts                  # DatabaseProvider interface + all DTOs
+├── errors.ts                 # DatabaseError hierarchy + mapDatabaseError()
+├── factory.ts                # createDatabaseProvider() — dynamic import per type + provider cache
+└── providers/
+    ├── sql/                  # postgres, mysql, sqlite, oracle, mssql (extend SQLBaseProvider)
+    ├── document/             # mongodb
+    └── keyvalue/
+        └── redis.ts          # ← RedisProvider (this document)
+```
+
+### 2.2 Class hierarchy
+
+```
+DatabaseProvider (interface, types.ts)
+        ▲
+        │ implements
+BaseDatabaseProvider (abstract, base-provider.ts)
+        ▲
+        │ extends
+RedisProvider (redis.ts)
+```
+
+`RedisProvider` extends `BaseDatabaseProvider` directly (unlike the SQL providers, which extend an
+intermediate `SQLBaseProvider`). It overrides every abstract method plus the three metadata hooks
+(`getCapabilities`, `getLabels`, `prepareQuery`). It inherits `getMonitoringData()` from
+[`base-provider.ts`](../../src/lib/db/base-provider.ts), which fans the individual monitoring methods
+out in parallel.
+
+### 2.3 What the base class gives you for free
+
+`RedisProvider` reuses these inherited members rather than reimplementing them:
+
+- **State machine** — `setConnected()`, `setError()`, `isConnected()`, `ensureConnected()`.
+- **Instrumentation** — `trackQuery()` (active-query counter) and `measureExecution()` (wall-clock timing).
+- **Helpers** — `formatDuration()`, `getSafeConfig()` (password-stripped logging), `logError()`.
+- **Default `getMonitoringData()`** — orchestrates `getOverview` + `getPerformanceMetrics` +
+  `getSlowQueries` + `getActiveSessions` (+ optional tables/indexes/storage) concurrently.
+
+### 2.4 Registration & lifecycle
+
+The factory wires Redis in via a dynamic import so the `ioredis` driver is only loaded when a Redis
+connection is actually opened by `createDatabaseProvider()`
+([`factory.ts`](../../src/lib/db/factory.ts)):
+
+```ts
+case 'redis': {
+  const { RedisProvider } = await import('./providers/keyvalue/redis');
+  return new RedisProvider(connection, options);
+}
+```
+
+API routes use `getOrCreateProvider()`, which caches the connected provider per `connection.id` and
+evicts it after 30 minutes idle. `disconnect()` is called on eviction and on graceful shutdown
+(`SIGTERM`/`SIGINT`).
+
+---
+
+## 3. Design decisions
+
+These are the non-obvious choices. Read this section before changing the provider.
+
+### 3.1 `SCAN`, never `KEYS *`
+
+Schema discovery uses cursor-based `SCAN` with `COUNT 100`, **not** `KEYS *` in
+the object surface ([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts)). `KEYS *` is O(N) and blocks the
+entire Redis server until it completes — catastrophic on a production instance with millions of
+keys. `SCAN` is incremental and non-blocking. The scan is also capped at `maxScan = 1000` keys so
+schema introspection stays bounded regardless of keyspace size.
+
+### 3.2 Key-prefix grouping as "tables"
+
+`keyGrouping()` ([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts)) takes everything
+before the first `:` and appends `:*` — so `user:123` and `user:456` both collapse into the
+`user:*` "table". It is module-level rather than a method because the object surface
+([§6.1](#61-the-object-surface-789)) groups the same keyspace through it, and two surfaces that
+grouped it differently would be two different answers about one server. Keys without a colon are their own group. For each prefix the provider probes
+keys with `TYPE` until it has observed up to **3 distinct** value-types — it may inspect more than
+3 keys when they share a type — to populate the synthetic column metadata. The resulting
+object list is sorted by descending key count so the busiest prefixes surface first.
+
+### 3.3 Generic command dispatch via `call()`
+
+Rather than hand-coding a method per Redis command, `runCommand()`
+([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts)) funnels everything through `ioredis`'s
+low-level `client.call(command, ...args)`.
+This means **any** Redis command works without code changes — `GET`, `LPUSH`, `XADD`, `JSON.GET`,
+module commands, etc. The trade-off is that there is no per-command validation; an unknown or
+mis-arity command surfaces as a Redis-side error wrapped in `QueryError`.
+
+### 3.4 Two query formats, one parser
+
+`executeRedisCommand()` ([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts)) dispatches the
+query string by its first character:
+
+- Starts with `{` → parsed as a **JSON command object** `{ "command": "GET", "args": ["k"] }`.
+- Anything else → parsed as a **plain command** with a small quote-aware tokenizer that preserves
+  single/double-quoted arguments (so `SET k "hello world"` is two args, not three).
+
+The dispatch happens *after* leading blank lines and `#` comment lines are dropped, so the character
+that decides the format is the first character of the first runnable line, not of the buffer.
+
+### 3.4a Comments and how one command is picked out of a buffer
+
+`commandBody()` reduces the buffer to the one command to run, in two steps:
+
+1. **Every `#` comment line is dropped**, wherever it sits — leading, interleaved or trailing. A
+   line is a comment only when it *starts* with `#` (after trimming) **and no quoted argument is
+   open across it**, so a `#` inside a key or a value is never mistaken for one — including the
+   continuation line of a multi-line quoted value (`SET note "line1` / `#tag"`). The same quote
+   state suspends the blank-line rule: a blank line inside an open quoted argument is data.
+
+   Quote state is tracked **only while the block is a plain command**. The block's kind is fixed by
+   its first content line with the same test §3.4 uses to pick a parser (`{` first), because the
+   tracker's rules are the plain tokenizer's — no escape handling — and a JSON body's `\"` inside a
+   string is not a quote to it. A key named `say"hi` therefore left a phantom quote open, no later
+   comment line was dropped, and the whole-buffer run reached `JSON.parse` with comments in it:
+   *"Invalid JSON command format"* instead of a `TYPE` result. A JSON body needs no tracking anyway
+   — a JSON string carries no literal newline, so no line inside one can begin with `#` (#427).
+2. **The first blank-line-delimited block of what remains is taken**, and its lines are joined back
+   with a **newline**, verbatim. Leading blank lines are padding and are skipped; the first blank
+   line *after* content ends the block.
+
+A block rather than a line, because *outside quotes* the tokenizer treats a newline as ordinary
+whitespace: a single command wrapped over several lines (`HSET k a 1` / `b 2`) has always run whole,
+and `JSON.stringify(cmd, null, 2)` is legitimately multi-line — taking only line 1 would silently
+half-execute both. Not the whole buffer, because the generated cheatsheet (§5.3) is a list of
+alternatives separated by blank lines, and running it must run only its first command.
+
+Joined with a newline and not a space, because the tokenizer's whitespace branch is guarded by
+`!inQuote`: *inside* a quoted argument a newline is data. `SET note "line1` / `line2"` stores a
+two-line value, and a space join silently rewrote it to `line1 line2`. Lines are also appended
+without trimming, so indentation inside a quoted value survives.
+
+The dispatch of §3.4 then looks at the first character of that block, not of the buffer. A JSON
+command is parsed whole, so a trailing **comment** after a JSON body is fine (it was dropped in
+step 1) but trailing **non-comment** text is not — it joins the block and fails `JSON.parse`.
+
+Input that is only comments or blank lines raises
+`QueryError("No command to run (only comments or blank lines)")`.
+
+This mirrors the embedded LibreDB provider, and exists so the commented cheatsheet the schema
+explorer inserts is directly runnable: selecting one command runs it, and running the whole buffer
+runs its first one (#427).
+
+Since S8 the **execution confirmation gate reads a buffer the same way**:
+`src/lib/db/destructive-commands.ts` drops `#` lines and takes the first block as above, dispatches
+on a leading `{` as §3.4 does, and asks before running any command in its Redis destructive
+vocabulary - key, expiry, string, hash, list, set, sorted-set and stream writes, the scripting
+entry points, and the server and access commands, with container commands such as `CONFIG SET`
+matched on their two-token spelling - while a body it cannot read (broken JSON, a JSON body whose
+`command` is not a string) asks rather than staying silent.
+
+### 3.5 Reply normalisation into the shared grid
+
+Redis replies are heterogeneous (status strings, integers, nil, flat arrays, hash arrays, bulk
+`INFO` text). `formatResult()` ([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts))
+normalises each into the standard `{ rows, fields, rowCount }` envelope so the existing
+`ResultsGrid` renders them unchanged. See the [reply table](#52-result-shaping) below.
+
+### 3.6 No connection pool
+
+Redis is single-threaded and a single multiplexed connection is the idiomatic client model, so the
+provider holds **one** `ioredis` client and ignores the `PoolConfig`. `connect()` uses
+`lazyConnect: true` and then calls `connect()` explicitly so connection failures surface
+deterministically at `connect()` time rather than on first command.
+
+---
+
+## 4. Connection
+
+### 4.1 Configuration fields
+
+Redis uses the discrete-field form of `DatabaseConnection` (not `connectionString`):
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `host` | ✅ | Validated in `validate()` — throws `DatabaseConfigError` if missing |
+| `port` | — | Defaults to `6379` |
+| `user` | — | The **Redis 6 ACL user**, sent as ioredis's `username`; empty means `default` ([§4.1a](#41a-acl-users-d29)) |
+| `password` | — | Sent as `password`; omit for unauthenticated instances |
+| `database` | — | Logical DB index, parsed as int; defaults to `0` |
+| `ssl` | — | `SSLConfig`; becomes the ioredis `tls` option ([§4.3](#43-ssl--tls)) |
+
+```ts
+const connection = {
+  id: 'redis-1',
+  name: 'Cache',
+  type: 'redis',
+  host: 'localhost',
+  port: 6379,
+  user: 'analytics',    // optional — the ACL user; omit to authenticate as `default`
+  password: 'secret',   // optional
+  database: '0',         // logical DB index
+  createdAt: new Date(),
+};
+```
+
+### 4.1a ACL users (D29)
+
+The modal's **Username** field is the Redis 6 ACL user. `connect()` passes it as ioredis's
+`username` (the field is `user` on the connection, `username` in `RedisOptions`), and passes
+**nothing at all** when it is empty — a plain `requirepass` server has no ACL user to name, and
+ioredis only authenticates as `default` when `username` is absent. A pasted
+`redis://analytics:pw@host:6379/0` fills the same field: `parseGenericURL`
+([`src/lib/connection-string-parser.ts`](../../src/lib/connection-string-parser.ts)) decomposes the
+userinfo into `user` / `password` ([§4.2](#42-connection-string-nuance)).
+
+**A connection saved before the field was writable keeps authenticating as `default`, and there is
+nothing to migrate.** `connectionFields` in [`src/lib/db-ui-config.ts`](../../src/lib/db-ui-config.ts)
+decides what a save WRITES, and it omitted `user` for `redis` until the settlement round of
+2026-08-27 — so the ACL user a person typed was discarded between the box and the driver, and the
+value simply was never captured. No migration can restore a credential that was never stored: an
+existing connection authenticates as `default` until someone opens it and types a user name, which
+now persists. What the same change also stopped is an EDIT losing one: `user` is form-owned rather
+than preserved (`FIELD_OWNERSHIP` in [`src/hooks/use-connection-form.ts`](../../src/hooks/use-connection-form.ts)),
+so a connection that had a `user` from a pasted URL had it loaded into the box, shown, and then
+dropped on save. It is written now.
+
+Measured 2026-08-26 against `redis:latest`, with `default` left `on nopass ~* &* +@all` and a second
+user defined `on >probepw ~* +@all -info`, both arms:
+
+```text
+{host, port, password}            -> ACL WHOAMI = default | INFO succeeds
+{host, port, username, password}  -> ACL WHOAMI = probe   | INFO refused: NOPERM
+```
+
+The first arm is the defect this replaced: the configured principal was dropped silently, the
+session ran as `default`, and health went green under someone else's permissions. Both arms together
+are what make it a measurement — the value was collected by the form and stored on the connection
+already; only `connect()` ignored it.
+
+**A restricted user costs the INFO-derived surfaces.** ioredis's own ready check calls `INFO`, and on
+`NOPERM` it logs *"Skipping the ready check"* and connects anyway — which is the wanted behaviour: a
+least-privilege user must still be able to connect and browse keys. But `getHealth()`,
+`getOverview()` and `getPerformanceMetrics()` all read `INFO` ([§7](#7-monitoring--health)), so for a
+user without `+info` they raise the server's own `NOPERM` sentence rather than answering with
+fabricated zeros. `POST /api/db/test-connection` reports that as a **degraded** (amber) result, not a
+green tick and not a failure: the connection is real, the health read is not. Grant `+info`,
+or expect the monitoring panels to stay empty for that user.
+
+### 4.2 Connection-string nuance ⚠️
+
+`getCapabilities().supportsConnectionString` is **`false`** — the provider itself only consumes
+discrete fields. However, the UI connection-string parser
+([`src/lib/connection-string-parser.ts`](../../src/lib/connection-string-parser.ts)) *does*
+recognise `redis://` and `rediss://` URLs and **decomposes** them into `host` / `port` (default
+`6379`) / `user` / `password` / `database` before they reach the provider. So a user can paste a
+`redis://:pw@host:6379/0` URL into the modal, but the provider never sees the raw string. A userinfo
+name becomes the ACL user ([§4.1a](#41a-acl-users-d29)).
+
+Because the raw string is dropped, the scheme's TLS intent has to travel as a field: the parser
+returns `sslMode: 'require'` for `rediss://` and `sslMode: 'disable'` for `redis://`, which the
+connection form applies to the SSL panel ([§4.3](#43-ssl--tls)). Both arms are explicit on purpose -
+a paste overwrites the form rather than merging into it, so pasting a plaintext URL clears a
+`require` left over from a previous edit.
+
+### 4.3 SSL / TLS
+
+`buildTLSOptions()` ([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts)) maps
+`connection.ssl` onto the single `tls` option ioredis hands to `tls.connect`, so the material travels
+under Node's own names — the same mapping the PostgreSQL, MySQL and Couchbase adapters use:
+
+| `ssl.mode` | `tls` option |
+|------------|--------------|
+| absent / `disable` | **not present at all** — ioredis negotiates TLS whenever `tls` is set, `{}` included |
+| `require` | `{ rejectUnauthorized: false }` |
+| `verify-system` | `{ rejectUnauthorized: true }`, with no `ca` — the runtime's own trust store |
+| `verify-ca` / `verify-full` | `{ rejectUnauthorized: true }` |
+
+`caCert` / `clientCert` / `clientKey` become `ca` / `cert` / `key` when set, each independently — a
+server can demand mutual TLS while presenting a self-signed certificate itself. An explicit
+`ssl.rejectUnauthorized` always wins over the mode. `require` does not check the chain because a
+self-hosted Redis presents a self-signed certificate by default; every other mode does check it, and
+`verify-system` (D26) checks it against the trust store the runtime already has, so a managed Redis
+whose certificate a public root signs needs no PEM pasted at all. ioredis exposes no separate
+host-name check, so `verify-ca` and `verify-full` build the same object.
+
+Measured against a TLS-only server on 2026-08-23 (`redis:latest --port 0 --tls-port 6380`, so no
+plaintext port exists): `disable` is refused with *"Connection is closed."* and `require` connects in
+1ms. Both arms matter — before the mode reached the driver, `require` failed the same way `disable`
+does, so the pair is what distinguishes a wired path from a documented shape.
+
+> A pasted `rediss://` URL arrives with `mode: 'require'` and a `redis://` one with `disable`
+> ([§4.2](#42-connection-string-nuance)), so the scheme picks the mode and the panel is only needed
+> to go *further* than `require` - a verifying mode, or certificate material. `require` rather than
+> `verify-system`/`verify-full` because that is what the ordinary `--tls-port` deployment can satisfy:
+> a paste encrypts, and never silently claims to have checked a chain. That is a claim about the
+> SCHEME, and it is not the rule for a boolean TLS *parameter* (D26, see
+> [postgres.md](./postgres.md#sslmode-in-a-pasted-url)): `rediss://` says only "TLS", while
+> `?ssl=true` says what a specific driver does with it. The scheme mapping is unchanged, and whether
+> it should follow the same rule is an open question on the backlog rather than a settled one.
+>
+> Measured through the parser and the provider together on 2026-08-23, against
+> `redis:latest --port 0 --tls-port 6390` with a self-signed certificate:
+>
+> ```text
+> rediss://localhost:6390 -> sslMode require | connected, PING = [{"result":"PONG"}] | 14ms
+> redis://localhost:6390  -> sslMode disable | FAILED: Failed to connect to Redis: Connection is closed.
+> ```
+
+---
+
+## 5. Query interface
+
+### 5.1 Accepted formats
+
+```text
+# Plain command (quote-aware)
+HGETALL user:1
+SET greeting "hello world"
+KEYS user:*
+
+# JSON command object
+{ "command": "HGETALL", "args": ["user:1"] }
+{ "command": "SET", "args": ["greeting", "hello world"] }
+
+# Comments: blank lines and lines starting with '#' are skipped (see 3.4a)
+# Read every field of the hash
+HGETALL user:1
+```
+
+### 5.2 Result shaping
+
+`formatResult()` maps each Redis reply type onto grid columns:
+
+| Redis reply | `fields` | Example cell |
+|-------------|----------|--------------|
+| Simple string / status (`GET`, `PING`, `SET`) | `result` | `OK`, `PONG`, `hello-world` |
+| Integer (`DEL`, `DBSIZE`, `INCR`) | `result` | `(integer) 42` |
+| `nil` | `result` | `(nil)` (rowCount `0`) |
+| Empty array | `result` | `(empty list)` (rowCount `0`) |
+| Array (`KEYS`, `SMEMBERS`, `LRANGE`) | `index`, `value` | `1 \| user:1` |
+| Hash (`HGETALL`) | `field`, `value` | `email \| a@b.com` |
+| `INFO` | `section`, `key`, `value` | `Server \| redis_version \| 7.2.4` |
+
+`INFO` is special-cased: `parseInfoResult()` ([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts))
+splits the bulk reply into one row per metric, tagging each with its `# Section` header.
+
+### 5.3 Schema-explorer menu actions
+
+Right-clicking a node in the schema tree (or its `⋮` menu) offers commands generated for that node,
+so you do not have to type them from memory. The generation is driven by the `queryDialect: 'redis'`
+capability, which routes the shared client-side query generators
+([`src/lib/query-generators.ts`](../../src/lib/query-generators.ts)) to Redis command output.
+
+Before #427 Redis declared no dialect, so those generators fell through to their MongoDB branch on
+the strength of `queryLanguage: 'json'` alone and every action emitted a
+`{"collection": "user:*", "operation": "find", …}` document that this provider answered with
+`Command is required in JSON format`. The dialect is checked **before** `queryLanguage` everywhere
+for that reason.
+
+Both generators are **type-aware**: they read the sampled Redis type off the synthetic `type`
+column that the object surface builds (§6). A prefix that sampled a single type resolves; one that
+sampled several (`string, hash`) or none does not, and falls into the unknown bucket.
+
+**Scan Keys** (`generateTableQuery`) inserts one runnable command and executes it immediately:
+
+| Node | Sampled type | Command |
+|------|--------------|---------|
+| prefix group `user:*` | any | `SCAN 0 MATCH user:* COUNT 50` |
+| bare key `counter` | `string` | `GET counter` |
+| bare key `session` | `hash` | `HGETALL session` |
+| bare key `queue` | `list` | `LRANGE queue 0 -1` |
+| bare key `tags` | `set` | `SMEMBERS tags` |
+| bare key `board` | `zset` | `ZRANGE board 0 -1 WITHSCORES` |
+| bare key | unknown or mixed | `TYPE <key>` |
+
+A prefix group always SCANs and is never used as a key argument: it is a derived grouping
+(`tablesAreDerivedGroupings`), so `GET user:*` would read a key literally named `user:*`. `TYPE` is
+the unknown-bucket answer rather than a guessed reader, because a wrong reader (`GET` on a hash)
+returns a `WRONGTYPE` error instead of an answer.
+
+**Generate Command** (`generateSelectQuery`) inserts a cheatsheet instead — a use-case comment above
+each command, where **every command line is runnable on its own** via "Run Selected". For a
+`user:*` group whose keys sampled as `hash`:
+
+```text
+# Redis commands for "user:*" — select a line and Run Selected.
+
+# List keys under this prefix — ONE scan iteration, not the whole set.
+# 0 is the start cursor; the reply's first row is the next cursor. Re-run
+# with that value in place of 0 until it comes back 0 (a page may be empty).
+SCAN 0 MATCH user:* COUNT 50
+
+# Check the key's type
+TYPE user:1
+
+# Read every field of the hash
+HGETALL user:1
+
+# Create or update one field — this overwrites an existing field
+HSET user:1 field example
+
+# Time to live in seconds (-1 no expiry, -2 no such key)
+TTL user:1
+
+# Delete the key (DEL takes a literal key name, never a pattern)
+DEL user:1
+```
+
+Shape rules:
+
+- The `SCAN` block appears only for a prefix group. A bare key starts at `TYPE`.
+- The example key for a prefix group is the prefix plus `1` (`user:` → `user:1`), so every line is
+  concrete rather than a `<placeholder>` — the same rule the LibreDB cheatsheet follows.
+- The read/write pair appears only when the type resolved. An unknown or mixed group gets the
+  `TYPE` / `TTL` / `DEL` frame alone. The pairs are `GET`/`SET`, `HGETALL`/`HSET`,
+  `LRANGE`/`RPUSH`, `SMEMBERS`/`SADD`, `ZRANGE`/`ZADD`.
+- `DEL` is given a literal key, never the group pattern: Redis key arguments are byte strings, so
+  `DEL user:*` deletes a key named `user:*` or nothing at all.
+- Glob metacharacters are escaped in the `MATCH` half of a `SCAN` only (a key `a[b:1` groups to
+  `a[b:*`, whose unescaped `[` would open a character class), never in a key argument, where
+  escaping would corrupt a literal key that genuinely contains `*`.
+- An argument containing whitespace is double-quoted for the tokenizer of §3.4. An argument that the
+  tokenizer cannot round-trip — one containing `"`, `'`, a backslash or a newline — makes **that line
+  alone** switch to the lossless JSON command form (`{"command":"DEL","args":["say\"hi\""]}`). The two
+  forms mix freely inside one cheatsheet: the provider decides per run, and every line is run on its
+  own. Plain `DEL "say"hi""` would reach the driver as the key `sayhi` — a different key.
+- The node name in the **header comment** is JSON-quoted, not interpolated raw. A key name is
+  arbitrary bytes: a name containing a newline used to end the comment and make its own remainder
+  the buffer's first runnable line, so a key called `a⏎DEL user:1 x` produced a cheatsheet whose
+  first command was `DEL user:1`. The per-argument defence above never engaged, because the
+  injection travelled through a comment rather than through a command. The LibreDB cheatsheet header
+  is quoted the same way. For an ordinary name the rendering is unchanged (#427).
+- **`SCAN 0 MATCH <prefix>* COUNT 50` is ONE cursor iteration, not a listing.** `0` is the start
+  cursor and the reply's first row is the next cursor; re-run with that value in place of `0` until
+  it comes back `0`. On a large keyspace an iteration can legitimately return a **non-zero cursor and
+  no keys**, so "Scan Keys" may show a cursor and nothing else while the schema tree reports the
+  prefix has keys — the tree's count comes from the object surface, which loops the cursor over up to
+  1000 keys (§6) rather than stopping at one page. A one-line command cannot loop, so the cheatsheet
+  documents the continuation instead of hiding it.
+
+A Redis tab is typed `redis` and rendered by a dedicated Monaco language
+([`src/lib/editor/redis-language.ts`](../../src/lib/editor/redis-language.ts)) — command verbs as
+keywords, argument words such as `MATCH` / `COUNT` / `WITHSCORES` as functions, `#` line comments.
+Before #427 a Redis tab was typed `mongodb` and highlighted as JSON, which flagged every command as
+a syntax error.
+
+Four menu actions are **not offered** on Redis, all for the same reason: they address the row as an
+object, and a `user:*` row is this server's grouping of a key prefix, not an object any command can
+be given.
+
+- `Profile Table` and `Generate Test Data` profile an object and insert rows into it. Both are
+  hidden wherever `tablesAreDerivedGroupings` is true rather than left to answer HTTP 400 (#427).
+- **Redis offers no per-row maintenance action at all** — neither *"Key Info"* nor *"Memory
+  Doctor"*. Both items call `onOpenMaintenance("tables", <row>)`, which opens the admin Operations
+  tab against a named table; there is no such table here, so the item was a dead end even for the
+  `analyze` this provider does declare (#427). Global maintenance is unaffected and still runs from
+  the Operations page (§8).
+
+`Generate Code` stays — it names the row, it does not address it, and it sanitises the name into an
+identifier that is legal in every target language (`user:*` → `User`), keeping Unicode letters
+intact so a non-ASCII key prefix does not collide with another one.
+
+---
+
+## 6. Schema introspection
+
+the object surface ([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts)) returns one
+object per key prefix:
+
+```
+1. cursor = "0"
+2. loop:
+     [cursor, keys] = SCAN cursor COUNT 100
+     for each key:
+        prefix = substring before first ':' + ':*'   (or the whole key)
+        increment prefix.count
+        if prefix has < 3 DISTINCT sampled types: TYPE key → add to prefix.types
+           (one blocking round-trip per key until the 3rd distinct type — a
+            uniform prefix pays it for every key the scan cap allows)
+   until cursor == "0"  OR  totalScanned >= 1000
+3. emit one object per prefix, sorted by rowCount desc
+```
+
+Each synthetic object has three columns: `key` (string, primary), `value` (typed by the
+sampled Redis types, e.g. `string/hash`), and `type`. `indexes` is always empty (`getIndexStats()`
+and `getTableStats()` return `[]` — Redis has no indexes or table statistics).
+
+### 6.1 The object surface (#789)
+
+the object surface above answers one flat key-prefix list. The object surface answers a lazy,
+container-aware, kind-tagged tree through four methods, and on this engine they live in the provider
+class, because there is no statement layer to split out: the catalog here is a command.
+
+Everything below was measured on **Redis 8.10.0** against the fixture in
+[`docker/redis-init/`](../../docker/redis-init/) (see [§11.5](#115-the-object-surface-fixture)),
+plus the four Redis-wire relatives named in [§1](#valkey-dragonflydb-keydb-and-garnet).
+
+#### The declaration
+
+**One container level, and there is no second one to add above or below it.** A Redis server holds a
+fixed number of NUMBERED databases and nothing else: there is no catalog above them, and a key is not
+a container. The level's structural `id` is `schema`, which is what `ContainerLevelSpec` calls the
+innermost level on every engine; the label is the engine's own word, which is Database.
+
+How many there are is **not the constant 16**. `listContainers()` asks the server, because the answer
+is a property of the deployment:
+
+```
+$ redis-cli CONFIG GET databases                 # stock server
+databases
+16
+$ redis-cli CONFIG GET databases                 # same image, --cluster-enabled yes
+databases
+1
+$ redis-cli SELECT 3                             # on that cluster-mode server
+ERR SELECT is not allowed in cluster mode
+```
+
+So the reply already reflects the deployment and nothing reads `cluster_enabled` to work it out. A
+refused or unparsable reply **raises**: 16 would be a number nobody measured, and 1 would hide
+fifteen databases that may hold keys. Every database is listed, including the empty ones, because a
+Redis database is never created and never dropped — all of them exist at all times, so listing only
+the ones `INFO keyspace` mentions would hide a database a person is about to write to.
+
+| Kind | Role | Catalog |
+|---|---|---|
+| `keyspace` | `relation` | one bounded `SCAN` walk of the database, collapsed per key prefix |
+| `function` | `routine` | `FUNCTION LIST` |
+
+`function` is a real, named, stored object: a Redis 7.0 function library is persisted, replicated,
+listed by `FUNCTION LIST` and addressed by its `library_name`. It declares `hasSource` and it is the
+only thing in this engine that can — `FUNCTION LIST WITHCODE` answers the library's Lua source
+verbatim, shebang line included, which is Phase 2's to render.
+
+**Three candidates are absent rather than declared and zero.**
+
+- An **`EVAL` script** is not enumerable. Redis publishes `SCRIPT EXISTS <sha>`, which answers about
+  a sha the caller already has, and there is no `SCRIPT LIST`. A tree node is something that can be
+  listed, so a kind here would draw a folder that could never fill.
+- A **keyspace notification** is pub/sub, not a stored trigger: nothing is persisted and nothing has
+  a name.
+- The separately named **"Triggers and Functions"** feature is RedisGears-based, ships only in Redis
+  Stack and Enterprise, and is on Redis's own deprecated list. Declaring it would draw a folder on
+  every plain server that has no such concept at all.
+
+#### The declaration is static, and one measurement is what decides that it has to be
+
+Three of the four Redis-wire relatives refuse `FUNCTION LIST` outright, each in its own words (all
+measured 2026-09-11):
+
+| Server | `INFO` version | `FUNCTION LIST` |
+|---|---|---|
+| Redis 8.10.0 | `redis_version:8.10.0` | Supported |
+| Valkey 9.1.1 | `valkey_version:9.1.1`, `redis_version:7.2.4` | Supported |
+| KeyDB 6.3.4 | `redis_version:6.3.4` | ``ERR unknown command `FUNCTION`, with args beginning with: `LIST`, `` |
+| DragonflyDB df-v1.40.1 | `redis_version:7.4.0` | `ERR Unknown subcommand or wrong number of arguments for 'LIST'. Try FUNCTION HELP.` |
+| Garnet 2.1.5 | `garnet_version:2.1.5`, `redis_version:7.4.3` | `ERR unknown command` |
+
+A version-driven declaration, the shape `mysql.ts` uses, would be **wrong** here rather than merely
+awkward: DragonflyDB reports `redis_version:7.4.0` and still has no `FUNCTION LIST`, so the version
+cannot answer the question. `countObjects()` therefore carries the server's own sentence under
+`{ unavailable }`, which is the state `KindCount` has for a refused read, and the folder says why it
+has no number instead of showing a zero nobody measured. Per KIND and not per read: a relative with
+no `FUNCTION` command still has a keyspace, so its function folder carries the refusal while the
+keyspace folder carries a real number. Measured live against KeyDB 6.3.4 holding this fixture:
+
+```
+countObjects(["0"]) -> {"keyspace":{"count":4},
+                        "function":{"unavailable":"ERR unknown command `FUNCTION`, with args beginning with: `LIST`, "}}
+```
+
+#### Where the count and the listing meet
+
+Standing ruling 5f says the badge and the folder must read the same predicate over the same source.
+On a SQL engine that is a warning about two `WHERE` clauses. Here the catalog is a command, so the
+seam is a **method**: `listIn` is the only thing in the provider that reads either catalog, and both
+`countObjects()` and `listObjects()` call it. The count of a kind is the LENGTH of the listing that kind's
+own enumerator returned — there is no second `SCAN` with a different `MATCH` for the two to drift
+apart in.
+
+#### The `keyspace` count is a FLOOR when the walk stopped on its key budget
+
+`KindCount` carries four facts, and this engine answers two of them in one record. `function` is
+counted from `FUNCTION LIST`, which enumerates the whole server, so it is a population. `keyspace` is
+counted from the bounded `SCAN` walk: the loop stops when the cursor comes back to `0`, which means
+the server walked everything it holds, **or** when 1000 keys have been seen, which means it did not.
+Only the second case is marked, with the fourth state:
+
+```
+countObjects(["0"]) -> {"keyspace":{"count":3,"sampledFrom":"the first 1,000 keys of one SCAN walk"},
+                        "function":{"count":1}}
+```
+
+The tree badges that folder **`3+`** and titles it *"At least 3: counted from the first 1,000 keys of
+one SCAN walk"*, while the exact count beside it stays `1` with no title
+([`flatten.ts`](../../src/components/object-tree/flatten.ts)). A completed walk is NOT marked: `2` and
+`2+` are different claims, and marking a number this provider measured exactly would teach a reader
+to discount every badge. The same bound already governs the object surface, so the flat list and the tree
+are consistent about which walk they read; what is new is that the tree can now say what the number
+is.
+
+#### The derived-grouping refusal, and the declaration that carries it
+
+`tablesAreDerivedGroupings: true` ([§9](#9-capabilities--labels)) is a refusal about the `keyspace`
+rows: `user:*` is a prefix this server derived from a bounded scan, not an object anybody named, and
+no command can be given that row. The flat row menu read that flag directly. The object model's menu
+is driven by the KIND, so the refusal needed somewhere to live, and it splits into three:
+
+- **Row writes.** `keyspace` declares no `acceptsRowWrites`, so Generate Test Data and the insert
+  action are withheld by the kind, with no engine-wide flag involved.
+- **Maintenance.** Redis declares its one maintenance operation as `perEntity: false`
+  ([§8](#8-maintenance)), so `maintenanceControl` withholds the per-row links by the same declaration
+  that already governed them.
+- **Profile** has no kind-level declaration behind it, and it is the one that needed a decision.
+  Profiling needs an ADDRESSABLE object to compute per-column statistics over, while every other
+  relation action here needs only a pattern. So `rowActions` reads the same engine-wide
+  `tablesAreDerivedGroupings` flag the flat menu read, and
+  [`row-actions.ts`](../../src/components/object-tree/row-actions.ts) says so at the top of the file.
+
+**Generate Query is NOT withheld, and that is deliberate rather than an oversight.** The generator
+answers `SCAN 0 MATCH user:* COUNT 50` for a prefix group, a runnable command against exactly the
+keys the row summarises ([§5.3](#53-schema-explorer-menu-actions)), and the row click that opens data
+runs the same thing. The flat menu did not withhold it either.
+
+#### Object identity, and what `describeObject()` answers
+
+A `keyspace` object's last path segment is the PATTERN (`user:*`), which is unique within its
+database because it is a map key of the scan walk. A `function` object's last segment is the
+`library_name`, which Redis enforces as unique per server: a second `FUNCTION LOAD` of the same name
+is refused unless `REPLACE` is given, and `FUNCTION LIST LIBRARYNAME <name>` addresses exactly one.
+
+**A function library is SERVER-scoped while its folder is PER DATABASE, so the same library is listed
+under every database.** On a stock server answering `CONFIG GET databases` with 16, one
+`libredb_probe` appears in all sixteen Function Libraries folders, at sixteen different paths, and
+`countObjects` for a database holding no keys at all still answers a `function` count of 1. Measured
+on Redis 8.10.1: `FUNCTION LIST` takes no database argument and answers identically after `SELECT 0`
+and after `SELECT 7`, where `DBSIZE` is 0. This is deliberate. The engine declares one container
+level, the numbered database, so there is no server level to hang the folder on, and showing the
+libraries under one chosen database would invent a home the engine does not have while making the
+other fifteen lie about what the server holds.
+
+A key grouping describes to the same three columns the object surface emits, from one shared helper, so
+the flat model and the object model cannot describe the same grouping differently while both surfaces
+are live. A grouping the CURRENT scan no longer holds raises rather than answering an empty shape: on
+this engine a prefix disappears the moment its last key is deleted.
+
+A function library answers three empty arrays with **no round trip**. That is a true fact about the
+kind rather than a failed read — a library has no columns, no indexes and no foreign keys.
+
+**The two kinds are therefore asymmetric about EXISTENCE, on purpose.** `describeObject()` answers a
+valid detail for ANY `function` name, a library that was never loaded included, because nothing there
+reads the catalog; a `keyspace` whose grouping the current scan no longer holds raises. Existence is
+not the same question on the two kinds: a key grouping is derived from a scan and ceases to exist the
+moment its last key is deleted, so an empty shape would claim a grouping that is gone, while a
+library's detail at this depth is a property of the KIND rather than of the object and is correct
+without asking. Paying a `FUNCTION LIST` round trip only to raise would buy a check Phase 1 never
+shows a person. Phase 2's Source tab is where the two must agree, and it needs care: measured on Redis
+8.10.1, `FUNCTION LIST LIBRARYNAME no_such_library` answers an **empty array rather than an error**,
+so the reader has to treat emptiness as absence itself, and the miss then belongs in
+`describeObject()` rather than in the tab.
+
+#### What `describeObjects()` answers, and the two bounds it reports
+
+`describeObjects(container, kind, limit?)` is the bulk column read (#789): the columns of
+every object of one kind in one database, from ONE walk.
+
+**One walk for a whole folder.** Nothing here sends a statement, so the N+1 the inventory
+route removed does not come back as round trips: `describeObject()` runs a full
+`scanKeyGroups` walk of its own, and a body looping it would walk the keyspace once per
+grouping. The suite counts the driver's `SCAN` calls - one for the folder, against two for
+two single reads - because that is the only observable difference between the two, and a
+timing comparison over the loopback would pass either way. Measured live on redis:latest at
+port 16379 with the committed fixture, 2 ms for one `describeObjects(["0"], "keyspace")`
+against 6 ms for the four `describeObject()` calls it replaces.
+
+**A function library folder answers `{ details: [] }` and sends nothing at all** - not even
+the `FUNCTION LIST` the listing needs. A library has no columns, no indexes and no foreign
+keys, and its source, the one thing it does have, is Phase 2's through
+`FUNCTION LIST WITHCODE`. That is a true statement about the KIND rather than a refused
+read, which is why it is an empty batch and not a throw. A kind this provider declares and
+has no command for is a different fact and RAISES, with the same sentence `listObjects()`
+refuses with: "this kind has no columns" and "this file has no reader for this kind" must
+not arrive as the same empty answer.
+
+**One mapper, shared with the single read.** `keyspaceDetail()` builds both, over
+`keyGroupColumns()`, which is also what the object surface builds its rows from. Every column set
+the bulk read answers is byte-identical to `describeObject()` for the same path, checked for
+every grouping in the fixture and re-checked live.
+
+**Two bounds, and the answer names whichever bit.**
+
+| Bound | Applies to | `truncated.limit` | `truncated.reason` |
+| --- | --- | --- | --- |
+| The caller's `limit` | `keyspace` | the caller's own number | `the bulk column read was bounded at N objects by its caller` |
+| The 1,000-key walk | `keyspace` | the number of objects answered | `the key walk stopped at the first 1,000 keys of one SCAN walk` |
+| Both | `keyspace` | the caller's own number | the two joined with `, and ` |
+
+The second is a bound this provider did not choose on the call, so it is reported on an
+unbounded read as readily as on a bounded one: a cap nobody can see is the defect
+`truncated` exists to prevent, and it is the same fact `countObjects()` already puts on the
+badge through `KindCount.sampledFrom`. It cannot bite on the `function` folder, which sends
+nothing, so the marking is per KIND here exactly as it is in the count. Measured live
+against a database holding 1,200 keys under one prefix: an unbounded read answers one
+column set and reports `the key walk stopped at the first 1,000 keys of one SCAN walk`.
+
+A limit that is not a positive whole number **raises** rather than being clamped, and the
+guard runs after the declaration check and after the container check.
+
+**The cut is ours, because this engine offers nothing to cut under.** Every other engine in
+#789 pushes a `LIMIT` down and re-sorts in code, so a bounded read's MEMBERSHIP is the
+server's and its ORDER is ours. There is no such split here. `SCAN` publishes no order at
+all, not even a stable one between two walks of an unchanged keyspace, and its bound is on
+KEYS rather than on groupings, so there is no `limit + 1` to push down: a walk cannot know
+how many groupings it will produce until it has finished. Both the membership and the order
+of a bounded read are `comparePaths`', and this document says so rather than implying an
+order the server does not have.
+
+The UTF-8-byte versus UTF-16-code-unit divergence Task 26a-2 measured on five SQL engines
+has nothing to bite on here for the same reason: there is no server-side sort to disagree
+with.
+
+#### Reads go to the CONTAINER's database, never the session's
+
+Every object read opens its own short-lived connection with `db` set, rather than issuing `SELECT` on
+the shared client: a `SELECT` there would decide which database a concurrent query in the same session
+ran against. Nothing in the object surface ever sends `SELECT`.
+
+---
+
+## 7. Monitoring & health
+
+All monitoring derives from Redis introspection commands. `parseRedisInfo()` turns the `INFO` bulk
+string into a flat `key → value` map that the methods below read from.
+
+| Method | Source command | Returns |
+|--------|----------------|---------|
+| `getHealth()` | `INFO` | `connected_clients`, `used_memory_human`, hit ratio |
+| `getOverview()` | `INFO` + `DBSIZE` | version, uptime, clients, maxclients, memory, key count (`tableCount`) |
+| `getPerformanceMetrics()` | `INFO` | cache hit ratio, `instantaneous_ops_per_sec` → `queriesPerSecond` |
+| `getSlowQueries()` | `SLOWLOG GET 10` | per-entry id, command text, duration (µs → ms) |
+| `getActiveSessions()` | `CLIENT LIST` | one session per client (id, addr, db, flags, cmd, idle) |
+| `getStorageStats()` | `INFO memory` | `used_memory_human`, optional `usagePercent` vs `maxmemory` |
+| `getTableStats()` | — | `[]` (N/A) |
+| `getIndexStats()` | — | `[]` (N/A) |
+
+**Cache hit ratio** is computed by `calculateHitRatio()`
+([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts)) as
+`keyspace_hits / (keyspace_hits + keyspace_misses) * 100`, defaulting to `100.0` when there has
+been no traffic.
+
+The monitoring methods that depend on optional Redis features (`SLOWLOG`, `CLIENT LIST`) are wrapped
+in try/catch and degrade to `[]` rather than throwing — a restricted ACL that forbids those commands
+won't break the monitoring dashboard.
+
+---
+
+## 8. Maintenance
+
+Redis exposes a single maintenance operation:
+
+| Type | Behaviour |
+|------|-----------|
+| `analyze` | Runs `INFO` and reports the number of lines in the output as a snapshot. Non-destructive. |
+| anything else | Throws `QueryError` (`Unsupported maintenance type for Redis`) |
+
+This is reflected in `getCapabilities().maintenanceOperations = ['analyze']`. The admin Operations
+tab has gated each card on that list since #282, so it renders the analyze card only and never
+offered Redis a vacuum action; #427 changed the **wording** on that card, not the gate (§9). The
+schema explorer's **per-row** menu offers neither *"Key Info"* nor *"Memory Doctor"*, because a
+per-row action needs an addressable row and these rows are derived groupings (§5.3).
+
+The admin Operations tab also renders this provider's own wording for the analyze card — *"Run
+Info"* / *"Server Info"* / *"Get Redis server information and statistics."* — instead of Postgres's
+query-planner copy. Those `analyzeGlobal*` fields had been declared and set for a long time and read
+by no component (#427).
+
+### Where each operation may be offered (`maintenanceOperationSpecs`)
+
+Declaring that an operation EXISTS is not enough to put a button on it: two engines that
+declare the same `MaintenanceType` take different kinds of target, so each provider also
+declares what its own operations may be pointed at. The monitoring Tables tab renders a
+per-row control only where `perEntity` is true, the admin Operations tab a whole-database
+card only where `global` is true, and both take the wording from `label` (#496).
+
+`POST /api/db/maintenance` reads the same declaration since #U20, and it is the one reader that
+REFUSES rather than hides: it takes the placement from whether the request carries a `target`
+(absent or empty means whole-database) and answers `400` when this provider marks that
+placement unavailable while the other one is available - `{type:"analyze", target:"session:"}`
+is that request here, and it is the only one this provider can refuse.
+
+| Operation | Control label | Per-row | Global | Why |
+|-----------|---------------|---------|--------|-----|
+| `analyze` | Server Info | **no** | yes | `runMaintenance(type)` takes no target parameter at all - the operation is `INFO`, which reports on the server and cannot be pointed at a key prefix |
+
+A per-row control here answered with server-wide metrics for one grouping, which is the
+dead end #427 reported for *"Key Info"*. The Operations tab's global card carries Redis's
+own *"Run Info" / "Server Info"* wording. *"Memory Doctor"* names no declared operation, so
+no control offers it.
+
+---
+
+## 9. Capabilities & labels
+
+### `getCapabilities()` ([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts))
+
+| Capability | Value |
+|------------|-------|
+| `queryLanguage` | `json` |
+| `queryDialect` | `redis` — routes the client-side query generators to Redis command output and types the editor tab `redis` (see 5.3). Checked before `queryLanguage`, which says only "not SQL" and by itself meant MongoDB (#427) |
+| `supportsExplain` | `false` |
+| `supportsExternalQueryLimiting` | `false` |
+| `supportsCreateTable` | `false` |
+| `supportsInlineRowEdit` | `false` — Redis commands are not SQL, so there is no `UPDATE ... SET` for the results grid's inline editor to emit |
+| `supportsTransactions` | `false` — `MULTI`/`EXEC` exists in Redis and is not exposed through this provider, so the transaction trio and SANDBOX are not offered (#464) |
+| `declaresForeignKeys` | `false` — Redis has no constraints at all, and the "tables" here are key prefixes this provider grouped rather than objects anyone declared |
+| `tablesAreDerivedGroupings` | `true` — the object surface SCANs a bounded slice of the keyspace and groups the real key names it found by their prefix, so a `user:*` row is this server's own summary and not a key any command can be given. The agent layer states this to a plan run, in one sentence, so a grounded run does not draft a command against a grouping. In the object tree it is what withholds Profile from a `keyspace` row ([§6.1](#61-the-object-surface-789)) |
+| `containerLevels` | one level, `schema`, labelled Database ([§6.1](#61-the-object-surface-789)) |
+| `objectKinds` | `keyspace` (relation) and `function` (routine, `hasSource`, Lua). Three further candidates are absent rather than declared and zero ([§6.1](#61-the-object-surface-789)) |
+| `supportsMaintenance` | `true` |
+| `maintenanceOperations` | `['analyze']` |
+| `supportsConnectionString` | `false` |
+| `defaultPort` | `6379` |
+| `schemaRefreshPattern` | `(DEL\|FLUSHDB\|FLUSHALL\|RENAME)\b` |
+
+`schemaRefreshPattern` tells the UI which executed commands should trigger a schema (key-pattern)
+refresh — i.e. commands that add or remove keys.
+
+### `getLabels()` ([`redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts))
+
+The label map relabels the generic schema-explorer UI for key-value semantics: entity → *"Key
+Pattern"*, row → *"key"*, select → *"Scan Keys"*, generate → *"Generate Command"*, analyze → *"Key
+Info"*, search placeholder → *"Search keys…"*, etc. `analyzeAction` (*"Key Info"*) is declared but
+no longer reaches the schema explorer's per-row menu, which offers no maintenance here at all
+(§5.3); it stays because it is the correct wording the moment a per-row target exists.
+
+The labels rename actions that behave differently here, not generic ones wearing Redis names:
+*"Scan Keys"* really emits `SCAN`, and *"Generate Command"* really emits Redis commands (§5.3).
+That was not true before #427, when both emitted MongoDB documents under these labels.
+
+`statementLanguage` is the one label no person sees: the agent's plan contract states it verbatim to
+the model. Unlike MongoDB's, it is not about the language — a plan run on 2026-08-22 wrote real Redis
+commands — but about the **shape** they were packaged in:
+
+```
+1) KEYS session:*
+2) GET session:1
+```
+
+`executeRedisCommand` reads the whole body as **one** command (§5), so the server answered
+`ERR unknown command '1)'`. The label therefore names the two things that made it unrunnable — the
+list numbering and the second command — alongside the two accepted forms (plain and the lossless
+`{"command": …, "args": […]}`), and repeats in words what `tablesAreDerivedGroupings` says in a flag:
+a `prefix:*` row is this server's grouping, not a key, so a prefix is reached with `SCAN … MATCH`.
+
+`slowQueriesEmptyState` (*"Redis lists what SLOWLOG holds, and nothing has yet run slower than
+slowlog-log-slower-than."*) is the monitoring Queries panel's empty state. It exists for the same
+reason the `analyzeGlobal*` triad had to be read rather than merely declared (#427): that panel's
+sentence was hardcoded to PostgreSQL's `pg_stat_statements` advice on every engine
+(#463), while what is empty here is the `SLOWLOG` (§7).
+
+`analyzeGlobalLabel` / `analyzeGlobalTitle` / `analyzeGlobalDesc` (*"Run Info"*, *"Server Info"*,
+*"Get Redis server information and statistics."*) are rendered by the admin Operations tab. The
+`vacuumAction` / `vacuumGlobal*` fields (*"Memory Doctor"*, *"Memory Analysis"*) are still declared
+but reach no screen: the admin Operations tab's vacuum card and per-table button are gated on
+`maintenanceOperations` containing `vacuum`, which this provider does not list (§8 — that gate is
+#282 and unchanged here), and the schema explorer's row item is hidden because the rows are derived
+groupings (§5.3). They stay so the map is complete if a vacuum-shaped operation is ever added.
+
+---
+
+## 10. Error handling
+
+The provider raises the shared error classes from
+[`src/lib/db/errors.ts`](../../src/lib/db/errors.ts):
+
+| Situation | Error |
+|-----------|-------|
+| Missing `host` at construction | `DatabaseConfigError` |
+| Operation before `connect()` | `DatabaseConfigError` (via `ensureConnected()`) |
+| `connect()` fails | `ConnectionError` |
+| Malformed JSON command | `QueryError` — *"Invalid JSON command format"* |
+| JSON without `command` | `QueryError` — *"Command is required…"* |
+| Empty command | `QueryError` — *"Empty command"* |
+| Redis-side command failure | `QueryError` — *"Redis error: …"* |
+
+All `QueryError`s carry the `QUERY_ERROR` API code and surface to the client as `400 Bad Request`.
+
+---
+
+## 11. Testing
+
+### 11.1 How the tests work
+
+Integration tests live in
+[`tests/integration/db/redis-provider.test.ts`](../../tests/integration/db/redis-provider.test.ts).
+In keeping with the project's test architecture, the `ioredis` driver is replaced with an in-process
+mock via `mock.module('ioredis', …)` **before** the provider is imported — there is no live Redis
+container in the suite. The mock simulates a Redis 7.2.x server (`redis_version:7.2.4`,
+`INFO`/`SCAN`/`CLIENT LIST`/`call()` responses), which exercises the same code paths as a real
+Redis 6.0+ instance.
+
+> ⚠️ **Mock isolation:** `bun`'s `mock.module()` is process-wide. Run the suite with
+> `bun run test` (which isolates execution groups), **never** bare `bun test` across multiple
+> files — see the note in [`CLAUDE.md`](../../CLAUDE.md). The Redis file mocks `ioredis`, which
+> would otherwise leak into any other test sharing the process.
+
+### 11.2 Coverage
+
+The suite covers: validation, connect/disconnect, capabilities, labels, `prepareQuery`, all query
+formats (JSON, plain, empty, `HGETALL`, `INFO`, nil), error handling (malformed JSON, missing
+`command`, Redis-side error, disconnected provider), schema scanning, health, overview, performance,
+slow queries, active sessions, table/index/storage stats, `getMonitoringData`, maintenance, a
+battery of common commands (`KEYS`, `SET`, `DEL`, `PING`, `DBSIZE`), the whole object surface
+([§6.1](#61-the-object-surface-789)) through `assertObjectSurface` plus per-method assertions, and
+**every `ssl.mode` branch**
+asserted against the options object the `Redis` constructor received. The same captured options carry
+the **ACL user** assertions ([§4.1a](#41a-acl-users-d29)) — `username` present for a named user,
+absent for both an empty string and an unset field — and a refused `INFO` is asserted to raise the
+server's own `NOPERM` sentence out of `getHealth()`.
+
+### 11.3 Run it
+
+```bash
+# Just this file
+bun test tests/integration/db/redis-provider.test.ts
+
+# Full isolated suite (CI-equivalent)
+bun run test
+```
+
+### 11.4 Optional: verifying against a live Redis
+
+The committed tests are mock-based by design. To smoke-test against a real server during
+development:
+
+```bash
+docker run --rm -p 6379:6379 redis:7-alpine
+# then point a connection at localhost:6379 in the Studio UI and run e.g. `INFO`, `SCAN 0`
+```
+
+To reproduce the ACL rig of [§4.1a](#41a-acl-users-d29) — a user that can browse keys but not read
+`INFO`:
+
+```bash
+docker run --rm -d --name redis-acl -p 6389:6379 redis:latest
+docker exec redis-acl redis-cli ACL SETUSER probe on '>probepw' '~*' +@all -info
+# Username `probe`, password `probepw`: keys browse, and health reports degraded (amber).
+# Leave Username empty and the same password authenticates as `default`, whose INFO succeeds.
+```
+
+### 11.5 The object surface fixture
+
+The object surface's fixture is **committed**, not typed into a shell while measuring and then lost
+with the container: [`docker/redis-init/01-object-fixture.redis`](../../docker/redis-init/01-object-fixture.redis).
+
+**The `redis` image has no init-script directory.** There is no `/docker-entrypoint-initdb.d`
+convention and no entrypoint hook of any kind — the image runs `redis-server` and nothing else — so
+unlike the PostgreSQL and MongoDB services this fixture is not mounted and applied for you. It is a
+file of `redis-cli` commands, and the exact command that applies it is:
+
+```bash
+docker exec -i libredb-redis redis-cli --no-raw < docker/redis-init/01-object-fixture.redis
+```
+
+`redis-cli` reading from stdin uses ONE connection for the whole file, which is what makes the
+`SELECT 3` in the middle of it work; a per-line `redis-cli` loop would silently write every key into
+database 0. The file is idempotent: it `DEL`s the keys it is about to write and loads the function
+library with `FUNCTION LOAD REPLACE`.
+
+What it builds, and why each part is there:
+
+| In | What | Why |
+|---|---|---|
+| db 0 | `user:1` `user:2` `user:3`, `session:abc` `session:def`, `queue:jobs`, `standalone` | three prefixes plus a key with NO colon, which is its own grouping |
+| db 0 | mixed value types under one prefix (string, hash, list) | the sampled `type` column is `string/hash`-shaped rather than uniform |
+| db 3 | `report:daily` | a key that exists in ONE database and nowhere else, so a provider reading the SESSION's database instead of the CONTAINER's is distinguishable from a correct one |
+| db 0 | function library `libredb_probe`, two registered functions | the `function` kind has an object, and `FUNCTION LIST WITHCODE` has source to answer |
+
+To measure a cluster-mode container, which is the only deployment where the database count is not 16:
+
+```bash
+docker run --rm -d --name libredb-redis-cluster -p 6400:6379 redis:latest redis-server --cluster-enabled yes
+docker exec libredb-redis-cluster redis-cli CONFIG GET databases   # -> 1
+```
+
+---
+
+## 12. Usage examples
+
+### 12.1 Programmatic (via the factory)
+
+```ts
+import { createDatabaseProvider } from '@/lib/db/factory';
+
+const provider = await createDatabaseProvider({
+  id: 'r1', name: 'Cache', type: 'redis',
+  host: 'localhost', port: 6379, createdAt: new Date(),
+});
+
+await provider.connect();
+await provider.query('SET greeting "hello"');     // → OK
+await provider.query('GET greeting');             // → hello
+await provider.query('{ "command": "HGETALL", "args": ["user:1"] }');
+const objects = await provider.listObjects(container, 'table');
+const { details } = await provider.describeObjects(container, 'table');
+await provider.disconnect();
+```
+
+### 12.2 Over the API
+
+`POST /api/db/query` with the Redis command in the `sql` field — see the
+[Redis Query Format](../API_DOCS.md#redis-query-format) section of `API_DOCS.md` for the full
+request/response contract.
+
+---
+
+## 13. Known limitations & future work
+
+- **A pasted `rediss://` URL selects `require`, not a verifying mode.** The parser carries the
+  scheme as `sslMode` ([§4.2](#42-connection-string-nuance)), so the paste is encrypted, but nothing
+  in a `rediss://` URL says whose certificate to trust - and the ordinary self-hosted `--tls-port`
+  node presents a self-signed one, which a verifying mode would refuse. Verification therefore stays
+  an explicit choice in the SSL panel; the URL alone never turns it on.
+- **No Cluster / Sentinel support.** Only a single standalone node is supported.
+- **`SCAN` is capped at 1000 keys** for schema discovery — prefixes that only appear beyond the cap
+  won't show as "tables". This is a deliberate bound, not a bug. The object surface shares the same
+  walk and the same bound, so on a keyspace larger than it the `keyspace` folder's badge and its rows
+  are the groupings of a SAMPLE. They are consistent with each other, because the count is the length
+  of that listing ([§6.1](#61-the-object-surface-789)), and neither is a total. The BADGE now says so
+  rather than leaving it here: a walk the budget cut short answers `{ count, sampledFrom }` and the
+  folder reads `3+`. The flat key-prefix list of §6 has no badge and still says nothing.
+- **An `EVAL` script is not an object here**, because Redis publishes no `SCRIPT LIST` — only
+  `SCRIPT EXISTS <sha>`, which answers about a sha the caller already has ([§6.1](#61-the-object-surface-789)).
+- **No read-only guard.** The generic `call()` dispatch executes write/destructive commands
+  (`SET`, `DEL`, `FLUSHALL`, …) the same as reads. Access control is expected to be enforced by the
+  Redis ACL / user role, not the provider.
+- **Binary values** are stringified via `String(...)`; non-UTF8 binary payloads may not render
+  faithfully in the grid.
+- **The plain-command tokenizer has no escape syntax.** Quotes group an argument but cannot be
+  escaped inside one, so a key or value containing a literal `"` or `'` is not expressible in plain
+  form; use the JSON command object for those. The schema-explorer generators detect this and emit
+  the JSON form for the affected line automatically (§5.3), so only hand-typed plain commands are
+  exposed to it.
+- **Non-comment text cannot follow a JSON command.** Comment lines anywhere are dropped, including
+  after a JSON body, but the body itself is parsed whole (§3.4a) — so trailing text that is not a
+  `#` comment joins the block and fails `JSON.parse`.
+- **No column modification in a generated migration.** Since
+  [#269](https://github.com/libredb/libredb-studio/issues/269) the schema-diff migration generator
+  answers a modified column per dialect; keys are not tables and carry no column definitions, so it
+  emits `-- Redis: Cannot alter column "<name>". ...` where it previously emitted PostgreSQL
+  `ALTER TABLE ... ALTER COLUMN` DDL that means nothing here.
+
+---
+
+## 14. References
+
+- Tracking issue: [#7 — Implement Redis Provider](https://github.com/libredb/libredb-studio/issues/7)
+- Driver: [`ioredis`](https://github.com/redis/ioredis)
+- Source: [`src/lib/db/providers/keyvalue/redis.ts`](../../src/lib/db/providers/keyvalue/redis.ts)
+- Base class: [`src/lib/db/base-provider.ts`](../../src/lib/db/base-provider.ts)
+- Interface & DTOs: [`src/lib/db/types.ts`](../../src/lib/db/types.ts)
+- Errors: [`src/lib/db/errors.ts`](../../src/lib/db/errors.ts)
+- Tests: [`tests/integration/db/redis-provider.test.ts`](../../tests/integration/db/redis-provider.test.ts)
+- API contract: [`docs/API_DOCS.md`](../API_DOCS.md#redis-query-format)
+
+---
+
+## 15. Appendix — checklist for authoring a new provider
+
+This Redis provider is a good template for a non-relational backend. To add another provider:
+
+1. **Create** `src/lib/db/providers/<family>/<name>.ts` extending `BaseDatabaseProvider`.
+2. **Implement** the abstract methods (`connect`, `disconnect`, `query`, the five object methods, `getHealth`,
+   `runMaintenance`, and the seven monitoring methods). Return `[]` from the ones that don't apply.
+3. **Override** `getCapabilities()`, `getLabels()`, and `prepareQuery()` so the shared UI renders
+   the right wording and feature flags.
+4. **Register** the type in the `factory.ts` switch (dynamic import) and add it to the
+   `DatabaseType` union in `src/lib/types.ts`.
+5. **Add** the driver dependency to `package.json`.
+6. **Map** native driver errors onto the `errors.ts` classes (`ConnectionError`, `QueryError`, …).
+7. **Test** with a `mock.module()`-based integration test mirroring the structure above.
+8. **Document** the provider in `docs/providers/<name>.md` using this file as the template, and add
+   the query format to `docs/API_DOCS.md`.

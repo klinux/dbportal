@@ -1,0 +1,786 @@
+"use client";
+
+import React, { useState, useMemo, useCallback } from "react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  RefreshCw,
+  Zap,
+  HardDrive,
+  Search,
+  Clock,
+  Users,
+  Skull,
+  Database,
+  ShieldAlert,
+  LoaderCircle,
+  Wrench,
+  ShieldCheck,
+  CircleCheck,
+  CircleX,
+  Table2,
+  type LucideIcon,
+} from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { useMonitoringData } from "@/hooks/use-monitoring-data";
+import { storage } from "@/lib/storage";
+import { useAllConnections } from "@/hooks/use-all-connections";
+import { maintenanceControl, type ActiveSessionDetails, type MaintenanceType, type TableStats } from "@/lib/db/types";
+import { readObjectPathParam } from "@/lib/db/object-path";
+import { useProviderMetadata } from "@/hooks/use-provider-metadata";
+
+/**
+ * The per-row maintenance controls this tab can render, in display order, with the
+ * generic verb each one falls back to where the provider declares no
+ * `maintenanceOperationSpecs`.
+ *
+ * `optimize` and `check` are candidates because five providers declare those
+ * operations and no per-row control anywhere offered them; each is filtered out again
+ * wherever the provider says its statement takes no object (SQL Server's
+ * `DBCC CHECKDB`, SQLite's `VACUUM`) - see `maintenanceControl` (#496).
+ */
+const TABLE_ACTIONS: { type: MaintenanceType; label: string; Icon: LucideIcon; hover: string }[] = [
+  { type: "analyze", label: "Analyze", Icon: Search, hover: "hover:text-hue-yellow" },
+  { type: "vacuum", label: "Vacuum", Icon: HardDrive, hover: "hover:text-hue-blue" },
+  { type: "optimize", label: "Optimize", Icon: Wrench, hover: "hover:text-hue-blue" },
+  { type: "reindex", label: "Reindex", Icon: RefreshCw, hover: "hover:text-hue-purple" },
+  { type: "check", label: "Check", Icon: ShieldCheck, hover: "hover:text-hue-green" },
+];
+
+/**
+ * Why no per-table maintenance control is anywhere on this page.
+ *
+ * The schema explorer's two maintenance items are DEEP LINKS, and for an admin they
+ * land HERE - `openMaintenance` in src/components/Studio.tsx pushes
+ * /admin/operations?path=... - not on the monitoring Tables panel. They are gated on
+ * what the OPERATION declares (`maintenanceControl(..., "perEntity")`), which is a
+ * different question from whether this page has a ROW to hang the control on: the
+ * controls render per row of `filteredTables` only, so every empty branch of the panel
+ * below rendered nothing at all about the operation the operator arrived asking for
+ * (U22).
+ *
+ * Unlike the monitoring panel, this page HAS the requested table's name - the `?path=`
+ * search param that seeded the filter - so naming it is a measurement rather than an
+ * invention. It is named only while the filter still holds that param: once the operator
+ * types something else, that table is no longer why the list is empty.
+ */
+function TableMaintenanceUnreachableNote({
+  actions,
+  missingTable,
+}: Readonly<{ actions: string[]; missingTable: string | null }>) {
+  const where = missingTable === null ? "no row to run it on" : `no row for "${missingTable}" to run it on`;
+  return (
+    <p className="px-4 pb-4 text-xs text-fg-muted leading-relaxed" data-testid="operations-maintenance-unreachable">
+      {`Per-table maintenance (${actions.join(", ")}) is run from a row of this list, and this page has ${where}.`}
+    </p>
+  );
+}
+
+interface OperationLogEntry {
+  id: string;
+  timestamp: Date;
+  type: string;
+  target: string;
+  result: "success" | "failure";
+  duration: number;
+  error?: string;
+}
+
+export function OperationsTab() {
+  // Only the operator's CHOICE is state; the list and the selected object are both
+  // calculated during render from it. `useAllConnections` is read here, above the
+  // hooks that take `selectedConnection` as an argument, because the derivation has
+  // to happen before they run.
+  const { connections } = useAllConnections();
+  const [selectedId, setSelectedId] = useState<string | null>(() => storage.getActiveConnectionId());
+  // The explicit length check rather than `?? connections[0] ?? null`:
+  // noUncheckedIndexedAccess is off, so `connections[0]` types as non-optional and a
+  // bare `??` chain would claim this can never be null while being undefined on an
+  // empty list.
+  const selectedConnection =
+    connections.find((c) => c.id === selectedId) ?? (connections.length > 0 ? connections[0] : null);
+  const [operationLog, setOperationLog] = useState<OperationLogEntry[]>([]);
+  const [confirmKill, setConfirmKill] = useState<ActiveSessionDetails | null>(null);
+  const [killingPid, setKillingPid] = useState<number | string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  /*
+    The object an Explorer deep link named (`onOpenMaintenance("tables", object.path)` →
+    /admin/operations?path=…&path=…). It seeds the filter and marks the row, so the named
+    row is the one the operator lands on (#459).
+
+    The link carries the ADDRESS, one parameter per segment, and it is read back with
+    `getAll` - the writer's inverse and nothing else, so no character inside a segment has to
+    be escaped by a rule the two could implement differently (#789, Task 35). It used to
+    carry `?table=<label>`, and a label is not unique: two containers holding one `customers`
+    marked both rows.
+
+    The list this page renders is per schema and per table, so the LAST segment is the row's
+    name and the one above it is the container the row declares as `schemaName` - the schema
+    on PostgreSQL, Oracle and SQL Server, the database on MySQL. A row is marked only when
+    both agree; an address whose container this engine spells differently marks nothing,
+    which is the honest answer where the alternative is marking a row the operator did not
+    ask for.
+  */
+  const deepLinkedPath = readObjectPathParam(useSearchParams());
+  const deepLinkedTable = deepLinkedPath === null ? null : (deepLinkedPath[deepLinkedPath.length - 1] ?? null);
+  const deepLinkedContainer = deepLinkedPath === null ? undefined : deepLinkedPath[deepLinkedPath.length - 2];
+  const isDeepLinkedRow = (table: TableStats): boolean =>
+    deepLinkedTable !== null &&
+    table.tableName === deepLinkedTable &&
+    (deepLinkedContainer === undefined || table.schemaName === deepLinkedContainer);
+
+  // Offer only the maintenance the connected provider declares it can perform:
+  // /api/db/maintenance rejects everything else with 400, so an ungated control can
+  // only produce an error (#282, the twin of the #272 gate on the monitoring Tables
+  // tab). Unknown capabilities hide the controls rather than showing them —
+  // `metadata` is also null when /api/db/provider-meta fails, and failing open
+  // would put the dead buttons back on exactly the connections this gate is for.
+  const { metadata } = useProviderMetadata(selectedConnection);
+
+  // Redis and the embedded engine declare `tablesAreDerivedGroupings`: their rows
+  // are key-prefix/namespace groupings, not addressable tables, so a Tables panel
+  // there could only ever read "Tables (0)". Both the request and the panel hang
+  // off that one capability — the same one TableItem reads — rather than a new
+  // flag. An unknown capability counts as addressable: every provider but those
+  // two has real tables, and metadata is also null while provider-meta is in
+  // flight.
+  const rowsAreAddressable = metadata?.capabilities.tablesAreDerivedGroupings !== true;
+
+  // `includeTables` is NOT gated on the flag above, and that is measured rather than an oversight.
+  // useMonitoringData fetches once per CONNECTION (its effect depends on [connection, fetchData],
+  // and fetchData reads its options through a ref), autoRefresh is off here, so the one request
+  // this tab makes is issued while `metadata` is still null and no later option change can reach
+  // it. Gating it would need either a shared-hook rewrite or making every engine's health and
+  // session panels wait on provider-meta first. The PANEL below is gated instead: that is where
+  // the empty "Tables (0)" a key-value provider used to render actually came from, and rendering
+  // is reactive so it settles as soon as the capability arrives.
+  const monitoringOptions = useMemo(() => ({ includeTables: true, includeIndexes: false, includeStorage: false }), []);
+
+  const { data, loading, error, refresh, killSession, runMaintenance } = useMonitoringData(
+    selectedConnection,
+    monitoringOptions,
+  );
+  // Both maintenance surfaces ask ONE question - `maintenanceControl` in
+  // src/lib/db/types.ts - so that neither can offer a control the other's engine
+  // rejects. `capabilities` may be undefined here (provider-meta in flight, or its
+  // request failed), which that helper reads as a denial.
+  const capabilities = metadata?.capabilities;
+  const offers = (type: MaintenanceType, placement: "perEntity" | "global") =>
+    maintenanceControl(capabilities, type, placement).offered;
+  // The six analyze/vacuum global ProviderLabels fields were declared, set by
+  // seven providers, and read by no component, so every engine rendered
+  // Postgres's query-planner copy (#427).
+  //
+  // Which card each provider's wording reaches follows from the gates below, not from
+  // the labels: the analyze card renders wherever `analyze` has a whole-database form,
+  // so Redis says "Server Info" and MongoDB "Validate Collections", while the vacuum
+  // card follows `vacuumActionOperation` and now reaches SQL Server's, Oracle's and
+  // MySQL's own wording too.
+  //
+  // The `??` fallbacks stay: `metadata` may carry capabilities without labels.
+  const labels = metadata?.labels;
+  // The vacuum CARD is the provider's vacuum wording, and four engines point that
+  // wording at an operation that is not `vacuum` (`vacuumActionOperation`, #U9). It is
+  // the operation - not the label - that decides whether the card renders and what the
+  // button sends: gating the card on the literal `vacuum` is what kept SQL Server's,
+  // Oracle's, MySQL's and ClickHouse's own words written and never shown, and sending
+  // `vacuum` to any of those four is a 400 from /api/db/maintenance.
+  const vacuumOperation = labels?.vacuumActionOperation ?? "vacuum";
+  const globalAnalyze = offers("analyze", "global");
+  const globalVacuum = offers(vacuumOperation, "global");
+  // Never twice: where the vacuum slot already names `reindex`, this card would send
+  // the same operation under a second set of words.
+  const globalReindex = vacuumOperation !== "reindex" && offers("reindex", "global");
+  const anyMaintenance = globalAnalyze || globalVacuum || globalReindex;
+
+  // The per-row controls, in the provider's own words.
+  const tableActions = TABLE_ACTIONS.flatMap((action) => {
+    const control = maintenanceControl(capabilities, action.type, "perEntity");
+    return control.offered ? [{ ...action, label: control.label ?? action.label }] : [];
+  });
+
+  const handleConnectionChange = (id: string) => {
+    const conn = connections.find((c) => c.id === id);
+    if (conn) setSelectedId(conn.id);
+  };
+
+  const addLogEntry = useCallback(
+    (type: string, target: string, result: "success" | "failure", duration: number, error?: string) => {
+      setOperationLog((prev) =>
+        [
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            timestamp: new Date(),
+            type,
+            target,
+            result,
+            duration,
+            error,
+          },
+          ...prev,
+        ].slice(0, 50),
+      );
+    },
+    [],
+  );
+
+  const handleRunMaintenance = async (type: string, target?: string) => {
+    const actionId = `${type}-${target || "global"}`;
+    setActionLoading(actionId);
+    const start = Date.now();
+    try {
+      const success = await runMaintenance(type, target);
+      const duration = Date.now() - start;
+      addLogEntry(type.toUpperCase(), target || "all", success ? "success" : "failure", duration);
+    } catch {
+      const duration = Date.now() - start;
+      addLogEntry(type.toUpperCase(), target || "all", "failure", duration);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleKillClick = (session: ActiveSessionDetails) => {
+    setConfirmKill(session);
+  };
+
+  const handleConfirmKill = async () => {
+    if (!confirmKill) return;
+    setKillingPid(confirmKill.pid);
+    setConfirmKill(null);
+    const start = Date.now();
+    const success = await killSession(confirmKill.pid);
+    const duration = Date.now() - start;
+    addLogEntry("KILL", `PID:${confirmKill.pid}`, success ? "success" : "failure", duration);
+    setKillingPid(null);
+  };
+
+  const sessions = data?.activeSessions ?? [];
+  const tables = data?.tables ?? [];
+
+  // A panel whose read failed is absent from the payload with its own message under
+  // `errors`, and that is a different fact from an empty answer: rendering it as data
+  // would claim a measurement the engine refused to make. The whole-dashboard error state
+  // is not right either - the other panels answered - so this panel alone carries the
+  // engine's own sentence. See MonitoringData in src/lib/db/types.ts.
+  const sessionsUnavailable = data?.activeSessions === undefined ? data?.errors?.activeSessions : undefined;
+  const tablesUnavailable = data?.tables === undefined ? data?.errors?.tables : undefined;
+  const [tableSearch, setTableSearch] = useState(deepLinkedTable ?? "");
+  const filteredTables = tables.filter((t) => t.tableName.toLowerCase().includes(tableSearch.toLowerCase()));
+
+  // U22. Both halves have to be true for the dead end: the engine declares a control
+  // that takes ONE table, and this page has no row to offer it on. Which absence it is
+  // decides what the note may say:
+  //  - the deep link named a table and no row here matches it, so the name can be stated;
+  //  - or the read was refused / the engine published no statistics while its own
+  //    overview counts tables - the same reading `TablesTab` uses - and no name is known.
+  // A database that genuinely holds no tables is neither: there is nothing to maintain
+  // and nothing to explain. An empty list the operator's OWN filter produced is neither
+  // either, which is why the deep-link arm requires the filter to still hold the param.
+  const deepLinkRowMissing =
+    deepLinkedTable !== null &&
+    deepLinkedTable !== "" &&
+    tableSearch === deepLinkedTable &&
+    filteredTables.length === 0;
+  const tableStatsAbsent =
+    tablesUnavailable !== undefined || (tables.length === 0 && (data?.overview?.tableCount ?? 0) > 0);
+  const maintenanceUnreachable =
+    tableActions.length > 0 && filteredTables.length === 0 && (deepLinkRowMissing || tableStatsAbsent);
+
+  const activeCount = sessions.filter((s) => s.state === "active").length;
+  const idleCount = sessions.filter((s) => s.state === "idle").length;
+  const idleInTxCount = sessions.filter((s) => s.state?.includes("idle in transaction")).length;
+  const waitingCount = sessions.filter((s) => s.waitEventType).length;
+
+  const getStateBadge = (state: string) => {
+    switch (state) {
+      case "active":
+        return (
+          <Badge className="bg-hue-green-tint/10 text-hue-green border border-hue-green-tint/20 text-[0.625rem]">
+            Active
+          </Badge>
+        );
+      case "idle":
+        return (
+          <Badge variant="secondary" className="text-[0.625rem]">
+            Idle
+          </Badge>
+        );
+      case "idle in transaction":
+        return (
+          <Badge className="bg-hue-yellow-tint/10 text-hue-yellow border border-hue-yellow-tint/20 text-[0.625rem]">
+            Idle TX
+          </Badge>
+        );
+      case "idle in transaction (aborted)":
+        return (
+          <Badge className="bg-hue-red-tint/10 text-hue-red border border-hue-red-tint/20 text-[0.625rem]">Abort</Badge>
+        );
+      default:
+        return (
+          <Badge variant="outline" className="text-[0.625rem]">
+            {state}
+          </Badge>
+        );
+    }
+  };
+
+  if (connections.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 text-center">
+        <Database className="h-12 w-12 text-fg-faint mb-4" />
+        <h3 className="text-lg font-semibold text-fg-secondary mb-2">No Database Connections</h3>
+        <p className="text-fg-muted text-sm">Please add a database connection from the editor first.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Connection Selector */}
+      <div className="flex items-center justify-between">
+        <Select value={selectedConnection?.id || ""} onValueChange={handleConnectionChange}>
+          <SelectTrigger className="w-full sm:w-[280px] bg-panel border-hairline-strong text-fg-secondary">
+            <SelectValue placeholder="Select connection">
+              {selectedConnection ? (
+                <div className="flex items-center gap-2">
+                  <Database className="h-4 w-4 flex-shrink-0" />
+                  <span className="truncate">{selectedConnection.name}</span>
+                  <span className="text-xs text-fg-muted hidden sm:inline">({selectedConnection.type})</span>
+                </div>
+              ) : (
+                "Select connection"
+              )}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {connections.map((conn) => (
+              <SelectItem key={conn.id} value={conn.id}>
+                <div className="flex items-center gap-2">
+                  <Database className="h-4 w-4" />
+                  <span>{conn.name}</span>
+                  <span className="text-xs text-muted-foreground">({conn.type})</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 text-fg-muted hover:text-fg-secondary"
+          onClick={refresh}
+          disabled={loading}
+        >
+          <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
+      </div>
+
+      {error && !data && (
+        <div className="rounded-xl border border-danger-tint/20 bg-danger-tint/5 p-4 text-danger text-sm">{error}</div>
+      )}
+
+      {/* Global Operations — hidden entirely where not one operation has a
+          whole-database form. On Couchbase every operation needs a keyspace, so this
+          section is absent rather than three cards that answer "requires a
+          target" (#496). */}
+      {anyMaintenance && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <ShieldAlert className="h-4 w-4 text-brand" />
+            <h3 className="text-sm font-bold text-fg-secondary">Global Operations</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Analyze */}
+            {globalAnalyze && (
+              <div className="p-4 rounded-xl border border-hairline bg-fill-subtle hover:bg-fill transition-colors">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="w-8 h-8 rounded-lg bg-hue-yellow-tint/10 border border-hue-yellow-tint/20 flex items-center justify-center">
+                    <Zap className="w-4 h-4 text-hue-yellow" />
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-hairline-strong hover:bg-hue-yellow-tint/10 hover:text-hue-yellow"
+                    onClick={() => handleRunMaintenance("analyze")}
+                    disabled={!!actionLoading || !selectedConnection}
+                  >
+                    {actionLoading === "analyze-global" ? <RefreshCw className="w-3 h-3 animate-spin mr-1" /> : null}
+                    {labels?.analyzeGlobalLabel ?? "Run Analyze"}
+                  </Button>
+                </div>
+                <h4 className="text-sm font-bold text-fg mb-1">{labels?.analyzeGlobalTitle ?? "Update Statistics"}</h4>
+                <p className="text-xs text-fg-muted leading-relaxed">
+                  {labels?.analyzeGlobalDesc ?? "Updates query planner statistics for all tables."}
+                </p>
+              </div>
+            )}
+
+            {/* Vacuum */}
+            {globalVacuum && (
+              <div className="p-4 rounded-xl border border-hairline bg-fill-subtle hover:bg-fill transition-colors">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="w-8 h-8 rounded-lg bg-hue-blue-tint/10 border border-hue-blue-tint/20 flex items-center justify-center">
+                    <HardDrive className="w-4 h-4 text-hue-blue" />
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-hairline-strong hover:bg-hue-blue-tint/10 hover:text-hue-blue"
+                    onClick={() => handleRunMaintenance(vacuumOperation)}
+                    disabled={!!actionLoading || !selectedConnection}
+                  >
+                    {actionLoading === `${vacuumOperation}-global` ? (
+                      <RefreshCw className="w-3 h-3 animate-spin mr-1" />
+                    ) : null}
+                    {labels?.vacuumGlobalLabel ?? "Run Vacuum"}
+                  </Button>
+                </div>
+                <h4 className="text-sm font-bold text-fg mb-1">{labels?.vacuumGlobalTitle ?? "Reclaim Space"}</h4>
+                <p className="text-xs text-fg-muted leading-relaxed">
+                  {labels?.vacuumGlobalDesc ?? "Removes dead rows and returns space to the OS."}
+                </p>
+              </div>
+            )}
+
+            {/* Reindex — the triad is OPTIONAL on ProviderLabels (only the three
+                providers that declare the `reindex` operation set it), so the
+                hardcoded strings below stay as the fallback (#464). Withheld where the
+                vacuum slot above already names `reindex`: one operation, two sets of
+                words, is a second card that does the same thing (#496). */}
+            {globalReindex && (
+              <div className="p-4 rounded-xl border border-hairline bg-fill-subtle hover:bg-fill transition-colors">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="w-8 h-8 rounded-lg bg-hue-purple-tint/10 border border-hue-purple-tint/20 flex items-center justify-center">
+                    <RefreshCw className="w-4 h-4 text-hue-purple" />
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-hairline-strong hover:bg-hue-purple-tint/10 hover:text-hue-purple"
+                    onClick={() => handleRunMaintenance("reindex")}
+                    disabled={!!actionLoading || !selectedConnection}
+                  >
+                    {actionLoading === "reindex-global" ? <RefreshCw className="w-3 h-3 animate-spin mr-1" /> : null}
+                    {labels?.reindexGlobalLabel ?? "Run Reindex"}
+                  </Button>
+                </div>
+                <h4 className="text-sm font-bold text-fg mb-1">{labels?.reindexGlobalTitle ?? "Rebuild Indexes"}</h4>
+                <p className="text-xs text-fg-muted leading-relaxed">
+                  {labels?.reindexGlobalDesc ?? "Reconstructs all indexes in the database."}
+                </p>
+              </div>
+            )}
+
+            {/* Warning Card */}
+            <div className="p-4 rounded-xl border border-danger-tint/10 bg-danger-tint/5 flex flex-col justify-center">
+              <div className="flex items-center gap-2 text-danger mb-2">
+                <ShieldAlert className="w-4 h-4" />
+                <span className="text-xs font-bold uppercase tracking-wider">Warning</span>
+              </div>
+              <p className="text-xs text-danger/70 leading-relaxed italic">
+                These operations can be resource-intensive. Avoid running them during peak traffic hours.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tables + Sessions Split */}
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Table Operations — absent where the provider's rows are derived groupings */}
+        {rowsAreAddressable && (
+          <div className="rounded-xl border border-hairline bg-panel">
+            <div className="p-4 border-b border-hairline flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Table2 className="w-4 h-4 text-brand" />
+                <span className="text-xs font-bold text-fg-secondary">
+                  {tablesUnavailable ? "Tables" : `Tables (${tables.length})`}
+                </span>
+              </div>
+              <Input
+                placeholder="Filter..."
+                value={tableSearch}
+                onChange={(e) => setTableSearch(e.target.value)}
+                className="w-[140px] h-7 text-xs bg-raised border-hairline-strong"
+              />
+            </div>
+            <div className="max-h-[350px] overflow-y-auto">
+              {loading && tables.length === 0 ? (
+                <div className="p-4 space-y-2">
+                  {[...Array(5)].map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-full bg-overlay" />
+                  ))}
+                </div>
+              ) : filteredTables.length === 0 ? (
+                <div className="p-8 text-center text-fg-subtle text-sm" data-testid="operations-tables-empty">
+                  {tablesUnavailable ?? "No tables found."}
+                </div>
+              ) : (
+                <div className="divide-y divide-hairline">
+                  {filteredTables.map((table) => (
+                    <div
+                      key={`${table.schemaName}.${table.tableName}`}
+                      data-selected={isDeepLinkedRow(table) ? "true" : undefined}
+                      className={`group flex items-center justify-between px-4 py-2 hover:bg-fill transition-colors ${
+                        isDeepLinkedRow(table) ? "bg-fill" : ""
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-fg-secondary truncate max-w-[160px]">
+                          {table.tableName}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-fg-muted">
+                          <span className="font-mono">{table.rowCount.toLocaleString()} rows</span>
+                          <span>-</span>
+                          <span className="font-mono">{table.tableSize}</span>
+                          {(table.bloatRatio ?? 0) > 10 && (
+                            <Badge
+                              variant="outline"
+                              className="text-[0.625rem] text-hue-yellow border-hue-yellow-tint/20 h-4"
+                            >
+                              {(table.bloatRatio ?? 0).toFixed(0)}% bloat
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {tableActions.map(({ type, label, Icon, hover }) => (
+                          <Button
+                            key={type}
+                            size="icon"
+                            variant="ghost"
+                            className={`w-7 h-7 text-fg-muted ${hover}`}
+                            title={label}
+                            onClick={() => handleRunMaintenance(type, table.tableName)}
+                            disabled={!!actionLoading}
+                          >
+                            {actionLoading === `${type}-${table.tableName}` ? (
+                              <LoaderCircle className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Icon className="w-3 h-3" />
+                            )}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {maintenanceUnreachable && (
+              <TableMaintenanceUnreachableNote
+                actions={tableActions.map((a) => a.label)}
+                missingTable={deepLinkRowMissing ? deepLinkedTable : null}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Session Manager */}
+        <div className="rounded-xl border border-hairline bg-panel">
+          <div className="p-4 border-b border-hairline">
+            <div className="flex items-center gap-2 mb-3">
+              <Users className="w-4 h-4 text-hue-green" />
+              <span className="text-xs font-bold text-fg-secondary">
+                {sessionsUnavailable ? "Sessions" : `Sessions (${sessions.length})`}
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              <div className="rounded-lg bg-fill p-2 text-center">
+                <div className="text-lg font-bold text-fg tabular-nums">{activeCount}</div>
+                <div className="text-[0.625rem] text-fg-muted uppercase font-bold">Active</div>
+              </div>
+              <div className="rounded-lg bg-fill p-2 text-center">
+                <div className="text-lg font-bold text-fg tabular-nums">{idleCount}</div>
+                <div className="text-[0.625rem] text-fg-muted uppercase font-bold">Idle</div>
+              </div>
+              <div className="rounded-lg bg-fill p-2 text-center">
+                <div className={`text-lg font-bold tabular-nums ${idleInTxCount > 0 ? "text-hue-yellow" : "text-fg"}`}>
+                  {idleInTxCount}
+                </div>
+                <div className="text-[0.625rem] text-fg-muted uppercase font-bold">In TX</div>
+              </div>
+              <div className="rounded-lg bg-fill p-2 text-center">
+                <div className={`text-lg font-bold tabular-nums ${waitingCount > 0 ? "text-hue-orange" : "text-fg"}`}>
+                  {waitingCount}
+                </div>
+                <div className="text-[0.625rem] text-fg-muted uppercase font-bold">Wait</div>
+              </div>
+            </div>
+          </div>
+          <div className="max-h-[280px] overflow-y-auto">
+            {loading && sessions.length === 0 ? (
+              <div className="p-4 space-y-2">
+                {[...Array(4)].map((_, i) => (
+                  <Skeleton key={i} className="h-10 w-full bg-overlay" />
+                ))}
+              </div>
+            ) : sessions.length === 0 ? (
+              <div className="p-8 text-center text-fg-subtle text-sm" data-testid="operations-sessions-empty">
+                {/* The order is deliberate: `sessionsUnavailable` is set only when the
+                    READ failed, while `sessionsEmptyState` explains an engine that
+                    publishes no session list at all (#518). */}
+                {sessionsUnavailable ?? labels?.sessionsEmptyState ?? "No active sessions found."}
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-hairline hover:bg-transparent">
+                    <TableHead className="text-xs text-fg-muted font-bold uppercase w-[60px]">PID</TableHead>
+                    <TableHead className="text-xs text-fg-muted font-bold uppercase">User</TableHead>
+                    <TableHead className="text-xs text-fg-muted font-bold uppercase">State</TableHead>
+                    <TableHead className="text-xs text-fg-muted font-bold uppercase hidden md:table-cell">
+                      Query
+                    </TableHead>
+                    <TableHead className="text-xs text-fg-muted font-bold uppercase">Time</TableHead>
+                    <TableHead className="text-right text-xs text-fg-muted font-bold uppercase w-10">Act</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sessions.map((session) => (
+                    <TableRow key={session.pid} className="group border-hairline hover:bg-fill">
+                      <TableCell className="font-mono text-xs text-fg-tertiary py-2">{session.pid}</TableCell>
+                      <TableCell className="py-2">
+                        <span className="text-xs text-fg-secondary truncate max-w-[80px] block">{session.user}</span>
+                      </TableCell>
+                      <TableCell className="py-2">{getStateBadge(session.state)}</TableCell>
+                      <TableCell className="font-mono text-xs text-fg-muted hidden md:table-cell py-2">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="max-w-[120px] truncate cursor-help">{session.query || "-"}</div>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-lg">
+                              <pre className="text-xs whitespace-pre-wrap">{session.query || "No query"}</pre>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <Badge
+                          variant={
+                            session.durationMs > 60000
+                              ? "destructive"
+                              : session.durationMs > 10000
+                                ? "outline"
+                                : "secondary"
+                          }
+                          className="text-[0.625rem]"
+                        >
+                          {session.duration}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right py-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-fg-subtle hover:text-danger hover:bg-danger-tint/10 opacity-0 group-hover:opacity-100 transition-all"
+                          onClick={() => handleKillClick(session)}
+                          aria-label={`Terminate session ${session.pid}`}
+                          disabled={killingPid === session.pid}
+                        >
+                          {killingPid === session.pid ? (
+                            <LoaderCircle className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Skull className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Operation Log */}
+      {operationLog.length > 0 && (
+        <div className="rounded-xl border border-hairline bg-panel">
+          <div className="p-4 border-b border-hairline flex items-center gap-2">
+            <Clock className="w-4 h-4 text-fg-muted" />
+            <span className="text-xs font-bold text-fg-secondary">Operation Log (this session)</span>
+          </div>
+          <div className="max-h-[200px] overflow-y-auto divide-y divide-hairline">
+            {operationLog.map((entry) => (
+              <div key={entry.id} className="flex items-center gap-3 px-4 py-2 text-xs hover:bg-fill transition-colors">
+                <span className="text-fg-subtle font-mono text-xs w-[50px] shrink-0">
+                  {entry.timestamp.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+                <Badge
+                  variant="outline"
+                  className="text-[0.625rem] font-bold w-[70px] justify-center shrink-0 border-hairline-strong"
+                >
+                  {entry.type}
+                </Badge>
+                <span className="text-fg-tertiary font-mono truncate">{entry.target}</span>
+                <div className="ml-auto flex items-center gap-2 shrink-0">
+                  {entry.result === "success" ? (
+                    <CircleCheck className="w-3 h-3 text-success" />
+                  ) : (
+                    <CircleX className="w-3 h-3 text-danger" />
+                  )}
+                  <span className="text-fg-subtle font-mono text-xs">{entry.duration}ms</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Kill Session Confirmation Dialog */}
+      <AlertDialog open={!!confirmKill} onOpenChange={() => setConfirmKill(null)}>
+        <AlertDialogContent className="bg-surface border-hairline-strong">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-fg">Terminate Session?</AlertDialogTitle>
+            <AlertDialogDescription className="text-fg-tertiary">
+              Are you sure you want to terminate session{" "}
+              <span className="font-mono font-bold text-fg">{confirmKill?.pid}</span>
+              ?
+              <br />
+              <br />
+              User: <span className="font-medium text-fg-secondary">{confirmKill?.user}</span>
+              <br />
+              State: <span className="font-medium text-fg-secondary">{confirmKill?.state}</span>
+              <br />
+              <br />
+              This action will forcefully end the connection and may cause data loss if the session has uncommitted
+              transactions.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-hairline-strong text-fg-tertiary">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmKill}
+              className="bg-danger-solid text-white hover:bg-danger-solid-hover"
+            >
+              Terminate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}

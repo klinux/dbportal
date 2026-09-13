@@ -1,0 +1,78 @@
+import { withBasePath } from "@/lib/config/base-path";
+import { GeistMono } from "geist/font/mono";
+// Self-hosted Geist (the `geist` package wraps next/font/local around the woff2
+// files it ships). next/font/google would fetch fonts.googleapis.com at BUILD
+// time, so `next build` failed in offline or egress-restricted environments;
+// the rendered output is identical since Next self-hosts either way. The CSS
+// variable names must stay --font-geist-sans/mono: globals.css maps them to
+// --font-sans/--font-mono.
+import { GeistSans } from "geist/font/sans";
+import type { Metadata } from "next";
+import "./globals.css";
+import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
+
+const title = "LibreDB Studio | Universal Database Editor";
+const description =
+  "A self-hosted database management platform for SQL and NoSQL databases, with schema exploration, query tools, data import, and AI-assisted database development.";
+// Project previews use the public demo documented in README, including on private deployments.
+const siteUrl = "https://libredb.org";
+const previewImage = {
+  url: `https://raw.githubusercontent.com/libredb/libredb-studio/main/public/screenshots/hero-editor.png`,
+  alt: "LibreDB Studio SQL editor and query results",
+};
+
+export const metadata: Metadata = {
+  title,
+  description,
+  openGraph: {
+    type: "website",
+    url: siteUrl,
+    title,
+    description,
+    siteName: "LibreDB Studio",
+    images: [{ ...previewImage, width: 1440, height: 900 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description,
+    images: [previewImage],
+  },
+  manifest: withBasePath("/site.webmanifest"),
+  icons: {
+    icon: [
+      { url: withBasePath("/favicon.ico?v=2"), sizes: "any" },
+      { url: withBasePath("/logo.svg?v=2"), type: "image/svg+xml" },
+    ],
+    shortcut: withBasePath("/favicon.ico?v=2"),
+    apple: [{ url: withBasePath("/apple-touch-icon.png"), sizes: "180x180", type: "image/png" }],
+  },
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    // suppressHydrationWarning is scoped to <html>/<body> only: browser extensions
+    // (Grammarly, dark-mode injectors, ...) mutate attributes on these two elements
+    // before React hydrates. It suppresses attribute/text mismatches on THESE nodes
+    // alone — real hydration bugs inside {children} are still reported.
+    <html lang="en" suppressHydrationWarning>
+      {/*
+        The `dark` class used to be written here, which pinned standalone studio to
+        one theme. It is now owned by ThemeProvider, which writes it onto <html>
+        (`attribute="class"`) and restores the user's choice before paint.
+      */}
+      <body suppressHydrationWarning className={`${GeistSans.variable} ${GeistMono.variable} antialiased font-sans`}>
+        <ThemeProvider>
+          {children}
+          {/* No `theme` prop: Toaster reads next-themes itself, so it follows. */}
+          <Toaster position="bottom-right" />
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}

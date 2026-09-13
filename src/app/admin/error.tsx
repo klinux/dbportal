@@ -1,0 +1,38 @@
+"use client";
+
+import { withBasePath } from "@/lib/config/base-path";
+import { useEffect } from "react";
+
+export default function AdminError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  useEffect(() => {
+    console.error("[AdminErrorBoundary]", error.message, error.digest);
+  }, [error]);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-surface text-fg">
+      <div className="max-w-md text-center px-6">
+        <h1 className="text-xl font-semibold mb-2">Admin Dashboard Error</h1>
+        <p className="text-fg-tertiary mb-6 text-sm">
+          The admin dashboard encountered an error. You can try again or return to the main studio.
+        </p>
+        {error.digest && <p className="text-fg-subtle text-xs mb-4">Error ID: {error.digest}</p>}
+        <div className="flex gap-3 justify-center">
+          <button
+            onClick={reset}
+            className="px-5 py-2.5 bg-brand-solid hover:bg-brand-solid-active text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            Try Again
+          </button>
+          <button
+            onClick={() => {
+              window.location.href = withBasePath("/");
+            }}
+            className="px-5 py-2.5 border border-edge hover:border-edge-hover text-fg-secondary rounded-lg text-sm font-medium transition-colors"
+          >
+            Back to Studio
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

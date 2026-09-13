@@ -1,0 +1,227 @@
+/**
+ * The start path's model gate (#340).
+ *
+ * `probeAgentModel` establishes positively that a configured model calls tools, honours
+ * the schema its arguments are declared against, and streams — and until now nothing
+ * called it. Its own docblock claimed "the run service asks this module first", which
+ * was aspiration rather than description: an incapable model was discovered at its
+ * first tool call, after a run had opened and spent a drive answering in prose.
+ *
+ * Four decisions are pinned here, because B18 asks for them to be recorded rather than
+ * implied:
+ *
+ *  1. **Planning mode is not probed.** That mode is toolless by contract, so tool
+ *     calling is not a capability it needs. Probing it would spend a model round trip
+ *     to answer a question the mode does not ask.
+ *  2. **Only an ESTABLISHED incapability refuses.** The probe THROWS for a bad key, a
+ *     quota, a 5xx or a dropped socket — none of which say anything about the model —
+ *     and the gate lets those through rather than adding a failure mode to the start
+ *     path. The drive then reports them honestly (`model-rate-limited`,
+ *     `model-unavailable`), which it did not do before Phase A and does now.
+ *  3. **Positive verdicts are cached; nothing else is.** A model that called a tool
+ *     will keep calling tools, so paying for that round trip once is enough. A refusal
+ *     is not cached because an operator can fix the server without changing the model
+ *     id — an `ollama` endpoint serving something else under the same name is the case
+ *     — and the cost of re-probing falls only on someone whose runs are already
+ *     failing.
+ *  4. **The key is the model's identity**, so a configuration change misses the cache
+ *     by construction instead of needing an invalidation hook.
+ */
+
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { LLMConfigError, LLMRateLimitError } from "@/lib/llm/types";
+import type { AgentModel } from "@/lib/agent/model-adapter";
+import type { AgentCapabilityProbeResult } from "@/lib/agent/capability-probe";
+
+const probeAgentModel = mock<(model: AgentModel) => Promise<AgentCapabilityProbeResult>>(async () => ({
+  supported: true,
+  capabilities: { toolCalling: true, structuredOutput: true, streaming: true },
+}));
+
+mock.module("@/lib/agent/capability-probe", () => ({ probeAgentModel }));
+
+const model = (modelId = "gemini-3.5-flash-lite"): AgentModel =>
+  ({ provider: "gemini", modelId, model: {} }) as unknown as AgentModel;
+
+const createAgentModel = mock<() => Promise<AgentModel>>(async () => model());
+
+mock.module("@/lib/agent/model-adapter", () => ({ createAgentModel }));
+
+const { admitAgentModel, resetAgentCapabilityCache } = await import("@/lib/agent/capability-gate");
+
+const REFUSAL = {
+  supported: false as const,
+  refusal: {
+    provider: "gemini" as const,
+    modelId: "gemini-3.5-flash-lite",
+    capabilities: { toolCalling: false, structuredOutput: false, streaming: true },
+    missing: ["toolCalling" as const],
+    // The model streamed prose instead of calling the tool, so this shortfall was
+    // watched rather than merely unobserved (`capability-probe.ts`).
+    disproved: ["toolCalling" as const],
+    message: "This model does not call tools. Configure a different model and start the run again.",
+  },
+};
+
+beforeEach(() => {
+  resetAgentCapabilityCache();
+  probeAgentModel.mockClear();
+  createAgentModel.mockClear();
+  createAgentModel.mockImplementation(async () => model());
+  probeAgentModel.mockImplementation(async () => ({
+    supported: true,
+    capabilities: { toolCalling: true, structuredOutput: true, streaming: true },
+  }));
+});
+
+afterEach(() => {
+  resetAgentCapabilityCache();
+});
+
+describe("the model gate on the start path", () => {
+  test("a planning run is admitted without spending a model call", async () => {
+    const verdict = await admitAgentModel("planning");
+
+    expect(verdict.kind).toBe("allowed");
+    expect(probeAgentModel).not.toHaveBeenCalled();
+  });
+
+  test("an agent run is probed, and admitted when the model can drive one", async () => {
+    const verdict = await admitAgentModel("agent");
+
+    expect(verdict.kind).toBe("allowed");
+    expect(probeAgentModel).toHaveBeenCalledTimes(1);
+  });
+
+  test("a model that only lacks tool calling is admitted to drive the run in prose", async () => {
+    // The reasoning-distill case, measured: the endpoint streams and the model reasons
+    // well, it simply never emits `tool_calls`. Refusing it threw away a model that
+    // produced the correct call 15 times out of 15 when asked for one in prose.
+    probeAgentModel.mockImplementation(async () => REFUSAL);
+
+    const verdict = await admitAgentModel("agent");
+
+    expect(verdict).toMatchObject({ kind: "allowed", protocol: "prompted" });
+  });
+
+  test("a model whose endpoint never streamed is still refused, because prose needs a stream too", async () => {
+    probeAgentModel.mockImplementation(async () => ({
+      ...REFUSAL,
+      refusal: {
+        ...REFUSAL.refusal,
+        capabilities: { toolCalling: false, structuredOutput: false, streaming: false },
+        missing: ["toolCalling" as const, "streaming" as const],
+      },
+    }));
+
+    const verdict = await admitAgentModel("agent");
+
+    expect(verdict.kind).toBe("refused");
+  });
+
+  test("a model that can call tools is admitted on the native protocol, unchanged", async () => {
+    const verdict = await admitAgentModel("agent");
+
+    expect(verdict).toMatchObject({ kind: "allowed", protocol: "native" });
+  });
+
+  test("a planning run names no protocol, because it is offered no tools at all", async () => {
+    expect(await admitAgentModel("planning")).toEqual({ kind: "allowed", protocol: "native" });
+  });
+
+  test("schema-valid arguments counted as missing do not refuse, since there were none to validate", async () => {
+    // The shape a real refusal has: two missing, one disproved. A model that called no
+    // tool sent no arguments, so `structuredOutput` is unestablished as a CONSEQUENCE
+    // rather than as a second thing watched to fail — which is why the admission reads
+    // `disproved`. Requiring one entry in `missing` rejected every size of that family.
+    probeAgentModel.mockImplementation(async () => ({
+      ...REFUSAL,
+      refusal: {
+        ...REFUSAL.refusal,
+        missing: ["toolCalling" as const, "structuredOutput" as const],
+        disproved: ["toolCalling" as const],
+      },
+    }));
+
+    expect(await admitAgentModel("agent")).toMatchObject({ kind: "allowed", protocol: "prompted" });
+  });
+
+  test("a model whose arguments were watched to fail is refused, because prose cannot fix a schema", async () => {
+    probeAgentModel.mockImplementation(async () => ({
+      ...REFUSAL,
+      refusal: {
+        ...REFUSAL.refusal,
+        capabilities: { toolCalling: true, structuredOutput: false, streaming: true },
+        missing: ["structuredOutput" as const],
+        disproved: ["structuredOutput" as const],
+      },
+    }));
+
+    const verdict = await admitAgentModel("agent");
+
+    expect(verdict).toMatchObject({ kind: "refused", refusal: { missing: ["structuredOutput"] } });
+  });
+
+  test("a probe that says nothing about the model admits the run", async () => {
+    // A quota is not a capability. Refusing here would replace an honest run-level
+    // failure with a start-level one, for a condition that clears itself.
+    probeAgentModel.mockImplementation(async () => {
+      throw new LLMRateLimitError("quota exceeded", "gemini");
+    });
+
+    const verdict = await admitAgentModel("agent");
+
+    expect(verdict.kind).toBe("allowed");
+  });
+
+  test("a capable model is probed once, however many runs follow", async () => {
+    await admitAgentModel("agent");
+    await admitAgentModel("agent");
+    await admitAgentModel("agent");
+
+    expect(probeAgentModel).toHaveBeenCalledTimes(1);
+  });
+
+  test("a refusal is re-probed, because the operator may have fixed the server", async () => {
+    // A shortfall the prose path cannot rescue either, so this one really refuses.
+    probeAgentModel.mockImplementation(async () => ({
+      ...REFUSAL,
+      refusal: {
+        ...REFUSAL.refusal,
+        capabilities: { toolCalling: false, structuredOutput: false, streaming: false },
+        missing: ["toolCalling" as const, "streaming" as const],
+      },
+    }));
+    expect((await admitAgentModel("agent")).kind).toBe("refused");
+
+    probeAgentModel.mockImplementation(async () => ({
+      supported: true,
+      capabilities: { toolCalling: true, structuredOutput: true, streaming: true },
+    }));
+    expect((await admitAgentModel("agent")).kind).toBe("allowed");
+    expect(probeAgentModel).toHaveBeenCalledTimes(2);
+  });
+
+  test("a different model is a different question", async () => {
+    // The cache key IS the configuration, so changing the model misses it without any
+    // invalidation hook — which is the point of keying it that way.
+    createAgentModel.mockImplementationOnce(async () => model("gemini-3.5-pro"));
+    await admitAgentModel("agent");
+    await admitAgentModel("agent");
+
+    expect(probeAgentModel).toHaveBeenCalledTimes(2);
+  });
+
+  test("a model that cannot even be built admits the run", async () => {
+    // An unconfigured provider says nothing about a model's capabilities, and the start
+    // path must not gain a way to fail that it did not have.
+    createAgentModel.mockImplementationOnce(async () => {
+      throw new LLMConfigError("Gemini API key is required", "gemini");
+    });
+
+    const verdict = await admitAgentModel("agent");
+
+    expect(verdict.kind).toBe("allowed");
+    expect(probeAgentModel).not.toHaveBeenCalled();
+  });
+});

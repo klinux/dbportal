@@ -1,0 +1,332 @@
+#!/usr/bin/env node
+
+import fs from "node:fs";
+import path from "node:path";
+
+function ensureParentDir(filePath) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function parseLcov(content) {
+  const records = [];
+  const rawRecords = content.split("end_of_record");
+
+  for (const raw of rawRecords) {
+    const lines = raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) {
+      continue;
+    }
+
+    const record = {
+      sf: "",
+      functions: new Map(),
+      functionHits: new Map(),
+      lines: new Map(),
+      branches: new Map(),
+    };
+
+    for (const line of lines) {
+      if (line.startsWith("SF:")) {
+        record.sf = line.slice(3);
+        continue;
+      }
+
+      if (line.startsWith("FN:")) {
+        const payload = line.slice(3);
+        const commaIndex = payload.indexOf(",");
+        if (commaIndex >= 0) {
+          const lineNumber = Number(payload.slice(0, commaIndex));
+          const functionName = payload.slice(commaIndex + 1);
+          record.functions.set(functionName, Number.isFinite(lineNumber) ? lineNumber : 0);
+        }
+        continue;
+      }
+
+      if (line.startsWith("FNDA:")) {
+        const payload = line.slice(5);
+        const commaIndex = payload.indexOf(",");
+        if (commaIndex >= 0) {
+          const hits = Number(payload.slice(0, commaIndex)) || 0;
+          const functionName = payload.slice(commaIndex + 1);
+          record.functionHits.set(functionName, hits);
+        }
+        continue;
+      }
+
+      if (line.startsWith("DA:")) {
+        const payload = line.slice(3);
+        const commaIndex = payload.indexOf(",");
+        if (commaIndex >= 0) {
+          const lineNumber = Number(payload.slice(0, commaIndex));
+          const hits = Number(payload.slice(commaIndex + 1)) || 0;
+          if (Number.isFinite(lineNumber)) {
+            record.lines.set(lineNumber, hits);
+          }
+        }
+        continue;
+      }
+
+      if (line.startsWith("BRDA:")) {
+        const payload = line.slice(5);
+        const [lineNoRaw, blockNoRaw, branchNoRaw, takenRaw] = payload.split(",");
+        const lineNo = Number(lineNoRaw);
+        const blockNo = Number(blockNoRaw);
+        const branchNo = Number(branchNoRaw);
+        const key = `${lineNo},${blockNo},${branchNo}`;
+        const taken = takenRaw === "-" ? -1 : Number(takenRaw) || 0;
+        if (Number.isFinite(lineNo) && Number.isFinite(blockNo) && Number.isFinite(branchNo)) {
+          record.branches.set(key, taken);
+        }
+      }
+    }
+
+    if (record.sf) {
+      records.push(record);
+    }
+  }
+
+  return records;
+}
+
+function mergeRecords(inputRecords) {
+  const byFile = new Map();
+
+  for (const record of inputRecords) {
+    const group = byFile.get(record.sf);
+    if (group) {
+      group.push(record);
+    } else {
+      byFile.set(record.sf, [record]);
+    }
+  }
+
+  return [...byFile.entries()]
+    .map(([sf, records]) => mergeFileRecords(sf, records))
+    .sort((a, b) => a.sf.localeCompare(b.sf));
+}
+
+/**
+ * bun's per-process lcov granularity is per-FUNCTION (V8 semantics): functions
+ * that executed get a precise executable-line map, while functions that never
+ * ran in that process are reported as coarse whole-span blocks whose DA set
+ * also includes type annotations, JSX text lines, and other non-executable
+ * lines. A process that loads a module without exercising it (a mocked-away
+ * child, a transitive import) therefore emits extra zero-hit lines that no
+ * exercising process considers coverable, and a naive per-line union surfaces
+ * them as phantom uncovered lines (observed: 41 phantom lines across
+ * DataCharts/MaskingSettings/VisualExplain before this rule existed).
+ *
+ * Merge rule: the record with the most EXECUTED lines is the authority for
+ * which lines are coverable (its map is the finest available); per-line hit
+ * counts still take the max across ALL records, so coverage contributed by
+ * secondary processes (e.g. the mobile-drawer group for a component whose
+ * main group renders desktop) is preserved.
+ */
+function mergeFileRecords(sf, records) {
+  const hitLineCount = (record) => [...record.lines.values()].filter((hits) => hits > 0).length;
+  let authority = records[0];
+  for (const record of records) {
+    const a = hitLineCount(authority);
+    const b = hitLineCount(record);
+    // Tie-break on the smaller line map: with equal executed lines the finer
+    // (more-exercised) map claims fewer lines as coverable.
+    if (b > a || (b === a && record.lines.size < authority.lines.size)) {
+      authority = record;
+    }
+  }
+
+  const merged = {
+    sf,
+    functions: new Map(),
+    functionHits: new Map(),
+    lines: new Map(),
+    branches: new Map(),
+  };
+
+  for (const lineNo of authority.lines.keys()) {
+    let best = 0;
+    for (const record of records) {
+      const hits = record.lines.get(lineNo);
+      if (hits !== undefined && hits > best) {
+        best = hits;
+      }
+    }
+    merged.lines.set(lineNo, best);
+  }
+
+  for (const record of records) {
+    for (const [fnName, fnLine] of record.functions.entries()) {
+      if (!merged.functions.has(fnName)) {
+        merged.functions.set(fnName, fnLine);
+      }
+    }
+
+    for (const [fnName, hits] of record.functionHits.entries()) {
+      const prevHits = merged.functionHits.get(fnName) || 0;
+      merged.functionHits.set(fnName, Math.max(prevHits, hits));
+    }
+
+    for (const [key, taken] of record.branches.entries()) {
+      const prevTaken = merged.branches.has(key) ? merged.branches.get(key) : -1;
+      if (prevTaken === -1 && taken !== -1) {
+        merged.branches.set(key, taken);
+      } else if (prevTaken !== -1 && taken === -1) {
+        merged.branches.set(key, prevTaken);
+      } else {
+        merged.branches.set(key, Math.max(prevTaken, taken));
+      }
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Bun's lcov reporter emits DA (line) entries for non-executable lines —
+ * blank lines, comments, and bare structural punctuation (`}`, `});`, ...).
+ * Standard coverage tools (istanbul/nyc) never count these, but SonarCloud
+ * treats every DA line as coverable, so they show up as permanently-uncovered
+ * "new code" and sink the new-code coverage gate. Strip them based on the
+ * actual source, so coverage reflects executable lines only.
+ */
+function isNonExecutableLine(src) {
+  const t = src.trim();
+  if (t === "") return true; // blank
+  if (t.startsWith("//")) return true; // line comment
+  if (t.startsWith("/*")) return true; // block comment opener
+  if (t === "*/" || /^\*( |$|\/)/.test(t)) return true; // JSDoc / block comment body
+  if (/^[{}()[\];,>]+$/.test(t)) return true; // bare structural punctuation (incl. JSX `>` bracket lines)
+  if (/^\{\/\*.*\*\/\}$/.test(t)) return true; // single-line JSX comment `{/* ... */}`
+  if (t === "default:") return true; // switch default label (bun never credits label lines)
+  if (t === ") : (") return true; // multi-line ternary connector
+  return false;
+}
+
+function stripNonExecutableLines(records) {
+  for (const record of records) {
+    let sourceLines;
+    try {
+      sourceLines = fs.readFileSync(record.sf, "utf8").split("\n");
+    } catch {
+      continue; // source unavailable — leave coverage as-is
+    }
+    for (const lineNo of [...record.lines.keys()]) {
+      const src = sourceLines[lineNo - 1];
+      if (src !== undefined && isNonExecutableLine(src)) {
+        record.lines.delete(lineNo);
+      }
+    }
+  }
+}
+
+function serializeRecords(records) {
+  const chunks = [];
+
+  for (const record of records) {
+    const lines = [];
+    lines.push(`SF:${record.sf}`);
+
+    const sortedFunctions = [...record.functions.entries()].sort((a, b) => a[1] - b[1]);
+    for (const [fnName, fnLine] of sortedFunctions) {
+      lines.push(`FN:${fnLine},${fnName}`);
+    }
+
+    for (const [fnName] of sortedFunctions) {
+      const hits = record.functionHits.get(fnName) || 0;
+      lines.push(`FNDA:${hits},${fnName}`);
+    }
+
+    const fnf = sortedFunctions.length;
+    const fnh = sortedFunctions.reduce(
+      (acc, [fnName]) => acc + ((record.functionHits.get(fnName) || 0) > 0 ? 1 : 0),
+      0,
+    );
+    lines.push(`FNF:${fnf}`);
+    lines.push(`FNH:${fnh}`);
+
+    const sortedLineEntries = [...record.lines.entries()].sort((a, b) => a[0] - b[0]);
+    for (const [lineNo, hits] of sortedLineEntries) {
+      lines.push(`DA:${lineNo},${hits}`);
+    }
+
+    const lf = sortedLineEntries.length;
+    const lh = sortedLineEntries.reduce((acc, [, hits]) => acc + (hits > 0 ? 1 : 0), 0);
+    lines.push(`LF:${lf}`);
+    lines.push(`LH:${lh}`);
+
+    if (record.branches.size > 0) {
+      const sortedBranchEntries = [...record.branches.entries()].sort((a, b) => {
+        const [aLine, aBlock, aBranch] = a[0].split(",").map(Number);
+        const [bLine, bBlock, bBranch] = b[0].split(",").map(Number);
+        if (aLine !== bLine) return aLine - bLine;
+        if (aBlock !== bBlock) return aBlock - bBlock;
+        return aBranch - bBranch;
+      });
+
+      for (const [key, taken] of sortedBranchEntries) {
+        const takenValue = taken < 0 ? "-" : String(taken);
+        lines.push(`BRDA:${key},${takenValue}`);
+      }
+
+      const brf = sortedBranchEntries.length;
+      const brh = sortedBranchEntries.reduce((acc, [, taken]) => acc + (taken > 0 ? 1 : 0), 0);
+      lines.push(`BRF:${brf}`);
+      lines.push(`BRH:${brh}`);
+    }
+
+    lines.push("end_of_record");
+    chunks.push(lines.join("\n"));
+  }
+
+  return chunks.join("\n");
+}
+
+function main() {
+  const [, , ...args] = process.argv;
+  if (args.length < 3) {
+    console.error("Usage: node scripts/merge-lcov.mjs <input1> <input2> [moreInputs...] <output>");
+    process.exit(1);
+  }
+
+  const outputPath = args[args.length - 1];
+  const inputPaths = args.slice(0, -1);
+  const allRecords = [];
+
+  for (const inputPath of inputPaths) {
+    const content = fs.readFileSync(inputPath, "utf8");
+    allRecords.push(...parseLcov(content));
+  }
+
+  const merged = mergeRecords(allRecords);
+
+  // Drop DA entries for non-executable lines (comments, blanks, bare braces)
+  // that bun over-reports and SonarCloud would otherwise count as uncovered.
+  stripNonExecutableLines(merged);
+
+  // Filter out non-source files that SonarCloud can't resolve:
+  // - tests/ and e2e/ directories (test infrastructure, not source)
+  // - src/components/ui/ (excluded in sonar.exclusions)
+  const filtered = merged.filter((r) => {
+    if (!r.sf.startsWith("src/")) return false;
+    if (r.sf.startsWith("src/components/ui/")) return false;
+    return true;
+  });
+
+  const skipped = merged.length - filtered.length;
+  if (skipped > 0) {
+    console.log(`Filtered ${skipped} non-source record(s) (tests/, src/components/ui/)`);
+  }
+
+  const serialized = serializeRecords(filtered);
+
+  ensureParentDir(outputPath);
+  fs.writeFileSync(outputPath, serialized ? `${serialized}\n` : "", "utf8");
+  console.log(`Merged ${inputPaths.length} LCOV file(s) into ${outputPath}`);
+  console.log(`Records: ${merged.length}`);
+}
+
+main();

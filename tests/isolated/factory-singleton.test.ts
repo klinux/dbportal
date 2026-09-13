@@ -1,0 +1,199 @@
+/**
+ * Factory singleton tests — isolated process required.
+ * Mocks provider modules to test getStorageProvider() and closeStorageProvider()
+ * without real database connections.
+ */
+import { describe, test, expect, beforeEach, mock } from "bun:test";
+
+// ── Mock providers ──────────────────────────────────────────────────────────
+
+const mockInitialize = mock(async () => {});
+const mockClose = mock(async () => {});
+const mockGetAllData = mock(async () => ({}));
+
+function makeMockProvider() {
+  return {
+    initialize: mockInitialize,
+    close: mockClose,
+    getAllData: mockGetAllData,
+    getCollection: mock(async () => null),
+    setCollection: mock(async () => {}),
+    mergeData: mock(async () => {}),
+    isHealthy: mock(async () => true),
+  };
+}
+
+const mockSQLiteInstance = makeMockProvider();
+const mockPostgresInstance = makeMockProvider();
+
+mock.module("@/lib/storage/providers/sqlite", () => ({
+  SQLiteStorageProvider: mock(() => mockSQLiteInstance),
+}));
+
+mock.module("@/lib/storage/providers/postgres", () => ({
+  PostgresStorageProvider: mock(() => mockPostgresInstance),
+}));
+
+// Import factory AFTER mocking providers
+import { getStorageProvider, closeStorageProvider, getStorageProviderType } from "@/lib/storage/factory";
+
+// ── Tests ───────────────────────────────────────────────────────────────────
+
+describe("factory: getStorageProvider", () => {
+  beforeEach(async () => {
+    // Reset singleton state between tests
+    await closeStorageProvider();
+    mockInitialize.mockClear();
+    mockClose.mockClear();
+    delete process.env.STORAGE_PROVIDER;
+  });
+
+  test("returns null when STORAGE_PROVIDER is local", async () => {
+    process.env.STORAGE_PROVIDER = "local";
+    const provider = await getStorageProvider();
+    expect(provider).toBeNull();
+  });
+
+  test("returns null when STORAGE_PROVIDER is not set", async () => {
+    const provider = await getStorageProvider();
+    expect(provider).toBeNull();
+  });
+
+  test("creates SQLite provider when STORAGE_PROVIDER=sqlite", async () => {
+    process.env.STORAGE_PROVIDER = "sqlite";
+    const provider = await getStorageProvider();
+
+    expect(provider).not.toBeNull();
+    expect(mockInitialize).toHaveBeenCalledTimes(1);
+  });
+
+  test("creates Postgres provider when STORAGE_PROVIDER=postgres", async () => {
+    process.env.STORAGE_PROVIDER = "postgres";
+    const provider = await getStorageProvider();
+
+    expect(provider).not.toBeNull();
+    expect(mockInitialize).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns same instance on second call (singleton)", async () => {
+    process.env.STORAGE_PROVIDER = "sqlite";
+    const first = await getStorageProvider();
+    const second = await getStorageProvider();
+
+    expect(first).toBe(second);
+    // initialize called only once, not twice
+    expect(mockInitialize).toHaveBeenCalledTimes(1);
+  });
+
+  test("calls initialize() on first creation", async () => {
+    process.env.STORAGE_PROVIDER = "sqlite";
+    await getStorageProvider();
+
+    expect(mockInitialize).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Two requests can arrive before the first has finished initializing — the
+   * page-load GET /api/storage races a PUT /api/storage/[collection]. Before
+   * the in-flight promise was memoized, both fell through the
+   * `_provider && _initialized` check, each constructed a provider, and the
+   * second assignment overwrote the first mid-initialize: two initialize()
+   * calls, a duplicated provider, and a leaked connection pool.
+   */
+  test("concurrent first calls share one provider and one initialize()", async () => {
+    process.env.STORAGE_PROVIDER = "sqlite";
+
+    const [first, second] = await Promise.all([getStorageProvider(), getStorageProvider()]);
+
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(first).toBe(second);
+    // Exactly one build+initialize, no matter how many callers raced.
+    expect(mockInitialize).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The memoized promise must not outlive a failure: a rejected initialize
+   * that stayed cached would make every later request await the same dead
+   * promise forever, turning one transient DB outage into a permanent one.
+   */
+  test("a failed initialize is not memoized — the next call retries from scratch", async () => {
+    process.env.STORAGE_PROVIDER = "sqlite";
+    mockInitialize.mockRejectedValueOnce(new Error("DB init failed"));
+
+    await expect(getStorageProvider()).rejects.toThrow("DB init failed");
+
+    mockInitialize.mockClear();
+    const provider = await getStorageProvider();
+    expect(provider).not.toBeNull();
+    expect(mockInitialize).toHaveBeenCalledTimes(1);
+  });
+
+  test("propagates error when initialize() throws", async () => {
+    process.env.STORAGE_PROVIDER = "sqlite";
+    mockInitialize.mockRejectedValueOnce(new Error("DB init failed"));
+
+    await expect(getStorageProvider()).rejects.toThrow("DB init failed");
+  });
+
+  test("the provider it hands out encrypts credentials before the backend ever sees them", async () => {
+    // Wiring, not crypto: if the factory ever returns the bare provider, every other test in the
+    // suite still passes and every credential silently goes to disk in the clear.
+    process.env.STORAGE_PROVIDER = "sqlite";
+    process.env.JWT_SECRET = "factory-singleton-test-jwt-secret-32ch";
+    const provider = await getStorageProvider();
+
+    await provider?.setCollection("u@example.org", "connections", [
+      { id: "c1", name: "Prod", type: "postgres", password: "FACTORY-CANARY", createdAt: new Date(0) },
+    ] as never);
+
+    const written = JSON.stringify(mockSQLiteInstance.setCollection.mock.calls);
+    expect(written).not.toContain("FACTORY-CANARY");
+    expect(written).toContain("v1:");
+  });
+});
+
+describe("factory: closeStorageProvider", () => {
+  beforeEach(async () => {
+    await closeStorageProvider();
+    mockInitialize.mockClear();
+    mockClose.mockClear();
+    delete process.env.STORAGE_PROVIDER;
+  });
+
+  test("closes and resets singleton", async () => {
+    process.env.STORAGE_PROVIDER = "sqlite";
+    await getStorageProvider();
+
+    await closeStorageProvider();
+    expect(mockClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("creates new instance after close + re-get", async () => {
+    process.env.STORAGE_PROVIDER = "sqlite";
+    await getStorageProvider();
+    await closeStorageProvider();
+
+    mockInitialize.mockClear();
+    const provider = await getStorageProvider();
+
+    expect(provider).not.toBeNull();
+    // New initialize call — fresh instance
+    expect(mockInitialize).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not throw when called without active provider", async () => {
+    await expect(closeStorageProvider()).resolves.toBeUndefined();
+    expect(mockClose).not.toHaveBeenCalled();
+  });
+
+  test("double close does not throw", async () => {
+    process.env.STORAGE_PROVIDER = "sqlite";
+    await getStorageProvider();
+
+    await closeStorageProvider();
+    await expect(closeStorageProvider()).resolves.toBeUndefined();
+    // close called only once (second call has no provider)
+    expect(mockClose).toHaveBeenCalledTimes(1);
+  });
+});

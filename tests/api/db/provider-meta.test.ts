@@ -1,0 +1,231 @@
+import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { createMockRequest, parseResponseJSON } from "../../helpers/mock-next";
+import { createMockProvider } from "../../helpers/mock-provider";
+import { clearRateLimitState } from "@/lib/api/rate-limit";
+import {
+  QueryError,
+  TimeoutError,
+  DatabaseError,
+  DatabaseConfigError,
+  ConnectionError,
+  AuthenticationError,
+  PoolExhaustedError,
+  isDatabaseError,
+  isConnectionError,
+  isQueryError,
+  isTimeoutError,
+  isAuthenticationError,
+  isRetryableError,
+  mapDatabaseError,
+} from "@/lib/db/errors";
+
+// ─── Mock provider ──────────────────────────────────────────────────────────
+const mockProvider = createMockProvider();
+const mockCreateDatabaseProvider = mock(async () => mockProvider);
+
+const mockGetSession = mock(
+  async (): Promise<{ role: string; username: string } | null> => ({ role: "admin", username: "admin" }),
+);
+
+// ─── Mock auth + seed resolution BEFORE importing the route ─────────────────
+mock.module("@/lib/auth", () => ({
+  getSession: mockGetSession,
+  signJWT: mock(async () => "mock-token"),
+  verifyJWT: mock(async () => null),
+  login: mock(async () => {}),
+  logout: mock(async () => {}),
+}));
+
+mock.module("@/lib/seed/resolve-connection", () => {
+  class SeedConnectionError extends Error {
+    constructor(
+      message: string,
+      public statusCode: number,
+    ) {
+      super(message);
+      this.name = "SeedConnectionError";
+    }
+  }
+  return {
+    resolveConnection: mock(async (body: Record<string, unknown>) => {
+      if (!body.connection && !body.connectionId) {
+        throw new SeedConnectionError("Either connection or connectionId is required", 400);
+      }
+      return body.connection;
+    }),
+    SeedConnectionError,
+  };
+});
+
+// ─── Mock @/lib/db BEFORE importing the route ───────────────────────────────
+mock.module("@/lib/db", () => ({
+  getOrCreateProvider: mock(),
+  createDatabaseProvider: mockCreateDatabaseProvider,
+  removeProvider: mock(),
+  clearProviderCache: mock(),
+  getProviderCacheStats: mock(),
+  QueryError,
+  TimeoutError,
+  DatabaseError,
+  DatabaseConfigError,
+  ConnectionError,
+  AuthenticationError,
+  PoolExhaustedError,
+  isDatabaseError,
+  isConnectionError,
+  isQueryError,
+  isTimeoutError,
+  isAuthenticationError,
+  isRetryableError,
+  mapDatabaseError,
+  BaseDatabaseProvider: class {},
+}));
+
+// ─── Import route handler AFTER mocking ─────────────────────────────────────
+const { POST } = await import("@/app/api/db/provider-meta/route");
+
+// ─── Fixtures ───────────────────────────────────────────────────────────────
+const validConnection = {
+  id: "test-1",
+  name: "Test DB",
+  type: "postgres",
+  host: "localhost",
+  port: 5432,
+  database: "testdb",
+};
+
+// ─── Tests ──────────────────────────────────────────────────────────────────
+describe("POST /api/db/provider-meta", () => {
+  beforeEach(() => {
+    clearRateLimitState();
+    mockCreateDatabaseProvider.mockClear();
+    mockCreateDatabaseProvider.mockImplementation(async () => mockProvider);
+    mockGetSession.mockClear();
+    mockGetSession.mockImplementation(
+      async (): Promise<{ role: string; username: string } | null> => ({ role: "admin", username: "admin" }),
+    );
+  });
+
+  test("returns 401 when no session exists", async () => {
+    mockGetSession.mockResolvedValueOnce(null);
+
+    const req = createMockRequest("/api/db/provider-meta", {
+      method: "POST",
+      body: validConnection,
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string }>(res);
+
+    expect(res.status).toBe(401);
+    expect(data.error).toContain("Authentication required");
+  });
+
+  test("returns 400 when body is an empty object", async () => {
+    const req = createMockRequest("/api/db/provider-meta", {
+      method: "POST",
+      body: {},
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string }>(res);
+
+    expect(res.status).toBe(400);
+    expect(data.error).toContain("Empty");
+  });
+
+  test("returns 200 with capabilities and labels for valid connection", async () => {
+    const req = createMockRequest("/api/db/provider-meta", {
+      method: "POST",
+      body: validConnection,
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{
+      capabilities: Record<string, unknown>;
+      labels: Record<string, unknown>;
+    }>(res);
+
+    expect(res.status).toBe(200);
+    expect(mockCreateDatabaseProvider).toHaveBeenCalled();
+    expect(data.capabilities).toBeDefined();
+    expect(data.labels).toBeDefined();
+    expect(data.capabilities.queryLanguage).toBe("sql");
+    expect(data.labels.entityName).toBe("Table");
+  });
+
+  test("returns 400 when body is empty", async () => {
+    const req = new Request("http://localhost:3000/api/db/provider-meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "",
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string }>(res);
+
+    expect(res.status).toBe(400);
+    expect(data.error).toContain("Empty");
+  });
+
+  test("returns 400 when connection has no type", async () => {
+    const req = createMockRequest("/api/db/provider-meta", {
+      method: "POST",
+      body: { id: "test-1", name: "No Type" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string }>(res);
+
+    expect(res.status).toBe(400);
+    expect(data.error).toContain("required");
+  });
+
+  test("returns 503 for ConnectionError", async () => {
+    mockCreateDatabaseProvider.mockRejectedValueOnce(new ConnectionError("Connection refused"));
+
+    const req = createMockRequest("/api/db/provider-meta", {
+      method: "POST",
+      body: validConnection,
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string }>(res);
+
+    expect(res.status).toBe(503);
+    expect(data.error).toContain("Connection");
+  });
+
+  test("returns 500 for DatabaseError", async () => {
+    mockCreateDatabaseProvider.mockRejectedValueOnce(
+      new DatabaseError("Internal failure", "postgres", "INTERNAL_ERROR"),
+    );
+
+    const req = createMockRequest("/api/db/provider-meta", {
+      method: "POST",
+      body: validConnection,
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string; code: string }>(res);
+
+    expect(res.status).toBe(500);
+    expect(data.error).toBe("Internal failure");
+    expect(data.code).toBe("INTERNAL_ERROR");
+  });
+
+  test("returns 500 for generic error", async () => {
+    mockCreateDatabaseProvider.mockRejectedValueOnce(new Error("Unexpected failure"));
+
+    const req = createMockRequest("/api/db/provider-meta", {
+      method: "POST",
+      body: validConnection,
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string }>(res);
+
+    expect(res.status).toBe(500);
+    expect(data.error).toBe("Unexpected failure");
+  });
+});

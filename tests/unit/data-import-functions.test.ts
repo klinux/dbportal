@@ -1,0 +1,489 @@
+import "../setup";
+import { describe, test, expect } from "bun:test";
+import {
+  parseCSV,
+  parseJSON,
+  inferSqlType,
+  escapeSQL,
+  generateImportSQL,
+  type ImportTarget,
+  type ParsedData,
+} from "@/components/DataImportModal";
+import type { ProviderCapabilities } from "@/lib/db/types";
+
+// ---------------------------------------------------------------------------
+// parseCSV
+// ---------------------------------------------------------------------------
+
+describe("parseCSV", () => {
+  test.each([";", "\t"] as const)(
+    "parses the chosen delimiter with quoted separators and decimal commas (%s)",
+    (delimiter) => {
+      const text = `name${delimiter}amount\r\n"Snow${delimiter}""quote"""${delimiter}1,5\r\n`;
+      expect(parseCSV(text, true, delimiter)).toEqual({
+        headers: ["name", "amount"],
+        rows: [[`Snow${delimiter}"quote"`, "1,5"]],
+        totalRows: 1,
+      });
+      expect(parseCSV(`Alice${delimiter}30`, false, delimiter)).toEqual({
+        headers: ["column_1", "column_2"],
+        rows: [["Alice", "30"]],
+        totalRows: 1,
+      });
+    },
+  );
+  test("parses simple CSV", () => {
+    const result = parseCSV("name,age\nAlice,30\nBob,25");
+    expect(result.headers).toEqual(["name", "age"]);
+    expect(result.rows).toEqual([
+      ["Alice", "30"],
+      ["Bob", "25"],
+    ]);
+    expect(result.totalRows).toBe(2);
+  });
+
+  test("returns empty for empty input", () => {
+    const result = parseCSV("");
+    expect(result.headers).toEqual([]);
+    expect(result.rows).toEqual([]);
+    expect(result.totalRows).toBe(0);
+  });
+
+  test("preserves every row and generates column names for headerless CSV", () => {
+    expect(parseCSV("Alice,30\r\n\r\nBob,25\r\n", false)).toEqual({
+      headers: ["column_1", "column_2"],
+      rows: [
+        ["Alice", "30"],
+        ["Bob", "25"],
+      ],
+      totalRows: 2,
+    });
+  });
+
+  test("preserves a single headerless row with quoted and empty fields", () => {
+    expect(parseCSV('"Alice, Smith","She said ""hi""",,Alice', false)).toEqual({
+      headers: ["column_1", "column_2", "column_3", "column_4"],
+      rows: [["Alice, Smith", 'She said "hi"', "", "Alice"]],
+      totalRows: 1,
+    });
+  });
+
+  test("returns empty data for a blank headerless CSV", () => {
+    expect(parseCSV(" \r\n\r\n", false)).toEqual({ headers: [], rows: [], totalRows: 0 });
+  });
+
+  test("returns empty for whitespace-only input", () => {
+    const result = parseCSV("  \n  \n  ");
+    expect(result.headers).toEqual([]);
+    expect(result.rows).toEqual([]);
+    expect(result.totalRows).toBe(0);
+  });
+
+  test("handles headers-only CSV", () => {
+    const result = parseCSV("name,age,email");
+    expect(result.headers).toEqual(["name", "age", "email"]);
+    expect(result.rows).toEqual([]);
+    expect(result.totalRows).toBe(0);
+  });
+
+  test("handles quoted fields", () => {
+    const result = parseCSV('name,bio\nAlice,"Hello, World"\nBob,"Line1"');
+    expect(result.headers).toEqual(["name", "bio"]);
+    expect(result.rows[0]).toEqual(["Alice", "Hello, World"]);
+    expect(result.rows[1]).toEqual(["Bob", "Line1"]);
+  });
+
+  test("handles escaped quotes (double-quote)", () => {
+    const result = parseCSV('name,quote\nAlice,"She said ""hello"""\nBob,simple');
+    expect(result.rows[0][1]).toBe('She said "hello"');
+    expect(result.rows[1][1]).toBe("simple");
+  });
+
+  test("handles CRLF line endings", () => {
+    const result = parseCSV("a,b\r\n1,2\r\n3,4");
+    expect(result.headers).toEqual(["a", "b"]);
+    expect(result.rows).toEqual([
+      ["1", "2"],
+      ["3", "4"],
+    ]);
+  });
+
+  test("trims values", () => {
+    const result = parseCSV("name , age \n Alice , 30 ");
+    expect(result.headers).toEqual(["name", "age"]);
+    expect(result.rows[0]).toEqual(["Alice", "30"]);
+  });
+
+  test("skips blank lines", () => {
+    const result = parseCSV("a,b\n1,2\n\n3,4\n");
+    expect(result.rows.length).toBe(2);
+    expect(result.totalRows).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseJSON
+// ---------------------------------------------------------------------------
+
+describe("parseJSON", () => {
+  test("parses array of objects", () => {
+    const result = parseJSON('[{"name":"Alice","age":30},{"name":"Bob","age":25}]');
+    expect(result.headers).toEqual(["name", "age"]);
+    expect(result.rows).toEqual([
+      ["Alice", "30"],
+      ["Bob", "25"],
+    ]);
+    expect(result.totalRows).toBe(2);
+  });
+
+  test("parses single object (wraps in array)", () => {
+    const result = parseJSON('{"name":"Alice","age":30}');
+    expect(result.headers).toEqual(["name", "age"]);
+    expect(result.rows).toEqual([["Alice", "30"]]);
+    expect(result.totalRows).toBe(1);
+  });
+
+  test("returns empty for empty array", () => {
+    const result = parseJSON("[]");
+    expect(result.headers).toEqual([]);
+    expect(result.rows).toEqual([]);
+    expect(result.totalRows).toBe(0);
+  });
+
+  test("handles null/undefined values as empty string", () => {
+    const result = parseJSON('[{"a":null,"b":"hello"},{"a":"world","b":null}]');
+    expect(result.rows[0]).toEqual(["", "hello"]);
+    expect(result.rows[1]).toEqual(["world", ""]);
+  });
+
+  test("handles nested objects by serializing to JSON", () => {
+    const result = parseJSON('[{"name":"Alice","meta":{"role":"admin"}}]');
+    expect(result.rows[0][0]).toBe("Alice");
+    expect(result.rows[0][1]).toBe('{"role":"admin"}');
+  });
+
+  test("handles arrays as values by serializing", () => {
+    const result = parseJSON('[{"tags":["a","b"]}]');
+    expect(result.rows[0][0]).toBe('["a","b"]');
+  });
+
+  test("unions headers from all objects", () => {
+    const result = parseJSON('[{"a":1},{"b":2},{"a":3,"c":4}]');
+    expect(result.headers).toContain("a");
+    expect(result.headers).toContain("b");
+    expect(result.headers).toContain("c");
+    // Missing fields become empty string
+    expect(result.rows[0]).toEqual(["1", "", ""]);
+    expect(result.rows[1]).toEqual(["", "2", ""]);
+  });
+
+  test("handles boolean values", () => {
+    const result = parseJSON('[{"active":true,"deleted":false}]');
+    expect(result.rows[0]).toEqual(["true", "false"]);
+  });
+
+  test("throws on invalid JSON", () => {
+    expect(() => parseJSON("not json")).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inferSqlType
+// ---------------------------------------------------------------------------
+
+describe("inferSqlType", () => {
+  test("returns INTEGER for all integer values", () => {
+    expect(inferSqlType(["1", "2", "100", "-5"])).toBe("INTEGER");
+  });
+
+  test("returns NUMERIC for decimal values", () => {
+    expect(inferSqlType(["1.5", "2.3", "-0.1"])).toBe("NUMERIC");
+  });
+
+  test("returns NUMERIC for mixed integer and decimal", () => {
+    expect(inferSqlType(["1", "2.5", "3"])).toBe("NUMERIC");
+  });
+
+  test("returns BOOLEAN for boolean-like values", () => {
+    expect(inferSqlType(["true", "false", "TRUE", "FALSE"])).toBe("BOOLEAN");
+    expect(inferSqlType(["0", "1"])).toBe("INTEGER"); // 0,1 are integers first
+  });
+
+  test("returns TEXT for string values", () => {
+    expect(inferSqlType(["hello", "world"])).toBe("TEXT");
+  });
+
+  test("returns TEXT for mixed types", () => {
+    expect(inferSqlType(["1", "hello", "3"])).toBe("TEXT");
+  });
+
+  test("returns TEXT for all empty values", () => {
+    expect(inferSqlType(["", "", ""])).toBe("TEXT");
+  });
+
+  test("returns TEXT for empty array", () => {
+    expect(inferSqlType([])).toBe("TEXT");
+  });
+
+  test("ignores empty strings when inferring type", () => {
+    expect(inferSqlType(["1", "", "2", ""])).toBe("INTEGER");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// escapeSQL
+// ---------------------------------------------------------------------------
+
+describe("escapeSQL", () => {
+  test("wraps string in single quotes", () => {
+    expect(escapeSQL("hello")).toBe("'hello'");
+  });
+
+  test("escapes single quotes", () => {
+    expect(escapeSQL("it's")).toBe("'it''s'");
+  });
+
+  test("escapes multiple single quotes", () => {
+    expect(escapeSQL("it's a 'test'")).toBe("'it''s a ''test'''");
+  });
+
+  test("doubles a backslash for a dialect that reads it as an escape", () => {
+    expect(escapeSQL("a\\b", "mysql")).toBe("'a\\\\b'");
+    expect(escapeSQL("a\\b", "postgres")).toBe("'a\\b'");
+    expect(escapeSQL("a\\b")).toBe("'a\\b'");
+  });
+
+  test("returns NULL for empty string", () => {
+    expect(escapeSQL("")).toBe("NULL");
+  });
+
+  test('returns NULL for "null"', () => {
+    expect(escapeSQL("null")).toBe("NULL");
+  });
+
+  test('returns NULL for "NULL"', () => {
+    expect(escapeSQL("NULL")).toBe("NULL");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// generateImportSQL
+// ---------------------------------------------------------------------------
+
+describe("generateImportSQL", () => {
+  /** An existing object at a one-segment address, which is what these cases are about. */
+  const existing = (name: string): ImportTarget => ({ kind: "existing", path: [name] });
+
+  const sampleData: ParsedData = {
+    headers: ["name", "age", "active"],
+    rows: [
+      ["Alice", "30", "true"],
+      ["Bob", "25", "false"],
+    ],
+    totalRows: 2,
+  };
+
+  // The generated statements are handed straight to `onImport`, which executes
+  // them, so a cell of an imported file is a value that becomes SQL. On a
+  // backslash-escaping dialect a cell ending in `\` would escape the closing quote
+  // and the rest of the row would be read as statement text (#290).
+  // The target is an ADDRESS and the statement qualifies it per segment for the connected
+  // dialect, which is what keeps an import off the namesake in another container (#789).
+  test("qualifies and quotes the target for the connected dialect", () => {
+    const mssql = { queryLanguage: "sql", defaultPort: 1433 } as unknown as ProviderCapabilities;
+    const target: ImportTarget = { kind: "existing", path: ["shop", "dbo", "order details"] };
+    const sql = generateImportSQL(sampleData, target, { name: "name" }, "mssql", mssql);
+    expect(sql).toContain("INSERT INTO shop.dbo.[order details]");
+  });
+
+  test("with no declaration yet the target is still the dotted address, never the label", () => {
+    const target: ImportTarget = { kind: "existing", path: ["shop", "dbo", "customers"] };
+    const sql = generateImportSQL(sampleData, target, { name: "name" });
+    expect(sql).toContain("INSERT INTO shop.dbo.customers");
+  });
+
+  test("a new table is named exactly as it was typed", () => {
+    const sql = generateImportSQL(sampleData, { kind: "new", name: "my table" }, { name: "name" });
+    expect(sql).toContain("CREATE TABLE my table");
+  });
+
+  test("escapes an imported cell for the dialect it will run on", () => {
+    const withBackslash: ParsedData = {
+      headers: ["path"],
+      rows: [["C:\\Users\\'; DROP TABLE users; --"]],
+      totalRows: 1,
+    };
+
+    const sql = generateImportSQL(withBackslash, existing("files"), {}, "mysql");
+
+    expect(sql).toContain("('C:\\\\Users\\\\''; DROP TABLE users; --')");
+  });
+
+  // The column type is inferred from the first 100 rows only, and every value it
+  // typed as numeric used to be written into the statement verbatim. Row 101 is
+  // outside that sample, so it could carry anything — and these statements are
+  // executed by `onImport` (PR #304 review).
+  test("quotes a value that does not match the type inferred from the sample", () => {
+    const rows = Array.from({ length: 100 }, (_, i) => [String(i)]);
+    rows.push(["0); DELETE FROM users; -- "]);
+    const beyondTheSample: ParsedData = { headers: ["amount"], rows, totalRows: 101 };
+
+    const sql = generateImportSQL(beyondTheSample, existing("orders"), {});
+
+    expect(sql).toContain("('0); DELETE FROM users; -- ')");
+    expect(sql).not.toContain("(0); DELETE FROM users; -- )");
+  });
+
+  test("quotes a value the sample typed as boolean but that is not one", () => {
+    // Not an injection — the old code answered FALSE for anything unrecognized,
+    // which silently wrote the wrong value rather than letting the engine object.
+    const rows = Array.from({ length: 100 }, () => ["true"]);
+    rows.push(["maybe"]);
+    const beyondTheSample: ParsedData = { headers: ["active"], rows, totalRows: 101 };
+
+    const sql = generateImportSQL(beyondTheSample, existing("flags"), {});
+
+    expect(sql).toContain("('maybe')");
+  });
+
+  test("still writes a matching numeric value unquoted", () => {
+    const numeric: ParsedData = {
+      headers: ["amount", "ratio", "active"],
+      rows: [["42", "1.5", "true"]],
+      totalRows: 1,
+    };
+
+    expect(generateImportSQL(numeric, existing("orders"), {})).toContain("(42, 1.5, TRUE)");
+  });
+
+  test("emits the standard form when no dialect is known", () => {
+    const withBackslash: ParsedData = {
+      headers: ["path"],
+      rows: [["C:\\Users"]],
+      totalRows: 1,
+    };
+
+    expect(generateImportSQL(withBackslash, existing("files"), {})).toContain("('C:\\Users')");
+  });
+
+  test("returns empty for null parsedData", () => {
+    expect(generateImportSQL(null, existing("users"), {})).toBe("");
+  });
+
+  test("returns empty when nothing is selected", () => {
+    expect(generateImportSQL(sampleData, null, {})).toBe("");
+  });
+
+  test("generates INSERT into existing table", () => {
+    const sql = generateImportSQL(sampleData, existing("users"), { name: "name", age: "age", active: "active" });
+    expect(sql).toContain("INSERT INTO users");
+    expect(sql).toContain("name, age, active");
+    expect(sql).not.toContain("CREATE TABLE");
+  });
+
+  test("generates CREATE TABLE + INSERT for new table", () => {
+    const sql = generateImportSQL(
+      sampleData,
+      { kind: "new", name: "my_table" },
+      { name: "name", age: "age", active: "active" },
+    );
+    expect(sql).toContain("CREATE TABLE my_table");
+    expect(sql).toContain("INSERT INTO my_table");
+  });
+
+  test('uses "imported_data" as default new table name', () => {
+    const sql = generateImportSQL(
+      sampleData,
+      { kind: "new", name: "" },
+      { name: "name", age: "age", active: "active" },
+    );
+    expect(sql).toContain("CREATE TABLE imported_data");
+    expect(sql).toContain("INSERT INTO imported_data");
+  });
+
+  test("infers column types in CREATE TABLE", () => {
+    const sql = generateImportSQL(
+      sampleData,
+      { kind: "new", name: "test" },
+      { name: "name", age: "age", active: "active" },
+    );
+    // name is TEXT, age is INTEGER, active is BOOLEAN
+    expect(sql).toContain("name TEXT");
+    expect(sql).toContain("age INTEGER");
+    expect(sql).toContain("active BOOLEAN");
+  });
+
+  test("uses column mapping for names", () => {
+    const sql = generateImportSQL(sampleData, existing("users"), {
+      name: "full_name",
+      age: "user_age",
+      active: "is_active",
+    });
+    expect(sql).toContain("full_name, user_age, is_active");
+  });
+
+  test("uses column mapping in CREATE TABLE", () => {
+    const sql = generateImportSQL(
+      sampleData,
+      { kind: "new", name: "test" },
+      {
+        name: "full_name",
+        age: "user_age",
+        active: "is_active",
+      },
+    );
+    expect(sql).toContain("full_name TEXT");
+    expect(sql).toContain("user_age INTEGER");
+  });
+
+  test("formats boolean values as TRUE/FALSE", () => {
+    const sql = generateImportSQL(sampleData, existing("users"), { name: "name", age: "age", active: "active" });
+    expect(sql).toContain("TRUE");
+    expect(sql).toContain("FALSE");
+  });
+
+  test("outputs numeric values unquoted", () => {
+    const sql = generateImportSQL(sampleData, existing("users"), { name: "name", age: "age", active: "active" });
+    // age values should be unquoted: 30, 25
+    expect(sql).toMatch(/\b30\b/);
+    expect(sql).toMatch(/\b25\b/);
+  });
+
+  test("escapes text values in INSERT", () => {
+    const data: ParsedData = {
+      headers: ["name"],
+      rows: [["O'Brien"]],
+      totalRows: 1,
+    };
+    const sql = generateImportSQL(data, existing("users"), { name: "name" });
+    expect(sql).toContain("'O''Brien'");
+  });
+
+  test("handles NULL values", () => {
+    const data: ParsedData = {
+      headers: ["name", "bio"],
+      rows: [
+        ["Alice", ""],
+        ["Bob", "NULL"],
+      ],
+      totalRows: 2,
+    };
+    const sql = generateImportSQL(data, existing("users"), { name: "name", bio: "bio" });
+    expect(sql).toContain("NULL");
+  });
+
+  test("batches rows in groups of 100", () => {
+    const rows = Array.from({ length: 250 }, (_, i) => [String(i)]);
+    const data: ParsedData = { headers: ["id"], rows, totalRows: 250 };
+    const sql = generateImportSQL(data, existing("items"), { id: "id" });
+
+    // Should have 3 INSERT statements (100 + 100 + 50)
+    const insertCount = (sql.match(/INSERT INTO/g) || []).length;
+    expect(insertCount).toBe(3);
+  });
+
+  test("falls back to header name when mapping is empty", () => {
+    const sql = generateImportSQL(sampleData, existing("users"), {});
+    expect(sql).toContain("name, age, active");
+  });
+});

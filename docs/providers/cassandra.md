@@ -1,0 +1,1413 @@
+# Apache Cassandra Provider
+
+> Apache Cassandra support for LibreDB Studio, built on the native CQL protocol (port `9042`) through
+> `cassandra-driver` — a **pure-JavaScript** client with no native module and no postinstall step.
+> This document is the single reference point for the Cassandra provider: design, architecture, usage
+> and tests. If you are reading the code, extending Cassandra support, or considering ScyllaDB, start
+> here.
+>
+> Almost every decision below is a decision to offer **less**. Cassandra publishes a great deal that
+> looks like a row count, a table size or a query plan and is none of those things, and issue
+> [#424](https://github.com/libredb/libredb-studio/issues/424) exists because a wrong number on
+> screen is worse than a missing one. Each refusal names the measurement behind it.
+
+| | |
+|---|---|
+| **Status** | Implemented & shipped |
+| **Database type id** | `cassandra` |
+| **Family** | SQL (`src/lib/db/providers/sql/cassandra/`) |
+| **Driver** | [`cassandra-driver`](https://www.npmjs.com/package/cassandra-driver) 4.9.0 — Apache-2.0, pure JS (no `binding.gyp`, no `.node`, no postinstall) ([§3.1](#31-a-driver-that-costs-no-distribution-channel-anything)) |
+| **Query language** | `sql` — CQL is SQL-*shaped*: no JOIN, no subquery, no OFFSET, no EXPLAIN ([§5.4](#54-dialect-traps-a-user-will-hit)) |
+| **Default port** | `9042` — the native protocol. Thrift (9160) is gone from 4.0 onwards; 7000/7001 are internode and 7199 is JMX |
+| **Connection pooling** | The driver's own, one session per connection: core 1 connection per local host, 2048 requests in flight per connection |
+| **Connection string** | Not supported — no URI convention carries `localDataCenter`, which the driver requires ([§4.2](#42-there-is-no-connection-string-and-why-that-is-not-fixable-by-inventing-one)) |
+| **EXPLAIN** | **None.** `EXPLAIN` is not in the grammar at all ([§5.6](#56-there-is-no-explain-and-tracing-is-not-a-plan)) |
+| **Writes** | `INSERT` / `UPDATE` / `DELETE` (all upserts, all primary-key-restricted), `TRUNCATE`, `BATCH` |
+| **Transactions** | None. Lightweight transactions (`IF NOT EXISTS`, `IF <condition>`) are per-partition compare-and-set, not sessions |
+| **Maintenance** | **None** — every operation is a `nodetool`/JMX action on a node ([§8](#8-maintenance)) |
+| **Query cancellation** | **None** — the protocol has no cancel frame and `cancelQuery` is deliberately not implemented ([§3.7](#37-there-is-no-cancellation-so-none-is-offered)) |
+| **Row counts / sizes** | **Not reported anywhere.** Neither figure can be honest ([§3.2](#32-there-is-no-honest-row-count-and-no-honest-size)) |
+| **Verified against** | **Apache Cassandra 5.0.9** (`system.local.release_version`), the official `cassandra:5.0.9` image (the probe ran on the floating `cassandra:5.0` tag, and both tags resolve to the same amd64 manifest digest `sha256:4e806b4457fb`, so pinning the patch changed nothing that was measured), plus a second instance with `PasswordAuthenticator` + `CassandraAuthorizer` and materialized views enabled. Measured 2026-08-20, **before** any provider code existed |
+| **Source** | [`src/lib/db/providers/sql/cassandra/`](../../src/lib/db/providers/sql/cassandra/) |
+| **Tests** | [`tests/integration/db/cassandra-provider.test.ts`](../../tests/integration/db/cassandra-provider.test.ts) + [`tests/unit/db/cassandra/`](../../tests/unit/db/cassandra/) |
+| **Tracking issue** | [#424 — Wire-compatibility and new engines](https://github.com/libredb/libredb-studio/issues/424), Phase 4 |
+
+---
+
+## 1. Overview
+
+Cassandra is a distributed **wide-column** store. A table is a set of partitions, a partition is a
+set of rows sharing a partition key, and every read is expected to name a partition. There is no
+join, no subquery, no foreign key and no query planner worth explaining — the access path is decided
+by the primary key you wrote in the DDL, which is why CQL refuses a `WHERE` clause it would have to
+scan for rather than quietly scanning.
+
+Three properties of that model drive everything below:
+
+1. **Nothing counts rows.** A count is a full scan of the ring. What Cassandra publishes instead
+   estimates *partitions* per token range from *flushed* SSTables, which is a different number that
+   looks like the same one ([§3.2](#32-there-is-no-honest-row-count-and-no-honest-size)).
+2. **Nothing plans.** `EXPLAIN` is not a keyword. The only introspection of a statement's execution
+   is tracing, which happens *after* the statement ran
+   ([§5.6](#56-there-is-no-explain-and-tracing-is-not-a-plan)).
+3. **Everything operational is a node action.** Compaction, repair, flush, cleanup and snapshots are
+   `nodetool` commands over JMX. A CQL session cannot reach any of them ([§8](#8-maintenance)).
+
+### Concept mapping
+
+| `DatabaseProvider` slot | Cassandra realisation | Mechanism |
+|---|---|---|
+| "Database" (the connection's `database` field) | One **keyspace**, pinned for the session | `keyspace` in the client options ([§3.3](#33-the-connections-database-field-pins-one-keyspace)) |
+| "Table" (the relation kind) | A table, or a materialized view | `system_schema.tables` + `system_schema.views` |
+| Columns | Partition key, clustering columns, regular and static columns | `system_schema.columns` ([§6.1](#61-declaration-order-is-not-recoverable)) |
+| Indexes | Secondary indexes (`COMPOSITES`, SAI) | `system_schema.indexes`, `options.target` |
+| Foreign keys | **Do not exist** | `declaresForeignKeys: false` |
+| Row count / size | **Not reported** | [§3.2](#32-there-is-no-honest-row-count-and-no-honest-size) |
+| Active sessions | The node's currently running requests | `system_views.queries` ([§7.3](#73-active-sessions-are-running-statements-with-no-owner)) |
+| Slow queries | **Do not exist** | No aggregate of finished statements is readable from CQL |
+
+---
+
+## 2. Architecture
+
+### 2.1 Where it sits
+
+```
+CassandraProvider (index.ts)          the DatabaseProvider contract, capabilities, prepareQuery
+        │
+        ├── introspect.ts             every CQL string, and every read over the seam
+        │
+        └── CassandraTransport (transport.ts)        the neutral seam: no driver type anywhere
+                    │
+                    └── CassandraDriverTransport (driver-transport.ts)
+                                the ONLY file that imports cassandra-driver
+```
+
+`tests/unit/db/cassandra/seam-guard.test.ts` fails the build if the driver, its value classes or its
+per-statement knobs are named in code outside `driver-transport.ts`. That is what makes the
+integration suite possible: it runs the real provider, the real introspection **and the real driver
+adapter** over a session stand-in that replays ResultSets a live 5.0.9 produced.
+
+### 2.2 Class hierarchy
+
+`CassandraProvider extends SQLBaseProvider extends BaseDatabaseProvider`.
+
+`SQLBaseProvider` is the right base even though CQL is not SQL, because the helpers it carries are
+about *text*, and on the points they cover CQL agrees:
+
+- `escapeIdentifier()` emits `"name"`, which is CQL's own name quote — measured: `SELECT "id" FROM
+  probe.customers` returns the column, a backtick is `no viable alternative at character '`'`, and a
+  double-quoted string is a syntax error.
+- `prepareQuery()` injects `LIMIT n`, which is correct CQL, and the three places it is *not* correct
+  are the whole of the override in [§5.2](#52-the-row-bound-and-its-three-traps).
+
+`buildLimitClause()` is **not** overridden, and the reason is worth recording because it is not
+obvious: it has no caller in `src/` at all. The clause the limiter emits comes from
+`applyQueryLimit()` in `db/utils/query-limiter.ts`, so `prepareQuery()` is the only place a dialect
+can correct it.
+
+### 2.3 Registration & lifecycle
+
+| Surface | Entry |
+|---|---|
+| `src/lib/types.ts` | `"cassandra"` in `DatabaseType`, plus the `localDataCenter` field |
+| `src/lib/db/factory.ts` | `case "cassandra"`, dynamic `import("./providers/sql/cassandra/index")` |
+| `src/lib/db-ui-config.ts` | Icon, `text-sky-300`, "Apache Cassandra", port 9042, the `localDataCenter` field |
+| `src/lib/sql/grammar.ts` | `CASSANDRA_GRAMMAR` — all four facts probed ([§5.4](#54-dialect-traps-a-user-will-hit)) |
+| `src/lib/sql/values.ts` | `standard` literal escaping — doubling, backslash is data (measured) |
+| `src/lib/db/compatibility.ts` | `SHIPPED.cassandra` |
+| `src/lib/seed/types.ts` | The seed enum and `localDataCenter` |
+| `next.config.ts`, `tsup.config.ts` | `cassandra-driver` external ([§3.1](#31-a-driver-that-costs-no-distribution-channel-anything)) |
+| `database-compose.yml` | `cassandra:5.0.9`, port 9042, `nodetool status` healthcheck |
+
+---
+
+## 3. Design decisions
+
+### 3.1 A driver that costs no distribution channel anything
+
+`cassandra-driver` was checked against the rubric in
+[`ADDING_A_PROVIDER.md`](../ADDING_A_PROVIDER.md) before being adopted. Cassandra speaks a binary
+protocol over TCP and has no first-class HTTP surface, so a driver is not optional — but this one
+costs almost nothing that a native driver would:
+
+- **Pure JavaScript.** No `binding.gyp`, no `.node`, no postinstall. Nothing to fail in an air-gapped
+  install, and no N-API question for the Bun runtime.
+- **Exercised under Bun before adoption**: three sessions, 2500 concurrent prepared inserts, a
+  400-statement batch, `eachRow` auto-paging 500 rows and `stream()` over 2000, all on bun 1.3.14.
+  The historical Bun segfault reports against this driver did not reproduce.
+
+One catch, and it is the reason for two config entries: the driver does
+`require('kerberos')` inside a `try`/`catch` as an optional dependency. Bundling it makes the build
+try to resolve a module nobody installed, so the package is listed in `serverExternalPackages`
+(`next.config.ts`) and in tsup's `external`.
+
+### 3.2 There is no honest row count and no honest size
+
+This is the decision the rest of the provider is shaped around, and it is the reason issue #424
+exists. Cassandra publishes three things that look like the numbers a database browser wants:
+
+| Source | What it actually is | Measured |
+|---|---|---|
+| `system.size_estimates` | **Partitions**, per token range (17 rows per table), from **flushed SSTables only**, refreshed every 5 minutes | 0 immediately after loading 500 rows; then 525 for those 500 rows, 2049 for 2000 — and **143 for a 500-row table** of 10 partitions × 50 clustering rows |
+| `system_views.disk_usage` | Whole **mebibytes** | `1 MiB` for a 19,476-byte table; `0 MiB` for a table holding 500 rows that had not yet been flushed |
+| `system_views.max_partition_size` | Whole mebibytes again | `1 MiB` for the same table |
+
+A row count derived from the first is wrong by a factor that depends on how the table is modelled —
+5% for a partition-per-row table, **71% low** for a clustered one — and no reader can tell which they
+are looking at. A byte figure derived from the second is wrong by up to 50×.
+
+So: no `rowCount` and no `sizeBytes` on any object, `databaseSize` reported as `N/A` with
+`databaseSizeBytes` **omitted entirely** — the field is optional on `DatabaseOverview`, because
+absence and zero are different facts: a zero is a measurement, and the Storage tab read `?? 0`, so it
+formatted a `0 B` total and divided a 0.0% breakdown out of it. With the field absent the tab's two
+size cards read `N/A`, carry no percentage, and the breakdown is replaced by *"No storage size
+information available."* A provider that publishes a real `0` (Trino, Druid) has measured one and is
+unaffected. The **table, index and storage panels report nothing** — and for the table panel that
+became true only when the same rule was applied there. Measured 2026-08-21 in Chrome against this
+node, the monitoring **Tables** tab still summarised the empty `getTableStats()` as *Tables* `0` over
+*0 rows*, *Size* `0 B` over *Total*, and *Vacuum* `0` over *OK*, in the very frame where the Overview
+tab read *Tables 6 / 2 indexes* out of `system_schema`: the `0 B` was the sentinel this section had
+just deleted, surviving one component over, and the *OK* was a clean bill of health for an operation
+Cassandra does not have at all ([§7.4](#74-the-panels-that-report-nothing--and-how-they-say-so)). Two other engines are
+recorded in `compatibility.ts` as failures for doing the opposite (Citus and TimescaleDB report row
+counts and sizes that are wrong rather than missing), and this provider is not going to join them.
+
+`SELECT COUNT(*)` is exact and is a full scan of the ring. A user can run one — it is a statement —
+but nothing in the tree or the panels does, and there is a second reason beyond cost: measured on a
+node with a 10ms read timeout, `SELECT COUNT(*) FROM probe.customers` was the one statement that
+returned a server read timeout while every single-partition read succeeded.
+
+### 3.3 The connection's `database` field pins one keyspace
+
+Exactly as a PostgreSQL connection pins a database and a Trino connection pins a catalog. The form
+labels it **Keyspace**.
+
+It is pinned at connect time, which has two measured consequences worth knowing:
+
+- Without it, an unqualified name resolves to nothing: `SELECT id FROM customers` answers `No
+  keyspace has been specified. USE a keyspace, or explicitly specify keyspace.tablename`.
+- A keyspace that does not exist fails the **connect**, not the first statement: `Keyspace
+  'nosuchks' does not exist`. The provider surfaces that sentence rather than wrapping it in "failed
+  to connect", because the one word the user has to change is in it.
+
+A connection with no keyspace still runs every fully qualified statement. What it cannot do is show
+the flat table list: the object surface refuses it and says which field to fill.
+The object browser is not refused. `listContainers()` lists every keyspace the role can see on a
+connection that pins none, with no container marked as the session default, because that connection
+is exactly the one a container tree exists to serve.
+
+`USE <keyspace>` works and really does change the session's keyspace (measured) — unlike the
+stateless HTTP providers in this repo, where a `USE` succeeds and then affects nothing.
+
+### 3.4 `localDataCenter` is a required connection field, and nothing else here has one
+
+`cassandra-driver` refuses to construct a load-balancing policy without it:
+
+```
+'localDataCenter' is not defined in Client options and also was not specified in constructor.
+At least one is required. Available DCs are: [datacenter1]
+```
+
+and when the value is wrong it names the ones it found:
+
+```
+localDataCenter was configured as 'dc-does-not-exist', but only found hosts in data centers: [datacenter1]
+```
+
+So it is a real field on `DatabaseConnection`, in the connection form (in the open, **not** behind
+the Advanced accordion that holds Oracle's service name — a hidden mandatory field is a connection
+nobody can open), in the seed schema, and in `validate()`. A stock single-node install reports
+`datacenter1`, which is the form's placeholder.
+
+It is classified `public` in `connection-secrets.ts` (a data-centre name is not a credential) and
+`resolution` in `use-connection-payload.ts` (it decides which nodes a statement reaches).
+
+### 3.5 The error class is almost always the same one, so the classifier reads `innerErrors`
+
+Measured: a refused credential, a wrong data centre, a refused socket, an unresolvable host name and
+every unavailable-replica failure all arrive as **`NoHostAvailableError` with `code === undefined`**.
+The fault that can be acted on is in `err.innerErrors[host]`. A classifier keyed on `err.code` puts
+all of them in one bucket called "unknown".
+
+The seam therefore unwraps the envelope first and classifies what is inside, by class name and — for
+a `ResponseError` — by the protocol's own numeric code, read from the driver's `types.responseErrorCodes`
+rather than transcribed:
+
+| Category | Reached by | Provider error |
+|---|---|---|
+| `auth` | `AuthenticationError` inside the envelope; protocol `badCredentials` (256) | `AuthenticationError` |
+| `permission` | 8448 — `User lowpriv has no SELECT permission on <table probe.orders> or any of its parents` | `QueryError` |
+| `unreachable` | `ECONNREFUSED`, `DriverError: Connection timeout`, `No host could be resolved`, or any other per-host fault | `ConnectionError` |
+| `config` | `ArgumentError` — the data-centre faults above | `DatabaseConfigError` |
+| `client-timeout` | `OperationTimedOutError` — `The host 127.0.0.1:19042 did not reply before timeout 1 ms` | `TimeoutError` |
+| `server-timeout` | 4608 read, 4352 write (`writeType: "BATCH_LOG"`) | `TimeoutError` |
+| `unavailable` | 4096 — `Not enough replicas available for query at consistency TWO (2 required but only 1 alive)` | `QueryError` |
+| `syntax` | 8192 | `QueryError` |
+| `invalid` | 8704 | `QueryError` |
+| `engine` | anything else, including code 0 `serverError` | `QueryError` |
+
+`invalid` is one category because 8704 is one code. It covers an unknown keyspace, an unknown table,
+an unknown column, a query that needs `ALLOW FILTERING`, a primary key in a `SET` part and a
+materialized view on a server where they are disabled — and the server's own sentence is what tells
+them apart. Splitting it finer would mean sniffing that sentence, which this repo forbids.
+
+**One retry note.** With the driver's default `RetryPolicy`, a server read timeout was silently
+retried and **succeeded**; the raw 4608 only appears under `FallthroughRetryPolicy`. The provider does
+not change the retry policy, and no test depends on a retry outcome.
+
+### 3.6 A monitoring surface degrades on a denial, and on one absent keyspace
+
+Measured with a least-privilege role (`GRANT SELECT` on one table):
+
+| Read | As `lowpriv` |
+|---|---|
+| `system_schema.tables` across every keyspace | **50 rows** — readable in full |
+| `system.local`, `system.peers_v2` | readable — which is why the identity read does not degrade: the driver's own control connection reads `system.local` for the cluster topology before this provider sends anything |
+| `system_views.clients` | 8448, refused |
+| `system_views.caches`, `system_views.queries` | 8448, refused |
+| `system.size_estimates` | **0 rows, no error** |
+
+Two things follow. Every monitoring read degrades to empty on `permission`, and — since 2026-08-24 — a
+read of `system_views` is **not sent at all** on a build that measurably does not have that keyspace.
+Nothing else: notably not an `invalid` naming a table or a column, which is what a typo in this
+provider's own CQL produces, and an empty panel that hides that hides it forever.
+
+#### The second condition is a property of the server, not the wording of a refusal
+
+ScyllaDB has no `system_views` keyspace at all ([§11](#11-scylladb-is-a-partial-relative-one-absent-keyspace-cost-five-surfaces-until-2026-08-24)),
+so the three virtual-table reads are refused by a server that is otherwise healthy. That is a fact
+about the build, not about this provider's CQL — and **the refusal does not say so**. Measured
+2026-08-24 through `cassandra-driver` 4.9.0, all four of these arrive as `ResponseError` with **code
+8704** and with the driver's own `keyspace` and `table` properties **`undefined`**:
+
+| Sent | Server | Message |
+|---|---|---|
+| `system_views.clients` | ScyllaDB 2026.2.4 | `Keyspace system_views does not exist` |
+| `system_views.cliets` | Cassandra 5.0.9 | `table cliets does not exist` |
+| `system_views.caches`, wrong column | Cassandra 5.0.9 | `Undefined column name hit_ratioo in table system_views.caches` |
+| `system_viewz.clients` | Cassandra 5.0.9 | `keyspace system_viewz does not exist` |
+
+The first implementation (2026-08-24) told those four apart by reading the refused keyspace's **name**
+out of the sentence, because nothing structured distinguishes them. An external review of #472 named
+the risk in that form and it is now closed: a build that rephrases any of those sentences would have
+stopped matching and taken five monitoring panels with it. **The discriminator is now a keyspace catalog, asked
+once per connection**, and the four spellings above are kept only as a regression pin in
+`tests/integration/db/cassandra-provider.test.ts`. Nothing in this provider reads a server's sentence
+to decide anything.
+
+The catalog is `system_virtual_schema`, and **not** `system_schema` — which is the part that review's
+own proposal got wrong and a measurement caught. Measured 2026-08-24 through the same driver:
+
+| Probe | Cassandra 5.0.9 | ScyllaDB 2026.2.4 |
+|---|---|---|
+| `SELECT keyspace_name FROM system_schema.keyspaces` | `probe, system, system_auth, system_distributed, system_schema, system_traces` — **no `system_views`** | 9 rows, no `system_views` either |
+| `SELECT keyspace_name FROM system_virtual_schema.keyspaces` | `system_views, system_virtual_schema` | 8704 `Keyspace system_virtual_schema does not exist` |
+
+A virtual keyspace is not in `system_schema` on either engine, so keying on that catalog would have
+emptied all five panels on the engine that answers them. `readServerFacts()` in
+[`introspect.ts`](../../src/lib/db/providers/sql/cassandra/introspect.ts) therefore reads the virtual
+catalog and resolves `virtualTablesAbsence` — **not** a boolean but the REASON, absent when the
+virtual tables are readable, because it is the text the two panels whose only source is a virtual table
+report in place of rows ([§7.4](#74-the-panels-that-report-nothing--and-how-they-say-so)) and the three
+causes send the reader to three different places:
+
+- the catalog answered → the **name** `system_views` is in the list, or it is not — and when it is not,
+  the reason says exactly that;
+- the catalog was refused as `invalid` (**code**, not text) → there is no virtual schema, so there are
+  no virtual tables. This is ScyllaDB, and the reason names the missing catalog;
+- the catalog was refused as `permission` (8448) → a role that may not read the virtual schema may not
+  read `system_views` either, and the reason says it is a grant rather than a dialect;
+- **anything else** — a client timeout, an unreachable host — claims no absence: the reads go out and
+  their own failure is what the caller sees, exactly as before the probe existed. The probe therefore
+  cannot fail a `connect()`.
+
+**Cost: one extra statement per successful `connect()`** — measured 4.5 ms against 5.0.9 and 1.6 ms
+against ScyllaDB over loopback, from a cold session. Nothing re-reads it: a virtual keyspace appears
+with a node restart and a restart drops the session, so the fact is held on the provider instance and
+cleared in `disconnect()`. On a build without the keyspace the probe is cheaper than what it replaces —
+the three `system_views` statements are never sent, so a monitoring refresh spends three fewer round
+trips than the catch-the-refusal version did.
+
+Two things stay exactly as narrow as before. `system_viewz` — the shape of a typo in this provider's
+own CQL — is not `system_views`, so it is sent and still fails loudly; and `system_schema` is not the
+optional keyspace either, so a server refusing the whole of it is a fault the tree must not hide.
+
+One case the discriminator cannot separate, recorded rather than papered over, unchanged from the text
+version: on a build with **no** `system_views` keyspace, a typo in a `system_views` table name is
+unreachable — the statement is not sent at all — so it would degrade there. The typo is caught on the
+engine that has the keyspace, which is the one this provider is developed against.
+
+And a security note worth stating plainly: **the object browser lists tables a restricted user cannot
+read.** `system_schema` is world-readable, so the tree shows every table in the keyspace while the
+statements against them fail with 8448. That is Cassandra's own permission model, not a defect here,
+but it is not what a PostgreSQL user expects.
+
+`system_auth.roles` is readable by a superuser and its rows carry bcrypt `salted_hash` digests.
+Nothing in this provider reads that table, and no panel surfaces it.
+
+### 3.7 There is no cancellation, so none is offered
+
+The native protocol has no cancel frame, CQL has no `KILL`, and the driver's own client publishes no
+cancel, abort or kill method (checked against its API surface: `connect`, `execute`, `eachRow`,
+`stream`, `batch`, `getReplicas`, `getState`, `log`, `shutdown`).
+
+`cancelQuery()` is therefore **not implemented**. Both routes detect support by the method's presence
+(`"cancelQuery" in provider`), so its absence is what makes `/api/db/cancel` answer *"Query
+cancellation is not supported for this database type"* — which is true — instead of reporting a
+cancellation that silently failed. `search/index.ts` declined the same method for the same reason.
+
+The only bound on a running statement is the client-side `readTimeout` (default 12000 ms, set from
+the provider's query timeout). After it expires this client stops **waiting**; the coordinator carries
+on. `USING TIMEOUT` — the per-statement server-side deadline — is **not in 5.0's grammar**: measured,
+`SELECT * FROM probe.orders USING TIMEOUT 1ms` is `line 1:27 mismatched input 'USING' expecting EOF`.
+
+### 3.8 Values are normalized once, at the driver boundary
+
+Four traps, all measured, all silent. Three are still normalized here; the first is now handed on
+untouched, and the sub-section below says why that is the same decision rather than a reversal:
+
+| CQL type | Arrives as | `JSON.stringify` gives | Reported as |
+|---|---|---|---|
+| `blob` | `Buffer` | `{"type":"Buffer","data":[76,105,…]}` | the `Buffer` itself — see below |
+| `vector<float,3>` | `Vector` | `{"0":1.5,"1":2.5,"2":3.5}` | `[1.5, 2.5, 3.5]` |
+| `bigint` / `decimal` / `varint` | `Long` / `BigDecimal` / `Integer` | the exact digits | the exact digits, as a **string** |
+| `duration` | `Duration` | `{"months":1,"days":2,"nanoseconds":"10800000000000"}` | `1mo2d3h` (its CQL literal) |
+
+`Number()` on the third row is the silent one: the bigint maximum becomes `9223372036854776000` and a
+20-digit decimal loses its last four digits. `COUNT(*)` is a `Long` too.
+
+#### The `blob` row changed, and why the other three did not
+
+**A `blob` is now spelled `\x4c69…` everywhere, not `0x4c69…`.** This row used to read
+`0x4c69627265444200c3bf6279746573`: the value was stringified into its CQL literal here, at the
+driver boundary, precisely *because* `JSON.stringify` on a `Buffer` gives the wire shape in the third
+column. That reason has expired — `src/lib/export/binary.ts` (#469) reads exactly that shape, and it
+is how a Postgres `bytea` reaches the binary cell renderer, the row detail sheet, the CSV and the
+per-dialect binary literal the SQL export writes. Stringifying first was what kept a `blob` out of all
+four, so the `Buffer` is handed on as itself and the grid now shows the same `\x…` for these bytes
+that every other engine shows. The CQL literal is still `0x…`; the export builds it from the bytes.
+
+Measured against Apache Cassandra 5.0.9 on 2026-08-24 — three rows in `probe.x10_blob (k int, c
+blob)` holding `0x0102ab`, the empty blob `0x` and `null`, exported as `INSERT`s and replayed into the
+same table:
+
+| | grid / CSV | exported INSERT | replayed |
+|---|---|---|---|
+| before | `0x0102ab` | `VALUES (1, '0x0102ab')` | **refused**: `Invalid STRING constant (0x0102ab) for "c" of type blob` — both binary rows lost, only the `null` row landed |
+| after | `\x0102ab` | `VALUES (1, 0x0102ab)` | all three rows back byte for byte, the empty blob (`0x`, shown `\x`) and the `null` included |
+
+Cassandra is the engine where the old form did not silently corrupt but simply *refused* — MySQL, the
+other provider that stringified, stored the eight characters `0x0102ab` into a `BLOB` and reported
+success (`docs/providers/mysql.md` §3.3).
+
+**The DDL export now writes a runnable `CREATE TABLE`, keyed on the first column.** CQL refuses a
+`CREATE TABLE` that carries a column list and no key at all - measured 2026-08-24,
+`CREATE TABLE probe.nopk (a text, b bigint)` answers
+`No PRIMARY KEY specifed for table 'probe.nopk' (exactly one required)` - so the export's Cassandra
+output could not run at all, even after its type names became correct. It now appends
+`PRIMARY KEY (<first column>)` and puts a comment directly above the statement saying that CQL
+requires exactly one key, that a result set does not know the real one, and that the reader must
+confirm the chosen column is unique per row before running it. This is a placeholder, not a schema
+recovery: the object surface's tree reads the true partition and clustering keys off `system_schema`, while
+the export has only the grid in front of it and picks positionally. A wrong-but-loud key was chosen
+deliberately over a file that fails to parse. The identifier is quoted through the same
+`quoteIdentifier` the column list uses, and never interpolated into the comment prose, so a column
+name carrying `--` or a newline cannot break out of it.
+
+The other three rows keep their normalization, and each reason was re-measured rather than assumed:
+`Vector` stringifies to `{"0":1.5,"1":2.5,"2":3.5}`, a numeric-keyed object no reader and no module
+reconstructs; `Duration` to `{"months":1,"days":2,"nanoseconds":"10800000000000"}`, where `String()`
+gives the CQL literal `1mo2d3h`. `Long`, `BigDecimal` and `Integer` are the one partial case worth
+naming: each defines `toJSON`, so `JSON.stringify` alone already answers `"9223372036854775807"` —
+the HTTP path would survive without this line. The in-process path would not: the embeddable
+workspace and the agent's tools read a provider's rows directly, and there the live class instance
+would reach the grid as an object. Normalizing once, at the boundary, is what makes both paths agree.
+
+`timestamp` is left as a `Date`, because the grid already formats those. `time` becomes a string
+because it carries nanoseconds a `Date` cannot hold. `set` arrives as an Array, `map` and a UDT as
+plain objects, and all three are **walked** — a `map<text, bigint>` hides `Long` values one level
+down.
+
+**`duration` and `vector` both arrive with `type.code === 0` (custom)** and a Java class name in
+`type.info`, and the driver's own `getDataTypeNameByCode` answers the literal string `"custom"` for
+both. So the column-type map is keyed on the class name for those two, and an unmeasured custom type
+is reported as the server spelled it rather than guessed into a CQL word.
+
+---
+
+## 4. Connection
+
+### 4.1 Configuration fields
+
+| Field | Required | Notes |
+|---|---|---|
+| `host` | Yes | One contact point. The driver discovers the rest of the ring itself |
+| `port` | No (9042) | The native protocol |
+| `localDataCenter` | **Yes** | [§3.4](#34-localdatacenter-is-a-required-connection-field-and-nothing-else-here-has-one) |
+| `database` | No | The **keyspace**. Without it there is no schema tree |
+| `user` / `password` | No | Sent only when a user is set. A stock install runs `AllowAllAuthenticator` and ignores credentials entirely (measured: supplying them to an open server connects fine) |
+| `ssl` | No | Any mode but `disable` sends `sslOptions`: `rejectUnauthorized` from the mode (`false` for `require`, `true` for `verify-system`/`verify-ca`/`verify-full` — `verify-system` is simply the one that pastes no CA, leaving Node's own trust store to check the chain), plus the form's CA (`ca`) and client keypair (`cert` / `key`) under Node's own TLS names, which is the same mapping the PostgreSQL, MySQL and Couchbase adapters use — the driver hands `sslOptions` to `tls.connect`. **Not exercised against a TLS cluster** — the probe instances speak plaintext — so it is the driver's documented option shape and no claim about a verified path, mutual TLS included |
+
+### 4.2 There is no connection string, and why that is not fixable by inventing one
+
+`supportsConnectionString: false`, and the form offers no paste toggle. The driver needs contact
+points **plus** `localDataCenter`, and no URI convention in use carries the second — so a
+`cassandra://host:9042/keyspace` form would parse into a connection that cannot open, which is worse
+than no paste at all. `connection-string-parser.ts` has no branch for the scheme and
+`ENGINE_URI_SCHEMES` no entry.
+
+### 4.3 Connect is a session plus one statement
+
+`connect()` opens the driver session, then runs the identity read
+([§7.1](#71-overview)). The session's own `connect()` already fails on a refused socket, a wrong data
+centre, a refused credential and a keyspace that does not exist — all measured — and one statement
+afterwards proves the session can carry one. A probe that fails closes the session `connect()` had
+already opened, before the failure is mapped, so a retried connection attempt leaves no pool, no
+sockets and no reconnection timers behind — the same lifecycle as the Druid and Couchbase providers.
+
+---
+
+## 5. Query interface
+
+### 5.1 Execution
+
+One statement per `query()` call, `prepare: false`. Preparing a one-shot statement would add a round
+trip and an entry to the server's prepared-statement cache (`system_views.cql_metrics` counts them)
+for nothing.
+
+**Positional parameters are refused.** CQL binds `?` and this driver binds an array against it —
+through a prepared statement the transport deliberately does not send. Splicing values into the text
+instead would be the one place this provider could inject CQL. `positionalPlaceholder()` returns
+`null` for this dialect for the same reason (see `lib/sql/values.ts`).
+
+A write answers **no column declaration and no rows** (measured on `INSERT`, `DELETE`, `ALTER TABLE`
+and `USE`), and the protocol reports no affected-row count, so `rowCount` is the rows returned and
+nothing is invented. `executionTime` is this process's measurement of the exchange — the only number
+in existence, since the protocol carries no server-side duration.
+
+### 5.2 The row bound, and its three traps
+
+The shared limiter is right about *where* the clause goes and wrong about three things CQL alone
+cares about. All six statements below were run against 5.0.9.
+
+**1. `OFFSET` does not exist.**
+
+```
+SELECT id, name FROM probe.customers LIMIT 5 OFFSET 5
+  -> line 1:45 mismatched input 'OFFSET' expecting EOF
+SELECT id, name FROM probe.customers OFFSET 5
+  -> line 1:37 mismatched input 'OFFSET' expecting EOF
+```
+
+So no page after the first can be requested, and `prepareQuery` **refuses** the request — for
+every SELECT, including one that arrives with its own `LIMIT n` and is therefore never rewritten
+here, because returning page one again is exactly the duplicate-row answer described next. The
+alternatives are worse in a way that matters: sending the clause fails with an engine message about a
+keyword the user never typed, and dropping it silently returns page **one** while the editor appends
+it to what it already shows — duplicate rows presented as new ones, which is a wrong *answer*.
+`search/index.ts` refuses Elasticsearch's identical gap the same way.
+
+**2. `ALLOW FILTERING` must stay last.**
+
+```
+SELECT * FROM probe.orders WHERE amount > 5 LIMIT 3 ALLOW FILTERING   -> 3 rows
+SELECT * FROM probe.orders WHERE amount > 5 ALLOW FILTERING LIMIT 3   -> line 1:60 mismatched input 'LIMIT'
+```
+
+The limiter appends, so the two clauses are **transposed** — with the writer's own spacing preserved.
+This is strictly better than declining to bound the statement, which is the shape a user writes
+precisely when a scan is about to happen.
+
+**3. A line comment must be closed by a newline — and CQL has a third comment form.**
+
+```
+SELECT * FROM probe.customers LIMIT 3 -- note      -> line 1:45 mismatched character '<EOF>' expecting set null
+SELECT * FROM probe.customers LIMIT 3 -- note\n    -> 3 rows
+SELECT * FROM probe.customers LIMIT 3 // note\n    -> 3 rows
+```
+
+`//` is a line comment in CQL, and that half **is** a shared grammar fact — `doubleSlashComment` in
+[`src/lib/sql/grammar.ts`](../../src/lib/sql/grammar.ts), measured over the native protocol on
+Cassandra 5.0.9 and ScyllaDB 2026.2.4. It used to be a private scan inside this provider, and while
+it was, the shared readers were blind to it: the statement splitter cut
+`SELECT id FROM probe.customers // note; DROP TABLE probe.customers` — **one** statement to this
+server, the `;` and the write both inside the comment — into a read and a bare `DROP`, and
+`/api/db/multi-query` runs every fragment it is handed.
+
+What stays local to this engine is the OTHER half: neither comment form may be closed by end of
+input. That is a fact about where a statement may **end**, not about what a run is, so both comment
+forms now break the limiter's insert-before-trailing-trivia rule (#280) the same way — the clause
+goes in before the comment and `sql.trim()` drops the newline that closed it, turning a **valid**
+statement into a syntax error. So a statement whose rewritten form would end inside a line comment is
+**left exactly as written**, `wasLimited: false`. The check walks the shared span reader, which is
+also what keeps a `//` inside a string literal (`WHERE url = 'http://x'`) from being read as a
+comment.
+
+**One shape is knowingly left unbounded.** A statement whose last clause is `PER PARTITION LIMIT n`
+reads as already bounded to the shared reader, so nothing is injected — `... PER PARTITION LIMIT 2
+LIMIT 3` is valid CQL (measured), but forcing a bound would mean stripping the clause the reader
+matched, which would corrupt the statement.
+
+### 5.3 Result shaping
+
+The **declaration** drives the row shape, not the row's own keys: it is the only source for the order
+the statement projected. `fieldNames: null` (a write) and `fieldNames: []` are kept apart at the
+seam and both collapse to no columns for the grid.
+
+`columnTypes` carries the wire's declared type per column. Note that `text` reads back as `varchar`
+and a column declared `varchar` reads back as `text` — they are one type on the wire — so this is
+whatever the protocol declared rather than the DDL word. The schema tree reads
+`system_schema.columns.type`, which **is** the declared spelling (`frozen<list<int>>`,
+`vector<float, 3>`, `frozen<address>`).
+
+### 5.4 Dialect traps a user will hit
+
+| Written | 5.0.9 answers |
+|---|---|
+| `SELECT … JOIN …` | `line 1:27 mismatched input 'o' expecting EOF` — there is no join, and no table alias either |
+| `EXPLAIN SELECT …` | `line 1:0 no viable alternative at input 'EXPLAIN'` |
+| `SELECT * FROM t ORDER BY name` | `ORDER BY is only supported when the partition key is restricted by an EQ or an IN.` |
+| `WHERE amount > 5` on a non-key column | `Cannot execute this query as it might involve data filtering … use ALLOW FILTERING` |
+| `UPDATE t SET id = 2 WHERE id = 1` | `PRIMARY KEY part id found in SET part` |
+| `UPDATE probe.events SET v = 'x' WHERE ck = 0` | `Some partition key parts are missing: pk` |
+| `ALTER TABLE t ALTER name TYPE blob` | `Altering column types is no longer supported` |
+| `ALTER TABLE t ADD COLUMN x text` | `mismatched input 'text' expecting EOF` — CQL spells it `ADD x text` |
+| `CREATE MATERIALIZED VIEW …` | `Materialized views are disabled. Enable in cassandra.yaml to use.` |
+| `LIMIT 0` | `LIMIT must be strictly positive` |
+| `SELECT 1; SELECT 2;` | `mismatched input 'SELECT' expecting EOF` — one statement per request |
+
+The four grammar facts in `src/lib/sql/grammar.ts` were all probed on this engine rather than read
+off a neighbour:
+
+| Fact | CQL | Probe |
+|---|---|---|
+| `#` | **code** (opens nothing) | `… id = 1 # trailing`, `SELECT # x`, `SELECT id#a` — all `no viable alternative at character '#'` |
+| `[…]` | **subscript** | `SELECT [id] …` answers a column named `[id]` of type `list` holding `[1]`; `SELECT [1, 2]` is a *typing* complaint about a term already read; `SELECT [[id]]` answers `[[1]]`; `SELECT ['a]b']` reaches the same typing complaint, so the `]` inside the string did not close the run |
+| block comments | **flat** | `SELECT /* a /* b */ id …` returns the row |
+| `q'…'` | **not a literal** | `q'{it''s}'` is `no viable alternative at input '{it's}'` |
+
+`cassandra` is deliberately **absent** from `NON_SQL_DIALECTS`. That set asks whether the text is
+SQL-*shaped* so that a span reader can find where a literal ends and where a comment hides a write —
+and CQL is written with the same statement keywords, the same `'…'` literals with doubled quotes, the
+same `"…"` quoted names and the same `--` / `/* */` comments. The keywords it *lacks* are a smaller
+vocabulary, not a different notation.
+
+### 5.5 Writes, and what "upsert" costs a reader
+
+`INSERT` and `UPDATE` are the same operation: both write the cells they name into the partition the
+`WHERE`/`VALUES` clause identifies, whether or not a row was there. There is no "row not found", and
+a `DELETE` writes a tombstone.
+
+The results grid's **inline row editor is switched off**, and it is not a missing feature but a
+missing guarantee. The editor builds `UPDATE <table> SET <col> = <val> WHERE <pk> = <val>` against
+**one** column it guesses from the result fields (`id`, or anything ending `_id`), while CQL needs the
+**whole** primary key restricted by equality. Measured: `UPDATE probe.events SET v = 'x' WHERE ck = 0`
+→ `Some partition key parts are missing: pk`, and `UPDATE probe.orders SET amount = 1 WHERE
+customer_id = 3` — a plausible guess on a real table — → `Some partition key parts are missing: id`.
+
+`supportsCreateTable` is `false` for the same class of reason. `CREATE TABLE probe.t (id int PRIMARY
+KEY, name text)` works, but what `CreateTableModal` emits does not: its default column is an
+auto-increment primary key, which CQL has no spelling of at all (measured as `id SERIAL PRIMARY KEY`,
+`Unknown type probe.serial`; #648 made that spelling per-engine and added no CQL row, so this id
+falls back to PostgreSQL's identity clause, which CQL does not have either), its type list offers
+`VARCHAR(255)` and `DECIMAL(10,2)`
+(syntax errors — CQL types carry no length) and `INTEGER` and `JSONB` (`Unknown type`), and its NOT
+NULL, UNIQUE and DEFAULT options are each `no viable alternative at input`. DDL typed into the editor
+works normally.
+
+The **schema-diff migration generator refuses a Cassandra `CREATE TABLE` too**, for a second and
+independent reason. A CQL primary key is two things — the partition key, which places a row, and the
+clustering columns, which order it inside the partition — and only the brackets say which is which.
+Measured: `probe.composite_pk` (`PRIMARY KEY ((tenant, day), ts)`) and `probe.pk_flat` (`PRIMARY KEY
+(tenant, day, ts)`) differ by one pair of brackets and nothing else; `SELECT * FROM probe.pk_flat
+WHERE tenant = 'a'` is served, while the same restriction on `probe.composite_pk` answers code 2200,
+`Cannot execute this query as it might involve data filtering and thus may have unpredictable
+performance`. `system_schema.columns` separates the two roles by `kind` (`partition_key` vs
+`clustering`, measured on `composite_pk`), but `ColumnDiff` keeps only the boolean
+`targetIsPrimary`, so both tables reduce to the same three key columns and the shared `PRIMARY KEY
+(a, b, c)` serializer would silently pick the flat layout. `src/components/SchemaDiff.tsx` calls
+`generateMigrationSQL` with the connection's type and never consults capabilities, so
+`migration-generator.ts` declines there itself and emits `-- Apache Cassandra: Cannot generate
+CREATE TABLE for "<table>". …` in place of DDL that would run and quietly repartition the data.
+Two more shapes are left out of a Cassandra migration for the same reason. The **transaction
+wrapper** is not emitted: `BEGIN;` is `line 1:5 mismatched input ';' expecting K_BATCH` and
+`COMMIT;` is `no viable alternative at input 'COMMIT'` (measured), and CQL's only grouping,
+`BEGIN BATCH … APPLY BATCH`, is not a transaction and takes no DDL — so there is nothing to
+translate the wrapper into. **Foreign-key statements** are not emitted either: `ADD CONSTRAINT …
+FOREIGN KEY` is `line 1:48 mismatched input 'FOREIGN' expecting EOF` and `DROP CONSTRAINT IF EXISTS`
+is `mismatched input 'IF'`. That second one needs a branch even though [§6.2](#62-indexes-and-the-one-thing-they-never-are)
+reports `declaresForeignKeys: false`, because the report never reaches the generator:
+`SchemaDiff.tsx` takes the dialect from the **current connection** and the diff from a snapshot that
+may belong to a **different** one, so a Cassandra connection compared against a PostgreSQL snapshot
+carries relational keys into a CQL migration. Each is replaced by a comment naming the reason.
+
+The `ALTER` paths **do** emit runnable CQL, and each spelling was probed: an added column becomes
+`ALTER TABLE <t> ADD <col> <type>` because `ADD COLUMN extra TEXT` is `mismatched input 'TEXT'
+expecting EOF` while `ADD extra text` parses, a removed one becomes `ALTER TABLE <t> DROP <col>` for
+the same reason in reverse (`DROP COLUMN extra` is `mismatched input 'extra' expecting EOF`), and a
+CQL column definition carries a name and a type only — `NOT NULL`, `UNIQUE` and `DEFAULT` are each
+`no viable alternative at input`, so none of the three is appended. A **modified** column emits no
+statement at all, only the reason: `ALTER TABLE t ALTER name TYPE blob` answers 8704, `Altering
+column types is no longer supported` — the operation was removed from the engine rather than left
+unimplemented, so there is nothing to generate.
+
+### 5.6 There is no EXPLAIN, and tracing is not a plan
+
+`EXPLAIN` is not in the grammar. `supportsExplain` is `false`, no `explainFormat` is declared, and
+`src/lib/explain/` is untouched — so the button and the tab stay hidden rather than dead.
+
+The only substitute Cassandra has is `{traceQuery: true}` plus `system_traces.sessions` /
+`system_traces.events`, which records what a statement did **after it ran**: the coordinator's steps,
+the replicas contacted, the microseconds each took. That is a profile of a completed execution, not a
+plan of a pending one, and calling it a plan would be a claim the engine does not make. It is
+deliberately left out of this provider; if it is ever exposed it must not be called EXPLAIN.
+
+---
+
+## 6. Schema introspection
+
+Three reads, all against `system_schema`, all for the pinned keyspace:
+
+```sql
+SELECT table_name FROM system_schema.tables WHERE keyspace_name = 'probe'
+SELECT view_name, base_table_name FROM system_schema.views WHERE keyspace_name = 'probe'
+SELECT table_name, column_name, type, kind, position, clustering_order
+  FROM system_schema.columns WHERE keyspace_name = 'probe'
+SELECT table_name, index_name, kind, options FROM system_schema.indexes WHERE keyspace_name = 'probe'
+```
+
+(Four statements; three sources — a view's columns are in the same `system_schema.columns` as a
+table's, keyed by the view's name.)
+
+### 6.1 Declaration order is not recoverable
+
+`system_schema.columns.position` is **-1 for every regular and static column**, 0-based *within its
+kind* for a partition-key or clustering column, and the server returns the rows sorted by column
+name. So the DDL order cannot be reconstructed, and the tree does not pretend to: columns are ordered
+**partition key (by position), then clustering columns (by position), then everything else
+alphabetically** — which is how `DESCRIBE TABLE` prints a table and how the primary key has to be
+written in a `WHERE` clause.
+
+`nullable` is `false` for exactly the primary-key components: CQL has no `NOT NULL` to declare on
+anything else, and every regular column of an existing row may be absent entirely.
+
+### 6.2 Indexes, and the one thing they never are
+
+`options.target` names the indexed column. `unique` is **always false**, and that is the engine's
+answer rather than this schema's: `CREATE UNIQUE INDEX` is `no viable alternative at input 'UNIQUE'`
+— the keyword is not in the grammar.
+
+`foreignKeys` is always `[]`, with `declaresForeignKeys: false` so a reader knows that means "this
+engine has none" rather than "this schema declares none". `ALTER TABLE … ADD CONSTRAINT … FOREIGN KEY
+…` is a syntax error.
+
+### 6.3 Materialized views are listed, and are usually absent
+
+A view is **not** in `system_schema.tables`, its columns **are** in `system_schema.columns`,
+`SELECT * FROM probe.orders_by_country` returns rows, and `INSERT INTO` one is refused with `Cannot
+directly modify a materialized view`. All measured on the instance where they are enabled.
+
+They are **disabled by default in 5.0** (`materialized_views_enabled: false`), so on a stock install
+the view list is empty and the tree shows tables only. That is a property of the server, not of this
+read — which is why the list is read rather than omitted, and why this paragraph exists rather than a
+"Views" node that is always empty.
+
+### 6.4 The object surface (#789)
+
+The object surface answers a lazy,
+ per-kind tree
+through four methods: `listContainers`, `countObjects`, `listObjects` and `describeObject(path, kind)`.
+It lives in [`objects.ts`](../../src/lib/db/providers/sql/cassandra/objects.ts) and it reads the
+ordinary queryable `system_schema` keyspace, through the same transport seam everything else here uses.
+
+Everything in this section was measured on 2026-09-11 against a live Apache Cassandra 5.0.9 holding
+the committed fixture, [`docker/cassandra-init/01-object-fixture.cql`](../../docker/cassandra-init/01-object-fixture.cql).
+The recipe that applies it is in [§10](#10-testing), so every claim below can be re-measured.
+
+#### The declaration
+
+One container level, the keyspace, and seven kinds:
+
+| Kind | Role | Catalog | Path |
+|---|---|---|---|
+| `table` | relation, `acceptsRowWrites` | `system_schema.tables` | `[keyspace, table]` |
+| `materialized_view` | relation | `system_schema.views` | `[keyspace, view]` |
+| `index` | config | `system_schema.indexes` | `[keyspace, index]` |
+| `type` | config | `system_schema.types` | `[keyspace, type]` |
+| `function` | routine | `system_schema.functions` | `[keyspace, name(argtypes)]` |
+| `aggregate` | routine | `system_schema.aggregates` | `[keyspace, name(argtypes)]` |
+| `trigger` | attached to `table` | `system_schema.triggers` | `[keyspace, table, trigger]` |
+
+There is **no `view` kind**, because CQL has no `CREATE VIEW`: the only view it has is the
+materialized one. There is no `procedure` kind either, because CQL has no stored procedure. Neither is
+declared and answered zero: a declared kind draws a folder, and a folder for a concept the engine does
+not have is a lie its 0 badge makes look like a fact.
+
+Only `table` takes a row write. A materialized view refuses every one of them (`Cannot directly modify
+a materialized view`), and the other five kinds have no rows at all. The engine-wide
+`supportsInlineRowEdit: false` is a separate fact about the results grid's guessed `WHERE` clause
+([§9](#9-capabilities--labels)) and is deliberately not conjoined with the per-kind one.
+
+#### Why `trigger` IS declared, and what it costs to have one
+
+The reading that would drop it is that a trigger's body is a Java class, which this product cannot
+show. The engine disagrees: `CREATE TRIGGER` is in the grammar, `system_schema.triggers` holds a real
+row per trigger carrying its base table and its class, and the fixture creates one and reads it back.
+
+What is true is that the class must already be **loadable on the node**, so creating one is an
+operator step rather than a statement:
+
+```bash
+# The source is committed beside the fixture; no jar is.
+javac --release 17 -cp apache-cassandra-5.0.9.jar -d classes docker/cassandra-init/NoopTrigger.java
+jar cf noop-trigger.jar -C classes .
+docker cp noop-trigger.jar libredb-cassandra:/etc/cassandra/triggers/
+docker exec libredb-cassandra nodetool reloadtriggers
+docker exec libredb-cassandra cqlsh -e \
+  "CREATE TRIGGER probe_audit ON probe.customers USING 'probe.NoopTrigger';"
+```
+
+`nodetool reloadtriggers` is load-bearing: without it the `CREATE TRIGGER` answers `Trigger class
+'probe.NoopTrigger' couldn't be loaded` (measured, and measured again after the reload, where it
+succeeds). None of that makes a trigger a thing the engine does not have; it makes it a thing an
+operator installs. Withholding the folder would hide an object somebody created. Phase 1 shows names
+rather than bodies anyway, so no kind here declares `hasSource`.
+
+**So a clean apply of the fixture leaves `trigger: 0`, and that is the correct reading, not a
+defect.** The block above is the only step in this fixture that needs a JDK on the machine applying
+it, and `cqlsh -f /fixtures/01-object-fixture.cql` does not run it: the fixture creates every other
+declared kind and stops short of `CREATE TRIGGER`, because the statement fails on a node that has
+never loaded the class. An acceptance run that applies the fixture and nothing else will therefore
+see six folders with counts and a Triggers folder badged 0, which is the engine honestly reporting an
+empty `system_schema.triggers`. Run the four commands above and the badge becomes 1. If it stays 0
+after them, check `nodetool reloadtriggers` ran against the same container, because that is the step
+whose omission produces the identical badge.
+
+#### An index is addressed by keyspace; a trigger is not
+
+The two kinds look alike in the catalog and are addressed differently, because the **engine** treats
+their names differently. Both measured:
+
+| Statement | Answer |
+|---|---|
+| `CREATE INDEX customers_by_city ON probe.events (payload)` while the name is taken on `probe.customers` | `Index 'customers_by_city' already exists` |
+| `DROP INDEX probe.customers_by_city` | Accepted; it names no table |
+| `CREATE TRIGGER probe_audit ON probe.orders` while `probe_audit` exists on `probe.customers` | Accepted |
+
+So an index name is unique per keyspace and an index is a container-level object, which is why
+Cassandra is one of the three engines in #789 that declares the kind at all. A trigger name is unique
+only per table, so a trigger nests under its base table and declares `attachedTo: "table"`. This
+provider therefore has **mixed path depth** across kinds, which is what `comparePaths` sorts
+segment by segment rather than by a joined string.
+
+#### A routine is addressed by its argument types
+
+`system_schema.functions` is keyed `((keyspace_name), function_name, argument_types)`, and the fixture
+holds two `render` rows, `['int']` and `['text']`. The name alone therefore addresses two objects, and
+the last path segment carries the argument-type list instead: `render(int)`, `render(text)`,
+`sum_state(int,int)` and — for a function taking none — `answer()`. Parameter **names** are
+deliberately not in it: they are in `argument_names`, and a rename would otherwise change an object's
+identity while overload resolution never depends on them. This is the same form PostgreSQL settled on,
+for the same reason. `DatabaseObject.name` stays the bare routine name, so the tree labels it `render`
+and addresses it `render(int)`. `system_schema.aggregates` is keyed identically and gets the same
+treatment.
+
+#### A system keyspace is excluded by exact NAME, never by a prefix
+
+`CREATE KEYSPACE system_reports` **succeeds** (measured), so a `system%` prefix rule would hide a
+keyspace a person created — the invisible absence standing behind #789's worst class of defect. The
+provider carries an exact list: Cassandra 5.0's own five system keyspaces plus the two virtual ones,
+`system_views` and `system_virtual_schema`, which have never appeared in `system_schema.keyspaces`
+(measured: seven rows on the fixture node, neither among them) and cost nothing to carry. The fixture
+creates `system_reports` precisely so the prefix spelling stays refuted rather than merely
+unattractive, and the test asserts that the container listing **shows** it.
+
+The exclusion is applied in TypeScript rather than in the statement, because `keyspace_name` is the
+partition key and CQL has no `NOT IN` over one: filtering server-side would need `ALLOW FILTERING` on
+a catalog read.
+
+`isSessionDefault` compares against the connection's own keyspace. CQL has no `currentKeyspace()` and
+`system.local` carries no session state, so there is no server-side answer to prefer over the one the
+driver was handed.
+
+A connection that pins **no** keyspace still opens the tree, and gets the full keyspace list with
+nothing marked as the session default. `validate()` ([§4](#4-connection)) requires a host and a
+local data centre and deliberately not a keyspace, so such a connection is legal and connectable, and
+it is precisely the connection a container tree exists to serve: the tree is how somebody picks a
+keyspace when the connection names none. the object surface beside it still refuses one, and that refusal
+is right for a flat table list, which has no keyspace to read. The comparison needs no guard of its
+own: it is an equality against `""`, and no keyspace can be named `""`.
+
+#### Nothing branches on `system_schema.indexes.kind`
+
+The fixture holds `COMPOSITES` (a plain secondary index, and one over a map's keys) and `CUSTOM` (a
+`sai` Storage Attached Index) in one keyspace. Every row of that catalog is an index, so every row is
+listed. A vocabulary derived from whichever kinds a fixture happened to hold would lose every other
+one, which is exactly how an object becomes invisible in the tree while the badge still agrees with
+the folder.
+
+`options.target` is carried verbatim, so an index over a map's keys reports `keys(tags)` rather than
+`tags`: collapsing it would name a column that is not what the index covers.
+
+#### `countObjects()` and `listObjects()` issue the SAME statement
+
+CQL has no `UNION` and no join, so the count cannot be one kind-tagged subquery the way ClickHouse's
+is. The count is instead the **number of rows the listing returns**, from the same builder and the
+same statement text. There is no second `WHERE` clause for a count and a listing to drift apart in,
+which is the seam Oracle, MySQL and ClickHouse each got wrong on a first pass. The catalogs are a
+handful of rows, so reading them rather than `COUNT(*)` costs nothing worth the risk.
+
+The counts record is built from the **declaration**, not from the rows a catalog returned: the loop is
+over the declared kinds, so every declared kind is written exactly once whatever the catalog answered,
+and a declared-and-empty kind keeps its `{ count: 0 }` badge instead of vanishing. A refused read
+carries the server's own sentence verbatim under `unavailable`, never a zero — measured with a
+least-privilege role, `system_schema` is readable for every table in every keyspace, so a denial there
+is abnormal and an empty keyspace would hide it.
+
+The seven reads are settled **independently**, so a refusal is reported against the kind it refused
+and against no other. Cassandra makes that distinction real rather than theoretical: `GRANT SELECT` is
+per table on `system_schema`, so a role can hold `system_schema.tables` and not
+`system_schema.triggers`, and the two folders then carry two different sentences. Reporting one
+refusal against all seven would throw away six counts that had already been measured.
+
+#### `describeObject()` takes the KIND, and the kind decides everything
+
+Nothing reads the name to work out what it is holding.
+
+- a **table** or a **materialized view** reads `system_schema.columns` for its columns, ordered by the
+  rule [§6.1](#61-declaration-order-is-not-recoverable) measured, and `system_schema.indexes` for the
+  indexes that reach it. An index is a first-class object here *and* an attribute of the table it
+  covers, and both are true at once.
+- a **type** reports its declared fields as columns. `field_names` and `field_types` are parallel
+  lists on one row rather than a row per field, so they are zipped in TypeScript; every field is
+  nullable and none is primary, because a UDT declares no key and any field of a stored value may be
+  absent.
+- an **index** reports no columns and one index: its own definition, target and all.
+- a **function**, an **aggregate** and a **trigger** answer three empty arrays **without a round
+  trip**. A routine has no columns and neither has a trigger; that is a true fact about the kind
+  rather than a failed read.
+
+`foreignKeys` is always `[]` for the same reason [§6.2](#62-indexes-and-the-one-thing-they-never-are)
+gives.
+
+#### `describeObjects()` describes a whole folder in a CONSTANT number of statements (#789)
+
+`describeObjects(container, kind, limit?)` answers the columns of EVERY object of one kind in one
+keyspace, in a number of round trips that is constant **per folder** rather than one per object.
+Measured on a live 5.0.9 node holding a 200-table keyspace: **11 ms for one `describeObjects()`
+against 232 ms for 200 `describeObject()` calls**, the same 800 columns.
+
+It is not ONE statement here and it cannot be. **CQL has no join, no subquery and no union**, so the
+composed single statement PostgreSQL and Druid use is not in the grammar. What replaces it is a fixed
+statement set per kind:
+
+| Kind | Statements | Which |
+| --- | --- | --- |
+| `table`, `materialized_view` | 3, issued together | the target listing, the keyspace's whole `system_schema.columns` partition, and the keyspace's index listing |
+| `index` | 1 | the listing statement, which already projects `options` |
+| `type` | 1 | `system_schema.types`, which carries `field_names` and `field_types` on the row that names the type |
+| `function`, `aggregate`, `trigger` | 0 | a routine and a trigger have no columns, so the batch is `{ details: [] }` without touching the network |
+
+The three relation statements are independent, so they go out through one `Promise.all` and cost one
+round trip of latency rather than three. `Promise.all` and not `allSettled`, unlike `countObjects()`:
+a folder badge has a state for a refused read and `ObjectDetailBatch` has none, so a refusal here
+**raises** rather than being handed back as an empty batch, which is what would make a reader treat a
+denied keyspace as an empty one.
+
+Five decisions, each measured on Apache Cassandra 5.0.9 rather than reasoned about.
+
+1. **The catalogs are the ones the single read uses**, widened from one object to the keyspace by
+   dropping the `table_name` restriction: `system_schema.columns` is partitioned on `keyspace_name`
+   alone, so the wide read and a narrowed one are the same partition read, and an `IN` list over the
+   target's names would make the statement's SHAPE depend on what the target answered for no gain.
+   They are also the catalogs the object surface reads, through the same `cassandraTableColumns()` mapper,
+   so the flat and the object reading cannot describe one table two different ways.
+2. **Three kinds have no columns and answer with no round trip**: `function`, `aggregate` and
+   `trigger`. The rule is keyed on the CATALOG a kind reads, never on the kind id.
+3. **The bound is `ORDER BY <first clustering column> ASC LIMIT n+1`**, interpolated rather than
+   bound, because this provider refuses to bind a parameter into a catalog read at all. The
+   positive-whole-number guard therefore protects the STATEMENT as well as the answer, and it is this
+   engine's own rule too: **`LIMIT 0` is server error 2200, "LIMIT must be strictly positive"**, so
+   clamping would have traded a caller's mistake for a server refusal. An unbounded read appends
+   nothing, which keeps its target byte-identical to the listing statement the count and the folder
+   already share.
+4. **`ORDER BY` accepts only the FIRST clustering column**, and that refutes the obvious spelling.
+   `ORDER BY index_name` on `system_schema.indexes` is server error 2200, *"Order by currently only
+   supports the ordering of columns following their declared order in the PRIMARY KEY"*, because that
+   catalog clusters on `(table_name, index_name)`. So the order column is declared per catalog and is
+   the base **table** for `index` and `trigger`. The consequence is real: on the `index` kind a
+   bounded read's MEMBERSHIP follows the base table's order while the ANSWER is sorted by path, so
+   the two can disagree. The committed fixture does not hold such an index - every index in it sorts
+   the same way under both rules - and one statement creates one:
+   `CREATE INDEX aaa_orders_ck ON probe.orders (order_id);`. The provider suite drives that shape
+   through an explicit catalog reply instead, because adding the index to the fixture would change
+   the count every other test in that file asserts.
+5. **No kind with columns has mixed path depth.** `trigger` is the only kind that nests, and it is
+   one of the three that have no columns, so the relation set is single-depth.
+
+**The collation question has no edge on this engine, and that is measured rather than assumed.** Four
+other engines in #789 cut under the server's UTF-8 byte order while `comparePaths` compares UTF-16
+code units, the two reversing for `U+E000` against `U+1F600`. Neither name can exist here: a CQL
+identifier holds **alphanumeric and underscore characters only**, quoted or not, and both
+`CREATE TABLE ks."<U+1F600>"` and `CREATE KEYSPACE "ks<U+1F600>"` are refused by the server. Over that
+alphabet the byte order and the UTF-16 order are the same order. Case is preserved in a quoted
+identifier and both rules agree there too, measured: `Upper_A`, `a_b`, `aa`, `zz` come back in that
+order.
+
+**Membership is the TARGET read's, always**, never the column read's. A table the target named and
+the column catalog holds nothing for is still in the batch, with an empty column list - where the
+SINGLE read raises instead. That difference is deliberate: no CQL table can be columnless because a
+primary key is mandatory, so neither case comes from this engine, and a batch that silently drops an
+object its own folder lists is the worse failure of the two.
+
+**The contract this provider satisfies directly rather than through the shared helper:** the batch
+describes every object `listObjects` names for that container and kind, and an unbounded call leaves
+`truncated` absent. Verified live for all seven declared kinds against the committed fixture, each
+batch compared set-for-set against `listObjects` and object-for-object against `describeObject`.
+
+#### Paths are derived, never indexed positionally
+
+The keyspace segment comes from the declared `ContainerLevelSpec` whose id is `schema`, the object's
+own name is the last segment, and the expected depth comes from `containerDepth()`. Cassandra declares
+one level, so `path[0]` would be behaviour-identical here and silently wrong on the five two-level
+engines that copy this file. The suite pins it anyway, by swapping a two-level declaration in through
+`getCapabilities` and driving it all the way to a **bound value** rather than to a refusal.
+
+### 6.5 `DESCRIBE` works, and is not needed
+
+`DESCRIBE TABLE`, `DESCRIBE KEYSPACE`, `DESCRIBE KEYSPACES` and `DESCRIBE CLUSTER` all work over the
+native protocol on 5.0 and return a full `create_statement` — the complete DDL including every `WITH`
+option. Worth knowing if DDL display is ever added: no hand-assembly is required. The schema tree
+does not use it, because it needs one row per column rather than one blob per table.
+
+---
+
+## 7. Monitoring & health
+
+Cassandra's `system_views` keyspace (4.0+) publishes 43 virtual tables. This provider reads four of
+them, and the reason is the same each time: the rest report per-table percentile histograms, gossip
+state, thread pools and cache internals that no panel in this product has a slot for — or they report
+mebibytes ([§3.2](#32-there-is-no-honest-row-count-and-no-honest-size)).
+
+### 7.1 Overview
+
+```sql
+SELECT release_version, cluster_name, data_center, gossip_generation,
+       toTimestamp(now()) AS server_now FROM system.local
+SELECT COUNT(*) AS count FROM system_views.clients
+SELECT COUNT(*) AS count FROM system_schema.tables  WHERE keyspace_name = 'probe'
+SELECT COUNT(*) AS count FROM system_schema.indexes WHERE keyspace_name = 'probe'
+```
+
+| Field | Source |
+|---|---|
+| `version` | `Apache Cassandra 5.0.9` — the product name plus `release_version` |
+| `startTime` / `uptime` | `gossip_generation`, against the **server's** clock via `toTimestamp(now())` |
+| `activeConnections` | `system_views.clients` — **omitted**, not zeroed, on a refused grant and on a build with no `system_views` keyspace ([§3.6](#36-a-monitoring-surface-degrades-on-a-denial-and-on-one-absent-keyspace)). A successful `COUNT(*)` always answers exactly one row, so an empty result set is the signature of the degradation rather than a real zero (`DatabaseOverview.activeConnections` is optional as of 2026-08-24) |
+| `maxConnections` | `0` — "no ceiling published". Cassandra's connection limit defaults to unlimited and is a config reading, not a live capacity |
+| `databaseSize` | `N/A`; `databaseSizeBytes` **omitted**, not zeroed — [§3.2](#32-there-is-no-honest-row-count-and-no-honest-size) |
+| `tableCount` / `indexCount` | `system_schema` |
+
+**`gossip_generation` is the node's start time in epoch seconds**, and that is measured rather than
+read off the field's name: on the primary instance it was `1787249337` against a container started at
+`18:08:53.9Z` (the gossiper's first heartbeat, three seconds later), and the second instance's
+generation differed from the first by 4997 s against a container start difference of 4998 s. It is
+bumped on restart, which is what makes it a start time; where the gossiper has to advance it past a
+stale value the reading can only be *later* than the real start, so the uptime is under-reported
+rather than over.
+
+`native_protocol_version` is deliberately **not** reported: `system.local` says `5` while
+`system_views.clients.protocol_version` for the live session says `4`, so reporting it as the
+session's protocol would be wrong.
+
+### 7.2 Performance metrics
+
+One field, `cacheHitRatio`, from the **key cache** row of `system_views.caches` (`0.8305…` → `83.05`).
+It is a real measurement of a real cache; the row cache and counter cache are off by default and
+reported a null ratio on a node that had served 500 reads.
+
+Every other field of `PerformanceMetrics` is **omitted rather than zeroed**. Cassandra publishes
+throughput and latency as per-table percentiles (`local_read_latency`, `coordinator_read_latency`)
+rather than as a cluster rate, and `cql_metrics` counts prepared statements rather than statements per
+second — there is no queries-per-second figure to read. `cacheHitRatio` itself is omitted when the
+server reports null (an unused cache): `DEFAULT_THRESHOLDS` scores that metric `direction: "below"`
+with `critical: 80`, so a substituted zero would paint an idle cluster red.
+
+Two panels read those absences, and both used to fill them in. The Overview tab's Performance card
+drew `bufferPoolUsage` as *0%* with an empty bar and `deadlocks` as a `0` badge in the healthy
+variant; the Performance tab's Buffer card rated the same `0` **Poor** in red, and its Deadlocks card
+badged `0` **Healthy** over *None detected* — a verdict on a measurement nobody made, and in the
+deadlock case a verdict read off a counter this engine does not keep. Both now read `N/A` beside the
+words *Not measured*, and the Buffer Pool and Deadlock trend charts say the same instead of drawing a
+flat line along zero. `cacheHitRatio` is the one field here that was measured, so it keeps its gauge
+and its rating.
+
+### 7.3 Active sessions are running statements with no owner
+
+```sql
+SELECT thread_id, queued_micros, running_micros, task FROM system_views.queries
+```
+
+This is the only source, and what it does **not** publish decides the mapping: no user, no keyspace,
+no client address, no start timestamp — only the request thread, the task text and two microsecond
+readings. `user` and `database` are therefore `unknown` (Druid's own word for the same situation);
+the connected role is deliberately not borrowed, because it would credit this connection with a
+statement another client is running.
+
+`durationMs` keeps its fraction — 1118 µs is 1.118 ms, and rounding it to 1 would throw away the only
+precision the server offered. The read includes **itself**, which is honest: it is a snapshot of the
+node's request threads.
+
+`system_views.clients` is what the connection count comes from and it *does* carry a username, a
+keyspace, a driver name and a protocol version — but no statement and no duration, so it is a
+connection list rather than a session list.
+
+### 7.4 The panels that report nothing — and how they say so
+
+**ABSENT is not EMPTY.** `getMonitoringData` reads the seven panels independently, so a panel whose
+read rejects is left out of the payload with the engine's own sentence recorded under
+`MonitoringData.errors`, and `PanelUnavailable` renders that sentence in its place. An empty array
+means the opposite: the engine looked and measured nothing. Until 2026-08-25 this provider answered
+`[]` for three panels it could never fill and for two more on a build with no `system_views`, which
+claimed a measurement in every one of those five cases. The browser showed the cost on ScyllaDB
+2026.2.4: the Sessions tab read *Active 0 / Idle 0 / Wait 0 / Sessions (0) / No active sessions
+found.* for a question that build cannot answer at all.
+
+**Three panels are refused on every build.** The objects exist — the schema tree lists the tables and
+the secondary indexes — so what is missing is the figures, and each panel now carries that sentence:
+
+| Panel | The sentence it carries | Statements sent |
+|---|---|---|
+| Table statistics | A row count would have to come from `system.size_estimates`, which counts **partitions** per token range from flushed SSTables only (measured: 143 for a 500-row clustered table, 525 for a 500-row one), and a size from `system_views.disk_usage`, which reports whole mebibytes (measured: 1 MiB for a 19,476-byte table). See [§3.2](#32-there-is-no-honest-row-count-and-no-honest-size) | none |
+| Index statistics | `system_schema.indexes` names an index, its table and its target column — all of which the tree already shows — and nothing reachable from CQL reports a secondary index's size or how often it was used | none |
+| Storage statistics | `disk_usage`, `max_partition_size` and `max_sstable_size` are whole mebibytes per table, and multiplying a rounded mebibyte would report a 19 KB table as a confident 1 MB | none |
+
+**Two more are refused only where `system_views` is absent** — the performance panel
+(`system_views.caches`) and the sessions panel (`system_views.queries`). The sentence names the
+virtual table AND which of the three measured causes applies: this build has no
+`system_virtual_schema` catalog (every ScyllaDB), its catalog lists no `system_views`, or the
+connected role may not read the catalog. Three causes, three sentences, because they send the reader
+to three different places. See [§3.6](#36-a-monitoring-surface-degrades-on-a-denial-and-on-one-absent-keyspace).
+
+**One panel stays EMPTY on purpose.** Slow queries: there is no aggregate of finished statements
+anywhere CQL can read (`system_views.system_logs` is a tail of the node's log file, 0 rows on this
+image), **no statement is sent**, and `ProviderLabels.slowQueriesEmptyState` already carries
+Cassandra's own sentence into the panel — *"Cassandra keeps no aggregate of finished statements: the
+slow-query threshold writes to the node's log file rather than to a table."* Converting it would move
+the same sentence from a label the tab renders to an error entry, and buy nothing.
+
+`getHealth()` does **not** refuse: it degrades exactly as before, because
+`POST /api/db/test-connection` calls it and the connection dialog's save is gated on that request. A
+throwing health check would lock the whole ScyllaDB family out of the product
+([§3.6](#36-a-monitoring-surface-degrades-on-a-denial-and-on-one-absent-keyspace)). A monitoring
+panel has the opposite obligation — it is the surface that must say what it could not read.
+
+---
+
+## 8. Maintenance
+
+`supportsMaintenance: false`, `maintenanceOperations: []`, and `runMaintenance()` refuses every type
+with the reason.
+
+Every member of `MaintenanceType` describes something Cassandra does to a **node**, not through a
+session: compaction, cleanup, garbage collection, flush and repair are all `nodetool` commands over
+JMX, and statistics are recomputed as a side effect of compaction. There is no `KILL` to map `kill`
+onto, because the protocol has no cancellation at all
+([§3.7](#37-there-is-no-cancellation-so-none-is-offered)).
+
+`TRUNCATE` is the tempting one and is deliberately not wired: it is a data-loss operation, it is not
+one of the six `MaintenanceType` values, and a user who wants it can type it.
+
+The two label triads are rewritten anyway — the cards do not render, but the inherited copy would
+promise a user that this panel updates planner statistics and reclaims space.
+
+`supportsMaintenance: false` is read in one more place than the maintenance controls. The monitoring
+**Tables** tab carries a *Vacuum* summary card, and it counted rows over a bloat ratio to decide
+between *Need* and *OK* — with no rows it said `0` over **OK** in green, which is a clean bill of
+health for an operation that does not exist here. Whether an engine *has* vacuum is a capability
+question rather than a data question, so the card now reads the declared capability and says `N/A`
+over *Not supported*. (The same tab's per-row *Last Vacuum* column now shows a dash rather than
+*Never* on an engine that declares no `vacuum` — on PostgreSQL a null there is the measurement "never
+vacuumed", elsewhere it is a history for an operation there is none of. No row of it renders here,
+because there are no table statistics to list at all.)
+
+---
+
+## 9. Capabilities & labels
+
+```ts
+{
+  queryLanguage: "sql",
+  supportsExplain: false,            // EXPLAIN is not in the grammar (§5.6)
+  supportsExternalQueryLimiting: true,
+  supportsCreateTable: false,        // the modal cannot emit valid CQL, and a diff cannot derive the partition key (§5.5)
+  supportsInlineRowEdit: false,      // one guessed key column is not a CQL primary key (§5.5)
+  supportsTransactions: false,       // CQL has no transaction; BATCH is not one (#464)
+  declaresForeignKeys: false,        // the clause does not exist (§6.2)
+  supportsMaintenance: false,        // every operation is a nodetool action (§8)
+  maintenanceOperations: [],
+  supportsConnectionString: false,   // no URI carries localDataCenter (§4.2)
+  defaultPort: 9042,
+  schemaRefreshPattern: "\\b(CREATE|DROP|ALTER)\\b",
+}
+```
+
+`identifierQuoting` and `statementTerminator` are both **absent**, and each absence is measured
+rather than assumed: 9042 is Cassandra's alone, so the generators' port heuristic is not being asked
+to answer for two dialects and its default `"…"` branch is already correct here; and `SELECT id FROM
+probe.customers WHERE id = 1;` returns the row, so the `;` the generators already emit is valid CQL.
+
+`entityName`, `rowName` and the action labels are CQL's own words and are left inherited.
+`statementLanguage` is declared — *"CQL (Cassandra Query Language) - no JOIN, no subquery, no
+OFFSET"* — because a model asked for "a statement" against a connection called Cassandra will write
+SQL, and each of those three is a syntax error here.
+
+`slowQueriesEmptyState` is declared — *"Cassandra keeps no aggregate of finished statements: the
+slow-query threshold writes to the node's log file rather than to a table."* — because
+`getSlowQueries()` is empty by design ([§7](#7-monitoring--health)), so the monitoring Queries panel
+is **always** empty here, and its hardcoded sentence used to tell the reader to enable
+`pg_stat_statements` (#463).
+
+---
+
+## 10. Testing
+
+| File | Owns |
+|---|---|
+| [`tests/integration/db/cassandra-provider.test.ts`](../../tests/integration/db/cassandra-provider.test.ts) | The provider end to end. A session stand-in replays driver ResultSets captured from 5.0.9, so the real provider, the real introspection **and the real driver adapter** all execute |
+| [`tests/unit/db/cassandra/wire.test.ts`](../../tests/unit/db/cassandra/wire.test.ts) | Value normalization, column-type naming and error classification — built with the driver's **own** `Long`, `BigDecimal`, `Duration` and `Vector` classes |
+| [`tests/unit/db/cassandra/seam-guard.test.ts`](../../tests/unit/db/cassandra/seam-guard.test.ts) | That the driver, its value classes and its per-statement knobs appear in code only in `driver-transport.ts` |
+
+The session stand-in **throws on an unknown statement** rather than answering empty: a provider whose
+CQL drifts has to fail there, not quietly report no rows.
+
+### Reproducing the live pass
+
+```bash
+docker compose -f database-compose.yml up -d cassandra
+# READINESS TAKES ABOUT 206 SECONDS FROM COLD on this image. Do not write a fixed sleep;
+# wait for the healthcheck (`nodetool status | grep -q '^UN'`).
+until docker exec libredb-cassandra nodetool status | grep -q '^UN'; do sleep 5; done
+# THE IMAGE HAS NO INIT-SCRIPT DIRECTORY: its entrypoint runs `cassandra -f` and never scans a
+# mounted folder, and the node is not accepting CQL when the entrypoint starts. The compose
+# service mounts the fixture read-only so this one command can apply it.
+docker exec libredb-cassandra cqlsh -f /fixtures/01-object-fixture.cql
+```
+
+That builds keyspace `probe` with three tables, a materialized view, three indexes of two different
+catalog kinds, a user-defined type, four functions including an overloaded pair, an aggregate — and a
+keyspace called `system_reports`, which exists so the "exact name, never a prefix" measurement in
+[§6.4](#64-the-object-surface-789) stays refutable.
+
+**It does NOT build the trigger, so the Triggers folder reads 0 after this command.** That is the one
+kind whose class has to be loadable on the node before `CREATE TRIGGER` is accepted, which needs a JDK
+and a jar copy. The four commands are in [§6.4](#64-the-object-surface-789) under "Why `trigger` IS
+declared"; run them and the badge becomes 1. A 0 there after a clean apply is the engine reporting an
+empty `system_schema.triggers`, not a defect in this provider.
+
+The compose service also rewrites two settings into `cassandra.yaml` before the node starts, and
+without them this recipe measures a configuration rather than an engine: `materialized_views_enabled`
+and `user_defined_functions_enabled` both ship **disabled** in 5.0, so `CREATE MATERIALIZED VIEW`
+answers *"Materialized views are disabled. Enable in cassandra.yaml to use."* and `CREATE FUNCTION`
+answers *"User-defined functions are disabled in cassandra.yaml - set
+user_defined_functions_enabled=true to enable"*. Cassandra logs an experimental warning beside the
+first, which is the engine's own wording rather than a problem with the service.
+
+Then connect with host `localhost`, port `9042`, keyspace `probe`, local data centre `datacenter1`.
+
+For the ScyllaDB pass ([§11](#11-scylladb-is-a-partial-relative-one-absent-keyspace-cost-five-surfaces-until-2026-08-24))
+the service is `scylla` on host port `9142`, and the keyspace has to be created with
+`replication = {'class':'NetworkTopologyStrategy','datacenter1':1}` — the 2026.2 line refuses
+`SimpleStrategy` outright with `ConfigurationException: SimpleStrategy doesn't support tablet
+replication`, so the recipe above does not run unchanged. Readiness is well under a minute rather
+than the ~206 s the Cassandra image needs.
+
+---
+
+## 11. ScyllaDB is a `partial` relative: one absent keyspace cost five surfaces until 2026-08-24
+
+ScyllaDB speaks the CQL wire protocol and this driver connects to it, and a live gate-4 probe says
+what that buys. The pass below ran on 2026-08-21/22 and was re-run on 2026-08-24 after the degradation change
+what five of the surfaces do; both readings are recorded here, because the difference between them is
+the interesting part. Every one of the thirteen surfaces this provider offers was called separately
+through `createDatabaseProvider({ type: "cassandra" })` against `scylladb/scylla:2026.2.4` (build
+`2026.2.4-0.20260810.e54224b8cebb`) and, in the same pass, against `cassandra:5.0.9` as the baseline.
+`scylladb/scylla:2025.1` (build `2025.1.14-0.20260612.103b84070f3b`) was probed too and behaved
+**identically on every surface**, so the entry in `src/lib/db/compatibility.ts` describes both lines —
+and only these two builds, on a single-node container.
+
+**The whole delta is one cause: ScyllaDB has no `system_views` keyspace at all.** `system.local`,
+`system_schema.*` and `system.size_estimates` all exist and answer; `system_views.clients`,
+`.queries`, `.caches`, `.system_logs` and `.disk_usage` do not exist to be denied. Five surfaces
+FAILED on it, each with the same verbatim error `Keyspace system_views does not exist`: `getOverview`,
+`getPerformanceMetrics`, `getActiveSessions`, `getHealth` and `getMonitoringData`. On the 5.0.9
+baseline all thirteen passed.
+
+Thirteen rather than the fifteen the [compatibility table](./README.md#wire-compatible-engines)
+counts, because two of the fifteen do not exist on this provider at all for either engine:
+cancellation is not implemented ([§3.7](#37-there-is-no-cancellation-so-none-is-offered)) and
+`supportsExplain` is false ([§5.6](#56-there-is-no-explain-and-tracing-is-not-a-plan)).
+
+**Test Connection was the sixth casualty, and it was the one a user meets first.** `POST
+/api/db/test-connection` calls `provider.getHealth()`
+([`src/app/api/db/test-connection/route.ts`](../../src/app/api/db/test-connection/route.ts)), so the
+dialog reported a failure for a connection whose statements run cleanly.
+
+**And it was worse than a failing test button, which only a browser pass showed.** `handleConnect` in
+[`src/hooks/use-connection-form.ts`](../../src/hooks/use-connection-form.ts) gated the SAVE on the
+same request — `if (result.success) onConnect(conn)` — so **Establish Connection refused too and
+nothing was stored**. A ScyllaDB connection could not be created through the dialog at all; the
+browser pass behind this section reached the editor through a seeded, admin-managed connection
+instead. Two other published relatives sat on the same gate, StarRocks and SingleStore, whose health
+surface also fails; that neither row recorded it is the U14 lesson again — a gate-4 pass on the
+provider's own boundary does not read the product surfaces the provider feeds.
+
+What the failure looked like on the two surfaces that showed it: the monitoring dashboard rendered a
+single **Connection Error** page reading `Keyspace system_views does not exist`, which the connection
+is not (the same mislabelling the Cloudberry row records), and the header badge read **Slow** with
+the title *Connection: degraded* rather than Online — the badge follows the health request, not
+latency.
+
+### 11.1 What the degradation change did, and what it deliberately did not
+
+Two changes, and the second is not about Cassandra at all.
+
+**The five reads degrade.** A monitoring read that needs `system_views` is not sent at all on a build
+whose virtual-keyspace catalog does not list `system_views`, which is every ScyllaDB build. It
+answered EMPTY when this section was written; since 2026-08-25 a read whose whole panel depends on a
+virtual table reports that panel ABSENT with the reason instead
+([§11.2](#112-an-empty-panel-was-still-a-claim-d24)), while a read that only contributes a FIELD — the
+connection count — still omits the field and lets the panel answer. The discriminator was a match on the refusal's wording when this section was written and is a
+catalog read since **2026-08-24**; both, the four measured error spellings that are now only a
+regression pin, and the one case it cannot separate are in
+[§3.6](#36-a-monitoring-surface-degrades-on-a-denial-and-on-one-absent-keyspace).
+
+**The dialog's save no longer depends on the health surface.** A connection that `connect()`s is
+usable — every provider's `connect()` reaches the server and is refused by a wrong host, port,
+credential or database — so `POST /api/db/test-connection` now separates the two facts: a connect
+failure is still `success: false`, and a health read that fails *after* a successful connect answers
+`success: true, degraded: true` carrying the server's own sentence. `handleConnect` saves on that, but
+not silently: the first click reports what the server refused and saves nothing, and only a second
+click saves. This is not a Cassandra fix — StarRocks and SingleStore fail health for their own reason
+(the prepared-statement protocol, fixed 2026-08-24) and were unsaveable on the same gate.
+
+Re-probed 2026-08-24, every surface separately, same method as the original pass:
+
+| Surface | ScyllaDB 2026.2.4, before | ScyllaDB 2026.2.4, after | Cassandra 5.0.9 control |
+|---|---|---|---|
+| `getOverview` | `Keyspace system_views does not exist` | `Apache Cassandra 3.0.8`, uptime `23.76m`, 3 tables, 1 index, **connections not published** | version 5.0.9, connections 1 |
+| `getPerformanceMetrics` | same error | `{}` — no cache ratio claimed | `{ cacheHitRatio: 88.24 }` |
+| `getActiveSessions` | same error | `[]` | 1 running statement |
+| `getHealth` | same error | answers; `cacheHitRatio` `N/A`, no sessions | answers with data |
+| `getMonitoringData` | same error | answers | answers with data |
+| the other eight | pass | pass | pass |
+
+And the discriminator itself. **Re-measured 2026-08-24 after the structural probe landed**, through `readServerFacts()` and
+then the provider, against both servers:
+
+| Read (connection pinned to the `system` keyspace) | Cassandra 5.0.9 | ScyllaDB 2026.2.4 |
+|---|---|---|
+| `readServerFacts()` | virtual tables present, 4.5 ms | virtual tables absent, 1.6 ms |
+| `getOverview` | `Apache Cassandra 5.0.9`, uptime `12.49h`, 23 tables, 1 index, connections 1 | `Apache Cassandra 3.0.8`, uptime `12.50h`, 60 tables, 0 indexes, `activeConnections` key **absent** |
+| `getPerformanceMetrics` | `{ cacheHitRatio: 86.97 }` | `{}` |
+| `getActiveSessions` | 1 running statement | `[]` |
+| `getHealth` | `cacheHitRatio` `86.97%`, connections 1 | `cacheHitRatio` `N/A`, `activeConnections` with no value, no sessions |
+| `getMonitoringData` | answers with data | answers, `performance: {}` |
+| object reads | answers | answers |
+| `system_views` statements sent per monitoring refresh | 3 | **0** |
+
+The fact was a boolean when this table was written and is a REASON since 2026-08-25
+([§11.2](#112-an-empty-panel-was-still-a-claim-d24)); the readings above are unchanged, only the shape
+of what carries them.
+
+### 11.2 An empty panel was still a claim (D24)
+
+The degradation above stopped the five reads from FAILING. It did not stop them from answering, and
+what they answered was a measurement: `performance: {}` and `activeSessions: []` say the engine looked.
+Re-measured **2026-08-25** through the provider against both live servers, after the panels were
+converted to report absence ([§7.4](#74-the-panels-that-report-nothing--and-how-they-say-so)):
+
+| Surface | Cassandra 5.0.9 | ScyllaDB 2026.2.4 |
+|---|---|---|
+| `getPerformanceMetrics` | `{ cacheHitRatio: 87.19 }` | **refused** — *"This panel is read from system_views.caches, and this server has no system_virtual_schema catalog at all …"* |
+| `getActiveSessions` | 1 running statement | **refused**, same sentence naming `system_views.queries` |
+| `getTableStats` / `getIndexStats` / `getStorageStats` | **refused** with their own reasons | **refused**, identically — the cause is the engine, not the build |
+| `getSlowQueries` | `[]` | `[]` — the panel whose label already carries the sentence |
+| `getHealth` | `cacheHitRatio 87.19%`, 1 connection, 6 sessions | answers: `cacheHitRatio N/A`, `activeConnections` with no value, no sessions |
+| `getMonitoringData` panels PRESENT | `overview`, `performance`, `slowQueries`, `activeSessions` | `overview`, `slowQueries` |
+| `getMonitoringData` `errors` keys | `tables`, `indexes`, `storage` | `performance`, `activeSessions`, `tables`, `indexes`, `storage` |
+
+Both servers still answer `getHealth()`, which is what the connection dialog's save is gated on — the
+regression this section's own §11 records. A panel refuses; the health surface does not.
+
+And the four spellings, re-sent through `provider.query()` — the user's own path, which degrades
+nothing — on the same day, which is what keeps them a live pin rather than a remembered one:
+
+| Statement | Cassandra 5.0.9 | ScyllaDB 2026.2.4 |
+|---|---|---|
+| `SELECT COUNT(*) AS count FROM system_viewz.clients` | `keyspace system_viewz does not exist` | `Keyspace system_viewz does not exist` |
+| `SELECT COUNT(*) AS count FROM system_views.cliets` | `table cliets does not exist` | `Keyspace system_views does not exist` |
+| `SELECT hit_ratioo FROM system_views.caches` | `Undefined column name hit_ratioo in table system_views.caches` | `Keyspace system_views does not exist` |
+| `SELECT COUNT(*) AS count FROM system_schema.tables` | 49 | 90 |
+
+**The one number that used to be dishonest here is fixed (2026-08-24), and the fix now reaches the agent
+too.** `DatabaseOverview.activeConnections` is optional, and this provider omits the key rather than
+send a fabricated 0 on a build with no `system_views` keyspace — the same omission a permission-denied
+role has always needed and, until that change, never got either. `OverviewTab` renders the absence as "not
+published" instead of "0 connections". `HealthInfo.activeConnections` is optional too now: `getHealth`
+composes it straight from the overview with no `?? 0` seam, so the absence survives to the agent's
+curated health reading (`src/lib/agent/tools.ts`), which reports it to the model as `null` rather than
+telling an LLM "0 connections" about a server it could not measure. Note the exact shape this
+provider produces differs from mssql/oracle/mongodb, which spread the key conditionally: `getOverview`
+omits `activeConnections` entirely, while `getHealth` writes the key with the value `undefined`. Every
+consumer discriminates on `undefined` rather than on key presence, and `JSON.stringify` drops such a
+key, so the two are indistinguishable to the API body, the fleet-health chip and the agent — but a
+reader inspecting the object with `in` will find the key on `getHealth()`.
+
+What works:
+
+- `connect`, `query`, the object reads, `disconnect` — the editor and the object browser in full, columns
+  and index metadata included.
+- `getSlowQueries` answers `[]` and `getTableStats`, `getIndexStats` and `getStorageStats` REFUSE with
+  their reason, both without sending a statement, exactly as they do on Cassandra
+  ([§3.2](#32-there-is-no-honest-row-count-and-no-honest-size),
+  [§7.4](#74-the-panels-that-report-nothing--and-how-they-say-so)). None of the four is a working
+  panel: row counts, sizes and the slow-query figures are not knowable here for the same reason they
+  are not on Cassandra, and the three refusals say so in words rather than as a fabricated zero. They
+  were `[]` when this gate ran (2026-08-24) and were converted on 2026-08-25
+  ([§11.2](#112-an-empty-panel-was-still-a-claim-d24)).
+- All **18 CQL types round-tripped byte-identically** to the 5.0.9 baseline, compared field by field:
+  `bigint` 9007199254740993 as a string, `decimal` 1.25, `duration` `3h20m`, `varint`
+  123456789012345678901234567890, `blob` `0x00ff` (the stored value; both engines now report it as
+  bytes rather than as that literal, [§3.8](#38-values-are-normalized-once-at-the-driver-boundary)),
+  `inet`, `date`, `time` `12:00:00.123456789`,
+  list/set/map, uuid, timestamp.
+- Error **classes** are identical although the server's wording is not: a missing table is
+  `unconfigured table no_such_table` here against Cassandra's `table no_such_table does not exist`,
+  a missing column `Unrecognized name nope` against `Undefined column name nope in table
+  probe.customers`. All three refusals still arrive as the recognised `QueryError` because
+  `classifyCassandraError` reads the driver's error code and not the message text
+  ([§3.5](#35-the-error-class-is-almost-always-the-same-one-so-the-classifier-reads-innererrors)).
+
+Two differences a reader will see on screen. The object browser lists **one extra object per secondary
+index, and the tree and the overview disagree about it**: ScyllaDB backs an index with a materialized
+view, so `customers_country_idx_index` appears in `system_schema.views` — which the tree reads — and
+NOT in `system_schema.tables`, which the overview's table count reads. Measured 2026-08-24 on a
+`probe` keyspace of 3 user tables and 1 index: the tree lists 4 objects and `tableCount` says 3. (The earlier pass
+recorded this as a `system_schema.tables` row; that was wrong, and the two-catalog split is why the
+two panels disagree.) Cassandra lists neither. And the version now IS displayed, because the panel
+carrying it answers: it reads Apache Cassandra **3.0.8**, the compatibility number
+`system.local.release_version` publishes, not ScyllaDB 2026.2.4, which lives in `system.versions`
+where this provider does not look.
+
+Of the three doubts this section used to raise, two held and one was wrong. `system_views` is indeed
+absent, and the version string is indeed not `release_version`-shaped. But **`gossip_generation`
+exists on ScyllaDB and answers** — that doubt was unfounded.
+
+The tier stays `partial`, and the reason has moved rather than gone. Not `full`, because five of the
+thirteen surfaces answer with nothing: the monitoring dashboard here carries a version, an uptime and
+two counts against Cassandra's full set, and `full` in this table means every surface *answered*, not
+every surface returned. Not `query-only` either, because the object browser, the column metadata and
+the index metadata all work — which is what separates this from Materialize and RisingWave, which have
+none of it.

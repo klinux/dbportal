@@ -1,0 +1,398 @@
+import { describe, test, expect } from "bun:test";
+import {
+  toPascalCase,
+  toIdentifier,
+  toCamelCase,
+  toSnakeCase,
+  mapSqlTypeToTS,
+  mapSqlTypeToZod,
+  mapSqlTypeToPrisma,
+  mapSqlTypeToGo,
+  mapSqlTypeToPython,
+  mapSqlTypeToJava,
+  generateCode,
+} from "@/components/CodeGenerator";
+import type { DetailedObject } from "@/lib/db/detailed-object";
+
+// ============================================================================
+// Naming helpers
+// ============================================================================
+
+describe("toPascalCase", () => {
+  test("simple table name", () => expect(toPascalCase("users")).toBe("User"));
+  test("underscore name", () => expect(toPascalCase("order_items")).toBe("OrderItem"));
+  test("hyphenated name", () => expect(toPascalCase("user-roles")).toBe("UserRole"));
+  test("already pascal", () => expect(toPascalCase("User")).toBe("User"));
+  test("single char", () => expect(toPascalCase("a")).toBe("A"));
+  test("non-plural name", () => expect(toPascalCase("data")).toBe("Data"));
+});
+
+describe("toCamelCase", () => {
+  test("simple table name", () => expect(toCamelCase("users")).toBe("user"));
+  test("underscore name", () => expect(toCamelCase("order_items")).toBe("orderItem"));
+  test("already camel", () => expect(toCamelCase("email")).toBe("email"));
+});
+
+describe("toSnakeCase", () => {
+  test("camelCase to snake", () => expect(toSnakeCase("createdAt")).toBe("created_at"));
+  test("already snake", () => expect(toSnakeCase("user_id")).toBe("user_id"));
+  test("PascalCase to snake", () => expect(toSnakeCase("UserId")).toBe("user_id"));
+  test("lowercase stays", () => expect(toSnakeCase("email")).toBe("email"));
+});
+
+// ============================================================================
+// Type mappers — TypeScript
+// ============================================================================
+
+describe("mapSqlTypeToTS", () => {
+  test("INTEGER → number", () => expect(mapSqlTypeToTS("INTEGER")).toBe("number"));
+  test("SERIAL → number", () => expect(mapSqlTypeToTS("SERIAL")).toBe("number"));
+  test("FLOAT → number", () => expect(mapSqlTypeToTS("FLOAT")).toBe("number"));
+  test("DOUBLE PRECISION → number", () => expect(mapSqlTypeToTS("DOUBLE PRECISION")).toBe("number"));
+  test("NUMERIC(10,2) → number", () => expect(mapSqlTypeToTS("NUMERIC(10,2)")).toBe("number"));
+  test("REAL → number", () => expect(mapSqlTypeToTS("REAL")).toBe("number"));
+  test("BOOLEAN → boolean", () => expect(mapSqlTypeToTS("BOOLEAN")).toBe("boolean"));
+  test("DATE → Date", () => expect(mapSqlTypeToTS("DATE")).toBe("Date"));
+  test("TIMESTAMP → Date", () => expect(mapSqlTypeToTS("TIMESTAMP")).toBe("Date"));
+  test("TIME → Date", () => expect(mapSqlTypeToTS("TIME")).toBe("Date"));
+  test("JSONB → Record", () => expect(mapSqlTypeToTS("JSONB")).toBe("Record<string, unknown>"));
+  test("UUID → string", () => expect(mapSqlTypeToTS("UUID")).toBe("string"));
+  test("ARRAY → unknown[]", () => expect(mapSqlTypeToTS("text[]")).toBe("string"));
+  // Note: 'INTEGER ARRAY' matches 'int' first due to includes check order, so returns 'number'
+  test("array keyword detected", () => expect(mapSqlTypeToTS("_text ARRAY")).toBe("unknown[]"));
+  test("VARCHAR → string", () => expect(mapSqlTypeToTS("VARCHAR(255)")).toBe("string"));
+  test("TEXT → string", () => expect(mapSqlTypeToTS("TEXT")).toBe("string"));
+});
+
+// ============================================================================
+// Type mappers — Zod
+// ============================================================================
+
+describe("mapSqlTypeToZod", () => {
+  test("INTEGER → z.number()", () => expect(mapSqlTypeToZod("INTEGER")).toBe("z.number()"));
+  test("BOOLEAN → z.boolean()", () => expect(mapSqlTypeToZod("BOOLEAN")).toBe("z.boolean()"));
+  test("TIMESTAMP → z.date()", () => expect(mapSqlTypeToZod("TIMESTAMP")).toBe("z.date()"));
+  test("JSON → z.record", () => expect(mapSqlTypeToZod("JSON")).toBe("z.record(z.unknown())"));
+  test("UUID → z.string().uuid()", () => expect(mapSqlTypeToZod("UUID")).toBe("z.string().uuid()"));
+  test("TEXT → z.string()", () => expect(mapSqlTypeToZod("TEXT")).toBe("z.string()"));
+});
+
+// ============================================================================
+// Type mappers — Prisma
+// ============================================================================
+
+describe("mapSqlTypeToPrisma", () => {
+  test("SERIAL → Int", () => expect(mapSqlTypeToPrisma("SERIAL")).toBe("Int"));
+  test("integer → Int", () => expect(mapSqlTypeToPrisma("integer")).toBe("Int"));
+  test("int4 → Int", () => expect(mapSqlTypeToPrisma("int4")).toBe("Int"));
+  test("BIGINT → BigInt", () => expect(mapSqlTypeToPrisma("BIGINT")).toBe("BigInt"));
+  test("int8 → BigInt", () => expect(mapSqlTypeToPrisma("int8")).toBe("BigInt"));
+  test("FLOAT → Float", () => expect(mapSqlTypeToPrisma("FLOAT")).toBe("Float"));
+  test("DECIMAL → Float", () => expect(mapSqlTypeToPrisma("DECIMAL")).toBe("Float"));
+  test("BOOLEAN → Boolean", () => expect(mapSqlTypeToPrisma("BOOLEAN")).toBe("Boolean"));
+  test("TIMESTAMP → DateTime", () => expect(mapSqlTypeToPrisma("TIMESTAMP")).toBe("DateTime"));
+  test("DATETIME → DateTime", () => expect(mapSqlTypeToPrisma("DATETIME")).toBe("DateTime"));
+  test("DATE → DateTime", () => expect(mapSqlTypeToPrisma("DATE")).toBe("DateTime"));
+  test("JSON → Json", () => expect(mapSqlTypeToPrisma("JSON")).toBe("Json"));
+  test("TEXT → String", () => expect(mapSqlTypeToPrisma("TEXT")).toBe("String"));
+});
+
+// ============================================================================
+// Type mappers — Go
+// ============================================================================
+
+describe("mapSqlTypeToGo", () => {
+  test("SERIAL → int", () => expect(mapSqlTypeToGo("SERIAL")).toBe("int"));
+  test("integer → int", () => expect(mapSqlTypeToGo("integer")).toBe("int"));
+  test("BIGINT → int64", () => expect(mapSqlTypeToGo("BIGINT")).toBe("int64"));
+  test("FLOAT → float32", () => expect(mapSqlTypeToGo("FLOAT")).toBe("float32"));
+  test("REAL → float32", () => expect(mapSqlTypeToGo("REAL")).toBe("float32"));
+  test("DOUBLE → float64", () => expect(mapSqlTypeToGo("DOUBLE")).toBe("float64"));
+  test("DECIMAL → float64", () => expect(mapSqlTypeToGo("DECIMAL")).toBe("float64"));
+  test("BOOLEAN → bool", () => expect(mapSqlTypeToGo("BOOLEAN")).toBe("bool"));
+  test("TIMESTAMP → time.Time", () => expect(mapSqlTypeToGo("TIMESTAMP")).toBe("time.Time"));
+  test("TEXT → string", () => expect(mapSqlTypeToGo("TEXT")).toBe("string"));
+});
+
+// ============================================================================
+// Type mappers — Python
+// ============================================================================
+
+describe("mapSqlTypeToPython", () => {
+  test("INTEGER → int", () => expect(mapSqlTypeToPython("INTEGER")).toBe("int"));
+  test("SERIAL → int", () => expect(mapSqlTypeToPython("SERIAL")).toBe("int"));
+  test("FLOAT → float", () => expect(mapSqlTypeToPython("FLOAT")).toBe("float"));
+  test("NUMERIC → float", () => expect(mapSqlTypeToPython("NUMERIC")).toBe("float"));
+  test("BOOLEAN → bool", () => expect(mapSqlTypeToPython("BOOLEAN")).toBe("bool"));
+  test("TIMESTAMP → datetime", () => expect(mapSqlTypeToPython("TIMESTAMP")).toBe("datetime"));
+  test("JSON → dict", () => expect(mapSqlTypeToPython("JSON")).toBe("dict"));
+  test("TEXT → str", () => expect(mapSqlTypeToPython("TEXT")).toBe("str"));
+});
+
+// ============================================================================
+// Type mappers — Java
+// ============================================================================
+
+describe("mapSqlTypeToJava", () => {
+  test("SERIAL → Integer", () => expect(mapSqlTypeToJava("SERIAL")).toBe("Integer"));
+  test("integer → Integer", () => expect(mapSqlTypeToJava("integer")).toBe("Integer"));
+  test("BIGINT → Long", () => expect(mapSqlTypeToJava("BIGINT")).toBe("Long"));
+  test("FLOAT → Float", () => expect(mapSqlTypeToJava("FLOAT")).toBe("Float"));
+  test("DOUBLE → Double", () => expect(mapSqlTypeToJava("DOUBLE")).toBe("Double"));
+  test("DECIMAL → Double", () => expect(mapSqlTypeToJava("DECIMAL")).toBe("Double"));
+  test("BOOLEAN → Boolean", () => expect(mapSqlTypeToJava("BOOLEAN")).toBe("Boolean"));
+  test("TIMESTAMP → LocalDateTime", () => expect(mapSqlTypeToJava("TIMESTAMP")).toBe("LocalDateTime"));
+  test("TEXT → String", () => expect(mapSqlTypeToJava("TEXT")).toBe("String"));
+});
+
+// ============================================================================
+// generateCode
+// ============================================================================
+
+const testSchema: DetailedObject = {
+  name: "order_items",
+  kind: "table",
+  path: ["order_items"],
+  indexes: [],
+  columns: [
+    { name: "id", type: "SERIAL", nullable: false, isPrimary: true },
+    { name: "product_name", type: "VARCHAR(255)", nullable: false, isPrimary: false },
+    { name: "price", type: "DECIMAL(10,2)", nullable: true, isPrimary: false },
+    { name: "created_at", type: "TIMESTAMP", nullable: true, isPrimary: false },
+    { name: "metadata", type: "JSONB", nullable: true, isPrimary: false },
+  ],
+};
+
+describe("generateCode", () => {
+  test("TypeScript interface", () => {
+    const code = generateCode("typescript", testSchema);
+    expect(code).toContain("export interface OrderItem");
+    expect(code).toContain("id: number;");
+    expect(code).toContain("productName: string;");
+    expect(code).toContain("price: number | null;");
+    expect(code).toContain("createdAt: Date | null;");
+    expect(code).toContain("metadata: Record<string, unknown> | null;");
+  });
+
+  test("Zod schema", () => {
+    const code = generateCode("zod", testSchema);
+    expect(code).toContain("import { z } from 'zod'");
+    expect(code).toContain("OrderItemSchema = z.object");
+    expect(code).toContain("z.number()");
+    expect(code).toContain("z.number().nullable()");
+    expect(code).toContain("z.date().nullable()");
+    expect(code).toContain("z.record(z.unknown()).nullable()");
+    expect(code).toContain("z.infer<typeof OrderItemSchema>");
+  });
+
+  test("Prisma model", () => {
+    const code = generateCode("prisma", testSchema);
+    expect(code).toContain("model OrderItem");
+    expect(code).toContain("@id");
+    expect(code).toContain("@default(autoincrement())");
+    expect(code).toContain('@@map("order_items")');
+    expect(code).toContain("price  Float?");
+    expect(code).toContain("created_at  DateTime?");
+  });
+
+  test("the Prisma map names the object's own SEGMENT and never the display label", () => {
+    // `DatabaseObject.name` is a display label and is NOT required to equal the last path
+    // segment (standing ruling 2). `@@map` is what Prisma addresses the table by, so it takes
+    // the segment; the model name is for a person and stays derived from the label (#789).
+    const labelled: DetailedObject = {
+      name: "Order Items",
+      kind: "table",
+      path: ["app", "order_items"],
+      indexes: [],
+      columns: [{ name: "id", type: "integer", nullable: false, isPrimary: true }],
+    };
+    const code = generateCode("prisma", labelled);
+    expect(code).toContain("model OrderItem {");
+    expect(code).toContain('@@map("order_items")');
+  });
+
+  test("Go struct", () => {
+    const code = generateCode("go", testSchema);
+    expect(code).toContain("package models");
+    expect(code).toContain('import "time"');
+    expect(code).toContain("type OrderItem struct");
+    expect(code).toContain('json:"id"');
+    expect(code).toContain("*float64");
+    expect(code).toContain("*time.Time");
+  });
+
+  test("Python dataclass", () => {
+    const code = generateCode("python", testSchema);
+    expect(code).toContain("from dataclasses import dataclass");
+    expect(code).toContain("from typing import Optional");
+    expect(code).toContain("from datetime import datetime");
+    expect(code).toContain("@dataclass");
+    expect(code).toContain("class OrderItem:");
+    expect(code).toContain("id: int");
+    expect(code).toContain("price: Optional[float]");
+  });
+
+  test("Java POJO", () => {
+    const code = generateCode("java", testSchema);
+    expect(code).toContain("import java.time.LocalDateTime;");
+    expect(code).toContain("public class OrderItem");
+    expect(code).toContain("private Integer id;");
+    expect(code).toContain("private String productName;");
+    expect(code).toContain("private Double price;");
+    expect(code).toContain("private LocalDateTime createdAt;");
+  });
+
+  test("Go struct without time import when no date columns", () => {
+    const schema: DetailedObject = {
+      name: "tags",
+      kind: "table",
+      path: ["tags"],
+      indexes: [],
+      columns: [
+        { name: "id", type: "INTEGER", nullable: false, isPrimary: true },
+        { name: "name", type: "TEXT", nullable: false, isPrimary: false },
+      ],
+    };
+    const code = generateCode("go", schema);
+    expect(code).not.toContain('import "time"');
+  });
+
+  test("Python dataclass without optional/datetime when not needed", () => {
+    const schema: DetailedObject = {
+      name: "flags",
+      kind: "table",
+      path: ["flags"],
+      indexes: [],
+      columns: [
+        { name: "id", type: "INTEGER", nullable: false, isPrimary: true },
+        { name: "name", type: "TEXT", nullable: false, isPrimary: false },
+      ],
+    };
+    const code = generateCode("python", schema);
+    expect(code).not.toContain("from typing import Optional");
+    expect(code).not.toContain("from datetime import datetime");
+  });
+
+  test("Java POJO without LocalDateTime import when not needed", () => {
+    const schema: DetailedObject = {
+      name: "tags",
+      kind: "table",
+      path: ["tags"],
+      indexes: [],
+      columns: [{ name: "id", type: "INTEGER", nullable: false, isPrimary: true }],
+    };
+    const code = generateCode("java", schema);
+    expect(code).not.toContain("import java.time.LocalDateTime");
+  });
+
+  test("empty columns produces empty body", () => {
+    const schema: DetailedObject = { name: "empty", kind: "table", path: ["empty"], indexes: [], columns: [] };
+    const code = generateCode("typescript", schema);
+    expect(code).toContain("export interface Empty");
+    expect(code).toContain("{\n\n}");
+  });
+});
+
+// ============================================================================
+// toIdentifier (#427)
+// ============================================================================
+
+describe("toIdentifier", () => {
+  test("redis key-prefix grouping becomes a legal identifier", () => expect(toIdentifier("user:*")).toBe("User"));
+  test("a second grouping keeps its singular-stripping behaviour", () =>
+    expect(toIdentifier("session:*")).toBe("Session"));
+  test("a bare key is unchanged", () => expect(toIdentifier("counter")).toBe("Counter"));
+  test("punctuation runs become word boundaries", () => expect(toIdentifier("a-b:*")).toBe("AB"));
+  test("a name with no alphanumerics falls back to Record", () => expect(toIdentifier(":*")).toBe("Record"));
+  test("an empty name falls back to Record", () => expect(toIdentifier("")).toBe("Record"));
+  test("an ordinary SQL table name is unaffected (regression)", () => expect(toIdentifier("users")).toBe("User"));
+  test("a leading digit is prefixed rather than left illegal", () => expect(toIdentifier("2fa:*")).toBe("T2fa"));
+
+  // Non-ASCII names were ALREADY legal identifiers in all six target languages,
+  // and an ASCII-only strip destroyed them: "musteri" lost its diacritics and
+  // two entirely non-Latin names collapsed onto the same fallback, so two tables
+  // generated two files declaring one type (#427).
+  test("a Turkish name keeps its letters", () => expect(toIdentifier("m\u00fc\u015fteri")).toBe("M\u00fc\u015fteri"));
+  test("an already-capitalised Turkish name is unchanged", () =>
+    expect(toIdentifier("\u00dcr\u00fcnler")).toBe("\u00dcr\u00fcnler"));
+  test("a CJK name is unchanged rather than replaced by the fallback", () =>
+    expect(toIdentifier("\u65e5\u672c\u8a9e")).toBe("\u65e5\u672c\u8a9e"));
+  test("two distinct non-ASCII names do not collide", () =>
+    expect(toIdentifier("\u65e5\u672c\u8a9e")).not.toBe(toIdentifier("\u00dcr\u00fcnler")));
+  test("a non-ASCII prefix group is still stripped of its glob", () =>
+    expect(toIdentifier("m\u00fc\u015fteri:*")).toBe("M\u00fc\u015fteri"));
+});
+
+describe("generateCode — non-identifier table names (#427)", () => {
+  const redisSchema: DetailedObject = {
+    name: "user:*",
+    kind: "table",
+    path: ["user:*"],
+    indexes: [],
+    columns: [
+      { name: "key", type: "string", nullable: false, isPrimary: true },
+      { name: "value", type: "string", nullable: true, isPrimary: false },
+    ],
+  };
+
+  test("TypeScript emits a legal interface name", () => {
+    const code = generateCode("typescript", redisSchema);
+    expect(code).toContain("export interface User {");
+    expect(code).not.toContain("User:*");
+  });
+
+  test("Zod emits a legal schema name", () => {
+    const code = generateCode("zod", redisSchema);
+    expect(code).toContain("export const UserSchema = z.object");
+    expect(code).not.toContain("User:*");
+  });
+
+  test("Prisma emits a legal model name but maps the raw key pattern", () => {
+    const code = generateCode("prisma", redisSchema);
+    expect(code).toContain("model User {");
+    expect(code).toContain('@@map("user:*")');
+  });
+
+  test("Go emits a legal struct name", () => {
+    const code = generateCode("go", redisSchema);
+    expect(code).toContain("type User struct");
+    expect(code).not.toContain("User:*");
+  });
+
+  test("Python emits a legal class name", () => {
+    const code = generateCode("python", redisSchema);
+    expect(code).toContain("class User:");
+    expect(code).not.toContain("User:*");
+  });
+
+  test("Java emits a legal class name", () => {
+    const code = generateCode("java", redisSchema);
+    expect(code).toContain("public class User {");
+    expect(code).not.toContain("User:*");
+  });
+
+  // Every target language accepts Unicode letters in an identifier, so a
+  // non-ASCII table name must survive intact in all six outputs (#427).
+  const unicodeSchema: DetailedObject = {
+    name: "m\u00fc\u015fteri",
+    kind: "table",
+    path: ["m\u00fc\u015fteri"],
+    indexes: [],
+    columns: [{ name: "id", type: "INT", nullable: false, isPrimary: true }],
+  };
+
+  const unicodeExpectations: [Parameters<typeof generateCode>[0], string][] = [
+    ["typescript", "export interface M\u00fc\u015fteri {"],
+    ["zod", "export const M\u00fc\u015fteriSchema = z.object"],
+    ["prisma", "model M\u00fc\u015fteri {"],
+    ["go", "type M\u00fc\u015fteri struct"],
+    ["python", "class M\u00fc\u015fteri:"],
+    ["java", "public class M\u00fc\u015fteri {"],
+  ];
+
+  for (const [lang, expected] of unicodeExpectations) {
+    test(`${lang} keeps a non-ASCII table name intact`, () => {
+      expect(generateCode(lang, unicodeSchema)).toContain(expected);
+    });
+  }
+});

@@ -1,0 +1,121 @@
+apiVersion: v2
+name: libredb-studio
+description: Web-based SQL IDE for cloud-native teams supporting sixteen engines - PostgreSQL, MySQL, SQLite, DuckDB, Oracle, SQL Server, MongoDB, Redis, Couchbase, ClickHouse, Apache Druid, Elasticsearch, OpenSearch, Apache Trino, Apache Cassandra and libSQL
+type: application
+version: 0.1.64
+appVersion: "0.16.0"
+kubeVersion: ">=1.26.0-0"
+home: https://github.com/libredb/libredb-studio
+icon: https://raw.githubusercontent.com/libredb/libredb-studio/main/public/logo.svg
+sources:
+  - https://github.com/libredb/libredb-studio
+keywords:
+  - sql
+  - ide
+  - database
+  - postgresql
+  - mysql
+  - mongodb
+  - redis
+  - sqlite
+  - oracle
+  - mssql
+  - couchbase
+  - clickhouse
+  - druid
+  - elasticsearch
+  - opensearch
+  - trino
+  # ArtifactHub search matches on keywords, so an engine absent here is an engine
+  # nobody finds. Added in 0.1.45, one chart version after Apache Cassandra
+  # shipped in 0.12.0 (#448) - #167 makes a keyword-only fix cost a chart version
+  # of its own, so a new engine's keyword belongs in the release that ships it.
+  - cassandra
+  # Two keywords for one engine, and the second is the one that gets searched: the
+  # provider is registered as `libsql`, but the product an evaluator types is Turso.
+  - libsql
+  - turso
+  # One keyword only, unlike the pair above: DuckDB is registered as `duckdb` and that
+  # is also the product name an evaluator types, so there is no second spelling to catch.
+  - duckdb
+  - web-ide
+maintainers:
+  - name: cevheri
+    url: https://github.com/cevheri
+annotations:
+  artifacthub.io/category: database
+  artifacthub.io/license: MIT
+  artifacthub.io/prerelease: "false"
+  # False: 0.1.60 tracks app release 0.14.1, which repairs how the light theme is
+  # painted and how two wire families are asked for a query plan. Accent colours were
+  # picked for a dark ground and reused on the light one, so warning, success and danger
+  # text sat as low as 1.46:1 against the surface behind it; and both EXPLAIN grammars
+  # are now measured when the connection opens rather than assumed from the type id. No
+  # template, value or default moves, and the image is where every one of them lands.
+  # False: 0.1.58 tracks app release 0.13.7, which adds one metadata field to
+  # package.json and nothing else. The npm artifact declared no licence, so
+  # @libredb/studio showed as unlicensed on the registry while the repository shipped
+  # MIT throughout and the LICENSE file was always in the tarball. Nothing an operator
+  # deploys moves, no template or value changes, and the image behaves identically -
+  # the fix is legible only on the npm package page.
+  # False: 0.1.57 changes only what a DEFAULT install renders, and only on Helm 4.2+.
+  # `authCookieSecure: null` in values.yaml stayed nil under Helm 4.1 and is coerced to ""
+  # under 4.2, which passed the template's `kindIs "invalid"` guard and wrote
+  # AUTH_COOKIE_SECURE: "" into the ConfigMap of an install that configured nothing. The app
+  # reads an empty value as unset, so no cookie behaviour changed on any install - what
+  # changed is that the ConfigMap stopped carrying a key nobody set, which an operator
+  # reading it takes as a decision somebody made. Explicit `true`/`false` are untouched.
+  # False: 0.1.56 tracks app release 0.13.6, which removes a claim rather than fixing a
+  # weakness. The sign-in page carried an "Encrypted" badge that named no subject; on the
+  # default STORAGE_PROVIDER=local it had no referent beyond the TLS the browser already
+  # indicates, since credentials stay in the browser's localStorage in plaintext by design.
+  # Nothing an operator deploys moves, and no behaviour changes - the at-rest AES-256-GCM
+  # over the sqlite and postgres store is exactly what it was.
+  # True: 0.1.55 tracks app release 0.13.5, which carries three fixes an operator should
+  # weigh. The SSH tunnel passed no `hostVerifier` to ssh2 and the library has no default,
+  # so the tunnel completed its handshake with whatever answered on the bastion's address
+  # and everything it carried - the database password among it - was readable to anything
+  # that could occupy that address; it is now trust-on-first-use pinned per connection. The
+  # destructive-command confirmation gate spoke SQL only, so FLUSHALL and a deleteMany with
+  # an empty filter ran unconfirmed while DELETE FROM asked. And POST /api/db/maintenance
+  # validated that an operation exists rather than that it could take the given target, so
+  # a direct request could vacuum a whole SQLite file while naming one table. No chart
+  # template or value moves for any of them - the fixes are in the application image.
+  # False: 0.1.54 changes no packaged template and no value - it names one more engine in
+  # the README, the description and the keywords, DuckDB, which is a new provider in the
+  # app rather than a chart change. The README is a packaged file, so #167 costs it a
+  # chart version even though nothing an operator deploys moves.
+  # False: 0.1.53 changes no packaged template and no value - it names one more engine in
+  # the README, the description and the keywords, libSQL, which is a new provider in the
+  # app rather than a chart change. The README is a packaged file, so #167 costs it a
+  # chart version even though nothing an operator deploys moves.
+  # False: 0.1.52 adds one value, config.authCookieSecure, and changes no behaviour on its
+  # own - unset (the default) writes no AUTH_COOKIE_SECURE and the app keeps deciding, so
+  # every existing install renders exactly as before. It makes an already-supported setting
+  # discoverable from values.yaml instead of reachable only through extraEnv; `false` is a
+  # deliberate weakening an operator asks for, not one this version applies.
+  # 0.13.3's transport fixes stay recorded on 0.1.47 with this flag set, which is where an
+  # operator looking for them will find them. The app-level security fixes of earlier
+  # releases remain recorded on 0.1.37, the chart version that first shipped them; the
+  # adm-zip pin note belongs to 0.1.44, unchanged.
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/images: |
+    - name: libredb-studio
+      image: ghcr.io/libredb/libredb-studio:0.16.0
+      platforms:
+        - linux/amd64
+        - linux/arm64
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://github.com/libredb/libredb-studio#readme
+    - name: Container Image
+      url: https://github.com/libredb/libredb-studio/pkgs/container/libredb-studio
+    - name: Source
+      url: https://github.com/libredb/libredb-studio
+  artifacthub.io/changes: |
+    - "Prefix default health probes with config.basePath for images built to run under a subpath"
+dependencies:
+  - name: postgresql
+    version: "16.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled

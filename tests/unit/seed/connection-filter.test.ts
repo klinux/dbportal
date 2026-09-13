@@ -1,0 +1,152 @@
+import { describe, it, expect } from "bun:test";
+import { filterByRoles, mergeDefaults } from "@/lib/seed/connection-filter";
+import type { SeedConnection, SeedDefaults } from "@/lib/seed/types";
+
+const baseConn: SeedConnection = {
+  id: "test",
+  name: "Test",
+  type: "postgres",
+  host: "localhost",
+  roles: ["*"],
+};
+
+describe("mergeDefaults", () => {
+  it("applies defaults when connection fields are missing", () => {
+    const defaults: SeedDefaults = { managed: true, environment: "production" };
+    const merged = mergeDefaults({ ...baseConn }, defaults);
+    expect(merged.managed).toBe(true);
+    expect(merged.environment).toBe("production");
+  });
+
+  it("connection-level values override defaults", () => {
+    const defaults: SeedDefaults = { managed: true, environment: "production" };
+    const merged = mergeDefaults({ ...baseConn, managed: false, environment: "staging" }, defaults);
+    expect(merged.managed).toBe(false);
+    expect(merged.environment).toBe("staging");
+  });
+
+  it("returns connection unchanged when no defaults", () => {
+    const merged = mergeDefaults({ ...baseConn, managed: true }, undefined);
+    expect(merged.managed).toBe(true);
+  });
+
+  it("merges ssl defaults", () => {
+    const defaults: SeedDefaults = { ssl: { mode: "require", rejectUnauthorized: true } };
+    const merged = mergeDefaults({ ...baseConn }, defaults);
+    expect(merged.ssl).toEqual({ mode: "require", rejectUnauthorized: true });
+  });
+
+  it("connection ssl overrides default ssl", () => {
+    const defaults: SeedDefaults = { ssl: { mode: "require" } };
+    const merged = mergeDefaults({ ...baseConn, ssl: { mode: "disable" } }, defaults);
+    expect(merged.ssl?.mode).toBe("disable");
+  });
+});
+
+describe("filterByRoles: the no-scan choice", () => {
+  it("carries a seeded connection's no-scan choice through to the managed connection", () => {
+    // The second silent half (#765): this mapper is a hand-written field list, so a field
+    // the schema validates and the mapper forgets reaches the browser as `undefined` and
+    // the connection scans the catalog the deployment asked it not to.
+    const [managed] = filterByRoles([{ ...baseConn, skipObjectScan: true }], ["admin"]);
+    expect(managed.skipObjectScan).toBe(true);
+  });
+
+  it("leaves it absent for a seed that does not ask for it", () => {
+    const [managed] = filterByRoles([{ ...baseConn }], ["admin"]);
+    expect(managed.skipObjectScan).toBeUndefined();
+  });
+});
+
+describe("filterByRoles: engine-specific fields", () => {
+  it("carries a Cassandra connection's data centre through to the managed connection", () => {
+    // The one field `cassandra-driver` refuses to start without. Dropped here, a
+    // seeded ring would be a connection the product lists and cannot open - which is
+    // exactly what a hand-written mapping loses silently.
+    const [managed] = filterByRoles(
+      [{ ...baseConn, type: "cassandra", port: 9042, database: "probe", localDataCenter: "datacenter1" }],
+      ["user"],
+    );
+
+    expect(managed.localDataCenter).toBe("datacenter1");
+  });
+
+  it("carries a MongoDB connection's auth database through to the managed connection", () => {
+    // Dropped here, a seeded connection whose users live in `admin` authenticates
+    // against the data database instead and reports a credentials error - the same
+    // silent loss, in the mapping that fails no gate.
+    const [managed] = filterByRoles(
+      [{ ...baseConn, type: "mongodb", port: 27017, database: "shop", authSource: "admin" }],
+      ["user"],
+    );
+
+    expect(managed.authSource).toBe("admin");
+  });
+  it("carries a Trino connection's session schema through to the managed connection", () => {
+    const [managed] = filterByRoles(
+      [{ ...baseConn, type: "trino", port: 8080, database: "memory", schema: "default" }],
+      ["user"],
+    );
+
+    expect(managed.schema).toBe("default");
+  });
+});
+
+describe("filterByRoles", () => {
+  it("includes connections with wildcard role", () => {
+    const result = filterByRoles([{ ...baseConn, roles: ["*"] }], ["user"]);
+    expect(result).toHaveLength(1);
+  });
+
+  it("includes connections matching user role", () => {
+    const result = filterByRoles([{ ...baseConn, roles: ["admin"] }], ["admin"]);
+    expect(result).toHaveLength(1);
+  });
+
+  it("excludes connections not matching user role", () => {
+    const result = filterByRoles([{ ...baseConn, roles: ["admin"] }], ["user"]);
+    expect(result).toHaveLength(0);
+  });
+
+  it("handles multi-role connections", () => {
+    const result = filterByRoles([{ ...baseConn, roles: ["admin", "user"] }], ["user"]);
+    expect(result).toHaveLength(1);
+  });
+
+  it("maps SeedConnection to ManagedConnection correctly", () => {
+    const result = filterByRoles(
+      [
+        {
+          ...baseConn,
+          id: "my-pg",
+          managed: true,
+          color: "#FF0000",
+          group: "Backend",
+        },
+      ],
+      ["admin"],
+    );
+    expect(result[0].seedId).toBe("my-pg");
+    expect(result[0].id).toBe("seed:my-pg");
+    expect(result[0].managed).toBe(true);
+    expect(result[0].color).toBe("#FF0000");
+    expect(result[0].group).toBe("Backend");
+    expect(result[0].createdAt).toBeInstanceOf(Date);
+  });
+
+  it("defaults managed to true when not specified", () => {
+    const result = filterByRoles([{ ...baseConn }], ["admin"]);
+    expect(result[0].managed).toBe(true);
+  });
+
+  it("returns empty array when no connections match", () => {
+    const result = filterByRoles(
+      [
+        { ...baseConn, roles: ["admin"] },
+        { ...baseConn, id: "other", roles: ["admin"] },
+      ],
+      ["user"],
+    );
+    expect(result).toHaveLength(0);
+  });
+});

@@ -1,0 +1,596 @@
+import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { createMockRequest, parseResponseJSON } from "../../helpers/mock-next";
+import { createMockProvider } from "../../helpers/mock-provider";
+import { clearRateLimitState } from "@/lib/api/rate-limit";
+import {
+  QueryError,
+  TimeoutError,
+  DatabaseError,
+  DatabaseConfigError,
+  ConnectionError,
+  AuthenticationError,
+  PoolExhaustedError,
+  isDatabaseError,
+  isConnectionError,
+  isQueryError,
+  isTimeoutError,
+  isAuthenticationError,
+  isRetryableError,
+  mapDatabaseError,
+} from "@/lib/db/errors";
+
+// ─── Create mock objects ────────────────────────────────────────────────────
+const mockProvider = createMockProvider();
+const mockGetOrCreateProvider = mock(async () => mockProvider as never);
+
+const mockGetSession = mock(
+  async (): Promise<{ role: string; username: string } | null> => ({ role: "admin", username: "admin" }),
+);
+
+// ─── Mock auth + seed resolution BEFORE importing route ─────────────────────
+mock.module("@/lib/auth", () => ({
+  getSession: mockGetSession,
+  signJWT: mock(async () => "mock-token"),
+  verifyJWT: mock(async () => null),
+  login: mock(async () => {}),
+  logout: mock(async () => {}),
+}));
+
+mock.module("@/lib/seed/resolve-connection", () => {
+  class SeedConnectionError extends Error {
+    constructor(
+      message: string,
+      public statusCode: number,
+    ) {
+      super(message);
+      this.name = "SeedConnectionError";
+    }
+  }
+  return {
+    resolveConnection: mock(async (body: Record<string, unknown>) => {
+      if (!body.connection && !body.connectionId) {
+        throw new SeedConnectionError("Either connection or connectionId is required", 400);
+      }
+      return body.connection;
+    }),
+    SeedConnectionError,
+  };
+});
+
+// ─── Mock dependencies BEFORE importing route ───────────────────────────────
+mock.module("@/lib/db", () => ({
+  getOrCreateProvider: mockGetOrCreateProvider,
+  createDatabaseProvider: mock(async () => mockProvider),
+  removeProvider: mock(async () => {}),
+  clearProviderCache: mock(async () => {}),
+  getProviderCacheStats: mock(() => ({ size: 0, connections: [] })),
+  QueryError,
+  TimeoutError,
+  DatabaseError,
+  DatabaseConfigError,
+  ConnectionError,
+  AuthenticationError,
+  PoolExhaustedError,
+  isDatabaseError,
+  isConnectionError,
+  isQueryError,
+  isTimeoutError,
+  isAuthenticationError,
+  isRetryableError,
+  mapDatabaseError,
+}));
+
+// ─── Import route handler AFTER mocking ─────────────────────────────────────
+const { POST } = await import("@/app/api/db/multi-query/route");
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+const validConnection = {
+  id: "test-1",
+  name: "Test DB",
+  type: "postgres",
+  host: "localhost",
+  port: 5432,
+  database: "testdb",
+};
+
+// ─── Tests ──────────────────────────────────────────────────────────────────
+describe("POST /api/db/multi-query", () => {
+  beforeEach(() => {
+    clearRateLimitState();
+    mockGetOrCreateProvider.mockClear();
+    (mockProvider.query as ReturnType<typeof mock>).mockClear();
+    (mockProvider.prepareQuery as ReturnType<typeof mock>).mockClear();
+    mockGetSession.mockClear();
+
+    // Reset to default implementations
+    mockGetSession.mockImplementation(
+      async (): Promise<{ role: string; username: string } | null> => ({ role: "admin", username: "admin" }),
+    );
+    mockGetOrCreateProvider.mockImplementation(async () => mockProvider as never);
+    (mockProvider.query as ReturnType<typeof mock>).mockImplementation(async () => ({
+      rows: [{ id: 1, name: "Alice" }],
+      fields: ["id", "name"],
+      rowCount: 1,
+      executionTime: 10,
+    }));
+    (mockProvider.prepareQuery as ReturnType<typeof mock>).mockImplementation((query: string) => ({
+      query: `${query} LIMIT 50`,
+      wasLimited: true,
+      limit: 50,
+      offset: 0,
+    }));
+  });
+
+  test("returns 401 when no session exists", async () => {
+    mockGetSession.mockResolvedValueOnce(null);
+
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: { connection: validConnection, sql: "SELECT * FROM users" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string }>(res);
+
+    expect(res.status).toBe(401);
+    expect(data.error).toContain("Authentication required");
+  });
+
+  test("single statement returns multiStatement results", async () => {
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: { connection: validConnection, sql: "SELECT * FROM users" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{
+      multiStatement: boolean;
+      statementCount: number;
+      executedCount: number;
+      hasError: boolean;
+      statements: unknown[];
+      rows: unknown[];
+      fields: string[];
+    }>(res);
+
+    expect(res.status).toBe(200);
+    expect(data.multiStatement).toBe(true);
+    expect(data.statementCount).toBe(1);
+    expect(data.executedCount).toBe(1);
+    expect(data.hasError).toBe(false);
+    expect(data.statements).toHaveLength(1);
+    expect(data.rows).toBeDefined();
+    expect(data.fields).toBeDefined();
+  });
+
+  // ── Warnings and declared column types travel with their statement (#285) ──
+  //
+  // #273 gave the shared result both channels and the providers fill them, but
+  // this route builds each statement result from an explicit field list, so both
+  // stopped here. Silent field-dropping is only caught by asserting the far end.
+
+  test("carries each statement's warnings and column types onto that statement", async () => {
+    let call = 0;
+    (mockProvider.query as ReturnType<typeof mock>).mockImplementation(async () => {
+      call++;
+      return {
+        rows: [{ id: call }],
+        fields: ["id"],
+        rowCount: 1,
+        executionTime: 5,
+        warnings: [{ message: `notice ${call}`, code: call }],
+        columnTypes: { id: call === 1 ? "BIGINT" : "INTEGER" },
+      };
+    });
+
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: { connection: validConnection, sql: "SELECT 1; SELECT 2" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{
+      statements: Array<{
+        warnings?: { message: string; code?: number | string }[];
+        columnTypes?: Record<string, string>;
+      }>;
+    }>(res);
+
+    expect(data.statements[0].warnings).toEqual([{ message: "notice 1", code: 1 }]);
+    expect(data.statements[0].columnTypes).toEqual({ id: "BIGINT" });
+    expect(data.statements[1].warnings).toEqual([{ message: "notice 2", code: 2 }]);
+    expect(data.statements[1].columnTypes).toEqual({ id: "INTEGER" });
+  });
+
+  test("the main result carries the channels of the statement whose rows it shows", async () => {
+    // The main result is the last statement that returned rows, so those rows and
+    // these notices come from the same run. Merging every statement's warnings
+    // would attribute one statement's notice to another's rows.
+    let call = 0;
+    (mockProvider.query as ReturnType<typeof mock>).mockImplementation(async () => {
+      call++;
+      return call === 1
+        ? { rows: [{ id: 1 }], fields: ["id"], rowCount: 1, executionTime: 5, warnings: [{ message: "first" }] }
+        : {
+            rows: [{ total: 2 }],
+            fields: ["total"],
+            rowCount: 1,
+            executionTime: 5,
+            warnings: [{ message: "second" }],
+            columnTypes: { total: "BIGINT" },
+          };
+    });
+
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: { connection: validConnection, sql: "SELECT 1; SELECT count(*) AS total FROM t" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{
+      warnings?: { message: string }[];
+      columnTypes?: Record<string, string>;
+    }>(res);
+
+    expect(data.warnings).toEqual([{ message: "second" }]);
+    expect(data.columnTypes).toEqual({ total: "BIGINT" });
+  });
+
+  test("omits both channels when the engine reported neither", async () => {
+    // Absent rather than empty: the grid decides whether to render anything from
+    // the field's presence alone.
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: { connection: validConnection, sql: "SELECT 1; SELECT 2" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<Record<string, unknown>>(res);
+
+    expect("warnings" in data).toBe(false);
+    expect("columnTypes" in data).toBe(false);
+    expect("warnings" in (data.statements as Record<string, unknown>[])[0]).toBe(false);
+  });
+
+  test("multiple statements are all executed", async () => {
+    let callCount = 0;
+    (mockProvider.query as ReturnType<typeof mock>).mockImplementation(async () => {
+      callCount++;
+      return {
+        rows: [{ result: callCount }],
+        fields: ["result"],
+        rowCount: 1,
+        executionTime: 5,
+      };
+    });
+
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: {
+        connection: validConnection,
+        sql: "INSERT INTO users (name) VALUES ('Alice'); INSERT INTO users (name) VALUES ('Bob'); SELECT * FROM users",
+      },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{
+      multiStatement: boolean;
+      statementCount: number;
+      executedCount: number;
+      hasError: boolean;
+      statements: Array<{ status: string; index: number }>;
+    }>(res);
+
+    expect(res.status).toBe(200);
+    expect(data.statementCount).toBe(3);
+    expect(data.executedCount).toBe(3);
+    expect(data.hasError).toBe(false);
+    expect(data.statements.every((s) => s.status === "success")).toBe(true);
+  });
+
+  test("error in second statement stops execution and sets hasError", async () => {
+    let callCount = 0;
+    (mockProvider.query as ReturnType<typeof mock>).mockImplementation(async () => {
+      callCount++;
+      if (callCount === 2) {
+        throw new Error("Syntax error in statement 2");
+      }
+      return {
+        rows: [],
+        fields: [],
+        rowCount: 0,
+        executionTime: 5,
+      };
+    });
+
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: {
+        connection: validConnection,
+        sql: "INSERT INTO a VALUES (1); BAD SQL HERE; SELECT * FROM b",
+      },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{
+      statementCount: number;
+      executedCount: number;
+      hasError: boolean;
+      statements: Array<{ status: string; error?: string }>;
+    }>(res);
+
+    expect(res.status).toBe(200);
+    expect(data.statementCount).toBe(3);
+    expect(data.executedCount).toBe(2); // Stopped after error on 2nd
+    expect(data.hasError).toBe(true);
+    expect(data.statements[0].status).toBe("success");
+    expect(data.statements[1].status).toBe("error");
+    expect(data.statements[1].error).toContain("Syntax error");
+  });
+
+  test("missing connection returns 400", async () => {
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: { sql: "SELECT 1" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string }>(res);
+
+    expect(res.status).toBe(400);
+    expect(data.error).toContain("required");
+  });
+
+  test("missing sql returns 400", async () => {
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: { connection: validConnection },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string }>(res);
+
+    expect(res.status).toBe(400);
+    expect(data.error).toContain("Connection and query are required");
+  });
+
+  test("only semicolons returns 400 (no valid statements)", async () => {
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: { connection: validConnection, sql: ";;;" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string }>(res);
+
+    expect(res.status).toBe(400);
+    expect(data.error).toContain("No valid SQL statements found");
+  });
+
+  test("last SELECT gets prepareQuery applied", async () => {
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: {
+        connection: validConnection,
+        sql: "INSERT INTO users (name) VALUES ('test'); SELECT * FROM users",
+      },
+    });
+
+    await POST(req as never);
+
+    // prepareQuery should have been called for the SELECT (last statement)
+    expect(mockProvider.prepareQuery).toHaveBeenCalled();
+  });
+
+  test("non-SELECT statements do not get prepareQuery applied", async () => {
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: {
+        connection: validConnection,
+        sql: "INSERT INTO users (name) VALUES ('test')",
+      },
+    });
+
+    await POST(req as never);
+
+    // prepareQuery should NOT have been called for a single INSERT
+    expect(mockProvider.prepareQuery).not.toHaveBeenCalled();
+  });
+
+  // ─── Which final statement gets bounded (#281) ─────────────────────────────
+  // The route used to answer "is this a SELECT" with its own `/^\s*SELECT\b/i`,
+  // which tolerates whitespace but not a comment, so an annotated final SELECT
+  // reached the engine unprepared. It now reads the shared classifier.
+  //
+  // The ` LIMIT 50` these assert on is the mock provider's marker, not the real
+  // limiter's output: what is under test here is WHICH statement the route hands
+  // to `prepareQuery` and that it executes the prepared text. The bound a real
+  // provider produces for these same statements is pinned at the shared seam, in
+  // `tests/unit/db/query-limiter.test.ts` and `tests/unit/db/sql-base.test.ts`.
+  // ── The split happens under the resolved connection's dialect (S1) ────────
+  //
+  // This is the one surface that EXECUTES what the splitter returns, so a fragment
+  // invented by a reading the engine does not share is a statement the operator never
+  // wrote. Measured on postgres 18 (container libredb-postgres): block comments nest,
+  // so `/* a /* b */ ; DROP TABLE users; -- */ SELECT 1` is ONE read there - `ran = 1`,
+  // and the table still in `pg_class` afterwards. The dialect-blind splitter cut it
+  // into three and this route ran fragment two, a bare `DROP TABLE users`.
+  describe("dialect-aware splitting", () => {
+    const attack = "/* a /* b */ ; DROP TABLE users; -- */ SELECT 1";
+
+    test("a PostgreSQL connection runs one statement and never the hidden DROP", async () => {
+      const req = createMockRequest("/api/db/multi-query", {
+        method: "POST",
+        body: { connection: validConnection, sql: attack },
+      });
+
+      const res = await POST(req as never);
+      const data = await parseResponseJSON<{ statementCount: number; statements: { sql: string }[] }>(res);
+      const executed = (mockProvider.query as ReturnType<typeof mock>).mock.calls.map((call) => call[0]);
+
+      expect(data.statementCount).toBe(1);
+      expect(executed).not.toContain("DROP TABLE users");
+      expect(data.statements[0].sql).toBe(attack);
+    });
+
+    test("a MySQL connection reads the same text flat, which is that engine's own answer", async () => {
+      // Measured on MySQL (container libredb-mysql): the DROP really does run there -
+      // the schema's table count went to 0 - so three fragments is the honest split and
+      // the confirmation gate is what must ask about it, not this route.
+      const req = createMockRequest("/api/db/multi-query", {
+        method: "POST",
+        body: { connection: { ...validConnection, type: "mysql", port: 3306 }, sql: attack },
+      });
+
+      const res = await POST(req as never);
+      const data = await parseResponseJSON<{ statementCount: number }>(res);
+
+      expect(data.statementCount).toBe(3);
+    });
+  });
+
+  describe("final-statement classification", () => {
+    test("comment-led final SELECT is prepared and the bounded SQL reaches the engine", async () => {
+      const finalStatement = "-- final read\nSELECT * FROM users";
+
+      const req = createMockRequest("/api/db/multi-query", {
+        method: "POST",
+        body: {
+          connection: validConnection,
+          sql: `INSERT INTO users (name) VALUES ('a');\n${finalStatement}`,
+          options: { limit: 50 },
+        },
+      });
+
+      await POST(req as never);
+
+      expect(mockProvider.prepareQuery).toHaveBeenCalledWith(finalStatement, { limit: 50 });
+      // The response echoes the original text, so the engine-visible bound is the
+      // only honest assertion that the statement was actually limited.
+      expect(mockProvider.query).toHaveBeenCalledWith(`${finalStatement} LIMIT 50`);
+    });
+
+    test("final statement that is not a SELECT is executed unprepared", async () => {
+      const req = createMockRequest("/api/db/multi-query", {
+        method: "POST",
+        body: {
+          connection: validConnection,
+          sql: "SELECT * FROM users;\n-- annotated write\nUPDATE users SET name = 'b'",
+        },
+      });
+
+      await POST(req as never);
+
+      expect(mockProvider.prepareQuery).not.toHaveBeenCalled();
+      expect(mockProvider.query).toHaveBeenCalledWith("-- annotated write\nUPDATE users SET name = 'b'");
+    });
+
+    test("non-final SELECT is executed unprepared", async () => {
+      const req = createMockRequest("/api/db/multi-query", {
+        method: "POST",
+        body: {
+          connection: validConnection,
+          sql: "-- first read\nSELECT * FROM a;\nINSERT INTO b VALUES (1)",
+        },
+      });
+
+      await POST(req as never);
+
+      expect(mockProvider.prepareQuery).not.toHaveBeenCalled();
+      expect(mockProvider.query).toHaveBeenCalledWith("-- first read\nSELECT * FROM a");
+    });
+
+    test("comment-led final read-only CTE is prepared", async () => {
+      const finalStatement = "-- read\nWITH c AS (SELECT 1 AS a) SELECT * FROM c";
+
+      const req = createMockRequest("/api/db/multi-query", {
+        method: "POST",
+        body: {
+          connection: validConnection,
+          sql: `INSERT INTO t VALUES (1);\n${finalStatement}`,
+        },
+      });
+
+      await POST(req as never);
+
+      expect(mockProvider.query).toHaveBeenCalledWith(`${finalStatement} LIMIT 50`);
+    });
+
+    test("comment-led final data-modifying CTE is executed unprepared", async () => {
+      // The shared classifier types a `WITH` by the keyword its CTE list operates
+      // (#287), so the `SELECT` this statement supplies itself must not win it a
+      // bound - that bound would cap the rows it WRITES.
+      const finalStatement = "-- write\nWITH c AS (DELETE FROM logs RETURNING id) INSERT INTO audit SELECT id FROM c";
+
+      const req = createMockRequest("/api/db/multi-query", {
+        method: "POST",
+        body: {
+          connection: validConnection,
+          sql: `SELECT 1;\n${finalStatement}`,
+        },
+      });
+
+      await POST(req as never);
+
+      expect(mockProvider.prepareQuery).not.toHaveBeenCalled();
+      expect(mockProvider.query).toHaveBeenCalledWith(finalStatement);
+    });
+
+    // The route resolves its connection before it asks the classifier, so it asks
+    // under THAT connection's dialect (#292). Without the dialect this statement
+    // types `SELECT` - the `#-` reads as a PostgreSQL jsonb operator, so the `)`
+    // inside the comment closes the CTE body early - and the route would hand a
+    // `DELETE` to `prepareQuery`. Pinned here because this is the one caller layer
+    // where the route, not the provider, decides whether the statement is a read.
+    test("the final statement is classified under the connection's own dialect", async () => {
+      const finalStatement = "WITH t AS (\n  #- drop the ) SELECT here\n  SELECT id FROM logs\n) DELETE FROM users";
+
+      const req = createMockRequest("/api/db/multi-query", {
+        method: "POST",
+        body: {
+          connection: { ...validConnection, type: "mysql" },
+          sql: `SELECT 1;\n${finalStatement}`,
+        },
+      });
+
+      await POST(req as never);
+
+      expect(mockProvider.prepareQuery).not.toHaveBeenCalled();
+      expect(mockProvider.query).toHaveBeenCalledWith(finalStatement);
+    });
+  });
+
+  test("QueryError from getOrCreateProvider returns 400", async () => {
+    mockGetOrCreateProvider.mockImplementation(async () => {
+      throw new QueryError("Bad query", "postgres");
+    });
+
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: { connection: validConnection, sql: "SELECT 1" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string }>(res);
+
+    expect(res.status).toBe(400);
+    expect(data.error).toContain("Bad query");
+  });
+
+  test("TimeoutError from getOrCreateProvider returns 408", async () => {
+    mockGetOrCreateProvider.mockImplementation(async () => {
+      throw new TimeoutError("Query timed out", "postgres", 30000);
+    });
+
+    const req = createMockRequest("/api/db/multi-query", {
+      method: "POST",
+      body: { connection: validConnection, sql: "SELECT 1" },
+    });
+
+    const res = await POST(req as never);
+    const data = await parseResponseJSON<{ error: string }>(res);
+
+    expect(res.status).toBe(408);
+    expect(data.error).toContain("timed out");
+  });
+});

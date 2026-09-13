@@ -1,0 +1,58 @@
+import React from "react";
+import type { DetailedObject } from "@/lib/db/detailed-object";
+import { Key, Hash } from "lucide-react";
+
+interface ColumnListProps {
+  columns: DetailedObject["columns"];
+  indexes: DetailedObject["indexes"];
+}
+
+// Static marker for non-primary columns, hoisted to module scope: the element
+// is identical for every row, so it does not need to be rebuilt per render.
+const nonPrimaryDot = (
+  <div className="w-2.5 h-2.5 flex items-center justify-center">
+    <div className="w-1 h-1 rounded-full bg-muted-foreground/50" />
+  </div>
+);
+
+export const ColumnList = React.memo(function ColumnList({ columns, indexes }: ColumnListProps) {
+  return (
+    <div className="pl-6 pr-2 py-1 space-y-0.5 border-l border-border/30 ml-3.5 mt-0.5 mb-1">
+      {columns.map((column) => (
+        <div
+          key={column.name}
+          className="flex items-center gap-2 py-1 px-2 rounded-sm group/col hover:bg-accent/20 cursor-default"
+        >
+          {column.isPrimary ? <Key strokeWidth={1.5} className="w-2.5 h-2.5 text-hue-yellow/70" /> : nonPrimaryDot}
+
+          <span className="text-xs text-muted-foreground flex-1 truncate group-hover/col:text-foreground">
+            {column.name}
+          </span>
+
+          <span className="text-xs font-mono text-muted-foreground/60 uppercase group-hover/col:text-muted-foreground">
+            {column.type.split("(")[0]}
+          </span>
+        </div>
+      ))}
+      {indexes.length > 0 && (
+        <div className="pt-2 pb-1">
+          <div className="flex items-center gap-1.5 px-2 mb-1">
+            <Hash strokeWidth={1.5} className="w-2.5 h-2.5 text-hue-purple/40" />
+            <span className="text-[0.625rem] font-medium text-muted-foreground">Indexes</span>
+          </div>
+          {indexes.map((idx) => (
+            <div key={idx.name} className="flex items-center gap-2 py-0.5 px-2">
+              <div className="w-2.5 h-2.5" />
+              <span
+                className="text-xs text-muted-foreground italic truncate"
+                title={Array.isArray(idx.columns) ? idx.columns.join(", ") : ""}
+              >
+                {idx.name}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});

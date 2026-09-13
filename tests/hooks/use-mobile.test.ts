@@ -1,0 +1,271 @@
+import "../setup-dom";
+
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { renderHook, act, waitFor } from "@testing-library/react";
+import React from "react";
+import ReactDOMServer from "react-dom/server";
+
+import { isMobileViewport, useIsMobile } from "@/hooks/use-mobile";
+
+// =============================================================================
+// matchMedia mock helpers
+// =============================================================================
+
+interface MockMediaQueryList {
+  matches: boolean;
+  media: string;
+  onchange: null;
+  addListener: ReturnType<typeof mock>;
+  removeListener: ReturnType<typeof mock>;
+  addEventListener: ReturnType<typeof mock>;
+  removeEventListener: ReturnType<typeof mock>;
+  dispatchEvent: ReturnType<typeof mock>;
+  _listeners: Array<(event: { matches: boolean }) => void>;
+  _triggerChange: (matches: boolean) => void;
+}
+
+function createMockMatchMedia(initialMatches: boolean) {
+  let currentMql: MockMediaQueryList;
+
+  const mockMatchMedia = mock((query: string): MediaQueryList => {
+    const listeners: Array<(event: { matches: boolean }) => void> = [];
+
+    currentMql = {
+      matches: initialMatches,
+      media: query,
+      onchange: null,
+      addListener: mock(() => {}),
+      removeListener: mock(() => {}),
+      addEventListener: mock((event: string, listener: (event: { matches: boolean }) => void) => {
+        if (event === "change") {
+          listeners.push(listener);
+        }
+      }),
+      removeEventListener: mock((event: string, listener: (event: { matches: boolean }) => void) => {
+        if (event === "change") {
+          const index = listeners.indexOf(listener);
+          if (index > -1) listeners.splice(index, 1);
+        }
+      }),
+      dispatchEvent: mock(() => true),
+      _listeners: listeners,
+      _triggerChange(matches: boolean) {
+        this.matches = matches;
+        for (const listener of listeners) {
+          listener({ matches });
+        }
+      },
+    };
+
+    return currentMql as unknown as MediaQueryList;
+  });
+
+  return {
+    mockMatchMedia,
+    getMql: () => currentMql,
+  };
+}
+
+// =============================================================================
+// useIsMobile Tests
+// =============================================================================
+describe("useIsMobile", () => {
+  let originalMatchMedia: typeof window.matchMedia;
+
+  beforeEach(() => {
+    originalMatchMedia = window.matchMedia;
+  });
+
+  afterEach(() => {
+    // Restore original matchMedia
+    Object.defineProperty(window, "matchMedia", {
+      value: originalMatchMedia,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, "matchMedia", {
+      value: originalMatchMedia,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  test("initially returns false when matchMedia does not match", () => {
+    const { mockMatchMedia } = createMockMatchMedia(false);
+    Object.defineProperty(window, "matchMedia", {
+      value: mockMatchMedia,
+      writable: true,
+      configurable: true,
+    });
+
+    const { result } = renderHook(() => useIsMobile());
+
+    // After the useEffect runs and sets initial value from mql.matches (false)
+    expect(result.current).toBe(false);
+  });
+
+  test("returns true when matchMedia matches (viewport below breakpoint)", async () => {
+    const { mockMatchMedia } = createMockMatchMedia(true);
+    Object.defineProperty(window, "matchMedia", {
+      value: mockMatchMedia,
+      writable: true,
+      configurable: true,
+    });
+
+    const { result } = renderHook(() => useIsMobile());
+
+    await waitFor(() => {
+      expect(result.current).toBe(true);
+    });
+
+    // Verify matchMedia was called with the correct query
+    expect(mockMatchMedia).toHaveBeenCalledWith("(max-width: 767px)");
+  });
+
+  test("responds to matchMedia change events", async () => {
+    const { mockMatchMedia, getMql } = createMockMatchMedia(false);
+    Object.defineProperty(window, "matchMedia", {
+      value: mockMatchMedia,
+      writable: true,
+      configurable: true,
+    });
+
+    const { result } = renderHook(() => useIsMobile());
+
+    // Initially not mobile
+    expect(result.current).toBe(false);
+
+    // Simulate viewport narrowing below breakpoint
+    act(() => {
+      getMql()._triggerChange(true);
+    });
+
+    await waitFor(() => {
+      expect(result.current).toBe(true);
+    });
+
+    // Simulate viewport widening above breakpoint
+    act(() => {
+      getMql()._triggerChange(false);
+    });
+
+    await waitFor(() => {
+      expect(result.current).toBe(false);
+    });
+  });
+
+  /**
+   * There is no viewport to ask on the server, so the hook answers false there -
+   * whatever the media query would have said - and the client's hydration pass
+   * gives the same answer, so the two never disagree.
+   */
+  test("answers false on the server, where there is no viewport to ask", () => {
+    // Deliberately a MATCHING query: only the server answer may be rendered here,
+    // so a true reading would show this test up rather than pass unnoticed.
+    const { mockMatchMedia } = createMockMatchMedia(true);
+    Object.defineProperty(window, "matchMedia", {
+      value: mockMatchMedia,
+      writable: true,
+      configurable: true,
+    });
+
+    function Probe() {
+      return React.createElement("span", null, String(useIsMobile()));
+    }
+
+    expect(ReactDOMServer.renderToString(React.createElement(Probe))).toContain("false");
+  });
+
+  test("cleans up event listener on unmount", () => {
+    const { mockMatchMedia, getMql } = createMockMatchMedia(false);
+    Object.defineProperty(window, "matchMedia", {
+      value: mockMatchMedia,
+      writable: true,
+      configurable: true,
+    });
+
+    const { unmount } = renderHook(() => useIsMobile());
+
+    const mql = getMql();
+    expect(mql.addEventListener).toHaveBeenCalledWith("change", expect.any(Function));
+
+    unmount();
+
+    expect(mql.removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
+
+    // Verify the same listener function was added and removed
+    const addedListener = mql.addEventListener.mock.calls[0][1];
+    const removedListener = mql.removeEventListener.mock.calls[0][1];
+    expect(addedListener).toBe(removedListener);
+  });
+});
+
+// =============================================================================
+// isMobileViewport Tests
+// =============================================================================
+/**
+ * The synchronous read the hook cannot give: `useIsMobile` hands back the value of
+ * the render you are inside, so a caller that has to DECIDE something at a point in
+ * time — rather than render from it — needs the platform's own answer instead.
+ */
+describe("isMobileViewport", () => {
+  let originalMatchMedia: typeof window.matchMedia;
+
+  beforeEach(() => {
+    originalMatchMedia = window.matchMedia;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      value: originalMatchMedia,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, "matchMedia", {
+      value: originalMatchMedia,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  test("answers from the media query, on the same breakpoint the hook uses", () => {
+    const { mockMatchMedia } = createMockMatchMedia(true);
+    Object.defineProperty(window, "matchMedia", {
+      value: mockMatchMedia,
+      writable: true,
+      configurable: true,
+    });
+
+    expect(isMobileViewport()).toBe(true);
+    // The same query string the hook subscribes to. It exists once in the module, so
+    // the predicate and the hook cannot answer about different breakpoints.
+    expect(mockMatchMedia).toHaveBeenCalledWith("(max-width: 767px)");
+  });
+
+  test("answers false on a viewport at or above the breakpoint", () => {
+    const { mockMatchMedia } = createMockMatchMedia(false);
+    Object.defineProperty(window, "matchMedia", {
+      value: mockMatchMedia,
+      writable: true,
+      configurable: true,
+    });
+
+    expect(isMobileViewport()).toBe(false);
+  });
+
+  /**
+   * There is no viewport on the server, and a module that renders on both sides may
+   * call this during a render that never touches a browser. It answers false rather
+   * than throwing — the same answer the hook's server snapshot gives, so markup
+   * produced on the server and markup produced by the hydration pass agree.
+   */
+  test("answers false where there is no window at all", () => {
+    const realWindow = globalThis.window;
+    Object.defineProperty(globalThis, "window", { value: undefined, writable: true, configurable: true });
+    try {
+      expect(isMobileViewport()).toBe(false);
+    } finally {
+      Object.defineProperty(globalThis, "window", { value: realWindow, writable: true, configurable: true });
+    }
+  });
+});
