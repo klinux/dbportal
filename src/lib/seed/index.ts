@@ -10,27 +10,50 @@ import {
   getSqliteSampleSeedState,
   SQLITE_SAMPLE_SEED_ID,
 } from "./sqlite-sample";
-import type { ManagedConnection } from "./types";
+import type { ManagedConnection, SeedConnection } from "./types";
+import { listSharedDatasources } from "@/lib/datasources/store";
+import { logger } from "@/lib/logger";
 
 export type { ManagedConnection } from "./types";
 export { resetCache } from "./config-loader";
 
-async function loadAndResolve(): Promise<ManagedConnection[]> {
+/** The ids the seed YAML declares. An id here is taken; the runtime store may not reuse it. */
+export async function getConfigSeedIds(): Promise<Set<string>> {
   const config = await loadConfig();
-  if (!config) return [];
-  const withDefaults = config.connections.map((conn) => mergeDefaults(conn, config.defaults));
-  const resolved = resolveAllCredentials(withDefaults);
-  return filterByRoles(resolved, ["*", "admin", "user"]);
+  return new Set(config ? config.connections.map((conn) => conn.id) : []);
+}
+
+/**
+ * Every declared datasource, from both sources, before credentials are resolved: the seed
+ * YAML first, then the shared store (docs/CONTEXT.md §4.1 step B). The YAML wins an id
+ * collision, because what is declared in version control is the operator's explicit
+ * statement and a runtime record cannot silently override it. A store that cannot be read
+ * costs the runtime records only - the YAML datasources keep working, and the failure is
+ * logged rather than turned into an empty list for everyone.
+ */
+async function collectDeclared(): Promise<SeedConnection[]> {
+  const config = await loadConfig();
+  const fromConfig = config ? config.connections.map((conn) => mergeDefaults(conn, config.defaults)) : [];
+  const declared = new Set(fromConfig.map((conn) => conn.id));
+  let shared: SeedConnection[] = [];
+  try {
+    shared = (await listSharedDatasources()).filter((record) => !declared.has(record.id));
+  } catch (error) {
+    logger.error("Shared datasources could not be read; serving the seed config only", error, {
+      route: "seed/index",
+    });
+  }
+  return [...fromConfig, ...shared];
+}
+
+async function loadAndResolve(): Promise<ManagedConnection[]> {
+  const declared = await collectDeclared();
+  if (declared.length === 0) return [];
+  return filterByRoles(resolveAllCredentials(declared), ["*", "admin", "user"]);
 }
 
 export async function getManagedConnections(roles: string[]): Promise<ManagedConnection[]> {
-  const config = await loadConfig();
-  const fromConfig = config
-    ? filterByRoles(
-        resolveAllCredentials(config.connections.map((conn) => mergeDefaults(conn, config.defaults))),
-        roles,
-      )
-    : [];
+  const fromConfig = filterByRoles(resolveAllCredentials(await collectDeclared()), roles);
 
   const out = [...fromConfig];
 

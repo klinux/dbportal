@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
   resolveConnectionCredentials,
   resolveAllCredentials,
+  resolveEnvPlaceholders,
   resetPlaintextWarnings,
 } from "@/lib/seed/credential-resolver";
+import type { DatabaseConnection } from "@/lib/types";
 import type { SeedConnection } from "@/lib/seed/types";
 
 const baseConn: SeedConnection = {
@@ -81,5 +83,39 @@ describe("credential-resolver", () => {
     const conn = { ...baseConn, id: "plain", password: "hardcoded_secret" };
     const resolved = resolveConnectionCredentials(conn);
     expect(resolved.password).toBe("hardcoded_secret");
+  });
+
+  // docs/CONTEXT.md §4.1 step B: an admin types `${VAR}` into the browser form the way a seed
+  // file would, so the datasource is tested with the credential the server holds and saved
+  // with the reference. A literal value passes through untouched and earns no plaintext
+  // warning - a browser connection is expected to carry its value.
+  describe("resolveEnvPlaceholders", () => {
+    const browserConn: DatabaseConnection = {
+      id: "b1",
+      name: "Browser",
+      type: "postgres",
+      host: "${MY_HOST}",
+      password: "${MY_PASSWORD}",
+      user: "app",
+      createdAt: new Date(0),
+    };
+
+    it("resolves every ${VAR} credential field and leaves literals alone", () => {
+      process.env.MY_PASSWORD = "from-env";
+      process.env.MY_HOST = "db.internal";
+      const resolved = resolveEnvPlaceholders(browserConn);
+      expect(resolved.password).toBe("from-env");
+      expect(resolved.host).toBe("db.internal");
+      expect(resolved.user).toBe("app");
+      // The input is not mutated: the caller may still hold it as the browser sent it.
+      expect(browserConn.password).toBe("${MY_PASSWORD}");
+    });
+
+    it("names the missing variable, never a value", () => {
+      process.env.MY_HOST = "db.internal";
+      expect(() => resolveEnvPlaceholders(browserConn)).toThrow(
+        'Environment variable MY_PASSWORD is not defined (referenced by field "password")',
+      );
+    });
   });
 });

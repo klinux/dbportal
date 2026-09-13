@@ -489,6 +489,25 @@ describe("ConnectionModal", () => {
     expect(queryByText("Save Changes")).not.toBeNull();
   });
 
+  // The admin datasource page reuses this form (docs/CONTEXT.md §4.1 step B) and has to say
+  // so: its own heading, its own button label, and its own fields - roles - rendered inside
+  // the dialog so they travel with the save.
+  test("a caller can rename the dialog and the save button, and add fields of its own", () => {
+    const props = createDefaultProps({
+      heading: { title: "New datasource", description: "Shared with the roles below." },
+      submitLabel: "Create datasource",
+      extraFields: React.createElement("div", { "data-testid": "caller-fields" }, "Roles"),
+    });
+    const { queryByText, getByTestId, getAllByText } = render(React.createElement(ConnectionModal, props));
+
+    expect(getAllByText("New datasource").length).toBeGreaterThan(0);
+    expect(queryByText("Shared with the roles below.")).not.toBeNull();
+    expect(queryByText("Create datasource")).not.toBeNull();
+    expect(queryByText("Establish Connection")).toBeNull();
+    expect(queryByText("New Connection")).toBeNull();
+    expect(getByTestId("caller-fields")).not.toBeNull();
+  });
+
   // ── 11. onClose fires when Cancel clicked ──────────────────────────────────
 
   test("onClose fires when Cancel button clicked", () => {

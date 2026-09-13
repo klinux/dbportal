@@ -151,6 +151,14 @@ describe("auth", () => {
       expect(payload!.role).toBe("admin");
     });
 
+    // The shared datasource store lives in user_storage under a reserved owner id, and the
+    // per-user storage routes read and write whatever row the session names - so a session
+    // for that id, however an identity provider came to claim it, must never be minted.
+    test("refuses to mint a session for the shared datasource owner id", async () => {
+      await expect(login("user", "shared:datasources")).rejects.toThrow("reserved");
+      expect(mockSetCalls.length).toBe(0);
+    });
+
     test("sets auth-token cookie with user role", async () => {
       await login("user", "user");
       expect(mockSetCalls.length).toBeGreaterThan(0);

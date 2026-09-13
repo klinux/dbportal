@@ -44,7 +44,7 @@ Verified in code, not from the README:
 
 | Gap | Where | What actually happens today |
 |---|---|---|
-| Admins can still create connections in the browser | [`src/lib/seed/resolve-connection.ts`](../src/lib/seed/resolve-connection.ts) — the `connection` body field is accepted only for `role === "admin"` (§4.1 step A, done) | A non-admin session that sends a full connection gets a 403 and a `permission_denied` / `insufficient_role` audit line; the UI offers it no connection dialog. An admin can still connect to whatever they type, and those connections live in the admin's own browser storage, not in a shared store. Only `seed:` ids are server-controlled. |
+| Admins can still keep browser-local connections | [`src/lib/seed/resolve-connection.ts`](../src/lib/seed/resolve-connection.ts) — the `connection` body field is accepted only for `role === "admin"` (§4.1 step A) | Shared datasources now live server-side (§4.1 step B: seed YAML + the admin CRUD, one list). What remains is the admin's own browser-stored connections and the built-in samples, which the studio still lets an admin create and which nobody else can see. Removing that path is the last piece of §4.1. |
 | No server-side audit of human queries | [`src/app/api/db/query/route.ts`](../src/app/api/db/query/route.ts) and siblings `multi-query`, `transaction`, `maintenance` | The routes call the provider directly with no `emitAuditEvent`. Query history is written **client-side** (`use-query-execution.ts` → `storage.addToHistory`), capped at 500 per user, and the user can clear it. The admin "Audit" tab reads the admin's own history. |
 | Audit channel excludes SQL by design | [`src/lib/audit.ts`](../src/lib/audit.ts) — "What must never be recorded here: … SQL text" | The stdout JSON channel records logins, denials, maintenance — never the statement. The in-memory ring buffer holds 1000 events per process. |
 | Two-role RBAC | [`src/lib/auth.ts`](../src/lib/auth.ts) — `type Role = "admin" \| "user"` | Seed YAML supports `roles: ["admin"]` / `["*"]`. No groups, no per-datasource read/write matrix. |
@@ -76,13 +76,33 @@ Two steps. The first closes the hole; the second delivers the product.
   the other order would open a non-admin's stored connection and greet them with the 403.
   The built-in samples (`managed:false` seeds) are therefore admin-only by construction.
 
-**Step B — server-side shared datasources:**
-- Admin CRUD (`/api/admin/datasources`) persisted server-side, encrypted like the existing
-  `connections` collection ([`src/lib/storage/encrypting-provider.ts`](../src/lib/storage/encrypting-provider.ts)),
-  with `roles` like the seed YAML. The seed YAML stays as the GitOps way to declare them;
-  the CRUD is the runtime way. Both feed `getManagedConnections()`.
-- Non-admin users only ever send `connectionId`. The `connection` body field is removed
-  from every `src/app/api/db/*` route once Step B lands.
+**Step B — server-side shared datasources — done, one piece open:**
+- Store: [`src/lib/datasources/store.ts`](../src/lib/datasources/store.ts). A record is a
+  `SeedConnection` (same zod schema, same `${ENV_VAR}` credential resolution) plus who
+  wrote it and when, persisted in `user_storage` under the reserved owner
+  `shared:datasources` in the `connections` collection — so it inherits credential
+  encryption from the one choke point every storage write passes through, with no second
+  table and no second encryption path. `login()` refuses to mint a session for that owner
+  id. Needs `STORAGE_PROVIDER=sqlite|postgres`; on `local` the API answers 503 and the
+  seed YAML alone is served. Reads are cached 5 s; writes refresh the cache.
+- One list: `getManagedConnections()` = seed YAML first, then the store; the YAML wins an
+  id collision (version control is the operator's explicit statement), and a store that
+  cannot be read costs only the runtime records. A shared datasource is always
+  `managed: true` and is opened by the same `seed:<id>` handle as a YAML one.
+- API: `GET/POST /api/admin/datasources`, `PUT/DELETE /api/admin/datasources/[id]`
+  (admin-only, role denials audited, every mutation a `managed_connection` audit event,
+  secrets never returned — the view says `hasPassword` / `passwordEnv`). An update that
+  omits a secret keeps the stored one. `POST` refuses an id the YAML declares (409).
+- UI: `/admin/datasources` ([`DatasourcesTab`](../src/components/admin/tabs/DatasourcesTab.tsx)),
+  grouped by **environment** (production → staging → development → local → other), the
+  YAML datasources listed read-only beside the runtime ones. The editor is the studio's
+  `ConnectionModal` with `heading` / `submitLabel` / `extraFields` (roles, secret note);
+  it tests the connection before saving, and `resolveConnection` resolves an admin's
+  `${ENV_VAR}` reference in that test so the value never travels through the browser.
+- **Open:** admins can still create browser-local connections in the studio (the
+  `connection` body field on the `src/app/api/db/*` routes, and the built-in samples).
+  Closing it means the studio's "New connection" for admins becomes "New datasource",
+  the samples become admin-only demo seeds or go, and the body field is removed.
 
 ### 4.2 Server-side audit of every execution
 
@@ -105,6 +125,17 @@ role. Cheap, and gives a second, independent audit trail.
 
 Design notes for these live in [DESIGN.md](DESIGN.md) §"State Management" and
 §"Interactions" (write window, awaiting-approval state, masked columns, audit rail).
+
+### 4.8 UI: configuration dialogs become side sheets
+
+Every configuration dialog — the connection/datasource editor first
+(`src/components/ConnectionModal.tsx`, a 1,100-line centred modal that already scrolls
+at 800px), then the create-table, import and save-query dialogs — moves to a **Sheet**
+anchored to the right edge at **50 % of the viewport** (`src/components/ui/sheet.tsx`
+exists; the mobile Drawer stays). A sheet keeps the list it was opened from visible,
+gives a long form its full height, and does not fight the page for the centre. The
+datasource editor is the first candidate because it grew the roles block in §4.1 B and
+is the one administrators will live in. Requested 2026-09-13.
 
 ## 5. Decisions already taken
 

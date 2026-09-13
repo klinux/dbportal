@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
@@ -63,6 +65,15 @@ interface ConnectionModalProps {
   onTestConnection?: (
     connection: DatabaseConnection,
   ) => Promise<{ success: boolean; latency?: number; error?: string }>;
+  /**
+   * What the dialog is for, when it is not the studio's own connection editor. The admin
+   * datasource page reuses this form (docs/CONTEXT.md §4.1 step B) and says so in the
+   * heading and on the button; the fields and the test-before-save flow stay the same.
+   */
+  heading?: { title: string; description: string };
+  submitLabel?: string;
+  /** Rendered above the connection fields: the caller's own inputs (roles, notes) that travel with the save. */
+  extraFields?: ReactNode;
 }
 
 export function ConnectionModal({
@@ -71,6 +82,9 @@ export function ConnectionModal({
   onConnect,
   editConnection,
   onTestConnection,
+  heading,
+  submitLabel,
+  extraFields,
 }: ConnectionModalProps) {
   const isMobile = useIsMobile();
   const {
@@ -163,7 +177,15 @@ export function ConnectionModal({
 
     // Derived data
     dbTypes,
-  } = useConnectionForm({ isOpen, onClose, onConnect, editConnection, onTestConnection });
+  } = useConnectionForm({ isOpen, onClose, onConnect, editConnection, onTestConnection, submitLabel });
+
+  const title = heading?.title ?? (isEditMode ? "Edit Connection" : "New Connection");
+  const description =
+    heading?.description ??
+    (isEditMode
+      ? "Update your database connection parameters."
+      : "Configure your database connection parameters securely.");
+  const submitText = submitLabel ?? (isEditMode ? "Save Changes" : "Establish Connection");
 
   // Couchbase pins one bucket per connection (issue #262, decision 4), so the shared
   // `database` field holds a bucket name and the form must say so.
@@ -216,16 +238,10 @@ export function ConnectionModal({
             <div className="p-2 rounded-xl bg-brand-tint/10 border border-brand-tint/20">
               <Zap strokeWidth={1.5} className="w-5 h-5 text-brand" />
             </div>
-            <h2 className="text-xs md:text-[0.8125rem] font-medium">
-              {isEditMode ? "Edit Connection" : "New Connection"}
-            </h2>
+            <h2 className="text-xs md:text-[0.8125rem] font-medium">{title}</h2>
           </div>
           <div className="flex items-center justify-between">
-            <p className="text-xs text-fg-muted">
-              {isEditMode
-                ? "Update your database connection parameters."
-                : "Configure your database connection parameters securely."}
-            </p>
+            <p className="text-xs text-fg-muted">{description}</p>
             {!isEditMode && (
               <button
                 onClick={() => setShowPasteInput(!showPasteInput)}
@@ -237,6 +253,8 @@ export function ConnectionModal({
             )}
           </div>
         </div>
+
+        {extraFields}
 
         {/* Paste Connection String Input */}
         <AnimatePresence>
@@ -1078,7 +1096,7 @@ export function ConnectionModal({
                     exit={{ opacity: 0 }}
                     className="flex items-center gap-2"
                   >
-                    {isEditMode ? "Save Changes" : "Establish Connection"}
+                    {submitText}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -1099,7 +1117,7 @@ export function ConnectionModal({
       >
         <DrawerContent className="max-h-[95dvh] bg-surface border-hairline text-fg p-0 flex flex-col">
           <DrawerHeader className="sr-only">
-            <DrawerTitle>{isEditMode ? "Edit Connection" : "New Connection"}</DrawerTitle>
+            <DrawerTitle>{title}</DrawerTitle>
             <DrawerDescription>Configure database connection parameters.</DrawerDescription>
           </DrawerHeader>
           {formContent}
@@ -1114,7 +1132,7 @@ export function ConnectionModal({
         className="sm:max-w-[500px] lg:max-w-[540px] max-h-[90vh] bg-surface border-hairline text-fg p-0 overflow-hidden shadow-2xl flex flex-col"
         showCloseButton={false}
       >
-        <DialogTitle className="sr-only">{isEditMode ? "Edit Connection" : "New Connection"}</DialogTitle>
+        <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">Configure database connection parameters.</DialogDescription>
         {formContent}
       </DialogContent>

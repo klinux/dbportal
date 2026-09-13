@@ -2,6 +2,7 @@ import type { DatabaseConnection } from "@/lib/types";
 import { getSeedConnectionById, getSeedConnectionByIdUnfiltered } from "./index";
 import { logger } from "@/lib/logger";
 import { auditRoleDenial } from "@/lib/api/role-denial";
+import { resolveEnvPlaceholders } from "./credential-resolver";
 
 /**
  * What the audit line names as the target of a refused client-supplied connection. There is
@@ -45,7 +46,15 @@ export async function resolveConnection(
         403,
       );
     }
-    return connection;
+    // An admin may write `${ENV_VAR}` where a seed file would, so a datasource is tested with
+    // the credential the server holds and then saved with the reference (step B). A reference
+    // the server cannot resolve is the caller's mistake, and the message names the variable -
+    // never its value.
+    try {
+      return resolveEnvPlaceholders(connection);
+    } catch (error) {
+      throw new SeedConnectionError(error instanceof Error ? error.message : String(error), 400);
+    }
   }
 
   if (connectionId) {

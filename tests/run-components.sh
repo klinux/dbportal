@@ -185,7 +185,8 @@ run_group "Group 4b/6: AdminLayout" \
 
 # Group 5: SecurityTab (isolated — mocks MaskingSettings)
 run_group "Group 5/6: SecurityTab" \
-  tests/components/admin/SecurityTab.test.tsx
+  tests/components/admin/SecurityTab.test.tsx \
+  tests/components/admin/DatasourcesTab.test.tsx
 
 # Group 6: MonitoringDashboard (isolated - mocks all monitoring tabs)
 run_group "Group 6/7: MonitoringDashboard" \

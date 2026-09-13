@@ -897,6 +897,25 @@ describe("useConnectionForm", () => {
     expect(onConnect).toHaveBeenCalledTimes(1);
   });
 
+  // The sentence names the button the user has to click again. A caller that renamed the
+  // button (the admin datasource page says "Create datasource") must be named correctly, or
+  // the sentence points at a button that is not on screen.
+  test("the degraded-save sentence names the caller's own button label", async () => {
+    const onTestConnection = mock(async () => ({ success: true, degraded: true, error: "no monitoring here" }));
+    const { result } = renderHook(() =>
+      useConnectionForm({
+        ...defaultProps,
+        onTestConnection: onTestConnection as never,
+        submitLabel: "Create datasource",
+      }),
+    );
+
+    await act(async () => {
+      await result.current.handleConnect();
+    });
+    expect(result.current.testResult!.message).toContain("Click Create datasource again");
+  });
+
   // ── handlePasteConnectionString parses and fills form ──────────────────────
 
   test("handlePasteConnectionString parses and fills form fields", () => {

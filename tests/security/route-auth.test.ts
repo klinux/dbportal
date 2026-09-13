@@ -216,6 +216,10 @@ const ALL_ROUTES = discoverRoutes(API_ROOT_DIR);
  */
 const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
   "admin/audit": "reads/writes the in-process audit ring buffer only; no database or LLM provider",
+  "admin/datasources":
+    "lists and creates shared datasources in the app's own storage backend (STORAGE_PROVIDER); never opens a user database (GET/POST). Admin-gated by a bare getSession() with a role denial audit, like admin/audit; tests/api/admin/datasources.test.ts proves the 403",
+  "admin/datasources/[id]":
+    "updates and deletes one shared datasource in the same storage backend; never opens a user database (PUT/DELETE, no POST export). Same admin gate as above",
   "agent/config":
     "answers whether the agent runtime is enabled, from process.env alone; no database or LLM provider (GET, no POST export). It still requires a session — a bare getSession() like connections/managed, because metering a visibility probe out of the ai bucket would spend a run's budget on rendering a panel — and tests/api/agent/config.test.ts proves an unauthenticated caller learns nothing about the flag",
   "agent/drive":
@@ -383,6 +387,7 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/agent/config": `reads the agent runtime's env config and ${PROVIDER_NAMING_HELPER} (@/lib/llm/utils/config) to validate the model id, which resolves config rather than calling a model`,
     "@/lib/agent/model-tuning": "the per-model tuning table; data only",
     "@/lib/agent/runtime": `the run loop, and it ${PROVIDER_NAMING_HELPER} - but the artifacts route imports only readAgentArtifact, which reads the in-process ExecutionArtifactStore`,
+    "@/lib/api/admin-datasources": "the admin gate, body reader and error mapper the datasource routes share; reaches no provider",
     "@/lib/api/agent-run-access": "resolves a run id to its ledger behind guardRoute; reads no provider",
     "@/lib/api/client-address": "parses the forwarded-for chain for the audit record",
     "@/lib/api/errors": `maps a thrown error to a response and ${PROVIDER_NAMING_HELPER} (@/lib/db/errors, @/lib/llm/types) for the error CLASSES alone - nearly every route imports it, and treating it as an entry point would fire on all fifteen`,
@@ -394,10 +399,12 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/auth-compare": "constant-time credential comparison",
     "@/lib/auth-errors": "the auth failure taxonomy",
     "@/lib/config/base-path": "prefixes redirect URLs and cookie paths; these routes use no fetch or provider",
+    "@/lib/datasources/store": "the shared datasource records in the app's own storage backend; opens no user database",
     "@/lib/local-auth": "the local email/password credential store",
     "@/lib/logger": "structured logging",
     "@/lib/oidc": "the OIDC discovery and PKCE exchange",
     "@/lib/seed": "reads seed connection metadata from config; never connects",
+    "@/lib/seed/config-loader": "reads the seed YAML itself; never connects",
     "@/lib/storage/factory": "the app's own storage backend (STORAGE_PROVIDER), not a user database",
     "@/lib/storage/types": "the storage backend's interfaces",
     "@/lib/totp": "second-factor verification: an HMAC over the submitted code and an in-process spent-step map",

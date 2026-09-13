@@ -121,6 +121,8 @@ interface UseConnectionFormProps {
   onTestConnection?: (
     connection: DatabaseConnection,
   ) => Promise<{ success: boolean; latency?: number; error?: string; degraded?: boolean; message?: string }>;
+  /** The save button's own label, when the caller renamed it; named in the degraded-save sentence. */
+  submitLabel?: string;
 }
 
 /** What the test route answered, in the shape both call sites read. */
@@ -153,7 +155,13 @@ function degradedSentence(result: TestOutcome): string {
  */
 type TestResultTone = "success" | "warning" | "error";
 
-export function useConnectionForm({ isOpen, onConnect, editConnection, onTestConnection }: UseConnectionFormProps) {
+export function useConnectionForm({
+  isOpen,
+  onConnect,
+  editConnection,
+  onTestConnection,
+  submitLabel,
+}: UseConnectionFormProps) {
   const [type, setType] = useState<DatabaseType>("postgres");
   const [name, setName] = useState("");
   const [host, setHost] = useState("localhost");
@@ -560,7 +568,7 @@ export function useConnectionForm({ isOpen, onConnect, editConnection, onTestCon
           // Changes" when editing and "Establish Connection" when creating, and naming
           // a button that is not on screen is worse than naming none.
           message: `${degradedSentence(result)} Click ${
-            isEditMode ? "Save Changes" : "Establish Connection"
+            submitLabel ?? (isEditMode ? "Save Changes" : "Establish Connection")
           } again to save it anyway.`,
         });
         return;
@@ -581,7 +589,15 @@ export function useConnectionForm({ isOpen, onConnect, editConnection, onTestCon
     } finally {
       setIsTesting(false);
     }
-  }, [buildConnection, degradedSaveAcknowledged, isEditMode, onConnect, probeConnection, validateQueryTimeout]);
+  }, [
+    buildConnection,
+    degradedSaveAcknowledged,
+    isEditMode,
+    onConnect,
+    probeConnection,
+    submitLabel,
+    validateQueryTimeout,
+  ]);
 
   const handlePasteConnectionString = useCallback(() => {
     const trimmed = pasteInput.trim();

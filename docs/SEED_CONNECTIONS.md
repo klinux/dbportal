@@ -283,6 +283,29 @@ Deleting a `managed: false` connection from the sidebar does not simply remove i
 
 ---
 
+## Runtime Datasources (admin UI)
+
+The seed file is the GitOps way to declare a shared datasource. The runtime way is the
+**Datasources** section of the admin dashboard (`/admin/datasources`), backed by
+`GET/POST /api/admin/datasources` and `PUT/DELETE /api/admin/datasources/[id]`. Both kinds
+end up in the same list every user sees, opened by the same `seed:<id>` handle, and filtered
+by the same `roles`.
+
+- A runtime datasource is validated by the same schema as a seed entry and may reference a
+  secret the server holds with `${ENV_VAR}`, exactly like the file. The admin dialog tests
+  the connection before saving, and the server resolves the reference during that test, so
+  the value never travels through the browser.
+- Records are persisted server-side, encrypted like every stored connection, under a
+  reserved owner in `user_storage`. This needs `STORAGE_PROVIDER=sqlite` or `postgres`; on
+  `local` the page explains what to set and the API answers 503, while the seed file keeps
+  working.
+- The seed file wins an id collision, and the API refuses to create a runtime datasource
+  with an id the file declares. Seed-file datasources are listed on the page read-only.
+- The page groups datasources by **environment** (`production`, `staging`, `development`,
+  `local`, `other`) — set it on each entry, or once under `defaults`.
+- Every create, update and delete is an audit event (`managed_connection`) naming the
+  administrator and the datasource, never a credential.
+
 ## Hot Reload
 
 The config file is **cached in memory** with a TTL (default 60 seconds). When the file changes:

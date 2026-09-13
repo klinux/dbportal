@@ -32,6 +32,34 @@ describe("resolve-connection", () => {
   it("returns the connection object as-is for an admin session", async () => {
     const result = await resolveConnection({ connection: clientConn }, { role: "admin", username: "test" });
     expect(result.id).toBe("user-conn");
+    expect(result.password).toBe("hunter2");
+  });
+
+  // Step B: an admin's `${VAR}` reference is resolved server-side, so a shared datasource can
+  // be tested before it is saved with the reference; a reference the server cannot resolve is
+  // the caller's mistake (400), and the message names the variable, not a value.
+  it("resolves an admin's ${VAR} references and refuses an unresolvable one with 400", async () => {
+    process.env.STEP_B_PASS = "resolved-secret";
+    try {
+      const resolved = await resolveConnection(
+        { connection: { ...clientConn, password: "${STEP_B_PASS}" } },
+        { role: "admin", username: "test" },
+      );
+      expect(resolved.password).toBe("resolved-secret");
+    } finally {
+      delete process.env.STEP_B_PASS;
+    }
+    try {
+      await resolveConnection(
+        { connection: { ...clientConn, password: "${STEP_B_PASS}" } },
+        { role: "admin", username: "t" },
+      );
+      expect(true).toBe(false);
+    } catch (err) {
+      expect(err).toBeInstanceOf(SeedConnectionError);
+      expect((err as SeedConnectionError).statusCode).toBe(400);
+      expect((err as SeedConnectionError).message).toContain("STEP_B_PASS");
+    }
   });
 
   // docs/CONTEXT.md §4.1 step A: a client-supplied connection was the one path where any

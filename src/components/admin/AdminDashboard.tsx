@@ -5,13 +5,14 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { LogOut, ArrowLeft, LayoutDashboard, Wrench, Activity, Shield, FileText } from "lucide-react";
+import { LogOut, ArrowLeft, LayoutDashboard, Database, Wrench, Activity, Shield, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ADMIN_SECTIONS, adminSectionFromPathname, adminSectionPath, type AdminSection } from "@/lib/admin-sections";
 
 const SECTION_NAV: Record<AdminSection, { label: string; icon: typeof LayoutDashboard }> = {
   overview: { label: "Overview", icon: LayoutDashboard },
+  datasources: { label: "Datasources", icon: Database },
   operations: { label: "Operations", icon: Wrench },
   monitoring: { label: "Monitoring", icon: Activity },
   security: { label: "Security", icon: Shield },
