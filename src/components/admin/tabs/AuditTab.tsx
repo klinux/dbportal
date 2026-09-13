@@ -28,15 +28,12 @@ import {
   Download,
 } from "lucide-react";
 import type { AuditEvent } from "@/lib/audit";
-import { storage } from "@/lib/storage";
-import type { QueryHistoryItem } from "@/lib/types";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { format, subDays, startOfDay } from "date-fns";
 import { useEffectiveTheme } from "@/hooks/use-effective-theme";
 import { chartTooltipStyle } from "@/lib/charts/palette";
 import { csvRow } from "@/lib/export/csv";
 import { jsonText } from "@/lib/export/json";
-import { queryHistoryText } from "@/lib/export/query-history";
 import { downloadText } from "@/lib/export/download";
 
 interface AuditExportProps {
@@ -107,9 +104,9 @@ export function AuditTab() {
  * shape react.dev prescribes for fetching. A failed request reads as "no events"
  * — the same thing the old catch branch put on screen.
  */
-async function loadAuditEvents(type: string): Promise<AuditEvent[]> {
+async function loadAuditEvents(type: string, limit = 200): Promise<AuditEvent[]> {
   try {
-    const params = new URLSearchParams({ limit: "200" });
+    const params = new URLSearchParams({ limit: String(limit) });
     if (type !== "all") params.set("type", type);
     const res = await appFetch(`/api/admin/audit?${params}`);
     const data = await res.json();
@@ -349,37 +346,108 @@ function OperationsAudit() {
   );
 }
 
+/**
+ * The executions the server recorded (docs/CONTEXT.md §4.2): what the Queries and Stats tabs
+ * read, in place of this browser's own history - which was the admin's, editable, and said
+ * nothing about anyone else. The ring holds 1000 events, so that is the read's bound. The
+ * request descriptor carries the refresh count so the Effect synchronises against a value it
+ * reads (the OperationsAudit idiom above), rather than against a token it never touches.
+ */
+function useExecutionEvents() {
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const request = useMemo(() => ({ type: "query_execution", limit: 1000, refreshCount }), [refreshCount]);
+
+  useEffect(() => {
+    let ignore = false;
+    loadAuditEvents(request.type, request.limit).then((next) => {
+      if (ignore) return;
+      setEvents(next);
+      setLoading(false);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, [request]);
+
+  const refresh = () => {
+    setLoading(true);
+    setRefreshCount((c) => c + 1);
+  };
+
+  return { events, loading, refresh };
+}
+
+/** What the Queries tab can say about an execution's statement. */
+function statementOf(event: AuditEvent): string | null {
+  return event.details && event.details.length > 0 ? event.details : null;
+}
+
 function QueryAudit() {
-  // Read once, at mount: the initializer runs only on the initial render, so the
-  // localStorage hit does not repeat and `history`'s identity stays stable.
-  const [history] = useState<QueryHistoryItem[]>(() => storage.getHistory());
+  const { events, loading, refresh } = useExecutionEvents();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
-  const filteredHistory = useMemo(() => {
-    let items = history;
+  const filteredEvents = useMemo(() => {
+    let items = events;
     if (statusFilter !== "all") {
-      items = items.filter((h) => h.status === statusFilter);
+      const wanted = statusFilter === "error" ? "failure" : "success";
+      items = items.filter((e) => e.result === wanted);
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       items = items.filter(
-        (h) => h.query.toLowerCase().includes(q) || (h.connectionName || "").toLowerCase().includes(q),
+        (e) =>
+          (statementOf(e) ?? "").toLowerCase().includes(q) ||
+          (e.connectionName || "").toLowerCase().includes(q) ||
+          e.user.toLowerCase().includes(q) ||
+          e.action.toLowerCase().includes(q),
       );
     }
     return items;
-  }, [history, searchQuery, statusFilter]);
+  }, [events, searchQuery, statusFilter]);
 
   const exportHistory = (format: "csv" | "json") => {
-    downloadText(
-      queryHistoryText(filteredHistory, format),
-      format === "csv" ? "text/csv" : "application/json",
-      `query_history_${Date.now()}.${format}`,
-    );
+    let content: string;
+    if (format === "csv") {
+      const headers = [
+        "Timestamp",
+        "Action",
+        "Statement",
+        "Connection",
+        "User",
+        "Result",
+        "Duration (ms)",
+        "Reason",
+        "IP",
+        "ID",
+      ];
+      const rows = filteredEvents.map((event) =>
+        csvRow([
+          event.timestamp,
+          event.action,
+          statementOf(event) ?? "",
+          event.connectionName ?? "",
+          event.user,
+          event.result,
+          event.duration ?? "",
+          event.reason ?? "",
+          event.ip ?? "",
+          event.id,
+        ]),
+      );
+      content = [csvRow(headers), ...rows].join("\n");
+    } else {
+      content = jsonText(filteredEvents, 2);
+    }
+    downloadText(content, format === "csv" ? "text/csv" : "application/json", `query_history_${Date.now()}.${format}`);
   };
 
-  const successCount = history.filter((h) => h.status === "success").length;
-  const successRate = history.length > 0 ? Math.round((successCount / history.length) * 100) : 0;
+  const successCount = events.filter((e) => e.result === "success").length;
+  const successRate = events.length > 0 ? Math.round((successCount / events.length) * 100) : 0;
+  // The statement is recorded only under AUDIT_INCLUDE_SQL; say so once rather than per row.
+  const statementsRecorded = events.some((e) => statementOf(e) !== null);
 
   return (
     <div className="space-y-4">
@@ -402,16 +470,31 @@ function QueryAudit() {
           className="w-[200px] h-8 text-xs bg-panel border-hairline-strong"
         />
         <div className="text-xs text-fg-muted ml-auto">
-          <span className="font-bold text-fg-secondary">{history.length}</span> queries
+          <span className="font-bold text-fg-secondary">{events.length}</span> queries
           <span className="mx-2">&middot;</span>
           <span className="text-success font-bold">{successRate}%</span> success
         </div>
-        <AuditExport disabled={filteredHistory.length === 0} onExport={exportHistory} />
+        <Button variant="ghost" size="sm" className="h-8 text-xs gap-2" onClick={refresh} disabled={loading}>
+          <RefreshCw className="w-3 h-3" /> Refresh
+        </Button>
+        <AuditExport disabled={loading || filteredEvents.length === 0} onExport={exportHistory} />
       </div>
 
-      {/* Query History Table */}
+      {!loading && events.length > 0 && !statementsRecorded && (
+        <p className="text-xs text-fg-muted" data-testid="statement-note">
+          Statement text is not recorded. Set <code>AUDIT_INCLUDE_SQL=true</code> on the server to include it.
+        </p>
+      )}
+
+      {/* Execution Table */}
       <div className="rounded-xl border border-hairline bg-panel overflow-hidden">
-        {filteredHistory.length === 0 ? (
+        {loading ? (
+          <div className="p-4 space-y-2">
+            {["a", "b", "c"].map((row) => (
+              <Skeleton key={row} className="h-8 w-full" />
+            ))}
+          </div>
+        ) : filteredEvents.length === 0 ? (
           <div className="p-8 text-center text-fg-subtle text-sm">
             <SearchIcon className="h-8 w-8 mx-auto mb-2 opacity-30" />
             <p>No query history found.</p>
@@ -422,28 +505,27 @@ function QueryAudit() {
               <TableRow className="border-hairline hover:bg-transparent">
                 <TableHead className="text-xs text-fg-muted font-bold uppercase w-[30px]" />
                 <TableHead className="text-xs text-fg-muted font-bold uppercase">Time</TableHead>
-                <TableHead className="text-xs text-fg-muted font-bold uppercase">Query</TableHead>
+                <TableHead className="text-xs text-fg-muted font-bold uppercase">Action</TableHead>
+                <TableHead className="text-xs text-fg-muted font-bold uppercase">Statement</TableHead>
                 <TableHead className="text-xs text-fg-muted font-bold uppercase hidden md:table-cell">
                   Connection
                 </TableHead>
+                <TableHead className="text-xs text-fg-muted font-bold uppercase hidden lg:table-cell">User</TableHead>
                 <TableHead className="text-right text-xs text-fg-muted font-bold uppercase">Duration</TableHead>
-                <TableHead className="text-right text-xs text-fg-muted font-bold uppercase hidden sm:table-cell">
-                  Rows
-                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredHistory.slice(0, 200).map((item, idx) => (
-                <TableRow key={idx} className="border-hairline hover:bg-fill">
+              {filteredEvents.slice(0, 200).map((event) => (
+                <TableRow key={event.id} className="border-hairline hover:bg-fill">
                   <TableCell className="py-2">
-                    {item.status === "success" ? (
+                    {event.result === "success" ? (
                       <CircleCheck className="w-3.5 h-3.5 text-success" />
                     ) : (
                       <CircleX className="w-3.5 h-3.5 text-danger" />
                     )}
                   </TableCell>
                   <TableCell className="py-2 font-mono text-xs text-fg-muted whitespace-nowrap">
-                    {new Date(item.executedAt).toLocaleString([], {
+                    {new Date(event.timestamp).toLocaleString([], {
                       month: "short",
                       day: "numeric",
                       hour: "2-digit",
@@ -451,18 +533,24 @@ function QueryAudit() {
                     })}
                   </TableCell>
                   <TableCell className="py-2">
-                    <div className="font-mono text-xs text-fg-tertiary truncate max-w-[250px] lg:max-w-[400px]">
-                      {item.query}
+                    <Badge variant="outline" className="text-[0.625rem] font-bold border-hairline-strong">
+                      {event.action}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="py-2">
+                    <div
+                      className="font-mono text-xs text-fg-tertiary truncate max-w-[250px] lg:max-w-[400px]"
+                      title={event.reason ? `Failed: ${event.reason}` : undefined}
+                    >
+                      {statementOf(event) ?? <span className="text-fg-subtle">not recorded</span>}
                     </div>
                   </TableCell>
                   <TableCell className="py-2 text-xs text-fg-muted hidden md:table-cell truncate max-w-[100px]">
-                    {item.connectionName || "-"}
+                    {event.connectionName || "-"}
                   </TableCell>
+                  <TableCell className="py-2 text-xs text-fg-muted hidden lg:table-cell">{event.user}</TableCell>
                   <TableCell className="py-2 text-right font-mono text-xs text-fg-muted">
-                    {item.executionTime}ms
-                  </TableCell>
-                  <TableCell className="py-2 text-right font-mono text-xs text-fg-muted hidden sm:table-cell">
-                    {item.rowCount ?? "-"}
+                    {event.duration !== undefined ? `${event.duration}ms` : "-"}
                   </TableCell>
                 </TableRow>
               ))}
@@ -475,35 +563,32 @@ function QueryAudit() {
 }
 
 function AuditStats() {
-  // Read once, at mount — see QueryAudit above.
-  const [history] = useState<QueryHistoryItem[]>(() => storage.getHistory());
+  const { events } = useExecutionEvents();
   const tooltipStyle = chartTooltipStyle(useEffectiveTheme());
 
   const stats = useMemo(() => {
-    const total = history.length;
-    const successful = history.filter((h) => h.status === "success").length;
+    const total = events.length;
+    const successful = events.filter((e) => e.result === "success").length;
     const successRate = total > 0 ? Math.round((successful / total) * 100) : 0;
-    const avgTime = total > 0 ? Math.round(history.reduce((sum, h) => sum + h.executionTime, 0) / total) : 0;
+    const avgTime = total > 0 ? Math.round(events.reduce((sum, e) => sum + (e.duration ?? 0), 0) / total) : 0;
 
     const now = new Date();
     const byDay: { day: string; count: number }[] = [];
     for (let i = 6; i >= 0; i--) {
       const dayStart = startOfDay(subDays(now, i));
       const dayEnd = startOfDay(subDays(now, i - 1));
-      const count = history.filter((h) => {
-        const t = new Date(h.executedAt).getTime();
+      const count = events.filter((e) => {
+        const t = new Date(e.timestamp).getTime();
         return t >= dayStart.getTime() && t < dayEnd.getTime();
       }).length;
       byDay.push({ day: format(dayStart, "EEE"), count });
     }
 
-    // Most active connections
+    // Most active datasources
     const freq: Record<string, { name: string; count: number }> = {};
-    for (const h of history) {
-      const key = h.connectionId;
-      if (!freq[key]) {
-        freq[key] = { name: h.connectionName || key.slice(0, 8), count: 0 };
-      }
+    for (const e of events) {
+      const key = e.connectionName || "(unnamed)";
+      if (!freq[key]) freq[key] = { name: key, count: 0 };
       freq[key].count++;
     }
     const topConnections = Object.values(freq)
@@ -511,7 +596,7 @@ function AuditStats() {
       .slice(0, 5);
 
     return { total, successful, successRate, avgTime, byDay, topConnections };
-  }, [history]);
+  }, [events]);
 
   return (
     <div className="space-y-6">

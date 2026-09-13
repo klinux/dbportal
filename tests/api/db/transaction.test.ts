@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, spyOn } from "bun:test";
 import { createMockRequest, parseResponseJSON } from "../../helpers/mock-next";
 import { createMockProvider } from "../../helpers/mock-provider";
 import { clearRateLimitState } from "@/lib/api/rate-limit";
@@ -154,6 +154,39 @@ describe("POST /api/db/transaction", () => {
 
     expect(res.status).toBe(401);
     expect(data.error).toContain("Authentication required");
+  });
+
+  // docs/CONTEXT.md §4.2: the control statements are recorded without a statement text, the
+  // query with its own (under the operator's flag); all under the transaction route's name.
+  test("records begin, query and commit on the audit channel", async () => {
+    process.env.AUDIT_INCLUDE_SQL = "true";
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const step = (body: Record<string, unknown>) =>
+        POST(createMockRequest("/api/db/transaction", { method: "POST", body }) as never);
+      // In order, on purpose: a transaction is a sequence, not a batch.
+      expect((await step({ connection: validConnection, action: "begin" })).status).toBe(200);
+      expect(
+        (await step({ connection: validConnection, action: "query", sql: "UPDATE users SET name = 'x'" })).status,
+      ).toBe(200);
+      expect((await step({ connection: validConnection, action: "commit" })).status).toBe(200);
+      const lines = logSpy.mock.calls
+        .map((c: unknown[]) => c[0])
+        .filter((v): v is string => typeof v === "string" && v.startsWith("{"))
+        .map((v) => JSON.parse(v) as Record<string, unknown>)
+        .filter((l) => l.event === "query_execution");
+      // The statement recorded is the one that really ran - the PREPARED form, which the
+      // mock provider suffixes with a limit - not the text the request carried.
+      expect(lines.map((l) => [l.action, l.outcome, l.statement])).toEqual([
+        ["transaction:begin", "success", undefined],
+        ["transaction:query", "success", "UPDATE users SET name = 'x' LIMIT 50"],
+        ["transaction:commit", "success", undefined],
+      ]);
+      expect(lines.every((l) => l.route === "POST /api/db/transaction")).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+      delete process.env.AUDIT_INCLUDE_SQL;
+    }
   });
 
   test("begin action returns status active", async () => {

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOrCreateProvider } from "@/lib/db";
 import { createErrorResponse } from "@/lib/api/errors";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
+import { auditExecution, type ExecutionAction } from "@/lib/audit-execution";
+import { clientAddress } from "@/lib/api/client-address";
 import { guardRoute } from "@/lib/api/require-session";
 import { readBoundParams } from "@/lib/api/bound-params";
 
@@ -49,19 +51,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Every action that touches the database is recorded (docs/CONTEXT.md §4.2): the
+    // three control statements without a statement text, the query with its own.
+    const audited = <T>(step: ExecutionAction, invoke: () => Promise<T>, statement?: string) =>
+      auditExecution(
+        {
+          route: "POST /api/db/transaction",
+          action: step,
+          user: guard.session.username,
+          connectionName: connection.name,
+          ip: clientAddress(req),
+          ...(statement !== undefined ? { statement } : {}),
+        },
+        invoke,
+      );
+
     switch (action) {
       case "begin": {
-        await provider.beginTransaction();
+        await audited("transaction:begin", () => provider.beginTransaction());
         return NextResponse.json({ status: "active", message: "Transaction started" });
       }
 
       case "commit": {
-        await provider.commitTransaction();
+        await audited("transaction:commit", () => provider.commitTransaction());
         return NextResponse.json({ status: "committed", message: "Transaction committed" });
       }
 
       case "rollback": {
-        await provider.rollbackTransaction();
+        await audited("transaction:rollback", () => provider.rollbackTransaction());
         return NextResponse.json({ status: "rolled_back", message: "Transaction rolled back" });
       }
 
@@ -80,7 +97,11 @@ export async function POST(req: NextRequest) {
 
         // Apply limit for SELECT queries within transaction
         const prepared = provider.prepareQuery(sql, options);
-        const result = await provider.queryInTransaction(prepared.query, bound.params);
+        const result = await audited(
+          "transaction:query",
+          () => provider.queryInTransaction(prepared.query, bound.params),
+          prepared.query,
+        );
 
         const hasMore = result.rows.length === prepared.limit;
 

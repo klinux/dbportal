@@ -16,43 +16,41 @@ mock.module("date-fns", () => ({
   startOfDay: (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()),
 }));
 
-// Reassignable so a test can render the Queries/Stats tabs against an empty
-// history (the idiom OperationsTab.test.tsx uses for mockConnectionsList).
-// `beforeEach` restores the two-item default before every test.
-const defaultHistory = () => [
+// The executions the server recorded (docs/CONTEXT.md §4.2) - what the Queries and Stats
+// tabs read now, in place of this browser's own history. Reassignable so a test can render
+// them against an empty list; `beforeEach` restores the two-item default before every test.
+const defaultExecutions = () => [
   {
-    id: "h1",
-    query: "SELECT 1",
-    executedAt: new Date(),
-    executionTime: 10,
-    rowCount: 1,
-    status: "success",
-    connectionId: "c1",
+    id: "q1",
+    timestamp: new Date().toISOString(),
+    type: "query_execution",
+    action: "query",
+    target: "POST /api/db/query",
     connectionName: "TestDB",
+    user: "admin",
+    result: "success",
+    duration: 10,
+    details: "SELECT 1",
   },
   {
-    id: "h2",
-    query: "DROP TABLE x",
-    executedAt: new Date(),
-    executionTime: 5,
-    rowCount: 0,
-    status: "error",
-    error: "denied",
-    connectionId: "c1",
+    id: "q2",
+    timestamp: new Date().toISOString(),
+    type: "query_execution",
+    action: "query",
+    target: "POST /api/db/query",
     connectionName: "TestDB",
+    user: "admin",
+    result: "failure",
+    reason: "query_error",
+    duration: 5,
+    details: "DROP TABLE x",
   },
 ];
 
-let mockHistory: ReturnType<typeof defaultHistory> = defaultHistory();
+let queryEvents: Record<string, unknown>[] = defaultExecutions();
 
 const mockDownloadText = mock((_content: string, _mimeType: string, _fileName: string) => {});
 mock.module("@/lib/export/download", () => ({ downloadText: mockDownloadText }));
-
-mock.module("@/lib/storage", () => ({
-  storage: {
-    getHistory: mock(() => mockHistory),
-  },
-}));
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { render, waitFor, act, cleanup, fireEvent } from "@testing-library/react";
@@ -83,36 +81,41 @@ describe("AuditTab", () => {
 
   beforeEach(() => {
     mockDownloadText.mockClear();
-    mockHistory = defaultHistory();
+    queryEvents = defaultExecutions();
     fetchMock = mockGlobalFetch({
-      "/api/admin/audit": {
-        json: {
-          events: [
-            {
-              id: "a1",
-              timestamp: new Date().toISOString(),
-              type: "maintenance",
-              action: "VACUUM",
-              target: "users",
-              connectionName: "TestDB",
-              user: "admin",
-              result: "success",
-              duration: 120,
+      // The Operations tab asks for everything (or one type); the Queries and Stats tabs ask
+      // for query_execution alone and get the recorded executions.
+      "/api/admin/audit": (req: Request) =>
+        req.url.includes("type=query_execution")
+          ? { json: { events: queryEvents } }
+          : {
+              json: {
+                events: [
+                  {
+                    id: "a1",
+                    timestamp: new Date().toISOString(),
+                    type: "maintenance",
+                    action: "VACUUM",
+                    target: "users",
+                    connectionName: "TestDB",
+                    user: "admin",
+                    result: "success",
+                    duration: 120,
+                  },
+                  {
+                    id: "a2",
+                    timestamp: new Date().toISOString(),
+                    type: "kill_session",
+                    action: "KILL",
+                    target: "PID:5678",
+                    connectionName: "TestDB",
+                    user: "admin",
+                    result: "failure",
+                    duration: 50,
+                  },
+                ],
+              },
             },
-            {
-              id: "a2",
-              timestamp: new Date().toISOString(),
-              type: "kill_session",
-              action: "KILL",
-              target: "PID:5678",
-              connectionName: "TestDB",
-              user: "admin",
-              result: "failure",
-              duration: 50,
-            },
-          ],
-        },
-      },
     });
   });
 
@@ -181,35 +184,37 @@ describe("AuditTab", () => {
     }
   });
 
-  test.each(["csv", "json"])(
-    "exports only filtered query history as %s with the history export shape",
-    async (format) => {
-      mockHistory = [
-        { ...defaultHistory()[0], query: "SELECT 'selected'", executedAt: new Date("2026-09-09T10:00:00Z") },
-        { ...defaultHistory()[1], query: "SELECT 'selected'" },
-        { ...defaultHistory()[0], id: "h3", query: "SELECT 'hidden'" },
-      ];
-      const user = userEvent.setup();
-      const view = render(<AuditTab />);
-      await user.click(view.getByRole("tab", { name: "Queries" }));
-      fireEvent.keyDown(view.getByRole("combobox"), { key: "ArrowDown" });
-      fireEvent.keyDown(view.getByRole("option", { name: "Success" }), { key: "Enter" });
-      fireEvent.change(view.getByPlaceholderText("Search query..."), { target: { value: "selected" } });
-      await user.click(view.getByRole("button", { name: "Export" }));
-      await user.click(view.getByRole("menuitem", { name: `Export as ${format.toUpperCase()}` }));
-      const [content, mime, fileName] = mockDownloadText.mock.calls.at(-1)!;
-      expect(fileName).toMatch(new RegExp(`^query_history_\\d+\\.${format}$`));
-      if (format === "json") {
-        expect(mime).toBe("application/json");
-        expect(content).toBe(JSON.stringify([mockHistory[0]], null, 2));
-      } else {
-        expect(mime).toBe("text/csv");
-        expect(content).toBe(
-          "Executed At,Status,Connection,Tab,Execution Time (ms),Rows,Query,Error\n2026-09-09T10:00:00.000Z,success,TestDB,,10,1,SELECT 'selected',",
-        );
-      }
-    },
-  );
+  test.each(["csv", "json"])("exports only the filtered executions as %s", async (format) => {
+    queryEvents = [
+      {
+        ...defaultExecutions()[0],
+        details: "SELECT 'selected'",
+        timestamp: "2026-09-09T10:00:00.000Z",
+        ip: "192.0.2.1",
+      },
+      { ...defaultExecutions()[1], details: "SELECT 'selected'" },
+      { ...defaultExecutions()[0], id: "q3", details: "SELECT 'hidden'" },
+    ];
+    const user = userEvent.setup();
+    const view = render(<AuditTab />);
+    await user.click(view.getByRole("tab", { name: "Queries" }));
+    fireEvent.keyDown(view.getByRole("combobox"), { key: "ArrowDown" });
+    fireEvent.keyDown(view.getByRole("option", { name: "Success" }), { key: "Enter" });
+    fireEvent.change(view.getByPlaceholderText("Search query..."), { target: { value: "selected" } });
+    await user.click(view.getByRole("button", { name: "Export" }));
+    await user.click(view.getByRole("menuitem", { name: `Export as ${format.toUpperCase()}` }));
+    const [content, mime, fileName] = mockDownloadText.mock.calls.at(-1)!;
+    expect(fileName).toMatch(new RegExp(`^query_history_\\d+\\.${format}$`));
+    if (format === "json") {
+      expect(mime).toBe("application/json");
+      expect(content).toBe(JSON.stringify([queryEvents[0]], null, 2));
+    } else {
+      expect(mime).toBe("text/csv");
+      expect(content).toBe(
+        "Timestamp,Action,Statement,Connection,User,Result,Duration (ms),Reason,IP,ID\n2026-09-09T10:00:00.000Z,query,SELECT 'selected',TestDB,admin,success,10,,192.0.2.1,q1",
+      );
+    }
+  });
 
   test("audit export is disabled while refreshing and when no filtered rows remain", async () => {
     const view = render(<AuditTab />);
@@ -224,7 +229,7 @@ describe("AuditTab", () => {
   });
 
   test("query export includes every matching row beyond the table display limit", async () => {
-    mockHistory = Array.from({ length: 201 }, (_, index) => ({ ...defaultHistory()[0], id: `query-${index}` }));
+    queryEvents = Array.from({ length: 201 }, (_, index) => ({ ...defaultExecutions()[0], id: `query-${index}` }));
     const user = userEvent.setup();
     const view = render(<AuditTab />);
     await user.click(view.getByRole("tab", { name: "Queries" }));
@@ -260,7 +265,7 @@ describe("AuditTab", () => {
     });
   });
 
-  test("queries tab shows query history", async () => {
+  test("queries tab shows the executions the server recorded", async () => {
     const user = userEvent.setup();
     let renderResult: ReturnType<typeof render>;
     await act(async () => {
@@ -273,11 +278,35 @@ describe("AuditTab", () => {
     const queriesTab = Array.from(allTriggers).find((t) => t.textContent?.includes("Queries")) as HTMLElement;
     await user.click(queriesTab);
 
-    // Query history from mock storage
+    // The recorded statements, from the server's query_execution events
     await waitFor(() => {
       expect(queryByText("SELECT 1")).not.toBeNull();
       expect(queryByText("DROP TABLE x")).not.toBeNull();
     });
+    expect(queryByText(/Statement text is not recorded/)).toBeNull();
+  });
+
+  test("the Queries tab's Refresh button re-reads the recorded executions", async () => {
+    const user = userEvent.setup();
+    const view = render(<AuditTab />);
+    await user.click(view.getByRole("tab", { name: "Queries" }));
+    await waitFor(() => expect(view.queryByText("SELECT 1")).not.toBeNull());
+    const executionReads = () => auditCalls(fetchMock).filter((url) => url.includes("type=query_execution")).length;
+    expect(executionReads()).toBe(1);
+    await user.click(view.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(executionReads()).toBe(2));
+  });
+
+  // The statement is recorded only under AUDIT_INCLUDE_SQL; a list without one says so once.
+  test("queries tab says when statements are not recorded", async () => {
+    queryEvents = defaultExecutions().map((e) => Object.assign({}, e, { details: undefined }));
+    const user = userEvent.setup();
+    const view = render(<AuditTab />);
+    await user.click(view.getByRole("tab", { name: "Queries" }));
+    await waitFor(() => {
+      expect(view.queryByText(/Statement text is not recorded/)).not.toBeNull();
+    });
+    expect(view.getAllByText("not recorded").length).toBe(2);
   });
 
   test("stats tab shows summary cards", async () => {
@@ -538,7 +567,7 @@ describe("AuditTab", () => {
   });
 
   test("stats tab shows the empty states when there is no query history", async () => {
-    mockHistory = [];
+    queryEvents = [];
     const user = userEvent.setup();
     let renderResult: ReturnType<typeof render>;
     await act(async () => {

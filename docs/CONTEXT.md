@@ -44,8 +44,7 @@ Verified in code, not from the README:
 
 | Gap | Where | What actually happens today |
 |---|---|---|
-| No server-side audit of human queries | [`src/app/api/db/query/route.ts`](../src/app/api/db/query/route.ts) and siblings `multi-query`, `transaction`, `maintenance` | The routes call the provider directly with no `emitAuditEvent`. Query history is written **client-side** (`use-query-execution.ts` → `storage.addToHistory`), capped at 500 per user, and the user can clear it. The admin "Audit" tab reads the admin's own history. |
-| Audit channel excludes SQL by design | [`src/lib/audit.ts`](../src/lib/audit.ts) — "What must never be recorded here: … SQL text" | The stdout JSON channel records logins, denials, maintenance — never the statement. The in-memory ring buffer holds 1000 events per process. |
+| Audit of human queries is not yet durable | [`src/lib/audit-execution.ts`](../src/lib/audit-execution.ts) (§4.2, done for the channel) | Every execution now leaves a `query_execution` line on stdout and in the ring buffer. The stdout pipeline is the durable record; the buffer the admin tab reads holds 1000 events per process and is lost on restart. An append-only table in the `postgres` storage provider is the next step. |
 | Two-role RBAC | [`src/lib/auth.ts`](../src/lib/auth.ts) — `type Role = "admin" \| "user"` | Seed YAML supports `roles: ["admin"]` / `["*"]`. No groups, no per-datasource read/write matrix. |
 | Static shared credentials | [`src/lib/db/factory.ts`](../src/lib/db/factory.ts) — provider cache keyed by connection | Every user shares the database role; the database's own logs cannot name the person. |
 | Masking is client-side | [`src/lib/data-masking.ts`](../src/lib/data-masking.ts) | Column-name regex in the browser; `salary AS x` escapes it; the API returns raw values. |
@@ -111,16 +110,26 @@ Two steps. The first closes the hole; the second delivers the product.
   every connection is managed — as is the per-user `connections` / `dismissed_seeds`
   storage the studio no longer reads. Both are harmless and covered; delete when convenient.
 
-### 4.2 Server-side audit of every execution
+### 4.2 Server-side audit of every execution — done, persistence open
 
-- In the four execution routes, after the provider call: `emitAuditEvent({ type:
-  "query_execution", user, connectionName, sql, duration, result })`.
-- SQL text behind an explicit env flag (`AUDIT_INCLUDE_SQL=true`) so the redaction rule in
-  `audit.ts` stays the default; the flag is the operator's conscious choice.
-- Persist to a store the user cannot reach (not the per-user `user_storage` blobs):
-  stdout JSON lines to the log pipeline is the authoritative channel today; a dedicated
-  append-only table in the `postgres` storage provider is the next step.
-- The admin Audit tab reads that store, not the admin's own history.
+- [`src/lib/audit-execution.ts`](../src/lib/audit-execution.ts): `auditExecution(context,
+  invoke)` wraps the provider call in `query`, `multi-query` (one record per statement) and
+  `transaction` (begin/commit/rollback/query); `maintenance` already had its own event. One
+  `query_execution` event per execution: person, datasource, action, outcome, duration,
+  address, and on failure a closed reason derived from the driver error's CLASS
+  (`query_error`, `query_timeout`, `query_cancelled`, `database_auth_error`,
+  `database_config_error`, `execution_failed`) — never its message. A failing sink is
+  logged and never turns a finished query into a 500; the error is rethrown untouched.
+- The statement is recorded only under `AUDIT_INCLUDE_SQL=true`: the wrapper puts it in
+  `details` under that flag alone, and `toAuditLine` copies `details` to a `statement` key
+  only for `query_execution` events under the same flag — every other event's `details`
+  stays off the line. Bounded to 254 characters and URI-credential-redacted like any field.
+- The admin Audit tab's Queries and Stats read `GET /api/admin/audit?type=query_execution`
+  (the server's buffer), not the admin's own browser history; a list without statements
+  says which flag turns them on.
+- **Open:** a store the user cannot reach and a restart does not empty — an append-only
+  table in the `postgres` storage provider — so the tab outlives the process. stdout to the
+  log pipeline remains the durable channel until then.
 
 ### 4.3 `application_name` per user
 

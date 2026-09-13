@@ -83,7 +83,15 @@ export type AuditReason =
   // single-purpose credential. Distinct from `no_session` on purpose: this path
   // never wanted a session, so recording one vocabulary for both would make a
   // forged drive token indistinguishable in the trail from an expired login.
-  | "no_agent_drive_token";
+  | "no_agent_drive_token"
+  // Why a human execution failed (docs/CONTEXT.md §4.2), keyed on the driver's own error
+  // CLASS - never its message, which may quote the statement or the server's reply.
+  | "query_error"
+  | "query_timeout"
+  | "query_cancelled"
+  | "database_auth_error"
+  | "database_config_error"
+  | "execution_failed";
 
 export interface AuditEvent {
   id: string;
@@ -417,6 +425,17 @@ interface AuditLogLine {
   duration_ms?: number;
   bucket?: string;
   correlation_id?: string;
+  statement?: string;
+}
+
+/**
+ * Whether the statement a human ran is written to the audit channel (docs/CONTEXT.md §4.2).
+ * Off unless the operator says so: SQL text can quote a secret in a literal, so recording it
+ * is the operator's conscious choice, taken once per deployment. The statement still passes
+ * `sanitizeAuditField` - URI credentials redacted, length bounded - like every other field.
+ */
+export function isStatementAuditEnabled(): boolean {
+  return (process.env.AUDIT_INCLUDE_SQL ?? "").trim().toLowerCase() === "true";
 }
 
 function toAuditLine(event: AuditEvent): AuditLogLine {
@@ -438,6 +457,13 @@ function toAuditLine(event: AuditEvent): AuditLogLine {
     // which would flip duration_ms from a number to null for that one line in a contract parsers
     // depend on. Omitting it entirely keeps the field's type stable instead.
     ...(event.duration !== undefined && Number.isFinite(event.duration) ? { duration_ms: event.duration } : {}),
+    // `details` never reaches the line on its own; the one thing it may carry out is the
+    // statement of a human execution, and only when the operator opted in. The caller
+    // (src/lib/audit-execution.ts) puts it there only under that flag, and this second gate
+    // keeps a `details` from any other event type off the line regardless.
+    ...(event.type === "query_execution" && event.details && isStatementAuditEnabled()
+      ? { statement: event.details }
+      : {}),
   };
 }
 
@@ -456,9 +482,11 @@ function toAuditLine(event: AuditEvent): AuditLogLine {
  *
  * What must never be recorded here: passwords or any credential material, JWTs, cookies or
  * Authorization values, OIDC tokens, code or code_verifier or raw claims, connection strings,
- * hosts or SSH keys, SQL text, LLM prompts or responses, request bodies, raw Error.message or
- * stack traces, and arbitrary request headers. src/lib/data-masking.ts is not reusable here: it
- * masks result-grid cell values by column-name pattern and has no bearing on log strings.
+ * hosts or SSH keys, LLM prompts or responses, request bodies, raw Error.message or stack
+ * traces, and arbitrary request headers. SQL text is the one deliberate exception: the
+ * statement of a human execution, under AUDIT_INCLUDE_SQL only (docs/CONTEXT.md §4.2).
+ * src/lib/data-masking.ts is not reusable here: it masks result-grid cell values by
+ * column-name pattern and has no bearing on log strings.
  */
 export function emitAuditEvent(event: Omit<AuditEvent, "id" | "timestamp">): AuditEvent {
   const stored = getServerAuditBuffer().push(sanitizeAuditInput(event));

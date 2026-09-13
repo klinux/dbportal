@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, spyOn } from "bun:test";
 import { createMockRequest, parseResponseJSON } from "../../helpers/mock-next";
 import { createMockProvider } from "../../helpers/mock-provider";
 import { clearRateLimitState } from "@/lib/api/rate-limit";
@@ -250,6 +250,39 @@ describe("POST /api/db/multi-query", () => {
     expect("warnings" in data).toBe(false);
     expect("columnTypes" in data).toBe(false);
     expect("warnings" in (data.statements as Record<string, unknown>[])[0]).toBe(false);
+  });
+
+  // docs/CONTEXT.md §4.2: one record per statement, so a script that failed on its third
+  // statement says which one - and the other two still read as their own successes.
+  test("records one audit line per statement, each with its own outcome", async () => {
+    let callCount = 0;
+    (mockProvider.query as ReturnType<typeof mock>).mockImplementation(async () => {
+      callCount++;
+      if (callCount === 2) throw new Error("relation does not exist");
+      return { rows: [], fields: [], rowCount: 0, executionTime: 1 };
+    });
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const res = await POST(
+        createMockRequest("/api/db/multi-query", {
+          method: "POST",
+          body: { connection: validConnection, sql: "INSERT INTO a VALUES (1); INSERT INTO b VALUES (2)" },
+        }) as never,
+      );
+      expect(res.status).toBe(200);
+      const lines = logSpy.mock.calls
+        .map((c: unknown[]) => c[0])
+        .filter((v): v is string => typeof v === "string" && v.startsWith("{"))
+        .map((v) => JSON.parse(v) as Record<string, unknown>)
+        .filter((l) => l.event === "query_execution");
+      expect(lines.map((l) => [l.action, l.outcome, l.reason])).toEqual([
+        ["multi-query", "success", undefined],
+        ["multi-query", "failure", "execution_failed"],
+      ]);
+      expect(lines.every((l) => l.route === "POST /api/db/multi-query" && l.actor === "admin")).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   test("multiple statements are all executed", async () => {

@@ -5,6 +5,8 @@ import { resolveConnection } from "@/lib/seed/resolve-connection";
 import { guardRoute } from "@/lib/api/require-session";
 import { readBoundParams } from "@/lib/api/bound-params";
 import { getExplainStrategy, type ExplainMode } from "@/lib/explain";
+import { auditExecution } from "@/lib/audit-execution";
+import { clientAddress } from "@/lib/api/client-address";
 import type { ExplainFormat } from "@/lib/db/types";
 
 /**
@@ -104,16 +106,28 @@ export async function POST(req: NextRequest) {
 
     const prepared = provider.prepareQuery(statement, options);
 
-    // Pass queryId to provider for cancellation tracking
+    // Pass queryId to provider for cancellation tracking. Every execution is recorded
+    // (docs/CONTEXT.md §4.2) with the statement that really ran - the built EXPLAIN when
+    // one was asked for - under the operator's AUDIT_INCLUDE_SQL choice.
     const supportsCancel = "cancelQuery" in provider;
-    const result =
-      supportsCancel && queryId
-        ? await (
-            provider as unknown as {
-              query(sql: string, params?: unknown[], queryId?: string): ReturnType<typeof provider.query>;
-            }
-          ).query(prepared.query, bound.params, queryId)
-        : await provider.query(prepared.query, bound.params);
+    const result = await auditExecution(
+      {
+        route: "POST /api/db/query",
+        action: explain.explain ? "explain" : "query",
+        user: guard.session.username,
+        connectionName: connection.name,
+        statement: prepared.query,
+        ip: clientAddress(req),
+      },
+      () =>
+        supportsCancel && queryId
+          ? (
+              provider as unknown as {
+                query(sql: string, params?: unknown[], queryId?: string): ReturnType<typeof provider.query>;
+              }
+            ).query(prepared.query, bound.params, queryId)
+          : provider.query(prepared.query, bound.params),
+    );
 
     const hasMore = result.rows.length === prepared.limit;
 

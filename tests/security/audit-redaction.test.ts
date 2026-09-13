@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { emitAuditEvent, getServerAuditBuffer } from "@/lib/audit";
 
 /**
@@ -26,6 +26,7 @@ const ALLOWED_KEYS = new Set([
   "duration_ms",
   "bucket",
   "correlation_id",
+  "statement",
 ]);
 
 function captureLine(emit: () => void): Record<string, unknown> {
@@ -199,6 +200,50 @@ describe("emitAuditEvent", () => {
     );
 
     expect("ip" in line).toBe(false);
+  });
+
+  // docs/CONTEXT.md §4.2: the one thing `details` may carry out is the statement of a human
+  // execution, and only when the operator opted in. Any other event's details stays off the
+  // line whatever the flag says.
+  describe("the statement of a human execution", () => {
+    const execution = {
+      type: "query_execution" as const,
+      action: "query",
+      target: "POST /api/db/query",
+      connectionName: "orders",
+      user: "user@libredb.org",
+      result: "success" as const,
+      details: "SELECT * FROM orders WHERE token = 'hunter2'",
+    };
+
+    afterEach(() => {
+      delete process.env.AUDIT_INCLUDE_SQL;
+    });
+
+    test("stays off the line by default", () => {
+      const line = captureLine(() => emitAuditEvent(execution));
+      expect(line.statement).toBeUndefined();
+      expect(JSON.stringify(line)).not.toContain("hunter2");
+    });
+
+    test("is written, bounded and redacted, under AUDIT_INCLUDE_SQL=true", () => {
+      process.env.AUDIT_INCLUDE_SQL = "true";
+      const line = captureLine(() =>
+        emitAuditEvent({ ...execution, details: `SELECT 'postgres://u:p@db/app', '${"x".repeat(400)}'` }),
+      );
+      expect(typeof line.statement).toBe("string");
+      expect(line.statement as string).toContain("[REDACTED]@db");
+      expect((line.statement as string).length).toBeLessThanOrEqual(254);
+    });
+
+    test("never carries another event type's details out, flag or not", () => {
+      process.env.AUDIT_INCLUDE_SQL = "true";
+      const line = captureLine(() =>
+        emitAuditEvent({ ...execution, type: "maintenance", details: "VACUUM secrets_table" }),
+      );
+      expect(line.statement).toBeUndefined();
+      expect(line.details).toBeUndefined();
+    });
   });
 
   test("carries the connection and the duration when a caller supplies them", () => {

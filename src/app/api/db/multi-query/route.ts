@@ -8,6 +8,8 @@ import { resolveConnection } from "@/lib/seed/resolve-connection";
 import { guardRoute } from "@/lib/api/require-session";
 import type { DatabaseType, QueryWarning } from "@/lib/types";
 import type { DatabaseProvider } from "@/lib/db/types";
+import { auditExecution, type ExecutionAuditContext } from "@/lib/audit-execution";
+import { clientAddress } from "@/lib/api/client-address";
 
 export interface StatementResult {
   index: number;
@@ -61,6 +63,7 @@ async function runStatement(
   isLast: boolean,
   dialect: DatabaseType,
   options: Record<string, unknown>,
+  audit: Omit<ExecutionAuditContext, "statement">,
 ): Promise<StatementResult> {
   const startTime = performance.now();
   const identity = { index, sql: stmt.sql, startLine: stmt.startLine };
@@ -80,7 +83,9 @@ async function runStatement(
         ? provider.prepareQuery(stmt.sql, options)
         : { query: stmt.sql, wasLimited: false, limit: 0, offset: 0 };
 
-    const result = await provider.query(prepared.query);
+    // One record per statement (docs/CONTEXT.md §4.2): each is its own execution, and a
+    // script that failed on its third statement must say which one.
+    const result = await auditExecution({ ...audit, statement: prepared.query }, () => provider.query(prepared.query));
 
     return {
       ...identity,
@@ -129,6 +134,13 @@ export async function POST(req: NextRequest) {
     const provider = await getOrCreateProvider(connection);
     const results: StatementResult[] = [];
     let totalExecutionTime = 0;
+    const audit: Omit<ExecutionAuditContext, "statement"> = {
+      route: "POST /api/db/multi-query",
+      action: "multi-query",
+      user: guard.session.username,
+      connectionName: connection.name,
+      ip: clientAddress(req),
+    };
 
     for (let i = 0; i < statements.length; i++) {
       const outcome = await runStatement(
@@ -138,6 +150,7 @@ export async function POST(req: NextRequest) {
         i === statements.length - 1,
         connection.type,
         options,
+        audit,
       );
       totalExecutionTime += outcome.executionTime;
       results.push(outcome);

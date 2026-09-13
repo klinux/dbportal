@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, spyOn } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createMockRequest, parseResponseJSON } from "../../helpers/mock-next";
@@ -126,6 +126,43 @@ describe("POST /api/db/query", () => {
 
     expect(res.status).toBe(401);
     expect(data.error).toContain("Authentication required");
+  });
+
+  // docs/CONTEXT.md §4.2: every execution leaves a query_execution line naming the person,
+  // the datasource and the outcome. Read from stdout, the authoritative channel.
+  test("records every execution on the audit channel, success and failure alike", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const ok = await POST(
+        createMockRequest("/api/db/query", {
+          method: "POST",
+          body: { connection: validConnection, sql: "SELECT * FROM users" },
+        }) as never,
+      );
+      expect(ok.status).toBe(200);
+      (mockProvider.query as ReturnType<typeof mock>).mockRejectedValueOnce(new QueryError("syntax error near 'x'"));
+      const failed = await POST(
+        createMockRequest("/api/db/query", {
+          method: "POST",
+          body: { connection: validConnection, sql: "SELEC 1" },
+        }) as never,
+      );
+      expect(failed.status).toBe(400);
+
+      const lines = logSpy.mock.calls
+        .map((c: unknown[]) => c[0])
+        .filter((v): v is string => typeof v === "string" && v.startsWith("{"))
+        .map((v) => JSON.parse(v) as Record<string, unknown>)
+        .filter((l) => l.event === "query_execution");
+      expect(lines.map((l) => [l.action, l.outcome, l.reason, l.actor, l.connection, l.route])).toEqual([
+        ["query", "success", undefined, "admin", validConnection.name, "POST /api/db/query"],
+        ["query", "failure", "query_error", "admin", validConnection.name, "POST /api/db/query"],
+      ]);
+      // The statement is not recorded unless the operator asked for it.
+      expect(lines.every((l) => l.statement === undefined)).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   test("passes queryId to provider when cancellation is supported", async () => {
