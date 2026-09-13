@@ -9,3 +9,9 @@
  * claims as the subject. In its own module so both sides import the constant, not each other.
  */
 export const SHARED_DATASOURCES_OWNER = "shared:datasources";
+
+/** The owner the one shared masking configuration lives under (docs/CONTEXT.md §4.7). */
+export const SHARED_MASKING_OWNER = "shared:masking";
+
+/** Every owner id no account may ever be. */
+export const RESERVED_OWNERS: readonly string[] = [SHARED_DATASOURCES_OWNER, SHARED_MASKING_OWNER];

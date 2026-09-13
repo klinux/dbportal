@@ -156,6 +156,8 @@ describe("auth", () => {
     // for that id, however an identity provider came to claim it, must never be minted.
     test("refuses to mint a session for the shared datasource owner id", async () => {
       await expect(login("user", "shared:datasources")).rejects.toThrow("reserved");
+      // docs/CONTEXT.md §4.7: the masking configuration's owner is reserved the same way.
+      await expect(login("admin", "shared:masking")).rejects.toThrow("reserved");
       expect(mockSetCalls.length).toBe(0);
     });
 

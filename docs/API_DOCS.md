@@ -1161,6 +1161,24 @@ configuration is what failed.
 
 ---
 
+### Masking API
+
+Server-side masking (docs/CONTEXT.md §4.7). Results of `POST /api/db/query`, `/api/db/multi-query`
+and `/api/db/transaction` (action `query`) leave the server with the configured sensitive columns
+masked and named in `masked: string[]`. Send `"reveal": true` in the body to ask for the values:
+granted to the roles the configuration names (`roleSettings.<role>.canReveal`), audited as
+`masking_reveal`, refused with `403` otherwise.
+
+#### GET /api/masking
+
+Auth required. The configuration in force (`{ "config": MaskingConfig }`) — the stored one, or the defaults.
+
+#### GET /api/admin/masking · PUT /api/admin/masking
+
+Admin only. Read and replace the one shared configuration. The body is a `MaskingConfig`
+(`src/lib/data-masking.ts`); `400` when it does not validate, `503` without server storage.
+Audited as `masking_config` / `updated`.
+
 ### Approvals API
 
 Write approval (docs/CONTEXT.md §4.6). A write on a datasource declared `writeApproval: true`
@@ -1308,6 +1326,7 @@ interface QueryResult {
   pagination?: QueryPagination;          // Auto-limiting the route attaches to every response
   warnings?: QueryWarning[];             // Notices the engine attached; ABSENT when it reported none
   columnTypes?: Record<string, string>;  // Declared type per column, keyed by its name in `fields`
+  masked?: string[];                     // Columns the server masked in `rows` (docs/CONTEXT.md §4.7); empty when none
 }
 
 interface QueryPagination {

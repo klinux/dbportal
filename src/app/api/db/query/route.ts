@@ -8,6 +8,7 @@ import { readBoundParams } from "@/lib/api/bound-params";
 import { getExplainStrategy, type ExplainMode } from "@/lib/explain";
 import { auditExecution } from "@/lib/audit-execution";
 import { assertWriteAllowed, providerAccessOptions } from "@/lib/api/write-gate";
+import { maskResult } from "@/lib/masking/store";
 import { clientAddress } from "@/lib/api/client-address";
 import type { ExplainFormat } from "@/lib/db/types";
 
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { sql, options = {}, queryId } = body;
+    const reveal = body.reveal === true;
 
     const connection = await resolveConnection(body, guard.session);
 
@@ -147,8 +149,13 @@ export async function POST(req: NextRequest) {
 
     const hasMore = result.rows.length === prepared.limit;
 
+    // Masked before it leaves (docs/CONTEXT.md §4.7); a plan is not rows and is not masked.
+    const served = explain.explain
+      ? result
+      : await maskResult(result, { session: guard.session, connectionName: connection.name, reveal });
+
     return NextResponse.json({
-      ...result,
+      ...served,
       ...(explainFormat !== undefined && { explainFormat }),
       pagination: {
         limit: prepared.limit,

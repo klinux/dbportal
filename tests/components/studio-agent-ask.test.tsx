@@ -215,6 +215,7 @@ mock.module("@/lib/data-masking", () => ({
   saveMaskingConfig: mock(() => {}),
   shouldMask: mock(() => false),
   canToggleMasking: mock(() => true),
+  canReveal: mock(() => false),
   detectSensitiveColumnsFromConfig: mock(() => new Set()),
   applyMaskingToRows: mock((rows: unknown) => rows),
 }));

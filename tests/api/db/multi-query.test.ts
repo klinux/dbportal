@@ -136,6 +136,25 @@ describe("POST /api/db/multi-query", () => {
     expect((mockGetOrCreateProvider.mock.calls[0] as unknown[])[1]).toMatchObject({ readOnly: true });
   });
 
+  // docs/CONTEXT.md §4.7: every statement's rows leave masked, and each names its columns.
+  test("masks each statement's sensitive columns before the rows leave", async () => {
+    (mockProvider.query as ReturnType<typeof mock>).mockImplementation(async () => ({
+      rows: [{ id: 1, phone: "+1 555 0100" }],
+      fields: ["id", "phone"],
+      rowCount: 1,
+      executionTime: 1,
+    }));
+    const res = await POST(
+      createMockRequest("/api/db/multi-query", {
+        method: "POST",
+        body: { connection: validConnection, sql: "SELECT 1; SELECT 2" },
+      }) as never,
+    );
+    const data = await parseResponseJSON<{ statements: { masked: string[]; rows: Record<string, unknown>[] }[] }>(res);
+    expect(data.statements.map((s) => s.masked)).toEqual([["phone"], ["phone"]]);
+    expect(String(data.statements[0].rows[0].phone)).toMatch(/\*+0100$/);
+  });
+
   test("returns 401 when no session exists", async () => {
     mockGetSession.mockResolvedValueOnce(null);
 

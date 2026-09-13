@@ -3,6 +3,7 @@
 import type { CsvDelimiter } from "@/lib/export/csv";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { appFetch } from "@/lib/config/base-path";
 import { Sidebar, ConnectionsList } from "@/components/sidebar";
 import { type TreeRowActionHandlers } from "@/components/object-tree";
 import { objectAtPath } from "@/lib/db/detailed-object";
@@ -65,6 +66,7 @@ import {
   canToggleMasking,
   detectSensitiveColumnsFromConfig,
   applyMaskingToRows,
+  canReveal,
 } from "@/lib/data-masking";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -354,6 +356,25 @@ export default function Studio() {
   const [maskingConfig, setMaskingConfig] = useState<MaskingConfig>(() => loadMaskingConfig());
   const effectiveMasking = shouldMask(user?.role, maskingConfig);
   const userCanToggle = canToggleMasking(user?.role, maskingConfig);
+
+  // The configuration in force is the server's (docs/CONTEXT.md §4.7): the rows arrive
+  // masked by it, and the grid's badges and the reveal offer have to follow the same rules.
+  // The local copy is only the first paint and the on/off preference.
+  useEffect(() => {
+    let cancelled = false;
+    appFetch("/api/masking")
+      .then(async (res) => {
+        if (!res.ok || cancelled) return;
+        const body = (await res.json()) as { config?: MaskingConfig };
+        if (body.config) setMaskingConfig((prev) => ({ ...body.config!, enabled: prev.enabled }));
+      })
+      .catch(() => {
+        // The local copy stays; a failed read is not worth a toast at render time.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /*
     The Explorer's per-row items call this with the row's ADDRESS; without carrying it the
@@ -755,11 +776,18 @@ export default function Studio() {
                         onToggleMasking={
                           userCanToggle
                             ? () => {
+                                const next = !maskingConfig.enabled;
                                 setMaskingConfig((prev) => {
-                                  const updated = { ...prev, enabled: !prev.enabled };
+                                  const updated = { ...prev, enabled: next };
                                   saveMaskingConfig(updated);
                                   return updated;
                                 });
+                                // The rows on screen were masked by the server; turning
+                                // masking off asks it for the values, which it grants to
+                                // the roles the configuration names and audits (§4.7).
+                                if (!next && canReveal(user?.role, maskingConfig) && tabMgr.currentTab.result) {
+                                  void queryExec.executeQuery(undefined, undefined, false, { reveal: true });
+                                }
                               }
                             : undefined
                         }

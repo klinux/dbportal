@@ -11,6 +11,7 @@ import type { DatabaseType, QueryWarning } from "@/lib/types";
 import type { DatabaseProvider } from "@/lib/db/types";
 import { auditExecution, type ExecutionAuditContext } from "@/lib/audit-execution";
 import { assertWriteAllowed, providerAccessOptions } from "@/lib/api/write-gate";
+import { maskResult, type MaskingContext } from "@/lib/masking/store";
 import { clientAddress } from "@/lib/api/client-address";
 
 export interface StatementResult {
@@ -20,6 +21,8 @@ export interface StatementResult {
   status: "success" | "error";
   rows?: Record<string, unknown>[];
   fields?: string[];
+  /** The columns the server masked in `rows` (docs/CONTEXT.md §4.7). */
+  masked?: string[];
   rowCount?: number;
   executionTime: number;
   error?: string;
@@ -66,6 +69,7 @@ async function runStatement(
   dialect: DatabaseType,
   options: Record<string, unknown>,
   audit: Omit<ExecutionAuditContext, "statement">,
+  masking: MaskingContext,
 ): Promise<StatementResult> {
   const startTime = performance.now();
   const identity = { index, sql: stmt.sql, startLine: stmt.startLine };
@@ -88,12 +92,18 @@ async function runStatement(
     // One record per statement (docs/CONTEXT.md §4.2): each is its own execution, and a
     // script that failed on its third statement must say which one.
     const result = await auditExecution({ ...audit, statement: prepared.query }, () => provider.query(prepared.query));
+    const served = await maskResult(result, {
+      session: masking.session,
+      connectionName: masking.connectionName,
+      reveal: masking.reveal,
+    });
 
     return {
       ...identity,
       status: "success",
-      rows: result.rows,
-      fields: result.fields,
+      rows: served.rows,
+      fields: served.fields,
+      masked: served.masked,
       rowCount: result.rowCount,
       executionTime: Math.round(performance.now() - startTime),
       ...carriedChannels(result),
@@ -147,6 +157,11 @@ export async function POST(req: NextRequest) {
       applicationName: applicationNameFor(guard.session.username),
       ...providerAccessOptions(connection, guard.session),
     });
+    const masking: MaskingContext = {
+      session: guard.session,
+      connectionName: connection.name,
+      reveal: body.reveal === true,
+    };
     const results: StatementResult[] = [];
     let totalExecutionTime = 0;
     const audit: Omit<ExecutionAuditContext, "statement"> = {
@@ -167,6 +182,7 @@ export async function POST(req: NextRequest) {
         connection.type,
         options,
         audit,
+        masking,
       );
       totalExecutionTime += outcome.executionTime;
       results.push(outcome);

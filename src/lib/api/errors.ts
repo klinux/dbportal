@@ -27,6 +27,7 @@ import {
 import { RateLimitError } from "@/lib/api/rate-limit";
 import { SeedConnectionError } from "@/lib/seed/resolve-connection";
 import { ApprovalRequiredError } from "@/lib/approvals/errors";
+import { MaskingError } from "@/lib/masking/errors";
 
 // ============================================================================
 // Types
@@ -56,6 +57,12 @@ export function createErrorResponse(error: unknown, context?: { route?: string }
       { error: error.message, code: ApiErrorCode.APPROVAL_REQUIRED, statusCode: 403, approval: error.approval },
       { status: 403 },
     );
+  }
+
+  // --- Masking (docs/CONTEXT.md §4.7): a reveal refused, a configuration rejected ---
+  if (error instanceof MaskingError) {
+    logger.warn("Masking refusal", { route, statusCode: error.statusCode });
+    return NextResponse.json({ error: error.message, statusCode: error.statusCode }, { status: error.statusCode });
   }
 
   // --- Seed Connection Error ---

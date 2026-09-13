@@ -244,6 +244,8 @@ function OperationsAudit() {
             <SelectItem value="permission_denied">Permission Denied</SelectItem>
             <SelectItem value="rate_limit_exceeded">Rate Limited</SelectItem>
             <SelectItem value="credential_issued">Credential Issued</SelectItem>
+            <SelectItem value="approval_decision">Approval Decision</SelectItem>
+            <SelectItem value="masking_reveal">Masking Reveal</SelectItem>
           </SelectContent>
         </Select>
         <Input

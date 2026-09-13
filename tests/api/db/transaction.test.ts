@@ -159,6 +159,34 @@ describe("POST /api/db/transaction", () => {
     expect((await step({ action: "rollback" })).status).toBe(200);
   });
 
+  // docs/CONTEXT.md §4.7: a statement inside a transaction leaves masked like any other.
+  test("masks a transaction query's sensitive columns before the rows leave", async () => {
+    mockTxProvider.queryInTransaction.mockImplementation(
+      async () =>
+        ({
+          rows: [{ id: 1, ssn: "123-45-6789" }],
+          fields: ["id", "ssn"],
+          rowCount: 1,
+          executionTime: 1,
+        }) as never,
+    );
+    await POST(
+      createMockRequest("/api/db/transaction", {
+        method: "POST",
+        body: { connection: validConnection, action: "begin" },
+      }) as never,
+    );
+    const res = await POST(
+      createMockRequest("/api/db/transaction", {
+        method: "POST",
+        body: { connection: validConnection, action: "query", sql: "SELECT 1" },
+      }) as never,
+    );
+    const data = await parseResponseJSON<{ masked: string[]; rows: Record<string, unknown>[] }>(res);
+    expect(data.masked).toEqual(["ssn"]);
+    expect(data.rows[0].ssn).toBe("***-**-6789");
+  });
+
   test("returns 401 when no session exists", async () => {
     mockGetSession.mockResolvedValueOnce(null);
 

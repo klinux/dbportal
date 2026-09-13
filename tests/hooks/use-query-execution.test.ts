@@ -1401,6 +1401,25 @@ describe("useQueryExecution", () => {
     expect(mockToastError).not.toHaveBeenCalled();
   });
 
+  // docs/CONTEXT.md §4.7: a reveal is asked of the server in the request, never applied locally.
+  test("sends reveal in the body when asked, and never for an explain", async () => {
+    const fetchMock = mockGlobalFetch({ "/api/db/query": { ok: true, json: mockQueryResult } });
+    const params = createDefaultParams();
+    const { result } = renderHook(() => useQueryExecution(params));
+    await act(async () => {
+      await result.current.executeQuery("SELECT 1", undefined, false, { reveal: true });
+    });
+    const bodies = fetchMock.mock.calls.map((c) => JSON.parse(((c[1] as RequestInit).body as string) ?? "{}"));
+    const main = bodies.find((b) => !b.explain);
+    expect(main.reveal).toBe(true);
+    for (const b of bodies.filter((b) => b.explain)) expect(b).not.toHaveProperty("reveal");
+    await act(async () => {
+      await result.current.executeQuery("SELECT 1");
+    });
+    const later = JSON.parse((fetchMock.mock.calls.at(-1)![1] as RequestInit).body as string);
+    expect(later).not.toHaveProperty("reveal");
+  });
+
   // docs/CONTEXT.md §4.6: a write that entered "awaiting approval" is a state on the tab,
   // not an error - no destructive toast, no result, the request remembered for polling.
   test("handles APPROVAL_REQUIRED by parking the request on the tab", async () => {

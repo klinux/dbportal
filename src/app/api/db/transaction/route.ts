@@ -5,6 +5,7 @@ import { createErrorResponse } from "@/lib/api/errors";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 import { auditExecution, type ExecutionAction } from "@/lib/audit-execution";
 import { assertWriteAllowed, providerAccessOptions, type WriteAccess } from "@/lib/api/write-gate";
+import { maskResult } from "@/lib/masking/store";
 import { clientAddress } from "@/lib/api/client-address";
 import { guardRoute } from "@/lib/api/require-session";
 import { readBoundParams } from "@/lib/api/bound-params";
@@ -122,9 +123,15 @@ export async function POST(req: NextRequest) {
         );
 
         const hasMore = result.rows.length === prepared.limit;
+        // Masked before it leaves (docs/CONTEXT.md §4.7), like the query route.
+        const served = await maskResult(result, {
+          session: guard.session,
+          connectionName: connection.name,
+          reveal: body.reveal === true,
+        });
 
         return NextResponse.json({
-          ...result,
+          ...served,
           inTransaction: true,
           pagination: {
             limit: prepared.limit,

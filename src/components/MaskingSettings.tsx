@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
+import { appFetch } from "@/lib/config/base-path";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -41,6 +42,44 @@ const MASKING_PRESETS = DEFAULT_MASKING_CONFIG.patterns.filter((pattern) =>
 export function MaskingSettings() {
   const [config, setConfig] = useState<MaskingConfig>(() => loadMaskingConfig());
   const [editingPattern, setEditingPattern] = useState<MaskingPattern | null>(null);
+
+  // The configuration that masks results is the server's (docs/CONTEXT.md §4.7); the local
+  // copy is the first paint. Read once on mount, through the promise chain.
+  useEffect(() => {
+    let cancelled = false;
+    appFetch("/api/admin/masking")
+      .then(async (res) => {
+        if (!res.ok || cancelled) return;
+        const body = (await res.json()) as { config?: MaskingConfig };
+        if (body.config) setConfig(body.config);
+      })
+      .catch(() => {
+        // Keep the local copy; saving will say what is wrong.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Replace the server's configuration; the local copy follows only once the server accepted it. */
+  const persist = useCallback(async (next: MaskingConfig): Promise<boolean> => {
+    try {
+      const res = await appFetch("/api/admin/masking", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `The server refused the configuration (${res.status})`);
+      }
+      saveMaskingConfig(next);
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The configuration could not be saved");
+      return false;
+    }
+  }, []);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isNewPattern, setIsNewPattern] = useState(false);
 
@@ -50,16 +89,16 @@ export function MaskingSettings() {
   const [editColumnPatterns, setEditColumnPatterns] = useState("");
   const [editCustomMask, setEditCustomMask] = useState("");
 
-  const handleSave = useCallback(() => {
-    saveMaskingConfig(config);
-    toast.success("Masking configuration saved");
-  }, [config]);
+  const handleSave = useCallback(async () => {
+    if (await persist(config)) toast.success("Masking configuration saved");
+  }, [config, persist]);
 
-  const handleReset = useCallback(() => {
-    setConfig(DEFAULT_MASKING_CONFIG);
-    saveMaskingConfig(DEFAULT_MASKING_CONFIG);
-    toast.success("Masking configuration reset to defaults");
-  }, []);
+  const handleReset = useCallback(async () => {
+    if (await persist(DEFAULT_MASKING_CONFIG)) {
+      setConfig(DEFAULT_MASKING_CONFIG);
+      toast.success("Masking configuration reset to defaults");
+    }
+  }, [persist]);
 
   const toggleGlobal = useCallback((enabled: boolean) => {
     setConfig((prev) => ({ ...prev, enabled }));

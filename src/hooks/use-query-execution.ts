@@ -30,6 +30,11 @@ export interface QueryExecutionOptions {
    * #290) carries its values here so that no value can be read as statement text.
    */
   params?: unknown[];
+  /**
+   * Ask the server for the values its masking rules would hide (docs/CONTEXT.md §4.7).
+   * Granted to the roles the configuration names, audited, refused with a 403 otherwise.
+   */
+  reveal?: boolean;
 }
 
 interface UseQueryExecutionParams {
@@ -254,7 +259,13 @@ export function useQueryExecution({
       }
 
       // Options extraction
-      const { limit = DEFAULT_QUERY_LIMIT, offset = 0, unlimited = false, params } = executionOptions || {};
+      const {
+        limit = DEFAULT_QUERY_LIMIT,
+        offset = 0,
+        unlimited = false,
+        params,
+        reveal = false,
+      } = executionOptions || {};
 
       // isLoadingMore flag
       const isLoadMore = offset > 0;
@@ -387,6 +398,7 @@ export function useQueryExecution({
             // statement takes, and only when the caller supplied one: a request
             // without values must stay a request without a `params` key (#290).
             ...(params && { params }),
+            ...(reveal && !isExplain && { reveal: true }),
             ...(useTransaction
               ? { action: "query", sql: queryToExecute, options: { limit, offset, unlimited } }
               : {

@@ -343,6 +343,8 @@ export interface QueryResult {
    * catalog entry to answer with. Absent when the source declared none.
    */
   columnTypes?: Record<string, string>;
+  /** The columns the server masked in `rows` (docs/CONTEXT.md §4.7); absent or empty when none. */
+  masked?: string[];
 }
 
 /**

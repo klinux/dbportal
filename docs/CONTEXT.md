@@ -46,7 +46,7 @@ Verified in code, not from the README:
 |---|---|---|
 | Two-role RBAC | [`src/lib/auth.ts`](../src/lib/auth.ts) — `type Role = "admin" \| "user"` | Seed YAML supports `roles: ["admin"]` / `["*"]`. No groups, no per-datasource read/write matrix. |
 | Static shared credentials | [`src/lib/db/factory.ts`](../src/lib/db/factory.ts) — provider cache keyed by connection | Every user shares the database role; the database's own logs cannot name the person. (§4.3 labels the pool per person; §4.5 issues a credential per person through Vault.) |
-| Masking is client-side | [`src/lib/data-masking.ts`](../src/lib/data-masking.ts) | Column-name regex in the browser; `salary AS x` escapes it; the API returns raw values. |
+| Masking is client-side | [`src/lib/data-masking.ts`](../src/lib/data-masking.ts) | Column-name regex in the browser; `salary AS x` escapes it; the API returns raw values. (§4.7 moves the rules to the server; the alias escape remains, see there.) |
 | Only the AI agent path is policy-checked | [`src/lib/db/operations/execution.ts`](../src/lib/db/operations/execution.ts) — `executeAuditedOperation` | Policy → audit → budget → driver pipeline exists, but only for agent runs and only on PostgreSQL/SQLite/DuckDB. It is the best piece to generalise to the human editor path. |
 
 ## 4. Roadmap, in order, with the intended design
@@ -229,10 +229,28 @@ someone's behalf later.
 - Not done: reviewer notifications (the list is polled by the page), and a reviewer UI
   outside the admin area for group approvers (the API already admits them).
 
-### 4.7 Server-side masking
+### 4.7 Server-side masking — done
 
-Design notes live in [DESIGN.md](DESIGN.md) §"State Management" and §"Interactions"
-(masked columns, audit rail).
+The rules did not change; where they run did ([`src/lib/masking/store.ts`](../src/lib/masking/store.ts)):
+
+- One masking configuration, an administrator's, held in the server store under the
+  reserved owner `shared:masking` (`GET/PUT /api/admin/masking`, validated: bounded lists,
+  every column pattern a regex that compiles) and read by every session (`GET /api/masking`)
+  so the grid's badges and reveal offer follow the same rules. Without a store, or with
+  nothing saved, the built-in defaults apply — a deployment that configured nothing still
+  masks the obvious columns.
+- `maskResult` runs in the query, multi-query and transaction routes before the rows leave
+  (`masked: string[]` names the columns); a plan is not rows and is not masked. The browser
+  never receives a value the rule masks.
+- Reveal is a request (`reveal: true`), granted to the roles the configuration names
+  (`roleSettings.*.canReveal`), refused with a 403 otherwise, and audited as
+  `masking_reveal` naming the columns — never the values (DESIGN.md: "unmasking is itself
+  an audited action"). The studio asks for it when someone who may reveal turns masking
+  off; the admin Security → Masking page saves to the server.
+- Still open, on purpose: matching is by result column name, so `salary AS x` still
+  escapes it. Closing that needs the engine's origin metadata per column (PostgreSQL gives
+  `tableID`/`columnID`, most engines give nothing), a different piece of work from moving
+  the rules server-side; the alias is at least visible in the audited statement.
 
 ### 4.8 UI: configuration dialogs are side sheets (done)
 

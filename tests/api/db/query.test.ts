@@ -143,6 +143,48 @@ describe("POST /api/db/query", () => {
     expect((await parseResponseJSON<{ error: string }>(denied)).error).toContain("server storage");
   });
 
+  // docs/CONTEXT.md §4.7: the rows leave masked by the server's rules (the defaults here -
+  // no store is configured), a plan does not, a reveal is granted to the roles the
+  // configuration names and audited, and refused with a 403 to the others.
+  test("masks sensitive columns before the rows leave, names them, and answers a reveal per role", async () => {
+    (mockProvider.query as ReturnType<typeof mock>).mockImplementation(async () => ({
+      rows: [{ id: 1, email: "ana@example.com", note: "n" }],
+      fields: ["id", "email", "note"],
+      rowCount: 1,
+      executionTime: 1,
+    }));
+    const post = (body: Record<string, unknown>) =>
+      POST(createMockRequest("/api/db/query", { method: "POST", body }) as never);
+    type Served = { rows: Record<string, unknown>[]; masked: string[] };
+
+    const masked = await parseResponseJSON<Served>(await post({ connection: validConnection, sql: "SELECT 1" }));
+    expect(masked.masked).toEqual(["email"]);
+    expect(masked.rows[0].email).not.toBe("ana@example.com");
+    expect(masked.rows[0].note).toBe("n");
+
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const revealed = await parseResponseJSON<Served>(
+        await post({ connection: validConnection, sql: "SELECT 1", reveal: true }),
+      );
+      expect(revealed.masked).toEqual([]);
+      expect(revealed.rows[0].email).toBe("ana@example.com");
+      const line = (logSpy.mock.calls as unknown[][])
+        .map((c) => c[0])
+        .filter((v): v is string => typeof v === "string" && v.startsWith("{"))
+        .map((v) => JSON.parse(v) as Record<string, unknown>)
+        .find((e) => e.event === "masking_reveal");
+      expect(line).toMatchObject({ actor: "admin", route: "email" });
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    mockGetSession.mockImplementation(async () => ({ role: "user", username: "bob" }));
+    const denied = await post({ connection: validConnection, sql: "SELECT 1", reveal: true });
+    expect(denied.status).toBe(403);
+    expect((await parseResponseJSON<{ error: string }>(denied)).error).toContain("reveal");
+  });
+
   test("returns 401 when no session exists", async () => {
     mockGetSession.mockResolvedValueOnce(null);
 

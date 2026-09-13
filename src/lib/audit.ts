@@ -30,7 +30,9 @@ export type AuditEventType =
    */
   | "credential_issued"
   /** A reviewer's decision on a write approval request (docs/CONTEXT.md §4.6). */
-  | "approval_decision";
+  | "approval_decision"
+  /** A permitted reveal of masked columns; the columns are named, never their values (§4.7). */
+  | "masking_reveal";
 
 /**
  * Why a reason is a closed union and never free text: it is the mechanism that makes redaction

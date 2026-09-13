@@ -77,6 +77,7 @@ const mockStorageDeleteConnection = mock(() => {});
 const mockStorageSaveQuery = mock(() => {});
 // Data Masking
 const mockSaveMaskingConfig = mock(() => {});
+const mockCanReveal = mock(() => false);
 // URL (for export tests)
 const mockCreateObjectURL = mock(() => "blob:mock-url");
 const mockRevokeObjectURL = mock(() => {});
@@ -251,6 +252,7 @@ mock.module("@/lib/data-masking", () => ({
   saveMaskingConfig: mockSaveMaskingConfig,
   shouldMask: mock(() => false),
   canToggleMasking: mock(() => true),
+  canReveal: mockCanReveal,
   detectSensitiveColumnsFromConfig: mock(() => new Set()),
   applyMaskingToRows: mock((rows: unknown) => rows),
 }));
@@ -1003,6 +1005,51 @@ describe("Studio", () => {
     act(() => (capturedMobileNavProps.onTabChange as (tab: string) => void)("database"));
     expect(capturedConnectionsListProps.onAddConnection).toBeUndefined();
     expect(capturedConnectionsListProps.onDuplicateConnection).toBeUndefined();
+  });
+
+  // docs/CONTEXT.md §4.7: the rows on screen were masked by the server, so turning masking
+  // off asks it for the values - only for someone the configuration lets reveal, and only
+  // when there is a result to re-run.
+  test("turning masking off re-runs the tab with reveal for a role that may reveal", () => {
+    mockCanReveal.mockReturnValue(true);
+    try {
+      tabMgrOverride = {
+        currentTab: {
+          id: "tab-1",
+          name: "Users",
+          query: "SELECT 1",
+          result: testResult,
+          isExecuting: false,
+          type: "sql",
+        },
+      };
+      render(<Studio />);
+      // The mocked local copy starts with masking off: the first toggle turns it on, which
+      // re-masks locally and asks nothing of the server.
+      act(() => (capturedBottomPanelProps.onToggleMasking as () => void)());
+      expect(mockExecuteQuery).not.toHaveBeenCalled();
+      act(() => (capturedBottomPanelProps.onToggleMasking as () => void)());
+      expect(mockExecuteQuery).toHaveBeenCalledWith(undefined, undefined, false, { reveal: true });
+    } finally {
+      mockCanReveal.mockReturnValue(false);
+    }
+  });
+
+  test("turning masking off without the right to reveal does not re-run anything", () => {
+    tabMgrOverride = {
+      currentTab: {
+        id: "tab-1",
+        name: "Users",
+        query: "SELECT 1",
+        result: testResult,
+        isExecuting: false,
+        type: "sql",
+      },
+    };
+    render(<Studio />);
+    act(() => (capturedBottomPanelProps.onToggleMasking as () => void)());
+    act(() => (capturedBottomPanelProps.onToggleMasking as () => void)());
+    expect(mockExecuteQuery).not.toHaveBeenCalled();
   });
 
   // --- exportResults ---

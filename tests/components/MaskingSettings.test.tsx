@@ -63,7 +63,8 @@ mock.module("@/lib/data-masking", () => ({
 }));
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { render, fireEvent, within, cleanup, act } from "@testing-library/react";
+import { render, fireEvent, within, cleanup, act, waitFor } from "@testing-library/react";
+import { mockGlobalFetch, restoreGlobalFetch } from "../helpers/mock-fetch";
 import React from "react";
 
 import { MaskingSettings } from "@/components/MaskingSettings";
@@ -75,6 +76,7 @@ import { MaskingSettings } from "@/components/MaskingSettings";
 describe("MaskingSettings", () => {
   afterEach(() => {
     cleanup();
+    restoreGlobalFetch();
   });
 
   beforeEach(() => {
@@ -83,6 +85,41 @@ describe("MaskingSettings", () => {
     mockToastSuccess.mockClear();
     mockToastError.mockClear();
     mockLoadMaskingConfig.mockImplementation(() => structuredClone(mockConfig));
+    // docs/CONTEXT.md §4.7: the page saves through the admin API; the mount read answers
+    // nothing here so the local copy every test starts from stays what it is.
+    mockGlobalFetch({
+      "/api/admin/masking": (req) =>
+        req.method === "PUT" ? { ok: true, json: { config: mockConfig } } : { ok: false, status: 404, json: {} },
+    });
+  });
+
+  test("loads the server's configuration on mount", async () => {
+    mockGlobalFetch({
+      "/api/admin/masking": {
+        ok: true,
+        json: { config: { ...mockConfig, patterns: [{ ...mockConfig.patterns[0], id: "s1", name: "ServerOnly" }] } },
+      },
+    });
+    const { container } = render(<MaskingSettings />);
+    await waitFor(() => {
+      if (!within(container).queryByText("ServerOnly")) throw new Error("not loaded");
+    });
+  });
+
+  test("a save the server refuses is reported in its words and not kept locally", async () => {
+    mockGlobalFetch({
+      "/api/admin/masking": (req) =>
+        req.method === "PUT"
+          ? { ok: false, status: 400, json: { error: "Invalid masking configuration: patterns.0.name too long" } }
+          : { ok: false, status: 404, json: {} },
+    });
+    const { container } = render(<MaskingSettings />);
+    fireEvent.click(within(container).getByText("Save Config"));
+    await waitFor(() => {
+      if (!mockToastError.mock.calls.length) throw new Error("no toast yet");
+    });
+    expect(mockToastError).toHaveBeenCalledWith("Invalid masking configuration: patterns.0.name too long");
+    expect(mockSaveMaskingConfig).not.toHaveBeenCalled();
   });
 
   // ── Title ─────────────────────────────────────────────────────────────────
@@ -139,26 +176,32 @@ describe("MaskingSettings", () => {
 
   // ── Save button ───────────────────────────────────────────────────────────
 
-  test("save button calls saveMaskingConfig", () => {
+  test("save button saves through the server, then locally", async () => {
     const { container } = render(<MaskingSettings />);
     const view = within(container);
 
     const saveButton = view.getByText("Save Config");
     fireEvent.click(saveButton);
 
+    await waitFor(() => {
+      if (!mockSaveMaskingConfig.mock.calls.length) throw new Error("not saved yet");
+    });
     expect(mockSaveMaskingConfig).toHaveBeenCalledTimes(1);
     expect(mockToastSuccess).toHaveBeenCalledWith("Masking configuration saved");
   });
 
   // ── Reset defaults ────────────────────────────────────────────────────────
 
-  test("reset defaults button works", () => {
+  test("reset defaults button works", async () => {
     const { container } = render(<MaskingSettings />);
     const view = within(container);
 
     const resetButton = view.getByText("Reset Defaults");
     fireEvent.click(resetButton);
 
+    await waitFor(() => {
+      if (!mockSaveMaskingConfig.mock.calls.length) throw new Error("not saved yet");
+    });
     expect(mockSaveMaskingConfig).toHaveBeenCalledTimes(1);
     expect(mockToastSuccess).toHaveBeenCalledWith("Masking configuration reset to defaults");
   });
@@ -392,7 +435,7 @@ describe("MaskingSettings", () => {
 
   // ── openNewDialog ────────────────────────────────────────────────────
 
-  test("Add Pattern button opens new pattern dialog", () => {
+  test("Add Pattern button opens new pattern dialog", async () => {
     const { container, baseElement } = render(<MaskingSettings />);
     const addBtn = within(container).getByText("Add Pattern");
 
@@ -412,7 +455,7 @@ describe("MaskingSettings", () => {
 
   test.each(["Email", "Phone", "Credit Card", "SSN"])(
     "prefills an editable %s preset before creating a pattern",
-    (name) => {
+    async (name) => {
       const preset = presetConfig.patterns.find((pattern) => pattern.name === name)!;
       const { container, baseElement } = render(<MaskingSettings />);
       const view = within(container);
@@ -428,6 +471,9 @@ describe("MaskingSettings", () => {
       expect(mockSaveMaskingConfig).not.toHaveBeenCalled();
       fireEvent.click(within(baseElement).getByRole("button", { name: "Save" }));
       fireEvent.click(view.getByText("Save Config"));
+      await waitFor(() => {
+        if (mockSaveMaskingConfig.mock.calls.length < 1) throw new Error("not saved yet");
+      });
 
       const saved = mockSaveMaskingConfig.mock.calls.at(-1)![0];
       expect(saved.patterns.slice(0, 2)).toEqual(mockConfig.patterns);
@@ -452,6 +498,9 @@ describe("MaskingSettings", () => {
       });
       fireEvent.click(within(baseElement).getByRole("button", { name: "Save" }));
       fireEvent.click(view.getByText("Save Config"));
+      await waitFor(() => {
+        if (mockSaveMaskingConfig.mock.calls.length < 2) throw new Error("not saved yet");
+      });
       const edited = mockSaveMaskingConfig.mock.calls.at(-1)![0];
       expect(edited.patterns.at(-1)).toMatchObject({
         id: added.id,
@@ -463,7 +512,7 @@ describe("MaskingSettings", () => {
     },
   );
 
-  test("switching presets then cancelling leaves the real default patterns unchanged", () => {
+  test("switching presets then cancelling leaves the real default patterns unchanged", async () => {
     mockLoadMaskingConfig.mockImplementation(() => structuredClone(presetConfig));
     const { container, baseElement } = render(<MaskingSettings />);
     const view = within(container);
@@ -475,10 +524,13 @@ describe("MaskingSettings", () => {
     }
     fireEvent.click(within(baseElement).getByRole("button", { name: "Cancel" }));
     fireEvent.click(view.getByText("Save Config"));
+    await waitFor(() => {
+      if (!mockSaveMaskingConfig.mock.calls.length) throw new Error("not saved yet");
+    });
     expect(mockSaveMaskingConfig.mock.calls.at(-1)![0]).toEqual(presetConfig);
   });
 
-  test("adapting a preset from the real defaults masks a new column without shadowing the builtin", () => {
+  test("adapting a preset from the real defaults masks a new column without shadowing the builtin", async () => {
     mockLoadMaskingConfig.mockImplementation(() => structuredClone(presetConfig));
     const { container, baseElement } = render(<MaskingSettings />);
     const view = within(container);
@@ -490,6 +542,9 @@ describe("MaskingSettings", () => {
     });
     fireEvent.click(within(baseElement).getByRole("button", { name: "Save" }));
     fireEvent.click(view.getByText("Save Config"));
+    await waitFor(() => {
+      if (!mockSaveMaskingConfig.mock.calls.length) throw new Error("not saved yet");
+    });
     const saved = mockSaveMaskingConfig.mock.calls.at(-1)![0];
     expect(saved.patterns.slice(0, -1)).toEqual(presetConfig.patterns);
     const matches = detectColumns(["email", "user_email", "contact_email", "billing_contact"], saved);

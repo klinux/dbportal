@@ -175,6 +175,8 @@ const QUERY_RESULT_FIELDS: Record<keyof QueryResult, ResultFieldClass> = {
   pagination: "summary",
   warnings: "summary",
   columnTypes: "summary",
+  // The names of the columns the server masked (§4.7): metadata about the result, like `fields`.
+  masked: "summary",
 };
 
 /**

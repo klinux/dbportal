@@ -1,5 +1,5 @@
 import { getBasePath } from "@/lib/config/base-path";
-import { SHARED_DATASOURCES_OWNER } from "@/lib/datasources/owner";
+import { RESERVED_OWNERS } from "@/lib/datasources/owner";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies, headers } from "next/headers";
 import { logger } from "@/lib/logger";
@@ -154,7 +154,7 @@ export async function login(role: Role, username?: string, groups: string[] = []
   // The shared datasource store lives in user_storage under this owner id, and the per-user
   // storage routes read and write whatever row the session names. No account may ever be that
   // id - not a local one, and not one an identity provider claims as the subject.
-  if (subject === SHARED_DATASOURCES_OWNER) {
+  if (RESERVED_OWNERS.includes(subject)) {
     throw new Error("This account name is reserved");
   }
   const token = await signJWT({ role, username: subject, ...(groups.length > 0 ? { groups } : {}) });
