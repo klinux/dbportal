@@ -30,6 +30,7 @@ Tailwind + Radix for UI. No Go, no Rust.
 - `public/brand/` — logo SVGs and OG image, generated from docs/DESIGN.md.
 
 ## Commands
+`make dev` / `make stop` (local environment: PostgreSQL in Docker + `bun run dev`); `make help`.
 `bun run lint` · `bun run typecheck` · `bun run build`
 `bash tests/run-core.sh` · `bash tests/run-components.sh` · `bun run test:ci` (both)
 Single file: `bun test tests/unit/foo.test.ts`. Integration: `docker compose -f database-compose.yml up -d`.

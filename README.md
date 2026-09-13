@@ -90,12 +90,17 @@ cp .env.example .env          # set JWT_SECRET, ADMIN_PASSWORD at least
 docker compose up -d          # http://localhost:3000
 ```
 
-Or for development:
+Or for development (PostgreSQL in Docker as both the dev database and the server store,
+the app under `bun run dev`):
 
 ```bash
 bun install
-bun run dev
+make env          # .env.local from the example; set JWT_SECRET and ADMIN_PASSWORD
+make dev          # database up, app on http://localhost:3000 (Ctrl+C stops the app)
+make stop         # app and database down
 ```
+
+`make help` lists the rest (`dev-bg`, `db-reset`, `status`, `check`, `test`, `coverage`).
 
 Kubernetes: see [charts/](charts/) and [docs/HELM_CHART.md](docs/HELM_CHART.md).
 Managed datasources: [docs/SEED_CONNECTIONS.md](docs/SEED_CONNECTIONS.md).
@@ -104,6 +109,9 @@ SSO: [docs/OIDC.md](docs/OIDC.md).
 ## Development
 
 ```bash
+make check          # lint + typecheck
+make test           # the suite the way CI runs it
+make coverage       # the 100% line-coverage gate
 bun run lint        # oxlint + eslint
 bun run typecheck
 bun run test:unit   # fast, no databases needed

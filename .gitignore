@@ -202,3 +202,7 @@ reviews/
 
 # Superpowers brainstorming companion (local session artifacts)
 .superpowers/config/
+
+# make dev-bg
+.dev.log
+.dev.pid

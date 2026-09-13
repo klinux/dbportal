@@ -323,6 +323,8 @@ reference it; it can go with the UI/API split.
 
 ## 7. Working on the repo
 
+- `make dev` / `make stop` bring the local environment up and down (PostgreSQL from
+  the `postgres` service of `database-compose.yml` plus `bun run dev`); `make help` lists the rest.
 - `bun run lint` · `bun run typecheck` · `bun run build`
 - Core tests: `bash tests/run-core.sh` — **per-file processes on purpose**; `bun test` over
   several directories at once produces ~150 false failures from `mock.module` leaking.
