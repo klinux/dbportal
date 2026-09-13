@@ -101,6 +101,15 @@ export const ENVIRONMENT_LABELS: Record<ConnectionEnvironment, string> = {
   other: "",
 };
 
+/** The order every grouped listing uses: what matters most first. */
+export const ENVIRONMENT_ORDER: readonly ConnectionEnvironment[] = [
+  "production",
+  "staging",
+  "development",
+  "local",
+  "other",
+];
+
 /**
  * How much TLS a connection asks for.
  *

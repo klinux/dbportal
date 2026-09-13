@@ -3,12 +3,12 @@ import "../../helpers/mock-sonner";
 import "../../helpers/mock-navigation";
 
 import { mock } from "bun:test";
-let capturedDuplicateHandler: unknown;
+let capturedAddHandler: unknown;
 
 // Mock child components to isolate Sidebar logic
-mock.module("@/components/sidebar/ConnectionsList", () => ({
-  ConnectionsList: (props: Record<string, unknown>) => {
-    capturedDuplicateHandler = props.onDuplicateConnection;
+mock.module("@/components/sidebar/ConnectionPicker", () => ({
+  ConnectionPicker: (props: Record<string, unknown>) => {
+    capturedAddHandler = props.onAddConnection;
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const React = require("react");
     const connections = props.connections as Array<Record<string, unknown>> | undefined;
@@ -20,7 +20,7 @@ mock.module("@/components/sidebar/ConnectionsList", () => ({
         "data-connections-count": String(connections?.length ?? 0),
         "data-active-connection": (activeConnection as Record<string, string>)?.id ?? "none",
       },
-      "ConnectionsList Mock",
+      "ConnectionPicker Mock",
     );
   },
 }));
@@ -121,8 +121,6 @@ function createDefaultProps(overrides: Record<string, unknown> = {}) {
     activeConnection: mockPostgresConnection,
     metadata: { capabilities: oneLevel } as ProviderMetadata,
     onSelectConnection: mock(() => {}),
-    onDeleteConnection: mock(() => {}),
-    onEditConnection: mock(() => {}),
     onAddConnection: mock(() => {}),
     onObjectClick: mock(() => {}),
     onShowDiagram: mock(() => {}),
@@ -196,9 +194,10 @@ describe("Sidebar", () => {
     const { getByTestId } = render(<Sidebar {...props} />);
 
     expect(getByTestId("object-tree").closest('[data-slot="scroll-area"]')).toBeNull();
-    // The control: the element that IS meant to scroll with the sidebar still does, so
-    // this is not passing because the ScrollArea disappeared.
-    expect(getByTestId("connections-list").closest('[data-slot="scroll-area"]')).not.toBeNull();
+    // The datasource picker is one row above the tree, not a list the tree competes with.
+    const picker = getByTestId("connections-list");
+    const tree = getByTestId("object-tree");
+    expect(picker.compareDocumentPosition(tree) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   // The tree reads the catalog itself, so what it needs from the sidebar is the
@@ -330,20 +329,16 @@ describe("Sidebar", () => {
     expect(noErdButton).toBeNull();
   });
 
-  test("passes correct props to ConnectionsList", () => {
+  test("hands the picker the list, the active connection and the add action", () => {
     const connections = [mockPostgresConnection, mockMySQLConnection];
-    const onDuplicateConnection = mock(() => {});
-    const props = createDefaultProps({
-      connections,
-      activeConnection: mockPostgresConnection,
-      onDuplicateConnection,
-    });
+    const onAddConnection = mock(() => {});
+    const props = createDefaultProps({ connections, activeConnection: mockPostgresConnection, onAddConnection });
     const { getByTestId } = render(<Sidebar {...props} />);
 
-    const connList = getByTestId("connections-list");
-    expect(connList.getAttribute("data-connections-count")).toBe("2");
-    expect(connList.getAttribute("data-active-connection")).toBe(mockPostgresConnection.id);
-    expect(capturedDuplicateHandler).toBe(onDuplicateConnection);
+    const picker = getByTestId("connections-list");
+    expect(picker.getAttribute("data-connections-count")).toBe("2");
+    expect(picker.getAttribute("data-active-connection")).toBe(mockPostgresConnection.id);
+    expect(capturedAddHandler).toBe(onAddConnection);
   });
 
   /**

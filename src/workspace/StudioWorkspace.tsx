@@ -370,8 +370,6 @@ export function StudioWorkspace({
                 connections={conn.connections}
                 activeConnection={conn.activeConnection}
                 onSelectConnection={conn.setActiveConnection}
-                onDeleteConnection={noop}
-                onEditConnection={noop}
                 onAddConnection={noop}
                 onObjectClick={onObjectClick}
                 objectActions={objectActions}

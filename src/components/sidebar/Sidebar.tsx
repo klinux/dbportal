@@ -5,21 +5,16 @@ import { DatabaseConnection } from "@/lib/types";
 import type { DatabaseObject } from "@/lib/db/types";
 import type { ProviderMetadata } from "@/hooks/use-provider-metadata";
 import { Plus, Layers, LoaderCircle, CircleAlert } from "lucide-react";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { ObjectTree, type ObjectSource, type TreeRowActionHandlers } from "@/components/object-tree";
 import { GitHubRepoLink } from "@/components/github-repo-link";
 import { BrandMark, Wordmark } from "@/components/brand-mark";
 import { getAppVersion } from "@/lib/app-version";
-import { cn } from "@/lib/utils";
-import { ConnectionsList } from "./ConnectionsList";
+import { ConnectionPicker } from "./ConnectionPicker";
 
 interface SidebarProps {
   connections: DatabaseConnection[];
   activeConnection: DatabaseConnection | null;
   onSelectConnection: (connection: DatabaseConnection) => void;
-  onDeleteConnection?: (id: string) => void;
-  onEditConnection?: (conn: DatabaseConnection) => void;
-  onDuplicateConnection?: (conn: DatabaseConnection) => void;
   /**
    * Takes an administrator to where datasources are declared (docs/CONTEXT.md §4.1). Absent
    * for every other session: the button is then not rendered rather than rendered inert.
@@ -77,9 +72,6 @@ export function Sidebar({
   connections,
   activeConnection,
   onSelectConnection,
-  onDeleteConnection,
-  onEditConnection,
-  onDuplicateConnection,
   onAddConnection,
   onObjectClick,
   onShowDiagram,
@@ -125,23 +117,18 @@ export function Sidebar({
       </div>
 
       {/*
-        The connection list scrolls with the sidebar; the tree does NOT, and the split is
-        load-bearing rather than cosmetic. The tree windows its rows against the height of
-        its own scroll box, so nesting it in this ScrollArea would make it measure a box
-        with no bottom and mount rows against the wrong height - and the fixed height that
-        hid that is what left it unable to use the panel it is in.
+        One row for the datasource, not a list: the tree below is what the sidebar is for
+        once something is open, and a flat list of every datasource took its space. The
+        popover carries the grouped, searchable list.
       */}
-      <ScrollArea className={cn("min-h-0 px-2 py-4", activeConnection ? "shrink-0 max-h-[45%]" : "flex-1")}>
-        <ConnectionsList
+      <div className="px-2 pt-3 pb-2">
+        <ConnectionPicker
           connections={connections}
           activeConnection={activeConnection}
           onSelectConnection={onSelectConnection}
-          onDeleteConnection={onDeleteConnection}
-          onEditConnection={onEditConnection}
-          onDuplicateConnection={onDuplicateConnection}
           onAddConnection={onAddConnection}
         />
-      </ScrollArea>
+      </div>
 
       {/*
         The object tree replaces the flat table list (#789). It reads the catalog itself,

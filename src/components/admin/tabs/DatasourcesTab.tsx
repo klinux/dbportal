@@ -26,6 +26,7 @@ import {
   type ConnectionEnvironment,
   type DatabaseConnection,
   type DatabaseType,
+  ENVIRONMENT_ORDER,
 } from "@/lib/types";
 import { Database, FileCode2, Pencil, Plus, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -84,7 +85,6 @@ export function parseGroupNames(input: string): string[] {
   ].map((g) => `group:${g}`);
 }
 
-const ENVIRONMENT_ORDER: ConnectionEnvironment[] = ["production", "staging", "development", "local", "other"];
 const ENVIRONMENT_TITLES: Record<ConnectionEnvironment, string> = {
   production: "Production",
   staging: "Staging",

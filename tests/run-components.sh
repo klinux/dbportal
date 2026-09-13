@@ -11,7 +11,7 @@
 #             studio/index, ConnectionModal, CommandPalette, SchemaDiagram,
 #             DataProfiler, CodeGenerator, TestDataGenerator, CreateTableModal,
 #             SaveQueryModal, etc.)
-#   Group 2 — Sidebar.test.tsx (mocks ConnectionsList, schema-explorer)
+#   Group 2 — Sidebar.test.tsx (mocks ConnectionPicker, schema-explorer)
 #   Group 3 — BottomPanel.test.tsx (mocks ResultsGrid, QueryHistory,
 #             DataCharts, SchemaDiff, SavedQueries, VisualExplain, etc.)
 #   Group 4 — AdminDashboard shell + admin section/layout/index pages
@@ -30,7 +30,7 @@ FAIL=0
 # green summary line reported a group count no run had.
 # Drifted again before this line was touched: it read 30 while 32 `run_group` calls
 # existed, so every green run reported a group count no run had. 33 is the grep below.
-TOTAL_GROUPS=39
+TOTAL_GROUPS=40
 EXTRA_BUN_ARGS=("$@")
 GROUP_INDEX=0
 COVERAGE_MODE=0
@@ -164,9 +164,15 @@ run_group "Group 1/6: Studio" \
 run_group "Group 1b/6: Studio agent ask" \
   tests/components/studio-agent-ask.test.tsx
 
-# Group 2: Sidebar (isolated — mocks ConnectionsList, SchemaExplorer)
+# Group 2: Sidebar (isolated — mocks ConnectionPicker, SchemaExplorer)
 run_group "Group 2/6: Sidebar" \
   tests/components/sidebar/Sidebar.test.tsx
+
+# Group 2b: the datasource picker (isolated — it renders the REAL cmdk, which
+# CommandPalette.test.tsx replaces with a mock.module stub for the whole process).
+run_group "Group 2b/6: Datasource picker" \
+  tests/components/sidebar/ConnectionsList.test.tsx \
+  tests/components/sidebar/ConnectionPicker.test.tsx
 
 # Group 3: BottomPanel (isolated — mocks ResultsGrid, QueryHistory, DataCharts, SchemaDiff)
 run_group "Group 3/6: BottomPanel" \
@@ -273,8 +279,6 @@ run_group "Group 15/16: Remaining components" \
   tests/components/DataProfiler.test.tsx \
   tests/components/schema-explorer/SchemaExplorer.test.tsx \
   tests/components/schema-explorer/ColumnList.test.tsx \
-  tests/components/sidebar/ConnectionItem.test.tsx \
-  tests/components/sidebar/ConnectionsList.test.tsx \
   tests/components/studio/QueryToolbar.test.tsx \
   tests/components/studio/StudioTabBar.test.tsx \
   tests/components/admin/OverviewTab.test.tsx \

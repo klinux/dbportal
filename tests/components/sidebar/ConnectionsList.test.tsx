@@ -1,50 +1,9 @@
 import "../../setup-dom";
 import "../../helpers/mock-sonner";
 import "../../helpers/mock-navigation";
-
 import { mock } from "bun:test";
 
-// Mock framer-motion with proper React elements
-mock.module("framer-motion", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const React = require("react");
-  const handler = {
-    get(_target: unknown, prop: string) {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const MotionComponent = React.forwardRef(
-        (
-          {
-            children,
-            initial,
-            animate,
-            exit,
-            variants,
-            whileHover,
-            whileTap,
-            layoutId,
-            transition,
-            ...rest
-          }: Record<string, unknown>,
-          ref: React.Ref<HTMLElement>,
-        ) => {
-          return React.createElement(prop, { ...rest, ref }, children);
-        },
-      );
-      MotionComponent.displayName = `Motion${prop}`;
-      return MotionComponent;
-    },
-  };
-  const MockAnimatePresence = ({ children }: Record<string, unknown>) => children;
-  MockAnimatePresence.displayName = "AnimatePresence";
-  return {
-    motion: new Proxy({}, handler),
-    AnimatePresence: MockAnimatePresence,
-    useAnimation: () => ({ start: mock(() => {}), stop: mock(() => {}) }),
-    useInView: () => true,
-  };
-});
-
-// Mock db-ui-config (ConnectionItem uses it)
+// Mock db-ui-config: the icon per engine is a marker, not the SVG.
 mock.module("@/lib/db-ui-config", () => ({
   getDBIcon: () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -61,245 +20,121 @@ mock.module("@/lib/db-ui-config", () => ({
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { render, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
-
-import { ConnectionsList } from "@/components/sidebar/ConnectionsList";
+import { ConnectionsList, SEARCH_FROM, groupByEnvironment } from "@/components/sidebar/ConnectionsList";
 import { mockPostgresConnection, mockMySQLConnection } from "../../fixtures/connections";
+import type { DatabaseConnection } from "@/lib/types";
 
-// =============================================================================
-// ConnectionsList Tests
-// =============================================================================
+/**
+ * The grouped datasource list (docs/CONTEXT.md §4.1: every row is a managed datasource):
+ * environments in the admin page's order, one item per datasource with its engine icon and
+ * its badges, a search box once the list is long enough to need one, and the two empty states.
+ */
+const conn = (over: Partial<DatabaseConnection>): DatabaseConnection => ({
+  ...mockPostgresConnection,
+  managed: true,
+  ...over,
+});
+const prod = conn({ id: "seed:orders", seedId: "orders", name: "Orders", environment: "production", readOnly: true });
+const staging = conn({ id: "seed:orders-stg", seedId: "orders-stg", name: "Orders (staging)", environment: "staging" });
+const dev = conn({ id: "seed:dev", seedId: "dev", name: "Dev shared", environment: "development" });
+const bare = conn({ id: "seed:bare", seedId: "bare", name: "Unlabelled", environment: undefined });
+
+describe("groupByEnvironment", () => {
+  test("orders production first and files a missing environment under Other, keeping declaration order inside a group", () => {
+    const groups = groupByEnvironment([
+      bare,
+      dev,
+      staging,
+      prod,
+      conn({ id: "seed:dev2", seedId: "dev2", name: "Dev two", environment: "development" }),
+    ]);
+    expect(groups.map((g) => g.env)).toEqual(["production", "staging", "development", "other"]);
+    expect(groups.map((g) => g.label)).toEqual(["PROD", "STAGING", "DEV", "Other"]);
+    expect(groups[2].connections.map((c) => c.name)).toEqual(["Dev shared", "Dev two"]);
+    expect(groupByEnvironment([])).toEqual([]);
+  });
+});
 
 describe("ConnectionsList", () => {
-  test("passes duplicate requests to the connection editor", () => {
-    const onDuplicateConnection = mock(() => {});
-    const view = render(
-      <ConnectionsList
-        connections={[mockPostgresConnection]}
-        activeConnection={null}
-        onSelectConnection={mock(() => {})}
-        onDeleteConnection={mock(() => {})}
-        onAddConnection={mock(() => {})}
-        onDuplicateConnection={onDuplicateConnection}
-      />,
-    );
-    fireEvent.click(view.getByRole("button", { name: "Duplicate connection" }));
-    expect(onDuplicateConnection).toHaveBeenCalledWith(mockPostgresConnection);
-  });
-  const defaultOnSelect = mock(() => {});
-  const defaultOnDelete = mock(() => {});
-  const defaultOnEdit = mock(() => {});
-  const defaultOnAdd = mock(() => {});
-
-  afterEach(() => {
-    cleanup();
-  });
+  let onSelect: ReturnType<typeof mock>;
+  let onAdd: ReturnType<typeof mock>;
 
   beforeEach(() => {
-    defaultOnSelect.mockClear();
-    defaultOnDelete.mockClear();
-    defaultOnEdit.mockClear();
-    defaultOnAdd.mockClear();
+    onSelect = mock(() => {});
+    onAdd = mock(() => {});
+  });
+  afterEach(() => cleanup());
+
+  test("renders one group per environment, in order, with the engine icon and badges per datasource", () => {
+    const { getByTestId, getAllByTestId, container } = render(
+      <ConnectionsList connections={[dev, prod, staging]} activeConnection={prod} onSelectConnection={onSelect} />,
+    );
+    const headings = Array.from(container.querySelectorAll("[cmdk-group-heading]")).map((h) => h.textContent);
+    expect(headings).toEqual(["PROD", "STAGING", "DEV"]);
+    expect(getByTestId("connections-group-production").textContent).toContain("Orders");
+    expect(getAllByTestId("db-icon")).toHaveLength(3);
+    expect(getByTestId("read-only-orders")).not.toBeNull();
+    expect(getByTestId("managed-lock-orders")).not.toBeNull();
+    expect(getByTestId("connection-orders").getAttribute("data-active")).toBe("true");
+    expect(getByTestId("connection-dev").getAttribute("data-active")).toBe("false");
+    // Below the threshold there is nothing to search.
+    expect(container.querySelector("[cmdk-input]")).toBeNull();
   });
 
-  test('renders "Connections" header', () => {
-    const { queryByText } = render(
+  test("selecting an item hands the connection over", () => {
+    const { getByTestId } = render(
+      <ConnectionsList connections={[prod, dev]} activeConnection={null} onSelectConnection={onSelect} />,
+    );
+    fireEvent.click(getByTestId("connection-dev"));
+    expect(onSelect).toHaveBeenCalledWith(dev);
+  });
+
+  test("a long list gets a search box that narrows the groups", () => {
+    const many = Array.from({ length: SEARCH_FROM }, (_, i) =>
+      conn({
+        id: `seed:c${i}`,
+        seedId: `c${i}`,
+        name: i === 0 ? "Billing" : `Store ${i}`,
+        environment: i % 2 ? "staging" : "development",
+      }),
+    );
+    const { container, queryByTestId } = render(
+      <ConnectionsList connections={many} activeConnection={null} onSelectConnection={onSelect} autoFocus />,
+    );
+    const input = container.querySelector("[cmdk-input]") as HTMLInputElement;
+    expect(input).not.toBeNull();
+    fireEvent.change(input, { target: { value: "billing" } });
+    expect(queryByTestId("connection-c0")).not.toBeNull();
+    expect(queryByTestId("connection-c1")).toBeNull();
+    fireEvent.change(input, { target: { value: "nothing-like-this" } });
+    expect(container.querySelector("[cmdk-empty]")?.textContent).toContain("No datasource matches");
+  });
+
+  test("with nothing to list, an administrator is offered the datasource page and anyone else a hint", () => {
+    const admin = render(
       <ConnectionsList
         connections={[]}
         activeConnection={null}
-        onSelectConnection={defaultOnSelect}
-        onDeleteConnection={defaultOnDelete}
-        onAddConnection={defaultOnAdd}
+        onSelectConnection={onSelect}
+        onAddConnection={onAdd}
       />,
     );
-
-    expect(queryByText("Connections")).not.toBeNull();
+    fireEvent.click(admin.getByText("New datasource"));
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    admin.unmount();
+    const user = render(<ConnectionsList connections={[]} activeConnection={null} onSelectConnection={onSelect} />);
+    expect(user.getByTestId("connections-empty").textContent).toContain("Ask an administrator");
   });
 
-  test("shows empty state when no connections", () => {
-    const { queryByText } = render(
-      <ConnectionsList
-        connections={[]}
-        activeConnection={null}
-        onSelectConnection={defaultOnSelect}
-        onDeleteConnection={defaultOnDelete}
-        onAddConnection={defaultOnAdd}
-      />,
-    );
-
-    expect(queryByText("No datasources declared yet.")).not.toBeNull();
-    // Empty state has a "New datasource" button
-    expect(queryByText("New datasource")).not.toBeNull();
-  });
-
-  // docs/CONTEXT.md §4.1: without `onAddConnection` the empty state cannot offer a button, so
-  // it has to say who can fix the situation instead of showing a dead end.
-  test("empty state without onAddConnection points at an administrator", () => {
-    const { queryByText } = render(
-      <ConnectionsList
-        connections={[]}
-        activeConnection={null}
-        onSelectConnection={defaultOnSelect}
-        onDeleteConnection={defaultOnDelete}
-      />,
-    );
-
-    expect(queryByText("New datasource")).toBeNull();
-    expect(queryByText(/Ask an administrator/)).not.toBeNull();
-  });
-
-  test("renders ConnectionItem for each connection", () => {
-    const connections = [mockPostgresConnection, mockMySQLConnection];
-
-    const { queryByText } = render(
-      <ConnectionsList
-        connections={connections}
-        activeConnection={null}
-        onSelectConnection={defaultOnSelect}
-        onDeleteConnection={defaultOnDelete}
-        onEditConnection={defaultOnEdit}
-        onAddConnection={defaultOnAdd}
-      />,
-    );
-
-    // Each connection name should be rendered
-    expect(queryByText("Test PostgreSQL")).not.toBeNull();
-    expect(queryByText("Test MySQL")).not.toBeNull();
-  });
-
-  test("isActive prop passed correctly based on activeConnection", () => {
-    const connections = [mockPostgresConnection, mockMySQLConnection];
-
-    const { container } = render(
-      <ConnectionsList
-        connections={connections}
-        activeConnection={mockPostgresConnection}
-        onSelectConnection={defaultOnSelect}
-        onDeleteConnection={defaultOnDelete}
-        onEditConnection={defaultOnEdit}
-        onAddConnection={defaultOnAdd}
-      />,
-    );
-
-    // The active connection (PostgreSQL) should have active styling
-    const items = container.querySelectorAll('[class*="cursor-pointer"]');
-    const pgItem = Array.from(items).find((el) => el.textContent?.includes("Test PostgreSQL"));
-    const mysqlItem = Array.from(items).find((el) => el.textContent?.includes("Test MySQL"));
-
-    // Active item should have bg-brand-solid/10 class
-    expect(pgItem?.className.includes("bg-brand-solid/10")).toBe(true);
-    // Inactive item should not
-    expect(mysqlItem?.className.includes("bg-brand-solid/10")).toBeFalsy();
-  });
-
-  test("onAddConnection fires from empty state button", () => {
+  test("a mixed list still renders the older fixtures", () => {
     const { getByText } = render(
-      <ConnectionsList
-        connections={[]}
-        activeConnection={null}
-        onSelectConnection={defaultOnSelect}
-        onDeleteConnection={defaultOnDelete}
-        onAddConnection={defaultOnAdd}
-      />,
-    );
-
-    const addButton = getByText("New datasource");
-    fireEvent.click(addButton);
-
-    expect(defaultOnAdd).toHaveBeenCalledTimes(1);
-  });
-
-  test("clicking a connection calls onSelectConnection with that connection", () => {
-    const { container } = render(
       <ConnectionsList
         connections={[mockPostgresConnection, mockMySQLConnection]}
         activeConnection={null}
-        onSelectConnection={defaultOnSelect}
-        onDeleteConnection={defaultOnDelete}
-        onEditConnection={defaultOnEdit}
-        onAddConnection={defaultOnAdd}
+        onSelectConnection={onSelect}
       />,
     );
-
-    const items = container.querySelectorAll('[class*="cursor-pointer"]');
-    const mysqlItem = Array.from(items).find((el) => el.textContent?.includes("Test MySQL"));
-    fireEvent.click(mysqlItem!);
-
-    expect(defaultOnSelect).toHaveBeenCalledTimes(1);
-    expect(defaultOnSelect).toHaveBeenCalledWith(mockMySQLConnection);
-  });
-
-  test("delete button click calls onDeleteConnection with the connection id", () => {
-    const { container } = render(
-      <ConnectionsList
-        connections={[mockPostgresConnection]}
-        activeConnection={null}
-        onSelectConnection={defaultOnSelect}
-        onDeleteConnection={defaultOnDelete}
-        onEditConnection={defaultOnEdit}
-        onAddConnection={defaultOnAdd}
-      />,
-    );
-
-    // First button is edit (Pencil), second is delete (Trash2)
-    const buttons = container.querySelectorAll("button");
-    fireEvent.click(buttons[1]!);
-
-    expect(defaultOnDelete).toHaveBeenCalledTimes(1);
-    expect(defaultOnDelete).toHaveBeenCalledWith(mockPostgresConnection.id);
-    // stopPropagation: the item itself must not be selected
-    expect(defaultOnSelect).not.toHaveBeenCalled();
-  });
-
-  test("edit button click calls onEditConnection with the connection", () => {
-    const { container } = render(
-      <ConnectionsList
-        connections={[mockPostgresConnection]}
-        activeConnection={null}
-        onSelectConnection={defaultOnSelect}
-        onDeleteConnection={defaultOnDelete}
-        onEditConnection={defaultOnEdit}
-        onAddConnection={defaultOnAdd}
-      />,
-    );
-
-    // First button is edit (Pencil), second is delete (Trash2)
-    const buttons = container.querySelectorAll("button");
-    fireEvent.click(buttons[0]!);
-
-    expect(defaultOnEdit).toHaveBeenCalledTimes(1);
-    expect(defaultOnEdit).toHaveBeenCalledWith(mockPostgresConnection);
-    expect(defaultOnSelect).not.toHaveBeenCalled();
-  });
-
-  test("omitting onEditConnection renders no edit button", () => {
-    const { container } = render(
-      <ConnectionsList
-        connections={[mockPostgresConnection]}
-        activeConnection={null}
-        onSelectConnection={defaultOnSelect}
-        onDeleteConnection={defaultOnDelete}
-        onAddConnection={defaultOnAdd}
-      />,
-    );
-
-    // Only the delete button remains when onEdit is not passed down
-    const buttons = container.querySelectorAll("button");
-    expect(buttons.length).toBe(1);
-    fireEvent.click(buttons[0]!);
-    expect(defaultOnDelete).toHaveBeenCalledTimes(1);
-  });
-
-  test("does not show empty state when connections exist", () => {
-    const { queryByText } = render(
-      <ConnectionsList
-        connections={[mockPostgresConnection]}
-        activeConnection={null}
-        onSelectConnection={defaultOnSelect}
-        onDeleteConnection={defaultOnDelete}
-        onAddConnection={defaultOnAdd}
-      />,
-    );
-
-    expect(queryByText("No database connections established yet.")).toBeNull();
+    expect(getByText("Test PostgreSQL")).not.toBeNull();
+    expect(getByText("Test MySQL")).not.toBeNull();
   });
 });

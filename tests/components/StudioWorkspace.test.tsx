@@ -888,8 +888,6 @@ describe("StudioWorkspace", () => {
     renderWorkspace();
     expect(capturedSidebarProps.onSelectConnection).toBe(mockSetActiveConnection);
     // noop callbacks do not throw
-    act(() => (capturedSidebarProps.onDeleteConnection as () => void)());
-    act(() => (capturedSidebarProps.onEditConnection as () => void)());
     act(() => (capturedSidebarProps.onAddConnection as () => void)());
   });
 

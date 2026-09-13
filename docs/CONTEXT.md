@@ -264,7 +264,11 @@ gives a long form its full height, and does not fight the page for the centre. T
 save-query prompt and the masking-rule dialog stay centred: they are one-field prompts,
 not configuration. Requested 2026-09-13. The engine picker in that editor is a dropdown
 (icon + name per option, disabled in edit mode) rather than the seventeen cards it was:
-in a half-width sheet the cards pushed the form itself below the fold.
+in a half-width sheet the cards pushed the form itself below the fold. In the studio the
+sidebar's flat connection list became one **datasource row** (`ConnectionPicker`) whose
+popover lists datasources grouped by environment, production first, searchable from six
+entries (`ConnectionsList`, also the mobile tab's inline list): with every datasource shared
+and declared server-side, a list was taking the space the object tree needs.
 
 ## 5. Decisions already taken
 
