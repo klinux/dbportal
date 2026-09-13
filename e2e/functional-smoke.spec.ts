@@ -97,7 +97,7 @@ test.describe("Functional smoke: connect to PostgreSQL and run a query", () => {
     await expect(page.locator("text=Query 1").first()).toBeVisible({ timeout: 15_000 });
 
     // Open the connection modal (last button in the sidebar header row).
-    const sidebarButtons = page.locator("text=LibreDB Studio").locator("..").locator("..").locator("button");
+    const sidebarButtons = page.locator("text=dbportal").locator("..").locator("..").locator("button");
     await sidebarButtons.last().click();
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 5000 });

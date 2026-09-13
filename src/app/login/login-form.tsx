@@ -9,18 +9,27 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ExternalLink, KeyRound, Lock, Mail, ShieldCheck, Shield } from "lucide-react";
 import { toast } from "sonner";
-import LibreDBLogo from "@/components/libredb-logo";
-import { CommunitySection } from "@/components/community-section";
-import { ConnectionSignature } from "@/components/login/connection-signature";
-import { DatabaseShowcase } from "@/components/login/database-showcase";
-import { HeroProof, HERO_CLAIMS } from "@/components/login/hero-proof";
-import { WireCompatibleLine } from "@/components/login/wire-compatible-line";
+import { BrandMark, Wordmark } from "@/components/brand-mark";
 
 /**
- * The agent half of the mobile summary. Pulled from `HERO_CLAIMS` rather than retyped, so
- * the mobile line states exactly what the desktop figure states about the two modes.
+ * What the sign-in page says the product is. Three statements, each one true of the
+ * deployment today (docs/CONTEXT.md §2): the page is unauthenticated, so it claims nothing a
+ * visitor could not verify once inside.
  */
-const agentClaimDetail = HERO_CLAIMS.find((claim) => claim.key === "agent")?.detail ?? "";
+const PRODUCT_POINTS = [
+  {
+    title: "Datasources configured once",
+    detail: "An administrator declares each database and injects its credentials. Nobody types a password.",
+  },
+  {
+    title: "Access granted per datasource",
+    detail: "Each datasource names the roles that may open it; the server decides, not the browser.",
+  },
+  {
+    title: "One sign-in",
+    detail: "Local accounts or your organisation's identity provider over OpenID Connect.",
+  },
+] as const;
 
 function LoginFormInner({ authProvider }: { authProvider: string }) {
   const isOIDC = authProvider === "oidc";
@@ -133,75 +142,39 @@ function LoginFormInner({ authProvider }: { authProvider: string }) {
 
         {/* Content */}
         <div className="relative z-10 flex flex-col p-12 w-full overflow-y-auto">
-          {/* Top: Logo */}
-          <a
-            href="https://libredb.org"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-3 group w-fit"
-          >
-            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-fill-strong border border-hairline-strong group-hover:bg-fill-strong group-hover:border-hairline-strong transition-all duration-200">
-              <LibreDBLogo className="h-9 w-9 text-brand" />
-            </div>
-            <span className="text-xl font-semibold text-white tracking-tight group-hover:text-brand transition-colors duration-200">
-              LibreDB Studio
-            </span>
-          </a>
+          {/* Top: lockup. Not a link: there is no marketing site behind this product. */}
+          <div className="flex items-center gap-4 w-fit" data-testid="login-lockup">
+            <BrandMark className="h-12 w-12 text-white" />
+            <Wordmark className="text-3xl text-white" />
+          </div>
 
           {/*
-            Thesis, then evidence, then the proof numbers - three tiers of weight instead of
-            six blocks competing at one weight.
-
-            A single `mt-auto` here, and none below: with `mt-auto` on both the middle and
-            the bottom group the column split its free space in two, and once the content
-            grew past the viewport the two groups closed up against each other and the panel
-            simply overflowed the page (measured at 1294px tall in a 900px viewport, which
-            pushed the sign-in card itself below the fold). The content now ends with the
-            community row, so one auto margin above it is the whole layout.
+            Thesis, then the three points - two tiers of weight. A single `mt-auto` here and
+            none below, for the reason the previous hero learned the hard way: two auto
+            margins split the column's free space and let the content overflow the page.
           */}
-          <div className="space-y-6 mt-auto">
-            <div className="space-y-4 max-w-xl">
+          <div className="space-y-8 mt-auto max-w-xl">
+            <div className="space-y-4">
               <h1 className="text-4xl font-bold text-white tracking-tight leading-none">
-                The open-source SQL IDE that
-                <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-                  {" "}
-                  deploys next to your data
-                </span>
+                Shared access to the databases you already run.
               </h1>
-              {/*
-                No longer "deploy with Docker in seconds": Docker is one of two dozen live
-                channels (distribution/channels.yaml), and half of the rest are installers,
-                so the old line was both an undercount and a contradiction of the deb, rpm,
-                Snap, winget, Homebrew and AppImage packages this project ships.
-              */}
               <p className="text-base text-fg-tertiary leading-relaxed">
-                Point it at a database you already run. Query, explore and manage every one of them from a single
-                workspace.
+                One portal, deployed next to your data. Every person signs in as themselves and reaches only the
+                datasources an administrator shared with them.
               </p>
             </div>
 
-            <ConnectionSignature />
-
-            {/*
-              The pills and the relatives line are ONE block with an 8px gap, not two
-              siblings in the 32px rhythm above. Two reasons, and the second is a measurement:
-              the line is the second half of the engine list rather than a fourth claim, so it
-              belongs to the pills; and this column had no room to give. At 1280x800 the hero
-              measured exactly 800px before this change - zero slack - so every pixel added
-              here scrolls the page. Folding the two into one block buys back most of the 32
-              the standalone gap would have cost; issue #541 tightened the fold itself from
-              12px to 8px to close the overflow the relatives line later reopened.
-            */}
-            <div className="space-y-2">
-              <DatabaseShowcase variant="desktop" />
-              <WireCompatibleLine variant="desktop" />
-            </div>
-
-            <HeroProof />
-          </div>
-
-          <div className="mt-8">
-            <CommunitySection variant="desktop" />
+            <ul className="space-y-4" data-testid="product-points">
+              {PRODUCT_POINTS.map((point) => (
+                <li key={point.title} className="flex gap-3">
+                  <span aria-hidden="true" className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-medium text-white">{point.title}</p>
+                    <p className="text-sm text-fg-tertiary leading-relaxed">{point.detail}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </div>
@@ -210,26 +183,15 @@ function LoginFormInner({ authProvider }: { authProvider: string }) {
       <div className="flex w-full lg:w-1/2 xl:w-[45%] items-center justify-center p-4 sm:p-6 lg:p-8">
         <div className="w-full max-w-md space-y-8">
           {/* Mobile branding (visible only on mobile) */}
-          <a
-            href="https://libredb.org"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="LibreDB Studio website"
-            className="flex flex-col items-center gap-4 lg:hidden group"
-          >
-            <div className="relative">
-              <div className="absolute -inset-2 rounded-full bg-brand-tint/20 blur-lg" />
-              <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-raised border border-hairline-strong shadow-lg shadow-blue-500/10 group-hover:border-brand-tint/20 transition-all duration-200">
-                <LibreDBLogo className="h-12 w-12 text-brand" />
-              </div>
+          <div className="flex flex-col items-center gap-4 lg:hidden">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-raised border border-hairline-strong">
+              <BrandMark className="h-10 w-10 text-foreground" />
             </div>
             <div className="text-center space-y-1">
-              <h2 className="text-2xl font-bold tracking-tight group-hover:text-brand transition-colors duration-200">
-                LibreDB Studio
-              </h2>
-              <p className="text-sm text-muted-foreground">Open-source SQL IDE for cloud-native teams</p>
+              <Wordmark className="block text-2xl text-foreground" />
+              <p className="text-sm text-muted-foreground">Shared database portal</p>
             </div>
-          </a>
+          </div>
 
           <Card className="border-muted-foreground/10 shadow-2xl transition-all duration-300 hover:shadow-primary/5">
             {/* Desktop header inside card */}
@@ -239,7 +201,7 @@ function LoginFormInner({ authProvider }: { authProvider: string }) {
                 <span className="lg:hidden">Sign in</span>
               </CardTitle>
               <CardDescription className="text-muted-foreground">
-                <span className="hidden lg:inline">Sign in to your LibreDB Studio account</span>
+                <span className="hidden lg:inline">Sign in to dbportal</span>
                 <span className="lg:hidden">Enter your credentials to continue</span>
               </CardDescription>
             </CardHeader>
@@ -382,35 +344,13 @@ function LoginFormInner({ authProvider }: { authProvider: string }) {
 
             <CardFooter className="pt-0 pb-6 flex flex-col items-center gap-2">
               <p className="text-xs text-muted-foreground font-medium text-center max-w-[240px]">
-                Enterprise-grade security powered by LibreDB Studio Engine
+                Access is granted per datasource by your administrator.
               </p>
               <span className="text-[10px] text-muted-foreground/60 font-mono">
                 v{process.env.NEXT_PUBLIC_APP_VERSION}
               </span>
             </CardFooter>
           </Card>
-
-          {/*
-            Mobile showcase: the same three derived sources as the hero, condensed. The
-            deploy block collapses to one line and the agent claim to its own paragraph -
-            these tokens follow the viewer's theme, unlike the pinned-dark hero above.
-          */}
-          <div className="lg:hidden space-y-4">
-            <DatabaseShowcase variant="mobile" />
-            <WireCompatibleLine variant="mobile" />
-            {/*
-              The same three claims the desktop hero makes, joined into one line rather than
-              re-worded for mobile: `HERO_CLAIMS` is the single source, so a change to the
-              agent copy cannot land on one surface and miss the other.
-            */}
-            <p
-              data-testid="agent-claim"
-              className="text-[10px] text-center text-muted-foreground leading-relaxed select-none"
-            >
-              {HERO_CLAIMS.map((claim) => `${claim.value} ${claim.unit}`).join(" · ")} — {agentClaimDetail}
-            </p>
-            <CommunitySection variant="mobile" />
-          </div>
         </div>
       </div>
     </div>

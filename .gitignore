@@ -201,4 +201,4 @@ data-e2e-base-path/
 reviews/
 
 # Superpowers brainstorming companion (local session artifacts)
-.superpowers/
+.superpowers/config/

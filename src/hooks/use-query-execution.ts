@@ -17,7 +17,6 @@ import { logger } from "@/lib/logger";
 import { newLocalId } from "@/lib/ids";
 import { getExplainStrategy, type ExplainStrategy } from "@/lib/explain";
 import type { ExplainFormat } from "@/lib/db/types";
-import { maybeInviteToStar } from "@/lib/community/star-prompt-toast";
 import { buildConnectionPayload } from "./use-connection-payload";
 
 export interface QueryExecutionOptions {
@@ -611,16 +610,6 @@ export function useQueryExecution({
             // that re-reads the inventory has to say so here too.
             onObjectsChanged?.();
           }
-        }
-
-        // A genuine success - not an error, not a cancellation, not a pagination
-        // fetch or a background EXPLAIN - may earn the one-shot star invitation
-        // (once per browser, ever). LAST in the try block on purpose: the result
-        // is already in the tab and the playground rollback has already run, so
-        // nothing downstream depends on this line. `maybeInviteToStar` cannot
-        // throw either, which keeps the catch below about queries only.
-        if (!isExplain && !isLoadMore && !resultData.hasError) {
-          maybeInviteToStar();
         }
       } catch (error) {
         // Playground mode: rollback on error too

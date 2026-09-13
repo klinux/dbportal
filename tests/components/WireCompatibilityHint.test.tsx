@@ -34,7 +34,6 @@ mock.module("@/lib/db/compatibility", () => ({
   WIRE_COMPATIBLE_ENGINES: MOCK,
   compatibleEnginesFor: (type: string) => MOCK.filter((e) => e.via === type),
   EXTERNAL_DATABASE_TYPES: ["postgres", "mysql"],
-  isExternalDatabaseType: () => true,
   connectableProductCount: () => 13,
 }));
 

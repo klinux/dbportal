@@ -133,10 +133,10 @@ describe("AGENT_EXECUTION_ENGINES", () => {
 
 /**
  * The engine list is now THREE names long, and "A and B and C" is what a two-name join
- * produces when a third engine arrives. Both surfaces that print it - the login hero
- * (`src/components/login/hero-proof.tsx`) and the agent posture popover
- * (`src/lib/agent/posture.ts`) - carried their own copy of that join, so the next engine
- * would have reopened it in two places. One helper, tested here, is what closes it.
+ * produces when a third engine arrives. The surfaces that printed it - the agent posture
+ * popover (`src/lib/agent/posture.ts`) and, before the rebrand, the login hero - carried
+ * their own copy of that join, so the next engine would have reopened it in more than one
+ * place. One helper, tested here, is what closes it.
  */
 describe("namedList", () => {
   test("one name is itself and two are joined with 'and'", () => {

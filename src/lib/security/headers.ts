@@ -216,8 +216,7 @@ export function securityHeaders(options: SecurityHeaderOptions = {}): Record<str
     // a popup and then scripts it, and nothing here does. The OIDC flow is a top-level redirect in
     // both directions (src/app/login/login-form.tsx sets `window.location.href =
     // "/api/auth/oidc/login"`; src/hooks/use-auth.ts assigns the logout redirectUrl the same way),
-    // and the one window.open in the repository — src/lib/community/star-prompt-toast.ts — already
-    // passes "noopener,noreferrer", so it has no opener relationship left for COOP to sever.
+    // and nothing in src calls window.open, so there is no opener relationship for COOP to sever.
     //
     // Document-only, which is why it is set HERE (per request, applied by src/proxy.ts) and is
     // named in next.config.ts's DOCUMENT_ONLY_HEADER_NAMES so it can never join the build-time

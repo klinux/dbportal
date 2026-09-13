@@ -41,7 +41,7 @@ describe("printStartupBanner", () => {
     expect(output).toContain("LibreDB Studio 1.2.3");
     expect(output).toContain("http://localhost:3000");
     expect(output).toContain("Star the project if it helps you");
-    expect(output).toContain("https://github.com/libredb/libredb-studio");
+    expect(output).toContain("https://github.com/klinux/dbportal");
   });
 
   test("reflects a custom PORT", () => {
@@ -65,7 +65,7 @@ describe("printStartupBanner", () => {
 
     expect(output).toContain("LibreDB Studio");
     expect(output).not.toContain("undefined");
-    expect(output).toContain("https://github.com/libredb/libredb-studio");
+    expect(output).toContain("https://github.com/klinux/dbportal");
   });
 
   test("prints nothing when LIBREDB_NO_BANNER=1", () => {

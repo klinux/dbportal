@@ -109,10 +109,20 @@ Design notes for these live in [DESIGN.md](DESIGN.md) §"State Management" and
   is a wire-protocol proxy beside dbportal, not inside it.
 - **UI and API will be separated** eventually (the Next.js monolith with API routes is the
   weakest structural point), but not before 4.1 and 4.2 ship.
-- **Rebrand is a separate, deliberate pass.** ~2,600 `libredb`/`LibreDB` occurrences
-  remain. Many are functional: storage keys (`libredb_*` collections, `libredb-storage.db`),
-  env var names, the `libredb` engine type and its `@libredb/libredb` dependency, the chart
-  name `charts/libredb-studio`. Do not mass-replace. Rename in layers, with tests.
+- **Rebrand is a separate, deliberate pass, in layers.** Many occurrences are functional:
+  storage keys (`libredb_*` collections, `libredb-storage.db`), env var names, the `libredb`
+  engine type and its `@libredb/libredb` dependency, the audit line schema
+  `libredb.audit.v1`, the chart name `charts/libredb-studio`. Do not mass-replace.
+  - *Layer 1 — what the browser shows* (done): login page rebuilt around the dbportal
+    lockup and three product statements (`src/components/brand-mark.tsx`); the upstream
+    marketing hero (engine showcase, install-channel counts, connection-string ticker,
+    social row) and the "star us on GitHub" prompt were removed rather than reworded, since
+    none of them describes this product. Sidebar lockup, repository link, error page.
+  - *Layer 2 — operator-facing strings*: startup banner, bootstrap/preflight console
+    messages, README, `.env.example` comments, `docs/`.
+  - *Layer 3 — with migration*: `LIBREDB_*` env vars (accept both names for a release),
+    storage keys (migrate on read), chart name, `libredb.audit.v1` schema id.
+  - *Never*: the `libredb` engine type and the `@libredb/libredb` package.
 - **Out of scope:** desktop apps, marketplace listings, npm library packaging, extending the
   AI agent.
 - **No organisation names in this repository.** It is public and personal until adopted.

@@ -199,8 +199,7 @@ const isStartRefusalCode = (value: unknown): value is AgentStartRefusalCode => v
  * Where this browser remembers which conversation it was in.
  *
  * localStorage only, and per browser rather than per user: it is a resumption hint, not
- * user data, so it must never reach the storage layer or a server — the rule
- * `lib/community/star-prompt.ts` states for the same reason. Every access is wrapped, and
+ * user data, so it must never reach the storage layer or a server. Every access is wrapped, and
  * every failure degrades to "nothing was interrupted", which is the behaviour before this
  * existed: a rail that cannot say a conversation ended is strictly better than one that
  * cannot open a run (#518).

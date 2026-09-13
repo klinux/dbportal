@@ -2,8 +2,6 @@ import "../setup-dom";
 import React from "react";
 import { mock } from "bun:test";
 import { setMockSearchParams, resetMockSearchParams } from "../helpers/mock-navigation";
-import { listShowcaseDatabases } from "@/lib/db-showcase";
-import { LIVE_CHANNELS } from "@/lib/distribution/channels.generated";
 
 // next/navigation is mocked via the preloaded shared helper; search params
 // are driven through setMockSearchParams instead of a local mock.module call.
@@ -37,10 +35,10 @@ describe("LoginPage (OIDC mode)", () => {
     expect(queryByText("User")).toBeNull();
   });
 
-  test("renders LibreDB Studio title", () => {
-    // The title appears twice: desktop hero and mobile header.
+  test("renders the dbportal wordmark", () => {
+    // The wordmark appears twice: desktop hero and mobile header.
     const { getAllByText } = render(<LoginForm authProvider="oidc" />);
-    expect(getAllByText("LibreDB Studio").length).toBeGreaterThan(0);
+    expect(getAllByText("dbportal").length).toBeGreaterThan(0);
   });
 
   test("shows error message when error param is present", () => {
@@ -78,26 +76,13 @@ describe("LoginPage (OIDC mode)", () => {
     }
   });
 
-  test("renders the same derived showcase as the local login", () => {
-    // The hero is outside the auth branch, so the SSO deployment must advertise the same
-    // engines and the same channel count. Asserted here as well because the two forms have
-    // drifted before - the OIDC branch is the one nobody opens while editing copy.
-    const { container } = render(<LoginForm authProvider="oidc" />);
-    for (const db of listShowcaseDatabases()) {
-      expect(container.textContent).toContain(db.label);
-    }
-    expect(container.textContent).toContain(`${LIVE_CHANNELS.length} install channels`);
-    expect(container.textContent).not.toContain("7+");
-  });
-
-  test("states both agent modes on the SSO surface too", () => {
-    const { getAllByTestId } = render(<LoginForm authProvider="oidc" />);
-    const claims = getAllByTestId("agent-claim");
-    expect(claims.length).toBeGreaterThanOrEqual(2);
-    for (const claim of claims) {
-      expect(claim.textContent).toMatch(/plan mode/i);
-      expect(claim.textContent).toMatch(/agent mode/i);
-    }
+  // The hero is outside the auth branch, so the SSO deployment must show the same product
+  // statement as the local login - the two forms have drifted before, and the OIDC branch
+  // is the one nobody opens while editing copy.
+  test("renders the same product points as the local login", () => {
+    const { container, getByTestId } = render(<LoginForm authProvider="oidc" />);
+    expect(getByTestId("product-points").querySelectorAll("li").length).toBe(3);
+    expect(container.querySelectorAll("a").length).toBe(0);
   });
 
   test("makes no bare encryption claim under the SSO button", () => {

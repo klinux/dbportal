@@ -24,7 +24,7 @@ test.describe("Wire compatibility hint", () => {
     await page.waitForURL("/");
     await expect(page.locator("text=Query 1").first()).toBeVisible({ timeout: 10000 });
 
-    const sidebarButtons = page.locator("text=LibreDB Studio").locator("..").locator("..").locator("button");
+    const sidebarButtons = page.locator("text=dbportal").locator("..").locator("..").locator("button");
     await sidebarButtons.last().click();
     await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 5000 });
   });

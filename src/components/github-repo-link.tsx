@@ -1,7 +1,6 @@
 "use client";
 
 import { REPO_URL } from "@/lib/community/repo";
-import { dismissStarPrompt } from "@/lib/community/star-prompt";
 import { cn } from "@/lib/utils";
 
 interface GitHubRepoLinkProps {
@@ -32,11 +31,6 @@ interface GitHubRepoLinkProps {
  * its real 14px in both chrome surfaces, the octocat silhouette still reads, and
  * dimming it back to hairline weight would quietly demote the one permanent link
  * to the repository. The official mark is filled by definition.
- *
- * Following it also marks the one-shot star prompt handled - someone who has
- * already been to the repository should not be asked again by the tenth-query
- * toast. `dismissStarPrompt` is SSR-safe and swallows every storage failure, so
- * this handler cannot throw or block the navigation.
  */
 export function GitHubRepoLink({ className }: GitHubRepoLinkProps) {
   return (
@@ -44,9 +38,8 @@ export function GitHubRepoLink({ className }: GitHubRepoLinkProps) {
       href={REPO_URL}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label="LibreDB Studio on GitHub"
-      title="LibreDB Studio on GitHub"
-      onClick={() => dismissStarPrompt()}
+      aria-label="dbportal on GitHub"
+      title="dbportal on GitHub"
       className={cn("inline-flex items-center justify-center transition-colors", className)}
     >
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="w-3.5 h-3.5">

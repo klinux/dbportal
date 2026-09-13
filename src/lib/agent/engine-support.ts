@@ -31,9 +31,9 @@ export const AGENT_EXECUTION_ENGINES: readonly DatabaseType[] = ["postgres", "sq
 /**
  * Names, joined the way a sentence joins them: `a`, `a and b`, `a, b and c`.
  *
- * It lives here because the list this module publishes is what both callers print - the
- * login hero (`src/components/login/hero-proof.tsx`) and the agent posture popover
- * (`src/lib/agent/posture.ts`) - and each of them had written `join(" and ")`. That was
+ * It lives here because the list this module publishes is what its callers print - today
+ * the agent posture popover (`src/lib/agent/posture.ts`), and until the rebrand the login
+ * hero as well - and each of them had written `join(" and ")`. That was
  * indistinguishable from correct while the array held two engines and became
  * "PostgreSQL and SQLite and DuckDB" on the login page the moment it held three. Shared
  * rather than fixed twice, so the FOURTH engine cannot reopen it.

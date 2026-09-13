@@ -2532,12 +2532,10 @@ export function AgentRail({
           one that says something the strip does not, because it is about a mode the user
           has selected and the engine cannot execute.
 
-          The alternative considered was to give this line the login hero's claim
-          (`hero-proof.tsx`), which IS different information. It was not taken: that claim
-          describes both modes at once, for a visitor who has selected neither, and here
-          one is selected — and reusing it would mean exporting the hero's private
-          `AGENT_MODES` out of a module that also pulls in the distribution and showcase
-          catalogs, for a sentence about the mode the user did not pick.
+          The alternative considered was to give this line the two-mode claim the upstream
+          login hero used to make, which IS different information. It was not taken: that
+          claim describes both modes at once, for a visitor who has selected neither, and
+          here one is selected.
         */}
 
         {/*

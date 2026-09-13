@@ -127,11 +127,6 @@ export const EXTERNAL_DATABASE_TYPES: readonly DatabaseType[] = Object.freeze(
   SHIPPED_DATABASE_TYPES.filter((type) => EXTERNAL[type]),
 );
 
-/** True for every shipped id except the embedded store. */
-export function isExternalDatabaseType(type: DatabaseType): boolean {
-  return EXTERNAL[type] === true;
-}
-
 /**
  * How much of the product works against a wire-compatible engine.
  *

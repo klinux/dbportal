@@ -235,9 +235,8 @@ run_group "Group 11/12: Smoke tests" \
   tests/components/Page.test.tsx \
   tests/components/LoginPage.test.tsx \
   tests/components/LoginPageOIDC.test.tsx \
-  tests/components/CommunitySection.test.tsx \
-  tests/components/ConnectionSignature.test.tsx \
   tests/components/GitHubRepoLink.test.tsx \
+  tests/components/icons/db-icons.test.tsx \
   tests/components/MonitoringPage.test.tsx \
   tests/components/monitoring/PanelUnavailable.test.tsx \
   tests/components/monitoring/MetricChart.test.tsx
