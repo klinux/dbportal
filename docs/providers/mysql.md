@@ -682,7 +682,7 @@ tests/evals`, and nothing under `tests/live/` is collected, the same arrangement
 permanently in #789's live acceptance run:
 
 ```bash
-LIBREDB_LIVE_MYSQL_URLS="mysql://root:root@127.0.0.1:3306/app,mysql://root:root@127.0.0.1:3307/app" \
+DBPORTAL_LIVE_MYSQL_URLS="mysql://root:root@127.0.0.1:3306/app,mysql://root:root@127.0.0.1:3307/app" \
   bun tests/live/mysql-object-vocabulary.ts
 ```
 
@@ -1456,7 +1456,7 @@ With both up, run the catalog-vocabulary guard against them
 `TABLE_TYPE` this provider silently drops:
 
 ```bash
-LIBREDB_LIVE_MYSQL_URLS="mysql://root:root@127.0.0.1:3306/app,mysql://root:root@127.0.0.1:3307/app" \
+DBPORTAL_LIVE_MYSQL_URLS="mysql://root:root@127.0.0.1:3306/app,mysql://root:root@127.0.0.1:3307/app" \
   bun tests/live/mysql-object-vocabulary.ts
 ```
 

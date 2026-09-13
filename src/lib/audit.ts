@@ -234,7 +234,7 @@ export function getServerAuditBuffer(): AuditRingBuffer {
   return _serverBuffer;
 }
 
-const AUDIT_SCHEMA = "libredb.audit.v1";
+const AUDIT_SCHEMA = "dbportal.audit.v1";
 /**
  * RFC 5321's maximum address length: enough for any real account, bounded against a 10 KB one.
  * One rule for every free-text field, wherever it is stored — the ring buffer or the stdout line —
@@ -391,7 +391,7 @@ function coerceToString(value: unknown): string {
  * neither a string nor `duration`'s own number is coerced to a bounded string through the same
  * sanitizer a real string would have gone through, rather than passed on verbatim: an object
  * reaching either destination as-is would be unbounded and would break the fixed-shape
- * `libredb.audit.v1` contract `toAuditLine` promises downstream parsers.
+ * `dbportal.audit.v1` contract `toAuditLine` promises downstream parsers.
  *
  * Exported on its own, separately from emitAuditEvent: sanitization and stdout emission are two
  * different privileges. `POST /api/admin/audit` accepts a fully client-supplied body with none of

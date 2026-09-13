@@ -70,7 +70,7 @@ SQLite driver by runtime:
 | Bun (`typeof Bun !== "undefined"`) | `bun:sqlite` | Bun built-in |
 | Node | `node:sqlite` (`DatabaseSync`) | Node built-in: unflagged from 22.13, stable on the Node 24 LTS floor |
 
-- **Override:** set `LIBREDB_SQLITE_DRIVER=bun|node` to force a driver (used by the integration
+- **Override:** set `DBPORTAL_SQLITE_DRIVER=bun|node` to force a driver (used by the integration
   tests for determinism); any other value falls back to runtime detection.
 - **Lazy:** both drivers load via dynamic import inside `connect()`, so neither is touched unless a
   sqlite connection is actually used.
@@ -123,7 +123,7 @@ is overridden for **two** things only — the slow-query empty state and the glo
 The driver is imported lazily via `loadSQLiteDriver()`
 ([sqlite-driver.ts](../../src/lib/db/providers/sql/sqlite-driver.ts)), which caches the constructor
 (and any load failure) per driver name. Selection is runtime-based (`bun:sqlite` under Bun,
-`node:sqlite` under Node) with a `LIBREDB_SQLITE_DRIVER=bun|node` override — see
+`node:sqlite` under Node) with a `DBPORTAL_SQLITE_DRIVER=bun|node` override — see
 [Runtime & driver selection](#runtime--driver-selection). If the selected driver cannot load, a
 `DatabaseConfigError` is thrown.
 
@@ -619,7 +619,7 @@ answers where 1.3.14 raised `no such table: dbstat`, and the pinned runtime move
 two drivers returned **byte-identical** `getTableStats()` output under the same Bun 1.4.0:
 
 ```
-# both LIBREDB_SQLITE_DRIVER unset (bun:sqlite) and LIBREDB_SQLITE_DRIVER=node
+# both DBPORTAL_SQLITE_DRIVER unset (bun:sqlite) and DBPORTAL_SQLITE_DRIVER=node
 {"tableName":"big","rowCount":200,"tableSize":"904 KB","tableSizeBytes":925696,
  "indexSize":"908 KB","indexSizeBytes":929792,"totalSize":"1.77 MB","totalSizeBytes":1855488}
 {"tableName":"small","rowCount":200,"tableSize":"4 KB","tableSizeBytes":4096,
@@ -645,13 +645,13 @@ triage bot, and the reason `sqlite_version()` still reads `3.43.2` there on 1.4.
 document measures it. Read the empty arm below as live on any build without `dbstat`, macOS
 included until someone measures it.
 
-The absent arm is therefore still shipped, and `LIBREDB_SQLITE_DRIVER`
+The absent arm is therefore still shipped, and `DBPORTAL_SQLITE_DRIVER`
 ([§2](#runtime--driver-selection)) is what moves a connection between the two drivers. When the
 build behind `bun:sqlite` has no `dbstat`, the same connection reports different things depending
 on that variable — verbatim from `getTableStats()`, captured on Bun 1.3.14:
 
 ```
-# LIBREDB_SQLITE_DRIVER=node
+# DBPORTAL_SQLITE_DRIVER=node
 {"tableName":"big","rowCount":200,"tableSize":"804 KB","tableSizeBytes":823296,
  "indexSize":"908 KB","indexSizeBytes":929792,"totalSize":"1.67 MB","totalSizeBytes":1753088}
 
@@ -804,13 +804,13 @@ SQLite is the **only** provider whose integration tests run against a **real eng
   schema / maintenance / error-mapping cases **and the agent read-only profile contract** run in a
   real **`node` subprocess**:
   [`sqlite-node-harness.ts`](../../tests/integration/db/sqlite-node-harness.ts) is bundled with
-  `bun build --target=node` and executed with `LIBREDB_SQLITE_DRIVER=node` against a temp on-disk
+  `bun build --target=node` and executed with `DBPORTAL_SQLITE_DRIVER=node` against a temp on-disk
   file (`mkdtempSync`), reporting its results as JSON on stdout. The subprocess test skips (with a
   warning) if `node` with `node:sqlite` is unavailable. This subprocess is the only place an
   adapter that accepted the read-only open flag and ignored it would be caught, so the profile
   cases are duplicated there deliberately rather than trusted from the bun run.
 - **driver selection** — `resolveSQLiteDriverName()` is tested directly (runtime default, `bun`/
-  `node` overrides, invalid-value fallback), restoring `LIBREDB_SQLITE_DRIVER` after each test.
+  `node` overrides, invalid-value fallback), restoring `DBPORTAL_SQLITE_DRIVER` after each test.
 
 Embedded + in-memory/tempfile means there is no server to provision, so the tests exercise actual
 SQL execution, schema PRAGMAs, maintenance, and monitoring end-to-end.

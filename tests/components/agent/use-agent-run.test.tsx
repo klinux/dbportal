@@ -40,7 +40,7 @@ describe("useAgentRun — the fold is memoised on the entries", () => {
  * rather than the behaviour.
  */
 describe("useAgentRun — the conversation a reload interrupted", () => {
-  const KEY = "libredb_agent_thread";
+  const KEY = "dbportal_agent_thread";
 
   afterEach(() => {
     localStorage.clear();

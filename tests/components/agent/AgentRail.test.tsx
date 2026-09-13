@@ -615,7 +615,7 @@ describe("AgentRail", () => {
     localStorage, the same per-browser store every other browser-local preference uses.
   */
   test("a conversation this browser was in is stated before the next question is asked", async () => {
-    localStorage.setItem("libredb_agent_thread", JSON.stringify({ threadId: "arun_a", steps: 3 }));
+    localStorage.setItem("dbportal_agent_thread", JSON.stringify({ threadId: "arun_a", steps: 3 }));
     mockAgentFetch([OPENED_LINE, STARTED_LINE, FINISHED_LINE]);
     const view = render(<AgentRail {...DEFAULT_PROPS} />);
 
@@ -636,7 +636,7 @@ describe("AgentRail", () => {
   });
 
   test("one question reads as one question, not as a plural nobody wrote", async () => {
-    localStorage.setItem("libredb_agent_thread", JSON.stringify({ threadId: "arun_a", steps: 1 }));
+    localStorage.setItem("dbportal_agent_thread", JSON.stringify({ threadId: "arun_a", steps: 1 }));
     mockAgentFetch([OPENED_LINE, STARTED_LINE, FINISHED_LINE]);
     const view = render(<AgentRail {...DEFAULT_PROPS} />);
 
@@ -661,7 +661,7 @@ describe("AgentRail", () => {
     });
     await view.findByTestId("agent-thread");
 
-    expect(JSON.parse(localStorage.getItem("libredb_agent_thread") ?? "null")).toEqual({
+    expect(JSON.parse(localStorage.getItem("dbportal_agent_thread") ?? "null")).toEqual({
       threadId: "arun_a",
       steps: 2,
     });
@@ -670,7 +670,7 @@ describe("AgentRail", () => {
   test("a start that belongs to no conversation forgets the one stored", async () => {
     // Otherwise the next mount would announce that a conversation had been interrupted
     // when the run after it had already been answered on its own.
-    localStorage.setItem("libredb_agent_thread", JSON.stringify({ threadId: "arun_a", steps: 3 }));
+    localStorage.setItem("dbportal_agent_thread", JSON.stringify({ threadId: "arun_a", steps: 3 }));
     mockAgentFetch([OPENED_LINE, STARTED_LINE, FINISHED_LINE]);
     const view = render(<AgentRail {...DEFAULT_PROPS} />);
 
@@ -680,7 +680,7 @@ describe("AgentRail", () => {
     });
     await view.findByTestId("agent-run-id");
 
-    expect(localStorage.getItem("libredb_agent_thread")).toBeNull();
+    expect(localStorage.getItem("dbportal_agent_thread")).toBeNull();
   });
 
   test("a store that refuses the write costs the notice, never the run", async () => {

@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { parseAllDocuments } from "yaml";
 
-const CHART_DIR = join(import.meta.dir, "../../charts/libredb-studio");
+const CHART_DIR = join(import.meta.dir, "../../charts/dbportal");
 
 const MINIMAL_ARGS = [
   "--set",
@@ -47,9 +47,7 @@ function renderChart(extraArgs: string[] = []): { secret: RenderedManifest; depl
     throw new Error(`helm template failed (exit ${run.exitCode}): ${run.stderr.toString()}`);
   }
   const docs = parseAllDocuments(run.stdout.toString()).map((doc) => doc.toJSON() as RenderedManifest);
-  const secret = docs.find(
-    (doc) => doc?.kind === "Secret" && doc.metadata.name === "release-under-test-libredb-studio",
-  );
+  const secret = docs.find((doc) => doc?.kind === "Secret" && doc.metadata.name === "release-under-test-dbportal");
   if (!secret) throw new Error("no chart Secret manifest found in rendered output");
   const deployment = docs.find((doc) => doc?.kind === "Deployment");
   if (!deployment) throw new Error("no Deployment manifest found in rendered chart output");
@@ -60,7 +58,7 @@ function containerEnv(deployment: RenderedManifest): EnvVar[] {
   return deployment.spec?.template.spec.containers[0].env ?? [];
 }
 
-describe("charts/libredb-studio optional user password (#136)", () => {
+describe("charts/dbportal optional user password (#136)", () => {
   test("minimal two-secret install renders with no user-password secret key and no USER_PASSWORD env", () => {
     const { secret, deployment } = renderChart();
 

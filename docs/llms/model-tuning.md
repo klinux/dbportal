@@ -20,7 +20,7 @@ below.
 | | |
 | --- | --- |
 | Anywhere | `AGENT_MODEL_TUNING_PATH=/etc/libredb/model-tuning.json`, then restart |
-| Kubernetes | `agent.modelTuning.existingConfigMap` (or `.document`) — the chart mounts it and sets the variable. See [`charts/libredb-studio/README.md`](../../charts/libredb-studio/README.md) |
+| Kubernetes | `agent.modelTuning.existingConfigMap` (or `.document`) — the chart mounts it and sets the variable. See [`charts/dbportal/README.md`](../../charts/dbportal/README.md) |
 
 A relative path is resolved against the working directory, which is a different place in the
 container, under `npx` and in a checkout — the path dbportal actually opened is reported back, so

@@ -156,7 +156,7 @@ start a new conversation"* until you either ask that question or press *"keep it
 end a conversation without being asked to: switching connection, which the panel says in its own
 words, and reloading the page, which simply leaves no conversation to show.
 
-**And it can be off.** Where an operator has set `LIBREDB_AGENT_THREAD_CONTEXT=false`, every question
+**And it can be off.** Where an operator has set `DBPORTAL_AGENT_THREAD_CONTEXT=false`, every question
 opens on its own and the panel tells you so the first time you ask a follow-up — rather than leaving
 you to work it out from an answer that does not resolve. The same line appears, worded differently,
 when a conversation could not be reached at all.

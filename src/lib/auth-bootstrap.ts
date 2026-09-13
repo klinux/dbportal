@@ -10,6 +10,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { getDataDir } from "@/lib/data-dir";
 import { JWT_SECRET_MIN_LENGTH } from "@/lib/config/auth-env";
+import { DEFAULT_ADMIN_EMAIL } from "@/lib/local-auth";
 
 export const BOOTSTRAP_FILE_NAME = "auth-bootstrap.json";
 export const BOOTSTRAP_JWT_SECRET_INVALID_MESSAGE = `bootstrap file jwtSecret is not a string of at least ${JWT_SECRET_MIN_LENGTH} chars`;
@@ -22,7 +23,7 @@ interface BootstrapFile {
 
 /**
  * Zero-config bootstrap is on unless AUTH_BOOTSTRAP opts out: "off", "false",
- * or "0", case-insensitive ("false"/"0" match the LIBREDB_EMBEDDED_SAMPLE
+ * or "0", case-insensitive ("false"/"0" match the DBPORTAL_EMBEDDED_SAMPLE
  * convention). Any other non-empty, non-affirmative value is treated as a
  * misconfiguration: warn and stay on, so a typo never silently flips the
  * security posture in either direction.
@@ -129,7 +130,7 @@ function writeBootstrapFile(filePath: string, data: BootstrapFile): void {
 }
 
 function printFirstRunBanner(filePath: string, adminPassword: string): void {
-  const adminEmail = process.env.ADMIN_EMAIL || "admin@libredb.org"; // mirrors local-auth.ts default
+  const adminEmail = process.env.ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL;
   console.log(
     [
       "",

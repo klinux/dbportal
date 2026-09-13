@@ -693,7 +693,7 @@ describe("TrinoProvider lifecycle", () => {
     await connectProvider();
 
     expect(sentHeaders[0]?.get("X-Trino-User")).toBe("libredb");
-    expect(sentHeaders[0]?.get("X-Trino-Source")).toBe("libredb-studio");
+    expect(sentHeaders[0]?.get("X-Trino-Source")).toBe("dbportal");
     expect(sentHeaders[0]?.get("X-Trino-Catalog")).toBe(CATALOG);
   });
 

@@ -2,6 +2,7 @@ import { access, constants, mkdir, readFile, unlink, writeFile } from "fs/promis
 import * as path from "path";
 import { resolveConfig, validateConfig } from "@/lib/llm/utils/config";
 import { AGENT_MODEL_TURN_TIMEOUT_MS, AGENT_WORKFLOW_BUDGETS } from "./execution-policy";
+import { readEnv } from "@/lib/config/env-alias";
 
 /**
  * Server-side configuration for the agent runtime (#329, epic #325; availability
@@ -9,7 +10,7 @@ import { AGENT_MODEL_TURN_TIMEOUT_MS, AGENT_WORKFLOW_BUDGETS } from "./execution
  *
  * Until T2 removed the NL2SQL and Autopilot panels, this module answered one
  * question — "did an operator set the flag" — and a deployment that never set it
- * still had AI. With those panels gone, `LIBREDB_AGENT_ENABLED` unset would have
+ * still had AI. With those panels gone, `DBPORTAL_AGENT_ENABLED` unset would have
  * meant **the product has no AI at all**, so the flag stopped being a feature
  * toggle and became the switch that decides whether Studio has an AI story. The
  * owner ratified deriving the answer instead
@@ -27,7 +28,7 @@ import { AGENT_MODEL_TURN_TIMEOUT_MS, AGENT_WORKFLOW_BUDGETS } from "./execution
  *    check is a connection attempt per page load; that carve-out is reported as
  *    one (`ledgerVerified`) rather than left to read as verified (B31).
  *
- * `LIBREDB_AGENT_ENABLED` survives as the **explicit off-switch**: its default is
+ * `DBPORTAL_AGENT_ENABLED` survives as the **explicit off-switch**: its default is
  * now *auto*, and a negative value is the documented, supported way to have AI
  * configuration present and no agent. Its spelling and its negative values are
  * unchanged. An affirmative value is still accepted and still means "yes", but it
@@ -51,10 +52,10 @@ import { AGENT_MODEL_TURN_TIMEOUT_MS, AGENT_WORKFLOW_BUDGETS } from "./execution
  * Explicit off-switch for the whole agent rail. Absent means "derive the answer"
  * rather than "off" (#331 T5).
  */
-export const AGENT_ENABLED_ENV = "LIBREDB_AGENT_ENABLED";
+export const AGENT_ENABLED_ENV = "DBPORTAL_AGENT_ENABLED";
 
 /** The off-switch for conversation context; see `isThreadContextEnabled`. */
-export const AGENT_THREAD_CONTEXT_ENV = "LIBREDB_AGENT_THREAD_CONTEXT";
+export const AGENT_THREAD_CONTEXT_ENV = "DBPORTAL_AGENT_THREAD_CONTEXT";
 
 /**
  * Durable-execution backend selector. The name is the workflow runtime's own
@@ -284,7 +285,7 @@ const describeCause = (error: unknown): string => (error instanceof Error ? erro
  * satisfies both, and the warning is what makes the typo visible.
  */
 function readAgentEnableFlag(): "off" | "auto" {
-  const raw = process.env[AGENT_ENABLED_ENV];
+  const raw = readEnv("AGENT_ENABLED");
   if (!raw) return "auto";
 
   const normalized = raw.trim().toLowerCase();
@@ -306,7 +307,7 @@ const unrecognizedThreadFlagMessage = (raw: string): string =>
 /**
  * Whether a run may be told about the conversation it belongs to.
  *
- * Default ON with an explicit off-switch, shaped exactly like `LIBREDB_AGENT_ENABLED`
+ * Default ON with an explicit off-switch, shaped exactly like `DBPORTAL_AGENT_ENABLED`
  * and for the same two-sided reason: a typo must not silently take a working surface
  * away, and it must not silently turn one on either. Landing on the default satisfies
  * both, and the warning is what makes the typo visible.
@@ -317,7 +318,7 @@ const unrecognizedThreadFlagMessage = (raw: string): string =>
  * `GET /api/agent/config` reports it.
  */
 export function isThreadContextEnabled(): boolean {
-  const raw = process.env[AGENT_THREAD_CONTEXT_ENV];
+  const raw = readEnv("AGENT_THREAD_CONTEXT");
   if (!raw) return true;
 
   const normalized = raw.trim().toLowerCase();

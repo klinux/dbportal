@@ -195,8 +195,8 @@ config:
 # if a finished run should still be readable after a restart or a node drain.
 agent:
   # -- Explicit off-switch, and nothing else. Leave it unset (the default) and the
-  # chart writes no LIBREDB_AGENT_ENABLED at all, so the runtime keeps deriving the
-  # answer. `false` writes LIBREDB_AGENT_ENABLED=false, which is the supported way
+  # chart writes no DBPORTAL_AGENT_ENABLED at all, so the runtime keeps deriving the
+  # answer. `false` writes DBPORTAL_AGENT_ENABLED=false, which is the supported way
   # to have AI configured and no agent - use it when upgrading a deployment that
   # already has an LLM key and does not want an agent. `true` is accepted and
   # explicit, but it cannot conjure a model: with no AI configuration the agent
@@ -206,7 +206,7 @@ agent:
 
   # -- Whether a run may be told about the CONVERSATION it belongs to. Leave unset
   # (the default) and the chart writes nothing, so the runtime keeps its own default,
-  # which is on. `false` writes LIBREDB_AGENT_THREAD_CONTEXT=false: every run then
+  # which is on. `false` writes DBPORTAL_AGENT_THREAD_CONTEXT=false: every run then
   # opens on its own, and the rail says so rather than going quiet.
   #
   # A follow-up asked on the same connection otherwise continues the previous run's

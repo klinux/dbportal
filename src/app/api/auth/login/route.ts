@@ -1,6 +1,6 @@
 import { login } from "@/lib/auth";
 import { AuthConfigError } from "@/lib/auth-errors";
-import { getAuthUsers } from "@/lib/local-auth";
+import { getAuthUsers, findAuthUser } from "@/lib/local-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { createErrorResponse } from "@/lib/api/errors";
 import { clientAddress } from "@/lib/api/client-address";
@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
     enforceLoginLimit("login_account", accountKey, actor, ip);
 
     const users = getAuthUsers();
-    const user = users.find((u) => u.email === submittedEmail);
+    const user = findAuthUser(users, submittedEmail);
     const candidate = user?.password ?? DUMMY_PASSWORD;
     const passwordMatches = secretsMatch(submittedPassword, candidate);
     const matched = user && passwordMatches ? user : null;

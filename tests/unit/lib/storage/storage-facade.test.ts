@@ -46,35 +46,35 @@ describe("storage facade: CustomEvent dispatch", () => {
     localStorage.clear();
   });
 
-  test("saveConnection dispatches libredb-storage-change event", () => {
+  test("saveConnection dispatches dbportal-storage-change event", () => {
     let captured: CustomEvent | null = null;
     const handler = (e: Event) => {
       captured = e as CustomEvent;
     };
-    window.addEventListener("libredb-storage-change", handler);
+    window.addEventListener("dbportal-storage-change", handler);
 
     storage.saveConnection(makeConnection());
 
     expect(captured).not.toBeNull();
     expect(captured!.detail.collection).toBe("connections");
 
-    window.removeEventListener("libredb-storage-change", handler);
+    window.removeEventListener("dbportal-storage-change", handler);
   });
 
   test("deleteConnection dispatches event", () => {
     storage.saveConnection(makeConnection());
     const handler = mock(() => {});
-    window.addEventListener("libredb-storage-change", handler);
+    window.addEventListener("dbportal-storage-change", handler);
 
     storage.deleteConnection("conn-1");
 
     expect(handler).toHaveBeenCalledTimes(1);
-    window.removeEventListener("libredb-storage-change", handler);
+    window.removeEventListener("dbportal-storage-change", handler);
   });
 
   test("addToHistory dispatches event", () => {
     const handler = mock(() => {});
-    window.addEventListener("libredb-storage-change", handler);
+    window.addEventListener("dbportal-storage-change", handler);
 
     storage.addToHistory({
       id: "h-1",
@@ -86,7 +86,7 @@ describe("storage facade: CustomEvent dispatch", () => {
     });
 
     expect(handler).toHaveBeenCalledTimes(1);
-    window.removeEventListener("libredb-storage-change", handler);
+    window.removeEventListener("dbportal-storage-change", handler);
   });
 
   test("setActiveConnectionId dispatches event", () => {
@@ -94,7 +94,7 @@ describe("storage facade: CustomEvent dispatch", () => {
     const handler = (e: Event) => {
       captured = e as CustomEvent;
     };
-    window.addEventListener("libredb-storage-change", handler);
+    window.addEventListener("dbportal-storage-change", handler);
 
     storage.setActiveConnectionId("conn-42");
 
@@ -102,7 +102,7 @@ describe("storage facade: CustomEvent dispatch", () => {
     expect(captured!.detail.collection).toBe("active_connection_id");
     expect(captured!.detail.data).toBe("conn-42");
 
-    window.removeEventListener("libredb-storage-change", handler);
+    window.removeEventListener("dbportal-storage-change", handler);
   });
 });
 

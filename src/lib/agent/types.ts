@@ -1440,7 +1440,7 @@ export interface AgentThreadContext {
   /**
    * Why continuing did not happen, in codes a surface can say something specific about.
    *
-   * `"disabled"` is the operator's switch (`LIBREDB_AGENT_THREAD_CONTEXT`), `"error"` an
+   * `"disabled"` is the operator's switch (`DBPORTAL_AGENT_THREAD_CONTEXT`), `"error"` an
    * unreadable ledger, and `"repointed"` a predecessor established against another
    * database than this connection now addresses.
    *

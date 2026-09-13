@@ -204,7 +204,7 @@ describe("storage: saved queries", () => {
   test("importSavedQueries writes and emits one complete merged collection", () => {
     const events: CustomEvent[] = [];
     const listener = (event: Event) => events.push(event as CustomEvent);
-    window.addEventListener("libredb-storage-change", listener);
+    window.addEventListener("dbportal-storage-change", listener);
     const incoming = [makeSavedQuery({ id: "a" }), makeSavedQuery({ id: "b" })];
     try {
       expect(storage.importSavedQueries(incoming)).toEqual({ imported: 2, collisions: [] });
@@ -215,13 +215,13 @@ describe("storage: saved queries", () => {
       expect(storage.importSavedQueries(incoming)).toEqual({ imported: 0, collisions: ["a", "b"] });
       expect(events).toHaveLength(1);
     } finally {
-      window.removeEventListener("libredb-storage-change", listener);
+      window.removeEventListener("dbportal-storage-change", listener);
     }
   });
 
   test("importSavedQueries leaves the old library intact when storage rejects the write", () => {
     storage.saveQuery(makeSavedQuery({ id: "existing" }));
-    const original = localStorage.getItem("libredb_saved_queries");
+    const original = localStorage.getItem("dbportal_saved_queries");
     const setItem = localStorage.setItem;
     localStorage.setItem = () => {
       throw new Error("Storage full");
@@ -230,7 +230,7 @@ describe("storage: saved queries", () => {
       expect(() => storage.importSavedQueries([makeSavedQuery({ id: "new" })])).toThrow(
         "Could not save imported queries.",
       );
-      expect(localStorage.getItem("libredb_saved_queries")).toBe(original);
+      expect(localStorage.getItem("dbportal_saved_queries")).toBe(original);
     } finally {
       localStorage.setItem = setItem;
     }
@@ -346,27 +346,27 @@ describe("storage: active connection ID", () => {
 
 describe("storage: broken JSON", () => {
   test("getConnections returns empty array on invalid JSON", () => {
-    localStorage.setItem("libredb_connections", "not-json{{{");
+    localStorage.setItem("dbportal_connections", "not-json{{{");
     expect(storage.getConnections()).toEqual([]);
   });
 
   test("getHistory returns empty array on invalid JSON", () => {
-    localStorage.setItem("libredb_history", "{bad");
+    localStorage.setItem("dbportal_history", "{bad");
     expect(storage.getHistory()).toEqual([]);
   });
 
   test("getSavedQueries returns empty array on invalid JSON", () => {
-    localStorage.setItem("libredb_saved_queries", "nope");
+    localStorage.setItem("dbportal_saved_queries", "nope");
     expect(storage.getSavedQueries()).toEqual([]);
   });
 
   test("getSchemaSnapshots returns empty array on invalid JSON", () => {
-    localStorage.setItem("libredb_schema_snapshots", "[[invalid");
+    localStorage.setItem("dbportal_schema_snapshots", "[[invalid");
     expect(storage.getSchemaSnapshots()).toEqual([]);
   });
 
   test("getSavedCharts returns empty array on invalid JSON", () => {
-    localStorage.setItem("libredb_saved_charts", "corrupt");
+    localStorage.setItem("dbportal_saved_charts", "corrupt");
     expect(storage.getSavedCharts()).toEqual([]);
   });
 });

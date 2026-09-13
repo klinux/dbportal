@@ -139,7 +139,7 @@ Navigate to `/login` and click **"Login with SSO"**.
    ```env
    NEXT_PUBLIC_AUTH_PROVIDER=oidc
    OIDC_ISSUER=https://keycloak.example.com/realms/your-realm
-   OIDC_CLIENT_ID=libredb-studio
+   OIDC_CLIENT_ID=dbportal
    OIDC_CLIENT_SECRET=your_client_secret
    ```
 

@@ -4,7 +4,7 @@
  *
  * The underlying driver is selected at runtime by the sqlite-driver adapter:
  * bun:sqlite under Bun, node:sqlite under Node (override with
- * LIBREDB_SQLITE_DRIVER=bun|node).
+ * DBPORTAL_SQLITE_DRIVER=bun|node).
  *
  * Note: SQLite is primarily for local development. Cloud deployments
  * typically use PostgreSQL or MySQL instead.
@@ -740,7 +740,7 @@ export interface SQLiteTableSizeBytes {
  * no such table.
  *
  * `null` is the whole point: the two SQLite drivers disagree about dbstat (see
- * DBSTAT_SIZES_SQL), and `LIBREDB_SQLITE_DRIVER` lets a user switch between them, so
+ * DBSTAT_SIZES_SQL), and `DBPORTAL_SQLITE_DRIVER` lets a user switch between them, so
  * both answers have to be right. What used to fill the gap was `rowCount * 100`
  * ("Assume 100 bytes average per row") which the Storage tab summed into the Data
  * figure it drew beside the measured database size.

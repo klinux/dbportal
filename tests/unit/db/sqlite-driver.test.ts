@@ -46,23 +46,23 @@ describe("sqlite-driver", () => {
   let origDriver: string | undefined;
 
   beforeEach(() => {
-    origDriver = process.env.LIBREDB_SQLITE_DRIVER;
+    origDriver = process.env.DBPORTAL_SQLITE_DRIVER;
   });
 
   afterEach(() => {
-    if (origDriver === undefined) delete process.env.LIBREDB_SQLITE_DRIVER;
-    else process.env.LIBREDB_SQLITE_DRIVER = origDriver;
+    if (origDriver === undefined) delete process.env.DBPORTAL_SQLITE_DRIVER;
+    else process.env.DBPORTAL_SQLITE_DRIVER = origDriver;
   });
 
   describe("resolveSQLiteDriverName()", () => {
     test.each(["bun", "node"] as const)("honors the %s override", (name) => {
-      process.env.LIBREDB_SQLITE_DRIVER = name;
+      process.env.DBPORTAL_SQLITE_DRIVER = name;
       expect(resolveSQLiteDriverName()).toBe(name);
     });
 
     test.each([undefined, "sqlite3", ""])("falls back to the runtime for %j", (value) => {
-      if (value === undefined) delete process.env.LIBREDB_SQLITE_DRIVER;
-      else process.env.LIBREDB_SQLITE_DRIVER = value;
+      if (value === undefined) delete process.env.DBPORTAL_SQLITE_DRIVER;
+      else process.env.DBPORTAL_SQLITE_DRIVER = value;
       // Tests run under Bun, so the runtime pick is always "bun" here.
       expect(resolveSQLiteDriverName()).toBe("bun");
     });
@@ -154,7 +154,7 @@ describe("sqlite-driver", () => {
 
   describe("loadSQLiteDriver()", () => {
     test("returns the cached constructor on repeat loads", async () => {
-      process.env.LIBREDB_SQLITE_DRIVER = "bun";
+      process.env.DBPORTAL_SQLITE_DRIVER = "bun";
       const first = await loadSQLiteDriver();
       const second = await loadSQLiteDriver();
       expect(second).toBe(first);
@@ -167,7 +167,7 @@ describe("sqlite-driver", () => {
     // injected instead, the way `loadNodeSQLiteDriver` already injects its importer, so
     // the arm is a property of this test rather than of whichever Bun is installed.
     test("wraps a driver that cannot load in DatabaseConfigError and caches the failure", async () => {
-      process.env.LIBREDB_SQLITE_DRIVER = "node";
+      process.env.DBPORTAL_SQLITE_DRIVER = "node";
 
       const firstError = await loadSQLiteDriver(() => Promise.reject(new Error("node:sqlite is not available"))).then(
         () => undefined,

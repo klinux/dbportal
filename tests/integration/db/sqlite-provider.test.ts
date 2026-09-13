@@ -4,7 +4,7 @@
  * - bun driver: bun:sqlite with a :memory: database (in-process, tests run under Bun)
  * - node driver: node:sqlite against a temp on-disk file, exercised in a real
  *   `node` subprocess (Bun cannot load any non-bun SQLite driver in-process),
- *   forced deterministically via LIBREDB_SQLITE_DRIVER=node
+ *   forced deterministically via DBPORTAL_SQLITE_DRIVER=node
  */
 
 import { describe, test, expect, afterEach, beforeAll, afterAll, spyOn } from "bun:test";
@@ -640,7 +640,7 @@ describe("SQLiteProvider", () => {
     // rows are the ones node:sqlite 3.51.2 actually returned for a seeded database
     // (200 rows of 4 KB text in `big` with an index on it, 200 short rows in `small`):
     //   dbstat -> big 823296, idx_big 929792, small 4096
-    // and the provider under LIBREDB_SQLITE_DRIVER=node reported exactly
+    // and the provider under DBPORTAL_SQLITE_DRIVER=node reported exactly
     // big 804 KB + 908 KB = 1.67 MB, small 4 KB + 0 B, both measured 2026-08-24.
     test("aggregates dbstat page bytes per table, indexes onto their table", () => {
       const dbstat = [
@@ -2398,38 +2398,38 @@ describe("SQLiteProvider agent read-only execution profile (#328)", () => {
 // ============================================================================
 
 describe("resolveSQLiteDriverName()", () => {
-  const originalDriverEnv = process.env.LIBREDB_SQLITE_DRIVER;
+  const originalDriverEnv = process.env.DBPORTAL_SQLITE_DRIVER;
 
   afterEach(() => {
     if (originalDriverEnv === undefined) {
-      delete process.env.LIBREDB_SQLITE_DRIVER;
+      delete process.env.DBPORTAL_SQLITE_DRIVER;
     } else {
-      process.env.LIBREDB_SQLITE_DRIVER = originalDriverEnv;
+      process.env.DBPORTAL_SQLITE_DRIVER = originalDriverEnv;
     }
   });
 
   test("defaults to the bun driver under the Bun runtime", () => {
-    delete process.env.LIBREDB_SQLITE_DRIVER;
+    delete process.env.DBPORTAL_SQLITE_DRIVER;
     expect(resolveSQLiteDriverName()).toBe("bun");
   });
 
-  test("LIBREDB_SQLITE_DRIVER=node forces the node driver", () => {
-    process.env.LIBREDB_SQLITE_DRIVER = "node";
+  test("DBPORTAL_SQLITE_DRIVER=node forces the node driver", () => {
+    process.env.DBPORTAL_SQLITE_DRIVER = "node";
     expect(resolveSQLiteDriverName()).toBe("node");
   });
 
-  test("LIBREDB_SQLITE_DRIVER=bun forces the bun driver", () => {
-    process.env.LIBREDB_SQLITE_DRIVER = "bun";
+  test("DBPORTAL_SQLITE_DRIVER=bun forces the bun driver", () => {
+    process.env.DBPORTAL_SQLITE_DRIVER = "bun";
     expect(resolveSQLiteDriverName()).toBe("bun");
   });
 
   test("invalid override falls back to runtime detection", () => {
-    process.env.LIBREDB_SQLITE_DRIVER = "sqlite3";
+    process.env.DBPORTAL_SQLITE_DRIVER = "sqlite3";
     expect(resolveSQLiteDriverName()).toBe("bun");
   });
 
-  test("provider connects and queries with an explicit LIBREDB_SQLITE_DRIVER=bun override", async () => {
-    process.env.LIBREDB_SQLITE_DRIVER = "bun";
+  test("provider connects and queries with an explicit DBPORTAL_SQLITE_DRIVER=bun override", async () => {
+    process.env.DBPORTAL_SQLITE_DRIVER = "bun";
     const provider = new SQLiteProvider({
       id: "override-bun",
       name: "Override Bun",
@@ -2448,13 +2448,13 @@ describe("resolveSQLiteDriverName()", () => {
 });
 
 // ============================================================================
-// Node driver (LIBREDB_SQLITE_DRIVER=node -> node:sqlite)
+// Node driver (DBPORTAL_SQLITE_DRIVER=node -> node:sqlite)
 //
 // Bun refuses to load better-sqlite3 and does not implement node:sqlite, so
 // no non-bun driver can run inside `bun test`. The core CRUD / schema /
 // maintenance / error-mapping cases therefore run in a real `node` subprocess:
 // sqlite-node-harness.ts is bundled with `bun build --target=node` and
-// executed with LIBREDB_SQLITE_DRIVER=node against a temp on-disk database
+// executed with DBPORTAL_SQLITE_DRIVER=node against a temp on-disk database
 // (see the harness for the exact scenario).
 // ============================================================================
 
@@ -2468,7 +2468,7 @@ if (!nodeDriverTestable) {
   console.warn("Skipping node-driver SQLite tests: `node` with node:sqlite is not available on this machine");
 }
 
-describe.skipIf(!nodeDriverTestable)("SQLiteProvider with LIBREDB_SQLITE_DRIVER=node (node:sqlite)", () => {
+describe.skipIf(!nodeDriverTestable)("SQLiteProvider with DBPORTAL_SQLITE_DRIVER=node (node:sqlite)", () => {
   let tmpDir: string;
 
   beforeAll(() => {
@@ -2496,7 +2496,7 @@ describe.skipIf(!nodeDriverTestable)("SQLiteProvider with LIBREDB_SQLITE_DRIVER=
 
     // Run it under real Node with the node driver forced.
     const run = spawnSync("node", [bundlePath, dbPath], {
-      env: { ...process.env, LIBREDB_SQLITE_DRIVER: "node" },
+      env: { ...process.env, DBPORTAL_SQLITE_DRIVER: "node" },
       timeout: 60_000,
     });
     if (run.status !== 0) {

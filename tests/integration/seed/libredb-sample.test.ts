@@ -28,23 +28,23 @@ afterEach(() => {
     }
   }
   tmpDirs.length = 0;
-  delete process.env.LIBREDB_EMBEDDED_SAMPLE;
-  delete process.env.LIBREDB_EMBEDDED_SAMPLE_PATH;
+  delete process.env.DBPORTAL_EMBEDDED_SAMPLE;
+  delete process.env.DBPORTAL_EMBEDDED_SAMPLE_PATH;
 });
 
 describe("libredb-sample", () => {
   test('isSampleEnabled: default on; only "false" disables', () => {
     expect(isSampleEnabled()).toBe(true);
-    process.env.LIBREDB_EMBEDDED_SAMPLE = "false";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE = "false";
     expect(isSampleEnabled()).toBe(false);
-    process.env.LIBREDB_EMBEDDED_SAMPLE = "true";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE = "true";
     expect(isSampleEnabled()).toBe(true);
   });
 
   test("resolveSamplePath: override wins; else derives from data dir", () => {
-    process.env.LIBREDB_EMBEDDED_SAMPLE_PATH = "/custom/x.libredb";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE_PATH = "/custom/x.libredb";
     expect(resolveSamplePath()).toBe("/custom/x.libredb");
-    delete process.env.LIBREDB_EMBEDDED_SAMPLE_PATH;
+    delete process.env.DBPORTAL_EMBEDDED_SAMPLE_PATH;
     expect(resolveSamplePath().endsWith(`${path.sep}sample.libredb`)).toBe(true);
   });
 

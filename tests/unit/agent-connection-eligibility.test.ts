@@ -226,7 +226,7 @@ describe("the connections a default deployment ships", () => {
   let builders: { seedId: string; build: () => { seedId: string } }[] = [];
 
   beforeAll(async () => {
-    process.env.LIBREDB_EMBEDDED_SAMPLE_PATH = "/tmp/libredb-eligibility-sample.libredb";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE_PATH = "/tmp/libredb-eligibility-sample.libredb";
     process.env.SQLITE_EMBEDDED_SAMPLE_PATH = "/tmp/libredb-eligibility-sample.db";
     const [libredb, sqlite] = await Promise.all([
       import("@/lib/seed/libredb-sample"),

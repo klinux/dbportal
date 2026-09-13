@@ -9,16 +9,17 @@
  * credentials banner in auth-bootstrap.ts. Nothing here touches the network -
  * the repository line is static text, never a live count.
  *
- * Set LIBREDB_NO_BANNER=1 (or true) to silence it.
+ * Set DBPORTAL_NO_BANNER=1 (or true) to silence it.
  */
 
 import { getAppVersion } from "@/lib/app-version";
 import { REPO_URL } from "@/lib/community/repo";
+import { readEnv } from "@/lib/config/env-alias";
 
 const DEFAULT_PORT = "3000";
 
 function isSuppressed(): boolean {
-  const value = (process.env.LIBREDB_NO_BANNER ?? "").trim().toLowerCase();
+  const value = (readEnv("NO_BANNER") ?? "").trim().toLowerCase();
   return value === "1" || value === "true";
 }
 

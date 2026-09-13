@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     // validated at runtime (request.json() is `any`; the closed unions only exist at compile
     // time), so this route must never gain the authority to write the stdout channel the design
     // treats as authoritative. Granting that would let an admin session, or a stolen one, forge a
-    // libredb.audit.v1 line indistinguishable from one the system generated. See task-4-brief.md:
+    // dbportal.audit.v1 line indistinguishable from one the system generated. See task-4-brief.md:
     // this endpoint stays a display-only passthrough.
     const event = await request.json();
     const buffer = getServerAuditBuffer();

@@ -15,9 +15,9 @@ neither-set at render time instead of failing at the API server.
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "libredb-studio.fullname" . }}
+  name: {{ include "dbportal.fullname" . }}
   labels:
-    {{- include "libredb-studio.labels" . | nindent 4 }}
+    {{- include "dbportal.labels" . | nindent 4 }}
 spec:
   {{- if $minSet }}
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
@@ -27,5 +27,5 @@ spec:
   {{- end }}
   selector:
     matchLabels:
-      {{- include "libredb-studio.selectorLabels" . | nindent 6 }}
+      {{- include "dbportal.selectorLabels" . | nindent 6 }}
 {{- end }}

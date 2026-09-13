@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { parseAllDocuments } from "yaml";
 
-const chart = join(import.meta.dir, "../../charts/libredb-studio");
+const chart = join(import.meta.dir, "../../charts/dbportal");
 function render(args: string[] = []) {
   const result = Bun.spawnSync(["helm", "template", "base-path-test", chart, ...args], {
     stdout: "pipe",

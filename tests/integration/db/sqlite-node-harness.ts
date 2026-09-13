@@ -3,7 +3,7 @@
  *
  * Bun cannot load any non-bun SQLite driver in-process (it refuses
  * better-sqlite3 and does not implement node:sqlite), so the node driver
- * path (LIBREDB_SQLITE_DRIVER=node -> node:sqlite) is exercised in a real
+ * path (DBPORTAL_SQLITE_DRIVER=node -> node:sqlite) is exercised in a real
  * `node` subprocess: sqlite-provider.test.ts bundles this file with
  * `bun build --target=node` and runs the bundle with `node <bundle> <db-path>`.
  *
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
 
   const report: Record<string, unknown> = {
     runtime: typeof Bun === "undefined" ? "node" : "bun",
-    driverEnv: process.env.LIBREDB_SQLITE_DRIVER ?? null,
+    driverEnv: process.env.DBPORTAL_SQLITE_DRIVER ?? null,
   };
 
   const provider = new SQLiteProvider(config);

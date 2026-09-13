@@ -1,5 +1,5 @@
 apiVersion: v2
-name: libredb-studio
+name: dbportal
 description: Web-based SQL IDE for cloud-native teams supporting sixteen engines - PostgreSQL, MySQL, SQLite, DuckDB, Oracle, SQL Server, MongoDB, Redis, Couchbase, ClickHouse, Apache Druid, Elasticsearch, OpenSearch, Apache Trino, Apache Cassandra and libSQL
 type: application
 version: 0.1.0
@@ -100,18 +100,18 @@ annotations:
   # adm-zip pin note belongs to 0.1.44, unchanged.
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/images: |
-    - name: libredb-studio
+    - name: dbportal
       image: ghcr.io/klinux/dbportal:0.1.0
       platforms:
         - linux/amd64
         - linux/arm64
   artifacthub.io/links: |
     - name: Documentation
-      url: https://github.com/libredb/libredb-studio#readme
+      url: https://github.com/libredb/dbportal#readme
     - name: Container Image
-      url: https://github.com/libredb/libredb-studio/pkgs/container/libredb-studio
+      url: https://github.com/libredb/dbportal/pkgs/container/dbportal
     - name: Source
-      url: https://github.com/libredb/libredb-studio
+      url: https://github.com/libredb/dbportal
   artifacthub.io/changes: |
     - "Prefix default health probes with config.basePath for images built to run under a subpath"
 dependencies:

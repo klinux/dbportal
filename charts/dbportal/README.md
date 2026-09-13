@@ -1,6 +1,6 @@
 # LibreDB Studio Helm Chart
 
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/libredb-studio)](https://artifacthub.io/packages/search?repo=libredb-studio)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/dbportal)](https://artifacthub.io/packages/search?repo=dbportal)
 
 Web-based SQL IDE for cloud-native teams supporting sixteen engines - PostgreSQL, MySQL, SQLite, libSQL, DuckDB, Oracle, SQL Server, MongoDB, Redis, Couchbase, ClickHouse, Apache Druid, Elasticsearch, OpenSearch, Apache Trino and Apache Cassandra.
 
@@ -13,17 +13,17 @@ Web-based SQL IDE for cloud-native teams supporting sixteen engines - PostgreSQL
 
 ```bash
 # Add the Helm repository
-helm repo add libredb https://libredb.org/libredb-studio/
+helm repo add libredb https://libredb.org/dbportal/
 helm repo update
 
 # Zero-config install: first-run admin credentials are generated automatically
-helm install libredb libredb/libredb-studio
+helm install libredb libredb/dbportal
 
 # Retrieve the generated admin credentials from the pod log
-kubectl logs deployment/libredb-libredb-studio | grep -A 4 "generated admin credentials"
+kubectl logs deployment/libredb-dbportal | grep -A 4 "generated admin credentials"
 
 # Access via port-forward
-kubectl port-forward svc/libredb-libredb-studio 3000:80
+kubectl port-forward svc/libredb-dbportal 3000:80
 # Open http://localhost:3000
 ```
 
@@ -31,7 +31,7 @@ For production, provide your own secrets instead of relying on generated ones
 (add `--set secrets.userPassword=...` only if you want the optional non-admin account):
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
   --set secrets.adminPassword=MyAdmin123
 ```
@@ -39,7 +39,7 @@ helm install libredb libredb/libredb-studio \
 ### OCI Registry Install
 
 ```bash
-helm install libredb oci://ghcr.io/libredb/charts/libredb-studio \
+helm install libredb oci://ghcr.io/libredb/charts/dbportal \
   --version 0.1.0 \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
   --set secrets.adminPassword=MyAdmin123
@@ -56,7 +56,7 @@ Browser localStorage. No server-side persistence. Suitable for single-user testi
 Persistent file-based storage. A PVC is automatically created.
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set config.storageProvider=sqlite \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
   --set secrets.adminPassword=MyAdmin123
@@ -71,7 +71,7 @@ helm install libredb libredb/libredb-studio \
 Deploys a Bitnami PostgreSQL instance alongside LibreDB Studio.
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set postgresql.enabled=true \
   --set postgresql.auth.password=pg-secret \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
@@ -89,7 +89,7 @@ Storage provider is automatically set to `postgres` when the subchart is enabled
 ### PostgreSQL (external)
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set config.storageProvider=postgres \
   --set secrets.storagePostgresUrl="postgresql://user:pass@host:5432/libredb" \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
@@ -113,13 +113,13 @@ The banner is printed once, by the container that ran the first start. The pod l
 
 ```bash
 # 1. The usual case
-kubectl logs deployment/libredb-libredb-studio | grep -A 4 "generated admin credentials"
+kubectl logs deployment/libredb-dbportal | grep -A 4 "generated admin credentials"
 
 # 2. The container has restarted since first start - the banner is in the previous log
-kubectl logs deployment/libredb-libredb-studio --previous | grep -A 4 "generated admin credentials"
+kubectl logs deployment/libredb-dbportal --previous | grep -A 4 "generated admin credentials"
 
 # 3. Or read the file the app stored them in (mode 0600, survives restarts)
-kubectl exec deploy/libredb-libredb-studio -- cat /app/data/auth-bootstrap.json
+kubectl exec deploy/libredb-dbportal -- cat /app/data/auth-bootstrap.json
 ```
 
 `kubectl logs deployment/...` picks **one** pod arbitrarily, so with more than one replica name the pod that started first explicitly (`kubectl get pods --sort-by=.status.startTime`, then `kubectl logs <pod>`). Deleting `auth-bootstrap.json` makes the next start generate a fresh set.
@@ -134,7 +134,7 @@ posts, succeeds, and returns you to the login form - the silent loop reported on
 installs. Tell the chart when that is your situation:
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set config.authCookieSecure=false
 ```
 
@@ -157,7 +157,7 @@ present a 6-digit authenticator code after its password:
 ADMIN_TOTP_SECRET="$(openssl rand 20 | base32 | tr -d '=')"
 echo "$ADMIN_TOTP_SECRET"
 
-helm upgrade --install libredb libredb/libredb-studio \
+helm upgrade --install libredb libredb/dbportal \
   --set secrets.adminPassword=MyAdmin123 \
   --set secrets.adminTotpSecret="$ADMIN_TOTP_SECRET"
 ```
@@ -180,7 +180,7 @@ and this guards that route in every mode. Full setup, enrolment and recovery:
 ## OIDC SSO
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set authProvider=oidc \
   --set config.oidcIssuer=https://dev-xxx.auth0.com \
   --set secrets.oidcClientId=your-client-id \
@@ -193,7 +193,7 @@ helm install libredb libredb/libredb-studio \
 ## AI Configuration
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set config.llmProvider=openai \
   --set config.llmModel=gpt-4o \
   --set secrets.llmApiKey=sk-your-key \
@@ -209,7 +209,7 @@ through the AI settings above (there is no second place to enter a key) plus a w
 directory. Configuring a model IS the opt-in, so this install already has an agent:
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set config.llmProvider=gemini \
   --set secrets.llmApiKey=your-key \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
@@ -236,12 +236,12 @@ released the two agree on the same path, so nothing changes for you either way.
 or not you asked for one. Decline it explicitly:
 
 ```bash
-helm upgrade libredb libredb/libredb-studio --reuse-values --set agent.enabled=false
+helm upgrade libredb libredb/dbportal --reuse-values --set agent.enabled=false
 ```
 
 `agent.enabled` is an off-switch and nothing more. Unset (the default) writes no
-`LIBREDB_AGENT_ENABLED` at all and leaves the runtime deriving its own answer; `false` writes
-`LIBREDB_AGENT_ENABLED=false`, which is the supported way to have AI configured and no agent; `true`
+`DBPORTAL_AGENT_ENABLED` at all and leaves the runtime deriving its own answer; `false` writes
+`DBPORTAL_AGENT_ENABLED=false`, which is the supported way to have AI configured and no agent; `true`
 is accepted and explicit but cannot conjure a model. The chart renders the value as a quoted string,
 which is why no `--set-string` is needed here.
 
@@ -250,11 +250,11 @@ which is why no `--set-string` is needed here.
 previous run's conversation — the earlier steps' objectives and the most recent step's report are
 derived server-side from those runs' own ledgers and handed to the model fenced. Unset writes
 nothing and the runtime keeps its own default, which is on; `false` writes
-`LIBREDB_AGENT_THREAD_CONTEXT=false`, and every run then opens on its own with the rail saying so
+`DBPORTAL_AGENT_THREAD_CONTEXT=false`, and every run then opens on its own with the rail saying so
 rather than going quiet.
 
 ```bash
-helm upgrade libredb libredb/libredb-studio --reuse-values --set agent.threadContext=false
+helm upgrade libredb libredb/dbportal --reuse-values --set agent.threadContext=false
 ```
 
 Set it where no question's context may reach another. The user already has the equivalent control —
@@ -340,7 +340,7 @@ and no code change:
 
 ```bash
 kubectl create configmap my-tuning --from-file=model-tuning.json
-helm upgrade libredb libredb/libredb-studio --reuse-values \
+helm upgrade libredb libredb/dbportal --reuse-values \
   --set agent.modelTuning.existingConfigMap=my-tuning
 ```
 
@@ -364,13 +364,13 @@ deployment. An `existingConfigMap` is your object rather than the chart's — th
 to hash and cannot see your edit — so after changing that ConfigMap, roll the deployment yourself:
 
 ```bash
-kubectl rollout restart deployment/libredb-libredb-studio
+kubectl rollout restart deployment/libredb-dbportal
 ```
 
 ## Production Setup (Ingress + HA)
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
   --set secrets.adminPassword=StrongPass123 \
   --set postgresql.enabled=true \
@@ -389,7 +389,7 @@ helm install libredb libredb/libredb-studio \
 ### Traefik Ingress
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set ingress.enabled=true \
   --set ingress.className=traefik \
   --set "ingress.annotations.traefik\.ingress\.kubernetes\.io/router\.entrypoints=websecure" \
@@ -407,7 +407,7 @@ the ConfigMap writes an empty `HOSTNAME`, and the container resolves its own add
 preferring `::`:
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set service.ipFamilyPolicy=PreferDualStack
 ```
 
@@ -479,7 +479,7 @@ planned: an ingress already has one.
 Enforce the same budgets at the ingress instead. With nginx:
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set replicaCount=3 \
   --set ingress.enabled=true \
   --set ingress.className=nginx \
@@ -499,7 +499,7 @@ a page that loads and then refuses every action with a 403. There is no dedicate
 it, so pass it through `extraEnv`:
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set 'extraEnv[0].name=ALLOWED_ORIGINS' \
   --set-string 'extraEnv[0].value=https://libredb.example.com'
 ```
@@ -512,7 +512,7 @@ downgrade it to report-only without a rebuild — it is a plain runtime environm
 passed through `extraEnv`:
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set 'extraEnv[0].name=CSP_REPORT_ONLY' \
   --set-string 'extraEnv[0].value=true'
 ```
@@ -533,7 +533,7 @@ overwrites the one element, so copying both snippets into a single command silen
 second variable:
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set 'extraEnv[0].name=ALLOWED_ORIGINS' \
   --set-string 'extraEnv[0].value=https://libredb.example.com' \
   --set 'extraEnv[1].name=CSP_REPORT_ONLY' \
@@ -551,22 +551,22 @@ key that opens the ciphertext it contains (with nothing set, the fallback key is
 same directory, alongside the database file):
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set 'extraEnv[0].name=STORAGE_ENCRYPTION_KEY' \
-  --set 'extraEnv[0].valueFrom.secretKeyRef.name=libredb-studio-storage' \
+  --set 'extraEnv[0].valueFrom.secretKeyRef.name=dbportal-storage' \
   --set 'extraEnv[0].valueFrom.secretKeyRef.key=encryption-key'
 ```
 
 Rotating the key makes existing stored credentials unreadable — the connections survive and their
 passwords are omitted. See
-[docs/STORAGE.md](https://github.com/libredb/libredb-studio/blob/main/docs/STORAGE.md#credential-encryption-at-rest).
+[docs/STORAGE.md](https://github.com/libredb/dbportal/blob/main/docs/STORAGE.md#credential-encryption-at-rest).
 
 ## External Secrets
 
 Use `secrets.existingSecret` to reference a secret managed by External Secrets Operator, Sealed Secrets, or Vault:
 
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set secrets.existingSecret=my-libredb-secret
 ```
 
@@ -578,7 +578,7 @@ Your external secret is referenced with these keys (customizable via `secrets.ex
 
 ```bash
 helm repo update
-helm upgrade libredb libredb/libredb-studio
+helm upgrade libredb libredb/dbportal
 ```
 
 > **Behavior change:** the chart default flipped from strict (`config.authBootstrap: "off"`)
@@ -605,7 +605,7 @@ helm uninstall libredb
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `replicaCount` | Number of replicas | `1` |
-| `image.repository` | Container image | `ghcr.io/libredb/libredb-studio` |
+| `image.repository` | Container image | `ghcr.io/libredb/dbportal` |
 | `image.tag` | Image tag | `""` (Chart appVersion) |
 | `image.pullPolicy` | Pull policy | `IfNotPresent` |
 | `authProvider` | Auth mode: local or oidc | `local` |
@@ -622,7 +622,7 @@ helm uninstall libredb
 | `config.bindAddress` | Container bind address (`HOSTNAME`): empty lets the image resolve one, preferring a verified dual-stack `::`; `::` forces it; `0.0.0.0` pins IPv4 | `""` |
 | `config.storageProvider` | Storage: local, sqlite, postgres | `local` |
 | `config.llmProvider` | AI provider | `""` |
-| `agent.enabled` | Explicit off-switch for the agent runtime. Unset writes nothing and the app derives availability (a configured model plus a writable ledger); `false` writes `LIBREDB_AGENT_ENABLED=false`; `true` declines the off-switch but cannot conjure a model. Rendering fails when an agent could run above one replica | unset |
+| `agent.enabled` | Explicit off-switch for the agent runtime. Unset writes nothing and the app derives availability (a configured model plus a writable ledger); `false` writes `DBPORTAL_AGENT_ENABLED=false`; `true` declines the off-switch but cannot conjure a model. Rendering fails when an agent could run above one replica | unset |
 | `agent.modelTuning.existingConfigMap` | A ConfigMap holding measured per-model settings to layer over the ones the image ships with. Naming a source is what enables the feature — there is no separate flag — and this one is the natural home for a document you were handed: `kubectl create configmap my-tuning --from-file=model-tuning.json`. Mounted read-only at `/app/model-tuning` and named to the app through `AGENT_MODEL_TUNING_PATH` | `""` |
 | `agent.modelTuning.document` | The same document inline, rendered into a ConfigMap by this chart and converted to JSON. For a short overlay; `existingConfigMap` wins when both are given | `{}` |
 | `agent.modelTuning.configMapKey` | The key the document sits under, which is also the file name it is mounted as | `model-tuning.json` |
@@ -681,5 +681,5 @@ startup, readiness and liveness probes. It does not change routes in an already-
 Explicit custom probe paths are preserved. Set Ingress paths or HTTPRoute matches to the same
 prefix and preserve it when forwarding; do not strip or rewrite it.
 
-See [subpath deployment](https://github.com/libredb/libredb-studio/blob/main/docs/SUBPATH.md)
+See [subpath deployment](https://github.com/libredb/dbportal/blob/main/docs/SUBPATH.md)
 for complete build, reverse-proxy and OIDC examples.

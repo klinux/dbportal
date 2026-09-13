@@ -52,7 +52,7 @@ function makeHistory(): TimeSeriesPoint<MonitoringData>[] {
 describe("PerformanceTab", () => {
   afterEach(() => {
     cleanup();
-    localStorage.removeItem("libredb_threshold_config");
+    localStorage.removeItem("dbportal_threshold_config");
   });
 
   test("uses saved monitoring thresholds and falls back for missing metrics", () => {

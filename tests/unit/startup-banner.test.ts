@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { printStartupBanner } from "@/lib/startup-banner";
 
-const ENV_KEYS = ["LIBREDB_NO_BANNER", "NEXT_PUBLIC_APP_VERSION", "PORT"] as const;
+const ENV_KEYS = ["DBPORTAL_NO_BANNER", "NEXT_PUBLIC_APP_VERSION", "PORT"] as const;
 
 /** Run the banner with console.log captured and return everything it printed. */
 function capture(): string {
@@ -68,30 +68,30 @@ describe("printStartupBanner", () => {
     expect(output).toContain("https://github.com/klinux/dbportal");
   });
 
-  test("prints nothing when LIBREDB_NO_BANNER=1", () => {
-    process.env.LIBREDB_NO_BANNER = "1";
+  test("prints nothing when DBPORTAL_NO_BANNER=1", () => {
+    process.env.DBPORTAL_NO_BANNER = "1";
 
     expect(capture()).toBe("");
   });
 
-  test("prints nothing when LIBREDB_NO_BANNER=true (any case)", () => {
-    process.env.LIBREDB_NO_BANNER = "TRUE";
+  test("prints nothing when DBPORTAL_NO_BANNER=true (any case)", () => {
+    process.env.DBPORTAL_NO_BANNER = "TRUE";
 
     expect(capture()).toBe("");
   });
 
-  // `LIBREDB_NO_BANNER: " 1"` is what a compose file or an env file with a
+  // `DBPORTAL_NO_BANNER: " 1"` is what a compose file or an env file with a
   // trailing space produces; an operator who explicitly opted out must be obeyed.
   test("honours an opt-out that carries surrounding whitespace", () => {
     for (const value of [" 1 ", " true ", "\ttrue\n"]) {
-      process.env.LIBREDB_NO_BANNER = value;
+      process.env.DBPORTAL_NO_BANNER = value;
       expect(capture()).toBe("");
     }
   });
 
   test("still prints for values that are not an opt-out", () => {
     for (const value of ["0", "false", "", "yes"]) {
-      process.env.LIBREDB_NO_BANNER = value;
+      process.env.DBPORTAL_NO_BANNER = value;
       expect(capture()).toContain("dbportal");
     }
   });

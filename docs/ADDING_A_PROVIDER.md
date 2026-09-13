@@ -840,13 +840,13 @@ where that numeral introduces a list, refuses a list that does not name every on
 files NOT in that walk have no gate at all, and an abridged list ("and more", or a "from X to Y"
 range) is still checked on its numeral only, deliberately, so that no numeral goes stale (#445):
 
-- [ ] `charts/libredb-studio/Chart.yaml` — the `description`, which is what **ArtifactHub** shows, AND
+- [ ] `charts/dbportal/Chart.yaml` — the `description`, which is what **ArtifactHub** shows, AND
       the `keywords` list, which is what ArtifactHub **searches**. An engine absent from the keywords is
       an engine nobody finds; the chart's own comment says a new engine's keyword belongs in the release
       that ships it, because #167 otherwise makes a keyword-only fix cost a chart version of its own.
       Two names are often right — the type-id and the product a user would type (`libsql` and `turso`)
-- [ ] `operator/helm-charts/libredb-studio/Chart.yaml` — the operator's embedded copy, same edit
-- [ ] `operator/config/manifests/bases/libredb-studio-operator.clusterserviceversion.yaml` — the CSV
+- [ ] `operator/helm-charts/dbportal/Chart.yaml` — the operator's embedded copy, same edit
+- [ ] `operator/config/manifests/bases/dbportal-operator.clusterserviceversion.yaml` — the CSV
       `description`, which is what **OperatorHub** shows. **Edit only this file and then run
       `make -C operator bundle`**: `operator/bundle/manifests/...` is generated from it, and the
       `Verify operator bundle is up to date` step re-runs the generator and diffs, so a hand-wrapped

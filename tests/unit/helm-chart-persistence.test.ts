@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { parseAllDocuments } from "yaml";
 
-const CHART_DIR = join(import.meta.dir, "../../charts/libredb-studio");
+const CHART_DIR = join(import.meta.dir, "../../charts/dbportal");
 
 interface VolumeMount {
   name: string;
@@ -49,7 +49,7 @@ function renderDeployment(extraArgs: string[] = []): RenderedDeployment {
   return deployment;
 }
 
-describe("charts/libredb-studio Deployment /app/data mount (#137)", () => {
+describe("charts/dbportal Deployment /app/data mount (#137)", () => {
   test("default install (persistence.enabled=false) mounts a writable emptyDir at /app/data", () => {
     const podSpec = renderDeployment().spec.template.spec;
 

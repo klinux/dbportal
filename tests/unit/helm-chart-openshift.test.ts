@@ -25,7 +25,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parseAllDocuments } from "yaml";
 
-const CHART_DIR = join(import.meta.dir, "../../charts/libredb-studio");
+const CHART_DIR = join(import.meta.dir, "../../charts/dbportal");
 
 const OPENSHIFT_API = ["--api-versions", "security.openshift.io/v1"];
 
@@ -69,7 +69,7 @@ function appPodSecurityContext(docs: RenderedManifest[]): Record<string, unknown
   return psc;
 }
 
-describe("charts/libredb-studio OpenShift adaptation (#152)", () => {
+describe("charts/dbportal OpenShift adaptation (#152)", () => {
   test("vanilla default keeps the fixed UID/GID fields", () => {
     const psc = appPodSecurityContext(renderDocs([]));
     expect(psc.runAsUser).toBe(1001);
@@ -113,7 +113,7 @@ describe("charts/libredb-studio OpenShift adaptation (#152)", () => {
   });
 });
 
-describe("charts/libredb-studio seedConnections source guard (#152)", () => {
+describe("charts/dbportal seedConnections source guard (#152)", () => {
   test("enabled with neither inline config nor existingConfigMap fails the render", () => {
     const run = helmTemplate(["--set", "seedConnections.enabled=true"]);
     expect(run.exitCode).not.toBe(0);
@@ -163,7 +163,7 @@ describe("charts/libredb-studio seedConnections source guard (#152)", () => {
  * (charts/postgresql-*.tgz is gitignored), so it is vendored on demand -
  * fails loudly when that is impossible rather than silently skipping.
  */
-describe("charts/libredb-studio PostgreSQL subchart contracts (#152)", () => {
+describe("charts/dbportal PostgreSQL subchart contracts (#152)", () => {
   beforeAll(() => {
     const vendored =
       existsSync(join(CHART_DIR, "charts")) &&

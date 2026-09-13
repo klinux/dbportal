@@ -16,9 +16,9 @@ import { parseAllDocuments } from "yaml";
 import { RFC6238_SECRET } from "../helpers/rfc6238";
 import { decodeBase32, TOTP_MIN_SECRET_BYTES } from "@/lib/totp";
 
-const CHART_DIR = join(import.meta.dir, "../../charts/libredb-studio");
+const CHART_DIR = join(import.meta.dir, "../../charts/dbportal");
 const RELEASE = "release-under-test";
-const SECRET_NAME = `${RELEASE}-libredb-studio`;
+const SECRET_NAME = `${RELEASE}-dbportal`;
 
 /** RFC 6238's Appendix B seed, reused here purely as a known-good base32 string. */
 const SECRET = RFC6238_SECRET;
@@ -55,7 +55,7 @@ function envVar(env: EnvVar[], name: string): EnvVar | undefined {
   return env.find((entry) => entry.name === name);
 }
 
-describe("charts/libredb-studio TOTP second factor", () => {
+describe("charts/dbportal TOTP second factor", () => {
   test("writes neither key nor env when no TOTP secret is configured", () => {
     const { secret, env } = renderChart();
 

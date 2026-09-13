@@ -16,10 +16,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const CHART_YAML = "charts/libredb-studio/Chart.yaml";
-const CHART_README = "charts/libredb-studio/README.md";
-const SOURCE_CHART_DIR = "charts/libredb-studio";
-const OPERATOR_CHART_DIR = "operator/helm-charts/libredb-studio";
+const CHART_YAML = "charts/dbportal/Chart.yaml";
+const CHART_README = "charts/dbportal/README.md";
+const SOURCE_CHART_DIR = "charts/dbportal";
+const OPERATOR_CHART_DIR = "operator/helm-charts/dbportal";
 
 /**
  * The OpenShift operator embeds a verbatim copy of the chart (its docker build
@@ -101,7 +101,7 @@ export function refreshOperatorCopy(root) {
  * Filters a chart-dir diff down to the paths whose content ends up inside the
  * packaged .tgz - the only ones that can move the published digest.
  *
- * Mirrors charts/libredb-studio/.helmignore: `ci/` holds chart-testing values,
+ * Mirrors charts/dbportal/.helmignore: `ci/` holds chart-testing values,
  * so editing them cannot change what consumers download and must not demand a
  * version bump. The editor/OS junk patterns in .helmignore are never tracked
  * files, so they are deliberately not mirrored here.
@@ -277,7 +277,7 @@ export function checkSync({
   }
   if (tagQueryNeeded({ baseChart, version, appVersion }) && chartTagExists === true) {
     violations.push(
-      `${CHART_YAML}: chart version '${version}' is already released (tag libredb-studio-${version} exists) - ` +
+      `${CHART_YAML}: chart version '${version}' is already released (tag dbportal-${version} exists) - ` +
         `bump to an unreleased version`,
     );
   }
@@ -289,7 +289,7 @@ export function checkSync({
     const more = chartChanges.length > 3 ? ` (+${chartChanges.length - 3} more)` : "";
     violations.push(
       `${CHART_YAML}: ${SOURCE_CHART_DIR} changed (${shown}${more}) but chart version '${version}' is an ` +
-        `already-released version (tag libredb-studio-${version} exists) - re-publishing it would mutate the ` +
+        `already-released version (tag dbportal-${version} exists) - re-publishing it would mutate the ` +
         `released index/OCI digest (#167). Bump 'version:' and the README --version example instead.`,
     );
   }
@@ -371,7 +371,7 @@ function changedChartFiles(root, baseRef) {
 /** true/false from origin, or null (skip + warn) when the remote is unreachable. */
 function chartTagExistsOnOrigin(root, version) {
   try {
-    return git(root, ["ls-remote", "--tags", "origin", `refs/tags/libredb-studio-${version}`]) !== "";
+    return git(root, ["ls-remote", "--tags", "origin", `refs/tags/dbportal-${version}`]) !== "";
   } catch {
     console.warn("WARN: could not query origin tags (offline?) - skipping the released-version check");
     return null;

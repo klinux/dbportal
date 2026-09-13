@@ -273,7 +273,7 @@ not configuration. Requested 2026-09-13.
 - **Rebrand is a separate, deliberate pass, in layers.** Many occurrences are functional:
   storage keys (`libredb_*` collections, `libredb-storage.db`), env var names, the `libredb`
   engine type and its `@libredb/libredb` dependency, the audit line schema
-  `libredb.audit.v1`, the chart name `charts/libredb-studio`. Do not mass-replace.
+  `dbportal.audit.v1`, the chart name `charts/dbportal`. Do not mass-replace.
   - *Layer 1 — what the browser shows* (done): login page rebuilt around the dbportal
     lockup and three product statements (`src/components/brand-mark.tsx`); the upstream
     marketing hero (engine showcase, install-channel counts, connection-string ticker,
@@ -287,10 +287,23 @@ not configuration. Requested 2026-09-13.
     *libredb-platform* describes upstream channels this snapshot removed (§6); pruning
     those is a docs audit, not a rename, and is still open. `docs/ui/login-page.md`
     describes the upstream login hero that layer 1 replaced.
-  - *Layer 3 — with migration*: `LIBREDB_*` env vars (accept both names for a release),
-    storage keys (migrate on read), chart name, `libredb.audit.v1` schema id, the
-    `admin@libredb.org` / `user@libredb.org` default account emails, the health route's
-    `service: "libredb-studio"` field and the Trino `X-Trino-Source` client name.
+  - *Layer 3 — with migration* (done 2026-09-13):
+    - `LIBREDB_*` env vars → `DBPORTAL_*` through `readEnv()` in
+      [`src/lib/config/env-alias.ts`](../src/lib/config/env-alias.ts): the old name is read
+      when the new one is unset, with one deprecation warning per name. The container's
+      `LIBREDB_BIND` and the e2e script's `LIBREDB_MAIN_CHECKOUT` fall back the same way.
+      **Drop the fallback one release after this.**
+    - Browser storage keys `libredb_*` → `dbportal_*`, moved on first read
+      (`migrateLegacyKey`); the server-migration flag accepts both; the DOM event is
+      `dbportal-storage-change`. The theme key is a clean slate (the default theme once).
+    - Default SQLite path `./data/dbportal-storage.db`; when unset and only the old
+      `libredb-storage.db` exists, that file is used (`resolveStorageSqlitePath`).
+    - Audit line schema id `dbportal.audit.v1` — a contract change for log consumers, done
+      once here rather than kept forever.
+    - Default accounts `admin@dbportal.test` / `user@dbportal.test`; while `ADMIN_EMAIL` /
+      `USER_EMAIL` are unset the old `@libredb.org` addresses still log in (`legacyEmail`).
+    - Chart `charts/dbportal` (helper names, labels, tag prefix `dbportal-`), health
+      `service: "dbportal"`, Trino `X-Trino-Source: dbportal`, container lib path.
   - *Never*: the `libredb` engine type and the `@libredb/libredb` package.
 - **Out of scope:** desktop apps, marketplace listings, npm library packaging, extending the
   AI agent.
@@ -315,6 +328,6 @@ reference it; it can go with the UI/API split.
 - Coverage gate: 100 % line coverage (`bun run coverage:check`). New code ships with tests.
 - Known local-only failure: `tests/unit/db/sqlite-driver.test.ts` needs `node:sqlite`,
   present in bun ≥ 1.4 (CI pins 1.4.2).
-- Chart tests render with `helm`; run `helm dependency build charts/libredb-studio` once.
+- Chart tests render with `helm`; run `helm dependency build charts/dbportal` once.
 - Image: `ghcr.io/klinux/dbportal:main` on every push to `main`; `v*` tags publish semver
   + `latest`. Chart `appVersion` must equal `package.json` version (`bun run chart:check`).

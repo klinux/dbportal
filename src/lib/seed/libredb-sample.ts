@@ -10,18 +10,19 @@ import * as fs from "fs";
 import * as path from "path";
 import type { ManagedConnection } from "./types";
 import { getDataDir } from "@/lib/data-dir";
+import { readEnv } from "@/lib/config/env-alias";
 
 export const SAMPLE_SEED_ID = "libredb-embedded-sample";
 
 /** Default on; only the literal "false" disables. Server-side env. */
 export function isSampleEnabled(): boolean {
-  return process.env.LIBREDB_EMBEDDED_SAMPLE !== "false";
+  return readEnv("EMBEDDED_SAMPLE") !== "false";
 }
 
-/** Override via LIBREDB_EMBEDDED_SAMPLE_PATH, else `<data dir>/sample.libredb`,
+/** Override via DBPORTAL_EMBEDDED_SAMPLE_PATH, else `<data dir>/sample.libredb`,
  * where the data dir mirrors the SQLite storage location (writable in Docker). */
 export function resolveSamplePath(): string {
-  const override = process.env.LIBREDB_EMBEDDED_SAMPLE_PATH;
+  const override = readEnv("EMBEDDED_SAMPLE_PATH");
   if (override) return override;
   return path.join(getDataDir(), "sample.libredb");
 }

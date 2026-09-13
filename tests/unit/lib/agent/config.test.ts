@@ -761,7 +761,7 @@ describe(".env.example", () => {
 });
 
 /**
- * The conversation off-switch, shaped like `LIBREDB_AGENT_ENABLED` and for the same
+ * The conversation off-switch, shaped like `DBPORTAL_AGENT_ENABLED` and for the same
  * two-sided reason: a typo must neither take a working surface away nor turn one on.
  */
 describe("isThreadContextEnabled", () => {

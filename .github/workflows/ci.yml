@@ -47,9 +47,9 @@ jobs:
         with:
           version: v4.1.3
       - run: helm repo add bitnami https://charts.bitnami.com/bitnami --timeout 5m
-      - run: helm dependency build charts/libredb-studio --skip-refresh
-      - run: helm lint charts/libredb-studio --strict
-      - run: helm template dbportal charts/libredb-studio > /dev/null
+      - run: helm dependency build charts/dbportal --skip-refresh
+      - run: helm lint charts/dbportal --strict
+      - run: helm template dbportal charts/dbportal > /dev/null
 
   test:
     name: Core and component tests
@@ -66,5 +66,5 @@ jobs:
         with:
           version: v4.1.3
       - run: helm repo add bitnami https://charts.bitnami.com/bitnami --timeout 5m
-      - run: helm dependency build charts/libredb-studio --skip-refresh
+      - run: helm dependency build charts/dbportal --skip-refresh
       - run: bun run test:ci

@@ -40,7 +40,7 @@
  * Run it against a MySQL and a MariaDB, because the two differ: MariaDB has three TABLE_TYPE
  * spellings MySQL has none of. A run against only one server is half a measurement.
  *
- *   LIBREDB_LIVE_MYSQL_URLS="mysql://root:root@127.0.0.1:33126/app,mysql://root:root@127.0.0.1:33127/app" \
+ *   DBPORTAL_LIVE_MYSQL_URLS="mysql://root:root@127.0.0.1:33126/app,mysql://root:root@127.0.0.1:33127/app" \
  *     bun tests/live/mysql-object-vocabulary.ts
  *
  * The URLs must point at DISPOSABLE servers. This script only reads, but it reads every schema
@@ -68,10 +68,10 @@ const PROBES = [
 ];
 
 function urls(): string[] {
-  const raw = process.env.LIBREDB_LIVE_MYSQL_URLS;
+  const raw = process.env.DBPORTAL_LIVE_MYSQL_URLS;
   if (!raw) {
     throw new Error(
-      "Set LIBREDB_LIVE_MYSQL_URLS to a comma-separated list of disposable MySQL-wire URLs. " +
+      "Set DBPORTAL_LIVE_MYSQL_URLS to a comma-separated list of disposable MySQL-wire URLs. " +
         "Include a MySQL and a MariaDB: they do not have the same TABLE_TYPE set.",
     );
   }

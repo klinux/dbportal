@@ -11,9 +11,9 @@ set -e
 # operator sets is honoured verbatim by the resolver. See docker/bind-address.mjs
 # for why `::` is proven per container rather than assumed (issue #432).
 #
-# LIBREDB_BIND_RESOLVER is an internal test seam, not a supported knob: it lets
+# DBPORTAL_BIND_RESOLVER (LIBREDB_BIND_RESOLVER for one release) is an internal test seam, not a supported knob: it lets
 # the unit test point the entrypoint at a fixture. Do not document it.
-RESOLVER="${LIBREDB_BIND_RESOLVER:-/usr/local/lib/libredb-studio/bind-address.mjs}"
+RESOLVER="${DBPORTAL_BIND_RESOLVER:-${LIBREDB_BIND_RESOLVER:-/usr/local/lib/dbportal/bind-address.mjs}}"
 RESOLVED=""
 if [ -r "$RESOLVER" ]; then
   # Only a clean exit is trusted; the resolver prints the address on stdout and

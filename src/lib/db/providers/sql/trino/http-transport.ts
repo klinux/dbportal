@@ -129,7 +129,7 @@ const HEADER_SUFFIXES = Object.freeze({
  * how an operator attributes load and how resource groups route it. A cluster
  * whose queries all say "unknown" cannot be operated.
  */
-const CLIENT_SOURCE = "libredb-studio";
+const CLIENT_SOURCE = "dbportal";
 
 /**
  * Timestamps render in this zone rather than the cluster's.

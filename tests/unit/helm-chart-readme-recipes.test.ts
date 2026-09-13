@@ -1,5 +1,5 @@
 /**
- * Static lint over the copy-paste `helm` recipes in charts/libredb-studio/README.md.
+ * Static lint over the copy-paste `helm` recipes in charts/dbportal/README.md.
  *
  * A README recipe is not executable, so nothing rendered it and both hazards below
  * shipped. Measured on 2026-08-25 against helm v4.1.3 and the real chart:
@@ -32,7 +32,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "../..");
-const README = "charts/libredb-studio/README.md";
+const README = "charts/dbportal/README.md";
 
 interface SetArg {
   /** "--set" or "--set-string" */

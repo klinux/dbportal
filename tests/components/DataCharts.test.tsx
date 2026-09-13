@@ -133,23 +133,23 @@ mock.module("@/components/ui/dropdown-menu", () => ({
 
 const mockGetSavedCharts = mock(() => {
   try {
-    const stored = localStorage.getItem("libredb_saved_charts");
+    const stored = localStorage.getItem("dbportal_saved_charts");
     return stored ? JSON.parse(stored) : [];
   } catch {
     return [];
   }
 });
 const mockSaveChart = mock((chart: Record<string, unknown>) => {
-  const stored = localStorage.getItem("libredb_saved_charts");
+  const stored = localStorage.getItem("dbportal_saved_charts");
   const charts = stored ? JSON.parse(stored) : [];
   charts.push(chart);
-  localStorage.setItem("libredb_saved_charts", JSON.stringify(charts));
+  localStorage.setItem("dbportal_saved_charts", JSON.stringify(charts));
 });
 const mockDeleteChart = mock((id: string) => {
-  const stored = localStorage.getItem("libredb_saved_charts");
+  const stored = localStorage.getItem("dbportal_saved_charts");
   const charts = stored ? JSON.parse(stored) : [];
   const filtered = charts.filter((c: Record<string, unknown>) => c.id !== id);
-  localStorage.setItem("libredb_saved_charts", JSON.stringify(filtered));
+  localStorage.setItem("dbportal_saved_charts", JSON.stringify(filtered));
 });
 
 mock.module("@/lib/storage", () => ({
@@ -322,7 +322,7 @@ describe("DataCharts", () => {
     // Clear localStorage saved charts
     if (typeof localStorage !== "undefined") {
       try {
-        localStorage.removeItem("libredb_saved_charts");
+        localStorage.removeItem("dbportal_saved_charts");
       } catch {
         /* ignore */
       }
@@ -760,7 +760,7 @@ describe("DataCharts", () => {
     const dialogSave = saveBtns[saveBtns.length - 1];
     await user.click(dialogSave);
 
-    const stored = localStorage.getItem("libredb_saved_charts");
+    const stored = localStorage.getItem("dbportal_saved_charts");
     expect(stored).not.toBeNull();
     const parsed = JSON.parse(stored!);
     expect(parsed.length).toBe(1);
@@ -777,7 +777,7 @@ describe("DataCharts", () => {
     const dialogSave = saveBtns[saveBtns.length - 1];
     await user.click(dialogSave);
 
-    const stored = localStorage.getItem("libredb_saved_charts");
+    const stored = localStorage.getItem("dbportal_saved_charts");
     expect(stored).toBeNull();
   });
 
@@ -793,7 +793,7 @@ describe("DataCharts", () => {
         dateGrouping: "",
       },
     ];
-    localStorage.setItem("libredb_saved_charts", JSON.stringify(savedCharts));
+    localStorage.setItem("dbportal_saved_charts", JSON.stringify(savedCharts));
 
     const { queryByText } = render(React.createElement(DataCharts, { result: mockNumericResult }));
     expect(queryByText("Saved (1)")).not.toBeNull();
@@ -811,7 +811,7 @@ describe("DataCharts", () => {
         dateGrouping: "month",
       },
     ];
-    localStorage.setItem("libredb_saved_charts", JSON.stringify(savedCharts));
+    localStorage.setItem("dbportal_saved_charts", JSON.stringify(savedCharts));
 
     const { queryByText } = render(React.createElement(DataCharts, { result: mockNumericResult }));
     expect(queryByText("Saved (1)")).not.toBeNull();
@@ -835,7 +835,7 @@ describe("DataCharts", () => {
         dateGrouping: "",
       },
     ];
-    localStorage.setItem("libredb_saved_charts", JSON.stringify(savedCharts));
+    localStorage.setItem("dbportal_saved_charts", JSON.stringify(savedCharts));
 
     const { container } = render(React.createElement(DataCharts, { result: mockNumericResult }));
     // Find the delete button inside the saved chart dropdown (has .lucide-x SVG)
@@ -843,7 +843,7 @@ describe("DataCharts", () => {
     expect(deleteBtn).not.toBeNull();
     await user.click(deleteBtn!);
 
-    const stored = localStorage.getItem("libredb_saved_charts");
+    const stored = localStorage.getItem("dbportal_saved_charts");
     const parsed = JSON.parse(stored || "[]");
     expect(parsed.length).toBe(0);
   });
@@ -1115,7 +1115,7 @@ describe("DataCharts", () => {
 
   test("loading a saved chart applies its stored configuration", () => {
     localStorage.setItem(
-      "libredb_saved_charts",
+      "dbportal_saved_charts",
       JSON.stringify([
         {
           id: "chart-1",

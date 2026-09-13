@@ -146,7 +146,7 @@ The chart carries the secret in its Kubernetes `Secret` and references it from t
 never appears in the Deployment spec:
 
 ```bash
-helm install dbportal charts/libredb-studio \
+helm install dbportal charts/dbportal \
   --set secrets.adminPassword=MyAdmin123 \
   --set secrets.adminTotpSecret="$ADMIN_TOTP_SECRET"
 ```

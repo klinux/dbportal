@@ -5,7 +5,7 @@ import { join, relative } from "node:path";
 
 /**
  * Threat: a route that records an audit event in the ring buffer WITHOUT the authoritative
- * `libredb.audit.v1` stdout line. `src/lib/audit.ts` exports both `emitAuditEvent` (buffer AND
+ * `dbportal.audit.v1` stdout line. `src/lib/audit.ts` exports both `emitAuditEvent` (buffer AND
  * stdout) and `getServerAuditBuffer` (buffer only), and an event pushed straight to the buffer is
  * visible in the admin UI, invisible to every log pipeline, and caught by no other test - the
  * existing audit tests pin the CONTENT of the stdout line, never the set of call sites permitted
@@ -130,7 +130,7 @@ describe("the authoritative audit channel has no unlisted bypass", () => {
       const entry = BUFFER_PUSH_ALLOWLIST[file];
       if (!entry) {
         throw new Error(
-          `${file} pushes to the audit ring buffer ${use.pushes}x without writing the libredb.audit.v1 stdout line. ` +
+          `${file} pushes to the audit ring buffer ${use.pushes}x without writing the dbportal.audit.v1 stdout line. ` +
             `Use emitAuditEvent, or add an allowlist entry with a reason in tests/security/audit-channel-callsites.test.ts.`,
         );
       }

@@ -380,7 +380,7 @@ export function canReveal(role: string | undefined, config: MaskingConfig): bool
 
 import { storage } from "@/lib/storage";
 
-export const MASKING_CONFIG_KEY = "libredb_masking_config";
+export const MASKING_CONFIG_KEY = "dbportal_masking_config";
 
 export function loadMaskingConfig(): MaskingConfig {
   return storage.getMaskingConfig();

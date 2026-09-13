@@ -2,12 +2,12 @@
  * The chart's `agent` block (#331 T8).
  *
  * T5 made agent availability DERIVED — a configured model plus a writable ledger —
- * and left `LIBREDB_AGENT_ENABLED` as the explicit off-switch whose default is
+ * and left `DBPORTAL_AGENT_ENABLED` as the explicit off-switch whose default is
  * *auto*. The chart is the last place that still stated the pre-T5 default, and a
  * chart that hard-codes a value would undo the derivation for every Kubernetes
  * install. So the rules under test are:
  *
- *  1. **A default render writes no `LIBREDB_AGENT_ENABLED`, and DOES write the
+ *  1. **A default render writes no `DBPORTAL_AGENT_ENABLED`, and DOES write the
  *     ledger directory.** The second half is not a duplicated default for its own
  *     sake, it is the release topology: `image.tag` defaults to `.Chart.AppVersion`,
  *     and the Dockerfile's `WORKFLOW_LOCAL_DATA_DIR` landed after that app version
@@ -36,7 +36,7 @@ import { join } from "node:path";
 import { parseAllDocuments } from "yaml";
 
 const ROOT = join(import.meta.dir, "../..");
-const CHART_DIR = join(ROOT, "charts/libredb-studio");
+const CHART_DIR = join(ROOT, "charts/dbportal");
 const read = (relative: string): string => readFileSync(join(ROOT, relative), "utf8");
 
 // Long enough for values.schema.json's 32-char minimum: every multi-replica case
@@ -85,8 +85,8 @@ const named = (env: EnvVar[], name: string): EnvVar | undefined => env.find((ent
 const LEDGER_PATH = "/app/data/workflow";
 
 describe("a default render leaves the runtime's own answer alone", () => {
-  test("no LIBREDB_AGENT_ENABLED is written, so availability stays derived", () => {
-    expect(named(containerEnv(), "LIBREDB_AGENT_ENABLED")).toBeUndefined();
+  test("no DBPORTAL_AGENT_ENABLED is written, so availability stays derived", () => {
+    expect(named(containerEnv(), "DBPORTAL_AGENT_ENABLED")).toBeUndefined();
   });
 
   test("the ledger directory IS written, inside the volume mounted on /app/data", () => {
@@ -130,8 +130,8 @@ describe("a default render leaves the runtime's own answer alone", () => {
 });
 
 describe("agent.enabled is the explicit off-switch", () => {
-  test("false writes LIBREDB_AGENT_ENABLED as the string the API server accepts", () => {
-    const flag = named(containerEnv(["--set", "agent.enabled=false"]), "LIBREDB_AGENT_ENABLED");
+  test("false writes DBPORTAL_AGENT_ENABLED as the string the API server accepts", () => {
+    const flag = named(containerEnv(["--set", "agent.enabled=false"]), "DBPORTAL_AGENT_ENABLED");
     // Not `false` the boolean: EnvVar.value is a string, and the chart quoting it
     // is what makes `--set-string` unnecessary for an operator.
     expect(flag?.value).toBe("false");
@@ -139,7 +139,7 @@ describe("agent.enabled is the explicit off-switch", () => {
   });
 
   test("true is accepted and explicit, and is also written as a string", () => {
-    const flag = named(containerEnv(["--set", "agent.enabled=true"]), "LIBREDB_AGENT_ENABLED");
+    const flag = named(containerEnv(["--set", "agent.enabled=true"]), "DBPORTAL_AGENT_ENABLED");
     expect(flag?.value).toBe("true");
   });
 
@@ -148,11 +148,11 @@ describe("agent.enabled is the explicit off-switch", () => {
       "--set",
       "agent.enabled=false",
       "--set",
-      "extraEnv[0].name=LIBREDB_AGENT_ENABLED",
+      "extraEnv[0].name=DBPORTAL_AGENT_ENABLED",
       "--set-string",
       "extraEnv[0].value=true",
     ]);
-    const positions = env.flatMap((entry, index) => (entry.name === "LIBREDB_AGENT_ENABLED" ? [index] : []));
+    const positions = env.flatMap((entry, index) => (entry.name === "DBPORTAL_AGENT_ENABLED" ? [index] : []));
     expect(positions.length).toBe(2);
     expect(env[positions[0]].value).toBe("false");
     expect(env[positions[1]].value).toBe("true");
@@ -206,7 +206,7 @@ describe("multi-replica with an agent that could run fails to render", () => {
   test("the key-optional set is exactly the schema enum minus the key-requiring providers", () => {
     // A provider added to values.schema.json without being classified here would
     // reopen the hole silently, so the enum itself is the fixture.
-    const schema = JSON.parse(read("charts/libredb-studio/values.schema.json"));
+    const schema = JSON.parse(read("charts/dbportal/values.schema.json"));
     const enumerated: string[] = schema.properties.config.properties.llmProvider.enum;
     expect(enumerated.filter((value) => value !== "").sort()).toEqual(["custom", "gemini", "ollama", "openai"]);
     // gemini/openai carry no inline key here, so they must NOT fire the guard.
@@ -307,7 +307,7 @@ describe("the guard's blind spots are real, and completely listed", () => {
     expect(helmTemplate([...args, "--set", "replicaCount=2", ...JWT]).exitCode).toBe(0);
   });
 
-  test.each(["charts/libredb-studio/README.md", "charts/libredb-studio/templates/_helpers.tpl"])(
+  test.each(["charts/dbportal/README.md", "charts/dbportal/templates/_helpers.tpl"])(
     "%s names every one of them",
     (file) => {
       const text = read(file);
@@ -324,8 +324,8 @@ describe("an operator is told where run history lives", () => {
     // freely, and helm-release's ct install job still pins to Helm 3.16. An
     // assertion on stdout would pass on one machine and fail on the other. What
     // must not silently disappear is the note and its condition.
-    const notes = read("charts/libredb-studio/templates/NOTES.txt");
-    const block = notes.split(/^{{- if and \(include "libredb-studio\.agentPossible"/m)[1] ?? "";
+    const notes = read("charts/dbportal/templates/NOTES.txt");
+    const block = notes.split(/^{{- if and \(include "dbportal\.agentPossible"/m)[1] ?? "";
     expect(block).toContain("persistenceEnabled");
     expect(block).toMatch(/emptyDir/);
     expect(block).toContain("persistence.enabled=true");
@@ -334,7 +334,7 @@ describe("an operator is told where run history lives", () => {
   test("values.yaml states it where the field is configured", () => {
     // The whole section an operator reads before editing the field: its header
     // comment plus the field itself, bounded by the next section banner.
-    const values = read("charts/libredb-studio/values.yaml");
+    const values = read("charts/dbportal/values.yaml");
     const section = values.split(/^# Agent Runtime$/m)[1]?.split(/^# Persistence/m)[0] ?? "";
     expect(section).toContain("agent:");
     expect(section).toContain("persistence.enabled");
@@ -343,7 +343,7 @@ describe("an operator is told where run history lives", () => {
 
   test("the chart README states it in the agent section", () => {
     const section =
-      read("charts/libredb-studio/README.md")
+      read("charts/dbportal/README.md")
         .split(/^## Agent Runtime/m)[1]
         ?.split(/^## /m)[0] ?? "";
     expect(section).toMatch(/emptyDir/);
@@ -359,11 +359,7 @@ describe("the chart no longer states the pre-T5 default", () => {
    * drift guards on the correction, not on prose style — each pattern is the exact
    * wording that used to be there.
    */
-  const FILES = [
-    "charts/libredb-studio/README.md",
-    "charts/libredb-studio/values.yaml",
-    "charts/libredb-studio/Chart.yaml",
-  ];
+  const FILES = ["charts/dbportal/README.md", "charts/dbportal/values.yaml", "charts/dbportal/Chart.yaml"];
 
   test.each(FILES)("%s does not say the agent is off by default", (file) => {
     expect(read(file)).not.toMatch(/off by default/i);
@@ -375,7 +371,7 @@ describe("the chart no longer states the pre-T5 default", () => {
 
   test("the README says what IS required now: an AI configuration, not the flag", () => {
     const section =
-      read("charts/libredb-studio/README.md")
+      read("charts/dbportal/README.md")
         .split(/^## Agent Runtime/m)[1]
         ?.split(/^## /m)[0] ?? "";
     expect(section).toMatch(/derive/i);
@@ -477,7 +473,7 @@ describe("the chart mounts an operator's model-tuning document", () => {
     expect(JSON.parse(mounted?.data["model-tuning.json"] ?? "")).toEqual(DOCUMENT);
     expect(volumes).toContainEqual({
       name: "agent-model-tuning",
-      configMap: { name: "release-under-test-libredb-studio-agent-model-tuning" },
+      configMap: { name: "release-under-test-dbportal-agent-model-tuning" },
     });
   });
 

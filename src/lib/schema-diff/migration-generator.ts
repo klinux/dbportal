@@ -65,7 +65,7 @@ const NO_COLUMN_MODIFICATION: Partial<Record<DatabaseType, { label: string; reas
   // while sqld 0.24.33 ships 3.47.0, so declining every modification is still right here.
   // The `sqlite` branch below declines it too, and deliberately: that provider runs on
   // whichever SQLite its runtime bundles - `bun:sqlite` or `node:sqlite`, chosen at runtime
-  // with `LIBREDB_SQLITE_DRIVER` as an override - so emitting the statement would write a
+  // with `DBPORTAL_SQLITE_DRIVER` as an override - so emitting the statement would write a
   // migration file that succeeds on one deployment and fails on another. A file handed to a
   // human to run elsewhere makes that guess worse than the decline.
   libsql: {

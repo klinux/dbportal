@@ -14,8 +14,8 @@ afterEach(() => {
     /* ignore */
   }
   tmpDir = undefined;
-  delete process.env.LIBREDB_EMBEDDED_SAMPLE;
-  delete process.env.LIBREDB_EMBEDDED_SAMPLE_PATH;
+  delete process.env.DBPORTAL_EMBEDDED_SAMPLE;
+  delete process.env.DBPORTAL_EMBEDDED_SAMPLE_PATH;
 });
 
 function useTempSamplePath(): void {
@@ -23,7 +23,7 @@ function useTempSamplePath(): void {
   // (avoids the predictable-name race CodeQL flags for os.tmpdir + Math.random).
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "libredb-mc-"));
   file = path.join(tmpDir, "sample.libredb");
-  process.env.LIBREDB_EMBEDDED_SAMPLE_PATH = file;
+  process.env.DBPORTAL_EMBEDDED_SAMPLE_PATH = file;
 }
 
 describe("getManagedConnections — embedded sample", () => {
@@ -47,7 +47,7 @@ describe("getManagedConnections — embedded sample", () => {
   test("excludes the sample when disabled", async () => {
     useTempSamplePath();
     fs.writeFileSync(file, "");
-    process.env.LIBREDB_EMBEDDED_SAMPLE = "false";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE = "false";
     const conns = await getManagedConnections(["*"]);
     expect(conns.find((c) => c.seedId === SAMPLE_SEED_ID)).toBeUndefined();
   });

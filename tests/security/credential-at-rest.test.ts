@@ -216,7 +216,7 @@ describe("a key the store cannot be opened with", () => {
  * bootstrap persists in auth-bootstrap.json (src/lib/auth-bootstrap.ts), and both that file and the
  * SQLite store resolve their directory through the SAME function - getDataDir() - reading the SAME
  * STORAGE_SQLITE_PATH. The Helm chart then mounts that one directory as a single /app/data volume
- * (charts/libredb-studio/templates/deployment.yaml). A snapshot of it therefore contains the
+ * (charts/dbportal/templates/deployment.yaml). A snapshot of it therefore contains the
  * ciphertext and the key that opens it side by side; docs/SECURITY.md and docs/STORAGE.md scope
  * their "protects a backup or volume snapshot" claim to exclude this case for exactly that reason.
  *

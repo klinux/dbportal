@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { AuthConfigError } from "@/lib/auth-errors";
-import { getAuthUsers } from "@/lib/local-auth";
+import { getAuthUsers, findAuthUser } from "@/lib/local-auth";
 import { RFC6238_SECRET } from "../../helpers/rfc6238";
 
 describe("local-auth getAuthUsers()", () => {
@@ -77,8 +77,8 @@ describe("local-auth getAuthUsers()", () => {
 
     const users = getAuthUsers();
 
-    expect(users.find((u) => u.role === "admin")?.email).toBe("admin@libredb.org");
-    expect(users.find((u) => u.role === "user")?.email).toBe("user@libredb.org");
+    expect(users.find((u) => u.role === "admin")?.email).toBe("admin@dbportal.test");
+    expect(users.find((u) => u.role === "user")?.email).toBe("user@dbportal.test");
   });
 
   describe("TOTP secrets", () => {
@@ -184,6 +184,25 @@ describe("local-auth getAuthUsers()", () => {
       process.env.USER_TOTP_SECRET = "not-base32!";
 
       expect(getAuthUsers()).toHaveLength(1);
+    });
+  });
+
+  // docs/CONTEXT.md §5, layer 3: the snapshot's default addresses still log in while the
+  // operator has not named the accounts, and stop the moment they do.
+  describe("legacy default addresses", () => {
+    test("the old defaults answer to findAuthUser only while ADMIN_EMAIL / USER_EMAIL are unset", () => {
+      delete process.env.ADMIN_EMAIL;
+      delete process.env.USER_EMAIL;
+      process.env.ADMIN_PASSWORD = "pw";
+      process.env.USER_PASSWORD = "pw2";
+      const users = getAuthUsers();
+      expect(findAuthUser(users, "admin@libredb.org")?.email).toBe("admin@dbportal.test");
+      expect(findAuthUser(users, "user@dbportal.test")?.role).toBe("user");
+      expect(findAuthUser(users, "nobody@libredb.org")).toBeUndefined();
+      process.env.ADMIN_EMAIL = "root@example.test";
+      const named = getAuthUsers();
+      expect(findAuthUser(named, "admin@libredb.org")).toBeUndefined();
+      expect(findAuthUser(named, "root@example.test")?.role).toBe("admin");
     });
   });
 });

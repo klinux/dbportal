@@ -30,7 +30,7 @@ const ENTRYPOINT = join(import.meta.dir, "../../docker-entrypoint.sh");
  */
 const STUB_NODE_SCRIPT = [
   "#!/bin/sh",
-  'if [ -n "$LIBREDB_BIND_RESOLVER" ] && [ "$1" = "$LIBREDB_BIND_RESOLVER" ]; then',
+  'if [ -n "$DBPORTAL_BIND_RESOLVER" ] && [ "$1" = "$DBPORTAL_BIND_RESOLVER" ]; then',
   '  sh "$1"',
   "  exit $?",
   "fi",
@@ -63,7 +63,7 @@ describe("docker-entrypoint.sh bind address (#432)", () => {
       env: {
         ...process.env,
         PATH: `${binDir}:${process.env.PATH}`,
-        LIBREDB_BIND_RESOLVER: resolver,
+        DBPORTAL_BIND_RESOLVER: resolver,
         HOSTNAME: "",
       },
       stdout: "pipe",

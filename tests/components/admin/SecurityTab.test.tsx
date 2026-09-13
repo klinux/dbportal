@@ -48,7 +48,7 @@ describe("SecurityTab", () => {
   beforeEach(() => {
     // Clear localStorage between tests
     if (typeof localStorage !== "undefined") {
-      localStorage.removeItem("libredb_threshold_config");
+      localStorage.removeItem("dbportal_threshold_config");
     }
   });
 
@@ -297,7 +297,7 @@ describe("SecurityTab", () => {
     });
 
     // Verify localStorage was written
-    const stored = localStorage.getItem("libredb_threshold_config");
+    const stored = localStorage.getItem("dbportal_threshold_config");
     expect(stored).not.toBeNull();
     const parsed = JSON.parse(stored!);
     expect(Array.isArray(parsed)).toBe(true);
@@ -315,7 +315,7 @@ describe("SecurityTab", () => {
       { metric: "cacheHitRatio", warning: 50, critical: 30, direction: "below", label: "Cache Hit Ratio" },
       { metric: "connectionPercent", warning: 60, critical: 85, direction: "above", label: "Connection Usage" },
     ];
-    localStorage.setItem("libredb_threshold_config", JSON.stringify(custom));
+    localStorage.setItem("dbportal_threshold_config", JSON.stringify(custom));
 
     let renderResult: ReturnType<typeof render>;
     await act(async () => {
@@ -340,7 +340,7 @@ describe("SecurityTab", () => {
     });
 
     // Verify localStorage was overwritten with defaults
-    const stored = localStorage.getItem("libredb_threshold_config");
+    const stored = localStorage.getItem("dbportal_threshold_config");
     expect(stored).not.toBeNull();
     const parsed = JSON.parse(stored!);
     expect(parsed[0].warning).toBe(90);
@@ -356,7 +356,7 @@ describe("SecurityTab", () => {
       { metric: "cacheHitRatio", warning: 55, critical: 40, direction: "below", label: "Cache Hit Ratio" },
       { metric: "connectionPercent", warning: 65, critical: 88, direction: "above", label: "Connection Usage" },
     ];
-    localStorage.setItem("libredb_threshold_config", JSON.stringify(custom));
+    localStorage.setItem("dbportal_threshold_config", JSON.stringify(custom));
 
     let renderResult: ReturnType<typeof render>;
     await act(async () => {

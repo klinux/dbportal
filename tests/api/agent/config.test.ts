@@ -2,7 +2,7 @@
  * The agent capability probe (#329 T10a; derived availability #331 T5): what the
  * browser is allowed to know about whether this server runs agents.
  *
- * The rail cannot read the server's configuration — `LIBREDB_AGENT_ENABLED` and the
+ * The rail cannot read the server's configuration — `DBPORTAL_AGENT_ENABLED` and the
  * `LLM_*` keys are server-side only, and the standalone pages are statically
  * prerendered, so baking an answer into the bundle at build time would answer for
  * the build rather than for the operator's running container. Discovery is therefore

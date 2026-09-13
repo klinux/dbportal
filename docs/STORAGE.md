@@ -90,14 +90,14 @@ STORAGE_PROVIDER=sqlite
 bun dev
 ```
 
-That's it. When `STORAGE_SQLITE_PATH` is not provided, the default path is `./data/libredb-storage.db`.
+That's it. When `STORAGE_SQLITE_PATH` is not provided, the default path is `./data/dbportal-storage.db` (an existing `./data/libredb-storage.db` from the snapshot is still used when the new file does not exist yet`.
 
 ### What Happens Automatically
 
 On the first API request, the SQLite provider:
 
 1. **Creates the directory** — `./data/` (or whatever parent directory the path points to) is created recursively if it doesn't exist
-2. **Creates the database file** — `libredb-storage.db` is created by `better-sqlite3`
+2. **Creates the database file** — `dbportal-storage.db` is created by `better-sqlite3`
 3. **Enables WAL mode** — Write-Ahead Logging for better concurrent read performance
 4. **Creates the table** — `user_storage` table with the schema below
 
@@ -126,7 +126,7 @@ services:
       - "3000:3000"
     environment:
       - STORAGE_PROVIDER=sqlite
-      - STORAGE_SQLITE_PATH=/app/data/libredb-storage.db
+      - STORAGE_SQLITE_PATH=/app/data/dbportal-storage.db
     volumes:
       - storage-data:/app/data
 
@@ -476,7 +476,7 @@ version column. A row that is never written again stays plaintext — which is w
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `STORAGE_PROVIDER` | No | `local` | `local`, `sqlite`, or `postgres` |
-| `STORAGE_SQLITE_PATH` | No | `./data/libredb-storage.db` | Path to SQLite file. Directory and file are auto-created. |
+| `STORAGE_SQLITE_PATH` | No | `./data/dbportal-storage.db` | Path to SQLite file. Directory and file are auto-created. |
 | `STORAGE_POSTGRES_URL` | **Yes** (postgres mode) | — | PostgreSQL connection string. **No default — app will error without it.** |
 
 > These are **server-side only** variables (no `NEXT_PUBLIC_` prefix). The client discovers the mode at runtime via `GET /api/storage/config`. This means one Docker image works for all modes. See [Why Not `NEXT_PUBLIC_*`?](#why-not-next_public_) for the rationale.
@@ -853,7 +853,7 @@ interface ServerStorageProvider {
 
 ```env
 STORAGE_PROVIDER=sqlite
-STORAGE_SQLITE_PATH=./data/libredb-storage.db   # default
+STORAGE_SQLITE_PATH=./data/dbportal-storage.db   # default
 ```
 
 ### 7.3 PostgreSQL Provider
@@ -1034,7 +1034,7 @@ This ensures existing localStorage data is preserved when transitioning to serve
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
 | `STORAGE_PROVIDER` | `local` | No | Storage backend: `local`, `sqlite`, or `postgres` |
-| `STORAGE_SQLITE_PATH` | `./data/libredb-storage.db` | No | Path to SQLite database file |
+| `STORAGE_SQLITE_PATH` | `./data/dbportal-storage.db` | No | Path to SQLite database file |
 | `STORAGE_POSTGRES_URL` | — | If `postgres` | PostgreSQL connection string (`sslmode=disable` local, `sslmode=require` cloud) |
 
 ### Why Not `NEXT_PUBLIC_*`?
@@ -1085,7 +1085,7 @@ services:
   libredb-studio:
     environment:
       STORAGE_PROVIDER: sqlite
-      STORAGE_SQLITE_PATH: /app/data/libredb-storage.db
+      STORAGE_SQLITE_PATH: /app/data/dbportal-storage.db
     volumes:
       - storage-data:/app/data
 

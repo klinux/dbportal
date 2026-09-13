@@ -17,6 +17,21 @@ export interface AuthUser {
    * be protected while an automation-owned lower-privilege account is not.
    */
   totpSecret?: string;
+  /**
+   * The address this account answered to before the rename (docs/CONTEXT.md §5, layer 3),
+   * accepted at login for one release - only while the operator has not named the account.
+   */
+  legacyEmail?: string;
+}
+
+export const DEFAULT_ADMIN_EMAIL = "admin@dbportal.test";
+export const DEFAULT_USER_EMAIL = "user@dbportal.test";
+const LEGACY_ADMIN_EMAIL = "admin@libredb.org";
+const LEGACY_USER_EMAIL = "user@libredb.org";
+
+/** The configured account the submitted address names, its legacy default included. */
+export function findAuthUser(users: readonly AuthUser[], email: string): AuthUser | undefined {
+  return users.find((u) => u.email === email || (u.legacyEmail !== undefined && u.legacyEmail === email));
 }
 
 // Single-line and module-scoped so bun's line coverage credits it cleanly (it
@@ -66,7 +81,7 @@ function readTotpSecret(variable: string): string | undefined {
  * @throws {AuthConfigError} when ADMIN_PASSWORD is not configured.
  */
 export function getAuthUsers(): AuthUser[] {
-  const adminEmail = process.env.ADMIN_EMAIL || "admin@libredb.org";
+  const adminEmail = process.env.ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL;
   const adminPassword = process.env.ADMIN_PASSWORD;
 
   if (!adminPassword) {
@@ -74,19 +89,26 @@ export function getAuthUsers(): AuthUser[] {
   }
 
   const users: AuthUser[] = [
-    { email: adminEmail, password: adminPassword, role: "admin", totpSecret: readTotpSecret("ADMIN_TOTP_SECRET") },
+    {
+      email: adminEmail,
+      password: adminPassword,
+      role: "admin",
+      totpSecret: readTotpSecret("ADMIN_TOTP_SECRET"),
+      ...(process.env.ADMIN_EMAIL ? {} : { legacyEmail: LEGACY_ADMIN_EMAIL }),
+    },
   ];
 
   // USER_TOTP_SECRET is read only when the account it protects exists. Set without USER_PASSWORD
   // it is inert rather than a hole: with no password there is no user account to log into at all.
   const userPassword = process.env.USER_PASSWORD;
   if (userPassword) {
-    const userEmail = process.env.USER_EMAIL || "user@libredb.org";
+    const userEmail = process.env.USER_EMAIL || DEFAULT_USER_EMAIL;
     users.push({
       email: userEmail,
       password: userPassword,
       role: "user",
       totpSecret: readTotpSecret("USER_TOTP_SECRET"),
+      ...(process.env.USER_EMAIL ? {} : { legacyEmail: LEGACY_USER_EMAIL }),
     });
   }
 

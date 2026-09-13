@@ -415,7 +415,7 @@ describe("useTabManager", () => {
   });
 
   test("load — corrupted JSON falls back to DEFAULT_TAB", async () => {
-    localStorage.setItem("libredb_workspace_tabs_v1:default", "<<<INVALID JSON>>>");
+    localStorage.setItem("dbportal_workspace_tabs_v1:default", "<<<INVALID JSON>>>");
 
     const { result } = renderHook(() =>
       useTabManager({
@@ -434,7 +434,7 @@ describe("useTabManager", () => {
   });
 
   test("load — empty tabs array falls back to DEFAULT_TAB", async () => {
-    localStorage.setItem("libredb_workspace_tabs_v1:default", JSON.stringify({ activeTabId: "x", tabs: [] }));
+    localStorage.setItem("dbportal_workspace_tabs_v1:default", JSON.stringify({ activeTabId: "x", tabs: [] }));
 
     const { result } = renderHook(() =>
       useTabManager({
@@ -453,7 +453,7 @@ describe("useTabManager", () => {
 
   test("load — stored activeTabId not in tabs falls back to first tab", async () => {
     localStorage.setItem(
-      "libredb_workspace_tabs_v1:default",
+      "dbportal_workspace_tabs_v1:default",
       JSON.stringify({
         activeTabId: "non-existent-id",
         tabs: [
@@ -480,7 +480,7 @@ describe("useTabManager", () => {
 
   test("restores tabs and active tab from workspace storage", async () => {
     localStorage.setItem(
-      "libredb_workspace_tabs_v1:default",
+      "dbportal_workspace_tabs_v1:default",
       JSON.stringify({
         activeTabId: "tab-2",
         tabs: [
@@ -523,7 +523,7 @@ describe("useTabManager", () => {
     // Save is debounced by 500ms — wait for it to flush
     await waitFor(
       () => {
-        const raw = localStorage.getItem("libredb_workspace_tabs_v1:persist-conn");
+        const raw = localStorage.getItem("dbportal_workspace_tabs_v1:persist-conn");
         expect(raw).toBeTruthy();
 
         const parsed = JSON.parse(raw || "{}") as {
@@ -561,7 +561,7 @@ describe("useTabManager", () => {
 
     await waitFor(
       () => {
-        const raw = localStorage.getItem("libredb_workspace_tabs_v1:debounce-conn");
+        const raw = localStorage.getItem("dbportal_workspace_tabs_v1:debounce-conn");
         expect(raw).toBeTruthy();
         const parsed = JSON.parse(raw!) as { tabs: Array<{ query: string }> };
         expect(parsed.tabs[0].query).toBe("third");
@@ -573,7 +573,7 @@ describe("useTabManager", () => {
   test("connection switch race — old tabs not saved to new connection key", async () => {
     // Seed connection A with tabs
     localStorage.setItem(
-      "libredb_workspace_tabs_v1:conn-a",
+      "dbportal_workspace_tabs_v1:conn-a",
       JSON.stringify({
         activeTabId: "a-tab",
         tabs: [{ id: "a-tab", name: "A Tab", query: "SELECT a;", type: "sql" }],
@@ -613,13 +613,13 @@ describe("useTabManager", () => {
     await new Promise((r) => setTimeout(r, 700));
 
     // Connection B's storage should only have the default tab, not A's tabs
-    const rawB = localStorage.getItem("libredb_workspace_tabs_v1:conn-b");
+    const rawB = localStorage.getItem("dbportal_workspace_tabs_v1:conn-b");
     expect(rawB).toBeTruthy();
     const parsedB = JSON.parse(rawB!) as { tabs: Array<{ query: string }> };
     expect(parsedB.tabs[0].query).toBe("");
 
     // Connection A's storage should still be intact
-    const rawA = localStorage.getItem("libredb_workspace_tabs_v1:conn-a");
+    const rawA = localStorage.getItem("dbportal_workspace_tabs_v1:conn-a");
     expect(rawA).toBeTruthy();
     const parsedA = JSON.parse(rawA!) as { tabs: Array<{ query: string }> };
     expect(parsedA.tabs[0].query).toBe("SELECT a;");

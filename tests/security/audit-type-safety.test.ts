@@ -6,7 +6,7 @@ import { getServerAuditBuffer, sanitizeAuditInput } from "@/lib/audit";
 
 /**
  * Threat: a non-string value reaching the authoritative stdout audit line unbounded, breaking the
- * fixed-shape `libredb.audit.v1` contract. `sanitizeAuditInput` (src/lib/audit.ts) sweeps only
+ * fixed-shape `dbportal.audit.v1` contract. `sanitizeAuditInput` (src/lib/audit.ts) sweeps only
  * `typeof value === "string"`, so a field that is supposed to be a string but isn't at runtime -
  * because a route destructured it straight out of an untyped `await request.json()` body - was
  * skipped by the sweep entirely and copied verbatim by `toAuditLine`.

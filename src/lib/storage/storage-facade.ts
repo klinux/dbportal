@@ -10,6 +10,7 @@ import { DEFAULT_MASKING_CONFIG, type MaskingConfig } from "../data-masking";
 import { DEFAULT_THRESHOLDS, type ThresholdConfig } from "../monitoring-thresholds";
 import { readJSON, writeJSON, readString, writeString, remove } from "./local-storage";
 import type { StorageCollection } from "./types";
+import { STORAGE_CHANGE_EVENT } from "./local-storage";
 
 const MAX_HISTORY_ITEMS = 500;
 const MAX_SNAPSHOTS = 50;
@@ -19,7 +20,7 @@ const MAX_AUDIT_EVENTS = 1000;
 function dispatchChange(collection: StorageCollection, data: unknown): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
-    new CustomEvent("libredb-storage-change", {
+    new CustomEvent(STORAGE_CHANGE_EVENT, {
       detail: { collection, data },
     }),
   );

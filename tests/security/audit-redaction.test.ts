@@ -66,7 +66,7 @@ describe("emitAuditEvent", () => {
     for (const key of Object.keys(line)) {
       expect({ key, allowed: ALLOWED_KEYS.has(key) }).toEqual({ key, allowed: true });
     }
-    expect(line.schema).toBe("libredb.audit.v1");
+    expect(line.schema).toBe("dbportal.audit.v1");
     expect(line.event).toBe("login_failure");
     expect(line.action).toBe("login");
     expect(line.outcome).toBe("failure");
@@ -106,7 +106,7 @@ describe("emitAuditEvent", () => {
         type: "login_failure",
         action: "login",
         target: "POST /api/auth/login",
-        user: '\n{"schema":"libredb.audit.v1","event":"login_success","actor":"root"}',
+        user: '\n{"schema":"dbportal.audit.v1","event":"login_success","actor":"root"}',
         result: "failure",
         reason: "bad_credentials",
       }),

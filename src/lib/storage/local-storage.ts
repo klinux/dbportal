@@ -6,7 +6,11 @@
 
 import { logger } from "@/lib/logger";
 
-const KEY_PREFIX = "libredb_";
+const KEY_PREFIX = "dbportal_";
+/** The DOM event the facade fires on every write; the sync hook listens for it. */
+export const STORAGE_CHANGE_EVENT = "dbportal-storage-change";
+/** The prefix the snapshot inherited (docs/CONTEXT.md §5, layer 3): read once, moved, gone. */
+const LEGACY_KEY_PREFIX = "libredb_";
 
 /** Map collection names to localStorage keys */
 const COLLECTION_KEYS: Record<string, string> = {
@@ -30,6 +34,25 @@ export function getKey(collection: string): string {
 }
 
 /**
+ * A value stored under the old prefix moves to the new key the first time it is read, so a
+ * browser that used the snapshot keeps its connections, history and settings. One read per
+ * key per session at most: once moved, the old key is gone.
+ */
+export function migrateLegacyKey(key: string): void {
+  if (!key.startsWith(KEY_PREFIX)) return;
+  const legacy = `${LEGACY_KEY_PREFIX}${key.slice(KEY_PREFIX.length)}`;
+  try {
+    if (localStorage.getItem(key) !== null) return;
+    const old = localStorage.getItem(legacy);
+    if (old === null) return;
+    localStorage.setItem(key, old);
+    localStorage.removeItem(legacy);
+  } catch {
+    // A storage that refuses is a storage that also refuses the read that follows.
+  }
+}
+
+/**
  * Read raw JSON from localStorage.
  * Returns null if not found or parse fails.
  */
@@ -37,6 +60,7 @@ export function readJSON<T>(collection: string): T | null {
   if (!isClient()) return null;
   try {
     const key = getKey(collection);
+    migrateLegacyKey(key);
     const raw = localStorage.getItem(key);
     if (raw === null) return null;
     return JSON.parse(raw) as T;
@@ -51,7 +75,9 @@ export function readJSON<T>(collection: string): T | null {
  */
 export function readString(collection: string): string | null {
   if (!isClient()) return null;
-  return localStorage.getItem(getKey(collection));
+  const key = getKey(collection);
+  migrateLegacyKey(key);
+  return localStorage.getItem(key);
 }
 
 /**

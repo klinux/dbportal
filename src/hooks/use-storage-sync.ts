@@ -10,8 +10,10 @@ import {
   STORAGE_COLLECTIONS,
 } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { STORAGE_CHANGE_EVENT, getKey, migrateLegacyKey } from "@/lib/storage/local-storage";
 
-const MIGRATION_FLAG = "libredb_server_migrated";
+const MIGRATION_FLAG = "dbportal_server_migrated";
+const LEGACY_MIGRATION_FLAG = "libredb_server_migrated";
 const DEBOUNCE_MS = 500;
 /** First retry delay after a failed push; doubles per consecutive failure. */
 const RETRY_BASE_MS = 1000;
@@ -190,12 +192,13 @@ export function useStorageSync(): StorageSyncState {
   // ── Migration: localStorage → server ──
   const migrateToServer = useCallback(async () => {
     if (typeof window === "undefined") return;
-    if (localStorage.getItem(MIGRATION_FLAG)) return;
+    if (localStorage.getItem(MIGRATION_FLAG) || localStorage.getItem(LEGACY_MIGRATION_FLAG)) return;
 
-    // Check if localStorage actually has any libredb data to migrate.
-    // On a fresh browser, no libredb_* keys exist — skip migration to
-    // avoid overwriting server data with empty defaults.
-    const hasLocalData = STORAGE_COLLECTIONS.some((col) => localStorage.getItem(`libredb_${col}`) !== null);
+    // Check if localStorage actually has any local data to migrate (moving a key the
+    // snapshot wrote to its new name first). On a fresh browser no key exists - skip
+    // migration to avoid overwriting server data with empty defaults.
+    for (const col of STORAGE_COLLECTIONS) migrateLegacyKey(getKey(col));
+    const hasLocalData = STORAGE_COLLECTIONS.some((col) => localStorage.getItem(getKey(col)) !== null);
 
     if (!hasLocalData) {
       localStorage.setItem(MIGRATION_FLAG, new Date().toISOString());
@@ -207,7 +210,7 @@ export function useStorageSync(): StorageSyncState {
       const allData: Partial<StorageData> = {};
       for (const col of STORAGE_COLLECTIONS) {
         // Only include collections that actually exist in localStorage
-        const raw = localStorage.getItem(`libredb_${col}`);
+        const raw = localStorage.getItem(getKey(col));
         if (raw !== null) {
           const data = getCollectionData(col);
           if (data !== null && data !== undefined) {
@@ -297,10 +300,10 @@ export function useStorageSync(): StorageSyncState {
       }
     }
 
-    window.addEventListener("libredb-storage-change", handleStorageChange);
+    window.addEventListener(STORAGE_CHANGE_EVENT, handleStorageChange);
     // Timers are torn down by the lifecycle effect above, not here: a retry can
     // be armed after this effect's cleanup has already run.
-    return () => window.removeEventListener("libredb-storage-change", handleStorageChange);
+    return () => window.removeEventListener(STORAGE_CHANGE_EVENT, handleStorageChange);
   }, [isServerMode, schedulePush]);
 
   return { isServerMode, isSyncing, isReady, lastSyncedAt, syncError };
@@ -338,7 +341,7 @@ function getCollectionData(collection: string): unknown {
 
 /** Write server data directly to localStorage via storage key */
 function writeCollectionToLocal(collection: string, data: unknown): void {
-  const key = `libredb_${collection}`;
+  const key = getKey(collection);
   if (data === null || data === undefined) {
     localStorage.removeItem(key);
   } else if (typeof data === "string") {

@@ -19,7 +19,7 @@ const DEFAULT_TAB: QueryTab = {
   type: "sql",
 };
 
-const WORKSPACE_STORAGE_PREFIX = "libredb_workspace_tabs_v1";
+const WORKSPACE_STORAGE_PREFIX = "dbportal_workspace_tabs_v1";
 
 interface PersistedTabState {
   id: string;

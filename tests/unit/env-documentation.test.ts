@@ -95,12 +95,18 @@ const readNames = (): string[] => {
   // identifier before `.field` (the bucket table); a deeper receiver is not matched.
   const fieldDeclPattern = new RegExp(`(${IDENT})\\s*:\\s*"(${ENV_NAME})"`, "g");
   const fieldReadPattern = new RegExp(`process[.]env[?]?\\[${IDENT}[.](${IDENT})\\]`, "g");
+  // Shape 3 (docs/CONTEXT.md §5, layer 3): `readEnv("NAME")` reads `DBPORTAL_NAME` (and the
+  // legacy `LIBREDB_NAME`) through src/lib/config/env-alias.ts; the documented name is the new one.
+  const aliasReadPattern = new RegExp(`readEnv\\("(${ENV_NAME})"\\)`, "g");
 
   for (const file of sourceFiles(path.join(ROOT, "src"))) {
     const source = readFileSync(file, "utf8");
 
     for (const match of source.matchAll(literalPattern)) {
       names.add(match[1]);
+    }
+    for (const match of source.matchAll(aliasReadPattern)) {
+      names.add(`DBPORTAL_${match[1]}`);
     }
 
     // Resolve bracket reads against literals declared in the same file only:
@@ -124,7 +130,8 @@ const readNames = (): string[] => {
       for (const name of namesByField.get(match[1]) ?? []) names.add(name);
     }
   }
-  return [...names].sort();
+  // A prefix constant (`const ENV_PREFIX = "DBPORTAL_"`) is not a variable.
+  return [...names].filter((name) => !name.endsWith("_")).sort();
 };
 
 /**
@@ -152,8 +159,8 @@ describe("environment variable documentation", () => {
     // a count says nothing about which alias regressed.
     const names = readNames();
     for (const name of [
-      "LIBREDB_AGENT_ENABLED",
-      "LIBREDB_AGENT_THREAD_CONTEXT",
+      "DBPORTAL_AGENT_ENABLED",
+      "DBPORTAL_AGENT_THREAD_CONTEXT",
       "AGENT_MODEL_TUNING_PATH",
       "AGENT_MODEL_TURN_TIMEOUT_MS",
       "WORKFLOW_LOCAL_DATA_DIR",

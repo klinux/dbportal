@@ -7,12 +7,12 @@ dbportal's Helm chart provides a production-grade Kubernetes deployment with sec
 ## Distribution
 
 The chart is not published to a registry yet. Install it from this repository
-(`charts/libredb-studio/` — the directory keeps the upstream name until the rebrand's
+(`charts/dbportal/` — the directory keeps the upstream name until the rebrand's
 chart layer, see [CONTEXT.md](CONTEXT.md) §5):
 
 ```bash
-helm dependency build charts/libredb-studio
-helm install dbportal charts/libredb-studio
+helm dependency build charts/dbportal
+helm install dbportal charts/dbportal
 ```
 
 The image it points at is `ghcr.io/klinux/dbportal` (`main` on every push, semver on `v*` tags).
@@ -20,7 +20,7 @@ The image it points at is `ghcr.io/klinux/dbportal` (`main` on every push, semve
 ## Chart Structure
 
 ```
-charts/libredb-studio/
+charts/dbportal/
 ├── Chart.yaml                 # Metadata, appVersion, Bitnami PostgreSQL dependency
 ├── values.yaml                # All configurable defaults
 ├── values.schema.json         # JSON Schema validation (helm lint --strict)
@@ -74,7 +74,7 @@ securityContext:
 `runAsUser`/`fsGroup` from a per-namespace range and rejects pods that
 hard-code IDs outside it. `global.compatibility.openshift.adaptSecurityContext`
 (default `auto`; same contract as the Bitnami subchart, so one value covers
-both) makes the `libredb-studio.podSecurityContext` helper omit
+both) makes the `dbportal.podSecurityContext` helper omit
 `runAsUser`/`runAsGroup`/`fsGroup` when the API server exposes
 `security.openshift.io/v1`, keeping `runAsNonRoot` and the seccomp profile.
 Arbitrary UIDs are safe because every writable path is a volume mount and the
@@ -192,13 +192,13 @@ config:
   bindAddress: "0.0.0.0"   # or "::" to force dual-stack; "" (default) resolves it
 ```
 
-> **Dual-stack is one setting now, not two.** `service.ipFamilyPolicy` (`PreferDualStack` / `RequireDualStack`) and `service.ipFamilies` give the Service an IPv6 address, and that is all an operator has to set — the pod listens on both families by default. What an operator must *not* do is the inverse pairing: `config.bindAddress` (or an `extraEnv` `HOSTNAME`) pinned to an IPv4 literal alongside a dual-stack Service. Kubernetes never inspects what the container bound, so such a Service populates an IPv6 EndpointSlice from the pod's IPv6 address and kube-proxy routes IPv6 traffic to a socket that is not there — the client gets `connection refused`. It never self-heals and it is invisible to the probes, because the kubelet probes the pod's *primary* IP (IPv4 on a typical IPv4-primary cluster), so the pod reports Ready while its IPv6 path is dead. `NOTES.txt` warns on exactly that combination at install time. Values reference: the chart [`README.md`](../charts/libredb-studio/README.md#ipv6-and-dual-stack).
+> **Dual-stack is one setting now, not two.** `service.ipFamilyPolicy` (`PreferDualStack` / `RequireDualStack`) and `service.ipFamilies` give the Service an IPv6 address, and that is all an operator has to set — the pod listens on both families by default. What an operator must *not* do is the inverse pairing: `config.bindAddress` (or an `extraEnv` `HOSTNAME`) pinned to an IPv4 literal alongside a dual-stack Service. Kubernetes never inspects what the container bound, so such a Service populates an IPv6 EndpointSlice from the pod's IPv6 address and kube-proxy routes IPv6 traffic to a socket that is not there — the client gets `connection refused`. It never self-heals and it is invisible to the probes, because the kubelet probes the pod's *primary* IP (IPv4 on a typical IPv4-primary cluster), so the pod reports Ready while its IPv6 path is dead. `NOTES.txt` warns on exactly that combination at install time. Values reference: the chart [`README.md`](../charts/dbportal/README.md#ipv6-and-dual-stack).
 
 **The chart follows the application's zero-config default** (`config.authBootstrap: ""` omits `AUTH_BOOTSTRAP`, so missing `JWT_SECRET`/`ADMIN_PASSWORD` are generated at first boot): a default-values install is fully working, which certified catalogs such as the Rancher partner-charts repository require. The architectural consequence for this document is that the deployment may only reference Secret keys that actually exist — the env entries for `JWT_SECRET`, `ADMIN_PASSWORD`, `USER_EMAIL`, `USER_PASSWORD` render only when their value is set or an `existingSecret` is used, and a mandatory `secretKeyRef` is reserved for the one combination where a missing key really is an error (strict mode with `authProvider=local`).
 
-The behaviour itself — what gets generated, how to retrieve the credentials, what strict mode requires per auth provider, and the single-replica constraint — is documented once, in the chart's [`README.md`](../charts/libredb-studio/README.md#auth-bootstrap-zero-config-vs-strict). Treat that section as canonical and do not restate it here.
+The behaviour itself — what gets generated, how to retrieve the credentials, what strict mode requires per auth provider, and the single-replica constraint — is documented once, in the chart's [`README.md`](../charts/dbportal/README.md#auth-bootstrap-zero-config-vs-strict). Treat that section as canonical and do not restate it here.
 
-> For the complete, authoritative list of configurable values and defaults, see the chart's own [`README.md`](../charts/libredb-studio/README.md#configuration-reference). This document covers architecture and rationale; the chart README is the values reference.
+> For the complete, authoritative list of configurable values and defaults, see the chart's own [`README.md`](../charts/dbportal/README.md#configuration-reference). This document covers architecture and rationale; the chart README is the values reference.
 
 ### 7. Pod Restart on Config Change
 
@@ -224,7 +224,7 @@ When `seedConnections.enabled=true`, the chart provisions a set of pre-defined d
 
 The agent has no on-switch: the app derives whether it can run from a configured model plus a writable ledger (`docs/AGENT.md`), so the chart's job is to write **less**, not more.
 
-- `agent.enabled` unset — the default — writes no `LIBREDB_AGENT_ENABLED` at all, leaving the derivation intact; `false` writes the off-switch (quoted, because `EnvVar.value` is a string); `true` is accepted and explicit.
+- `agent.enabled` unset — the default — writes no `DBPORTAL_AGENT_ENABLED` at all, leaving the derivation intact; `false` writes the off-switch (quoted, because `EnvVar.value` is a string); `true` is accepted and explicit.
 - The chart **does** write one `WORKFLOW_*` variable: `WORKFLOW_LOCAL_DATA_DIR=/app/data/workflow`, inside the volume mounted on `/app/data` in every render. The reason is release topology, not preference. `image.tag` defaults to `.Chart.AppVersion`, which now names an image whose Dockerfile carries the same default, but that default landed in the Dockerfile only after the `0.11.0` tag, so an install pinned to an older `image.tag` still resolves an unset variable to `.workflow-data` under `WORKDIR /app`, where `readOnlyRootFilesystem: true` makes it unwritable and `resolveAgentLedgerDirectory`'s probe answers `LEDGER_UNAVAILABLE`. The chart therefore keeps writing the path itself. Both copies name the same path and `tests/unit/helm-chart-agent.test.ts` asserts they stay equal, so the duplication cannot drift; it is written before `extraEnv`, so an operator can still move the ledger.
 - A release where an agent could run **and** more than one replica is asked for **fails the render** (a template guard in `deployment.yaml`, same shape as the seed guard above). The zero-config ledger takes file locks and each pod mounts its own `/app/data`, so a run started on one pod is invisible to the next request; the only backend that lifts the constraint (`@workflow/world-postgres`) is not loadable in the published image (`B16` in `docs/BACKLOG.md`), which the message says rather than selling an opt-in that does not exist yet. "Could run" is read conservatively from these values: an inline `secrets.llmApiKey`, `config.llmProvider` set to one of the key-optional providers (`ollama`, `custom` — the app's `validateConfig` demands a key only for `gemini` and `openai`), or an explicit `agent.enabled=true`. So an existing multi-replica install that configures no AI keeps rendering. The guard's blind spots are `secrets.existingSecret`, `extraEnvFrom` **and** `extraEnv`, none of which a template can read a model out of; all three are listed in the chart README and in the helper's own comment.
 - Run history lives in that ledger, so `persistence.enabled=false` means an `emptyDir` and a history that goes with the pod. `values.yaml`, the chart README and `NOTES.txt` all say so.
@@ -290,7 +290,7 @@ the OCI tag are mutable: both publish jobs re-package whatever `charts/**`
 currently holds, so a `charts/**` merge that changed chart content without
 bumping the chart version used to rewrite the released version's index digest
 and its OCI copy while the asset kept the original bytes. When the release for
-`libredb-studio-<version>` already exists, is published, and carries its
+`dbportal-<version>` already exists, is published, and carries its
 `.tgz`, jobs 2 and 3 are skipped and the run is a full no-op after `lint-test`.
 A missing release, a leftover draft, or a published release without its asset
 all still publish - the last one so the release job's loud immutability error
@@ -322,7 +322,7 @@ chain's automated dispatch passes no inputs, so it can never take this path.
   `--version` example in step. The `artifacthub.io/changes` line is written by
   `chart:bump` but deliberately not checked, so hand-written changelog entries for
   chart-only releases never trip the guard.
-- Guard (#167): a PR that changes any packaged file under `charts/libredb-studio/`
+- Guard (#167): a PR that changes any packaged file under `charts/dbportal/`
   while leaving the chart `version` at an **already-released** value fails the same
   check - re-publishing that version would mutate its gh-pages/OCI digest. Fix it by
   bumping `version:` (and the README `--version` examples) by hand: `chart:bump` only
@@ -357,16 +357,16 @@ chart-only churn drops.
 
 ### Minimal (port-forward)
 ```bash
-helm dependency build charts/libredb-studio
-helm install dbportal charts/libredb-studio \
+helm dependency build charts/dbportal
+helm install dbportal charts/dbportal \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
   --set secrets.adminPassword=MyAdmin123
-kubectl port-forward svc/dbportal-libredb-studio 3000:80
+kubectl port-forward svc/dbportal-dbportal 3000:80
 ```
 
 ### Production (Ingress + PostgreSQL + HPA)
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
   --set secrets.adminPassword=StrongPass123 \
   --set postgresql.enabled=true \
@@ -384,7 +384,7 @@ helm install libredb libredb/libredb-studio \
 
 ### Gateway API instead of an Ingress
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
   --set secrets.adminPassword="$ADMIN_PASSWORD" \
   --set route.main.enabled=true \
@@ -411,7 +411,7 @@ per-route entry wins on a key collision; the chart's own labels win over both.
 
 ### External Secrets (Vault / ESO)
 ```bash
-helm install libredb libredb/libredb-studio \
+helm install libredb libredb/dbportal \
   --set secrets.existingSecret=my-vault-secret
 ```
 
@@ -425,7 +425,7 @@ helm install libredb libredb/libredb-studio \
 
 Three Phase 1 security controls change what a multi-replica or reverse-proxied deployment has to
 configure, and all three are documented with copy-paste values in
-[`charts/libredb-studio/README.md`](../charts/libredb-studio/README.md#rate-limiting-across-replicas).
+[`charts/dbportal/README.md`](../charts/dbportal/README.md#rate-limiting-across-replicas).
 
 The short version:
 

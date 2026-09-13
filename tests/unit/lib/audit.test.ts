@@ -353,7 +353,7 @@ describe("loadAuditFromStorage", () => {
         result: "success",
       },
     ];
-    localStorage.setItem("libredb_audit_log", JSON.stringify(events));
+    localStorage.setItem("dbportal_audit_log", JSON.stringify(events));
 
     const result = loadAuditFromStorage();
     expect(result).toHaveLength(1);
@@ -376,7 +376,7 @@ describe("saveAuditToStorage", () => {
     ];
     saveAuditToStorage(events);
 
-    const stored = localStorage.getItem("libredb_audit_log");
+    const stored = localStorage.getItem("dbportal_audit_log");
     expect(stored).not.toBeNull();
     const parsed = JSON.parse(stored!);
     expect(parsed).toHaveLength(1);
@@ -396,7 +396,7 @@ describe("saveAuditToStorage", () => {
 
     saveAuditToStorage(events);
 
-    const stored = localStorage.getItem("libredb_audit_log");
+    const stored = localStorage.getItem("dbportal_audit_log");
     const parsed = JSON.parse(stored!);
     expect(parsed).toHaveLength(1000);
     // Should keep the last 1000 (indices 500-1499)

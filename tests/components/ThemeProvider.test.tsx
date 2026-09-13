@@ -72,7 +72,7 @@ describe("ThemeProvider", () => {
         <span>child</span>
       </ThemeProvider>,
     );
-    expect(received.storageKey).toBe("libredb-theme");
+    expect(received.storageKey).toBe("dbportal-theme");
     expect(received.storageKey).not.toBe("theme");
   });
 

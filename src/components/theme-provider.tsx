@@ -23,7 +23,9 @@ import { ThemeProvider as NextThemesProvider, type ThemeProviderProps } from "ne
  * `storageKey` is deliberately not next-themes' default `"theme"`. The set of
  * values this control can write changed when "system" was dropped, so the old key
  * may hold a value that is no longer meaningful here; reading a fresh key is a
- * clean slate that needs no migration step and cannot half-apply.
+ * clean slate that needs no migration step and cannot half-apply. The rename to
+ * `dbportal-theme` (docs/CONTEXT.md §5, layer 3) is the same kind of clean slate: a
+ * browser that used the snapshot starts on the default theme once and keeps its next choice.
  */
 export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
   return (
@@ -31,7 +33,7 @@ export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
       attribute="class"
       defaultTheme="dark"
       enableSystem={false}
-      storageKey="libredb-theme"
+      storageKey="dbportal-theme"
       disableTransitionOnChange
       {...props}
     >

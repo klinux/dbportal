@@ -3,7 +3,7 @@ Zero-config bootstrap generates JWT_SECRET per pod on its own data volume, so
 two replicas would sign sessions with different keys (intermittent 401s behind
 the Service). Refuse the combination instead of shipping it broken.
 */}}
-{{- if and (not (include "libredb-studio.authStrict" .)) (not .Values.secrets.jwtSecret) (not .Values.secrets.existingSecret) (or .Values.autoscaling.enabled (gt (int .Values.replicaCount) 1)) }}
+{{- if and (not (include "dbportal.authStrict" .)) (not .Values.secrets.jwtSecret) (not .Values.secrets.existingSecret) (or .Values.autoscaling.enabled (gt (int .Values.replicaCount) 1)) }}
 {{- fail "zero-config bootstrap generates a per-pod JWT secret, which breaks sessions across replicas: with replicaCount > 1 or autoscaling.enabled, set secrets.jwtSecret (or secrets.existingSecret), or use config.authBootstrap=off" }}
 {{- end }}
 {{- /*
@@ -29,25 +29,25 @@ on another - and on a shared RWX volume the locks contend instead. The only back
 that lifts this is @workflow/world-postgres, which the published image cannot load
 at all (docs/BACKLOG.md B16), so this is refused rather than rendered broken (#331).
 */}}
-{{- if and (include "libredb-studio.agentPossible" .) (include "libredb-studio.multiReplica" .) (not (include "libredb-studio.agentPostgresWorld" .)) }}
+{{- if and (include "dbportal.agentPossible" .) (include "dbportal.multiReplica" .) (not (include "dbportal.agentPostgresWorld" .)) }}
 {{- fail "the agent runtime is single-instance: its zero-config ledger keeps run state on each pod's own disk behind file locks, so above one replica a run started on one pod is invisible to the next request. This release can run agents (an AI configuration is set in these values, or agent.enabled=true) and asks for more than one replica. Set replicaCount=1 (with autoscaling off) to keep the agent, or agent.enabled=false to run Studio on many replicas with no agent. The one backend that lifts the constraint, WORKFLOW_TARGET_WORLD=@workflow/world-postgres, is not loadable in the published container image today (B16 in docs/BACKLOG.md), so multi-replica agent runs are unsupported rather than merely unconfigured: set it (with WORKFLOW_POSTGRES_URL) through extraEnv only if image.repository points at an image that carries that world" }}
 {{- end }}
-{{- if and .Values.persistence.fixPermissions (include "libredb-studio.adaptOpenShiftSecurityContext" .) }}
+{{- if and .Values.persistence.fixPermissions (include "dbportal.adaptOpenShiftSecurityContext" .) }}
 {{- fail "persistence.fixPermissions cannot be combined with the OpenShift security-context adaptation: restricted-v2 rejects the root init container, and the pod's UID/GID come from the namespace range rather than podSecurityContext, so the chown would target the wrong owner. On OpenShift, use a storage class whose volumes the kubelet applies fsGroup to (or pre-chown the volume) and leave persistence.fixPermissions=false; set global.compatibility.openshift.adaptSecurityContext=disabled only if this is not an OpenShift cluster" }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "libredb-studio.fullname" . }}
+  name: {{ include "dbportal.fullname" . }}
   labels:
-    {{- include "libredb-studio.labels" . | nindent 4 }}
+    {{- include "dbportal.labels" . | nindent 4 }}
 spec:
-  {{- if not (include "libredb-studio.autoscalingEnabled" .) }}
+  {{- if not (include "dbportal.autoscalingEnabled" .) }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      {{- include "libredb-studio.selectorLabels" . | nindent 6 }}
+      {{- include "dbportal.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
@@ -74,7 +74,7 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "libredb-studio.labels" . | nindent 8 }}
+        {{- include "dbportal.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -83,17 +83,17 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "libredb-studio.serviceAccountName" . }}
+      serviceAccountName: {{ include "dbportal.serviceAccountName" . }}
       securityContext:
-        {{- include "libredb-studio.podSecurityContext" . | nindent 8 }}
+        {{- include "dbportal.podSecurityContext" . | nindent 8 }}
       {{- /* The kubelet does not apply fsGroup to hostPath (and some local) volumes, so a
              statically provisioned PV leaves /app/data unwritable until someone chowns it.
              Opt-in, and only with a real volume: it needs a root container, which the
              restricted-v2 SCC on OpenShift rejects, and an emptyDir gets fsGroup anyway (#170). */}}
-      {{- if and (include "libredb-studio.persistenceEnabled" .) .Values.persistence.fixPermissions }}
+      {{- if and (include "dbportal.persistenceEnabled" .) .Values.persistence.fixPermissions }}
       initContainers:
         - name: fix-data-permissions
-          image: {{ include "libredb-studio.image" . }}
+          image: {{ include "dbportal.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
             - sh
@@ -123,7 +123,7 @@ spec:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: {{ include "libredb-studio.image" . }}
+          image: {{ include "dbportal.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -131,7 +131,7 @@ spec:
               protocol: TCP
           envFrom:
             - configMapRef:
-                name: {{ include "libredb-studio.configMapName" . }}
+                name: {{ include "dbportal.configMapName" . }}
             {{- with .Values.extraEnvFrom }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -140,9 +140,9 @@ spec:
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "libredb-studio.secretName" . }}
+                  name: {{ include "dbportal.secretName" . }}
                   key: {{ .Values.secrets.existingSecretKeys.jwtSecret }}
-                  {{- if not (include "libredb-studio.authStrict" .) }}
+                  {{- if not (include "dbportal.authStrict" .) }}
                   optional: true
                   {{- end }}
             {{- end }}
@@ -150,7 +150,7 @@ spec:
             - name: ADMIN_EMAIL
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "libredb-studio.secretName" . }}
+                  name: {{ include "dbportal.secretName" . }}
                   key: {{ .Values.secrets.existingSecretKeys.adminEmail }}
                   optional: true
             {{- end }}
@@ -158,12 +158,12 @@ spec:
             - name: ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "libredb-studio.secretName" . }}
+                  name: {{ include "dbportal.secretName" . }}
                   key: {{ .Values.secrets.existingSecretKeys.adminPassword }}
                   {{- /* A hard ref only where a missing password really is an error: strict
                          mode AND the local provider. Under OIDC the app never reads it, so an
                          existingSecret built for OIDC must not keep the pod from starting (#170). */}}
-                  {{- if not (and (include "libredb-studio.authStrict" .) (include "libredb-studio.localAuth" .)) }}
+                  {{- if not (and (include "dbportal.authStrict" .) (include "dbportal.localAuth" .)) }}
                   optional: true
                   {{- end }}
             {{- end }}
@@ -171,13 +171,13 @@ spec:
             - name: USER_EMAIL
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "libredb-studio.secretName" . }}
+                  name: {{ include "dbportal.secretName" . }}
                   key: {{ .Values.secrets.existingSecretKeys.userEmail }}
                   optional: true
             - name: USER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "libredb-studio.secretName" . }}
+                  name: {{ include "dbportal.secretName" . }}
                   key: {{ .Values.secrets.existingSecretKeys.userPassword }}
                   optional: true
             {{- end }}
@@ -189,7 +189,7 @@ spec:
             - name: ADMIN_TOTP_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "libredb-studio.secretName" . }}
+                  name: {{ include "dbportal.secretName" . }}
                   key: {{ .Values.secrets.existingSecretKeys.adminTotpSecret }}
                   optional: true
             {{- end }}
@@ -197,7 +197,7 @@ spec:
             - name: USER_TOTP_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "libredb-studio.secretName" . }}
+                  name: {{ include "dbportal.secretName" . }}
                   key: {{ .Values.secrets.existingSecretKeys.userTotpSecret }}
                   optional: true
             {{- end }}
@@ -205,7 +205,7 @@ spec:
             - name: LLM_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "libredb-studio.secretName" . }}
+                  name: {{ include "dbportal.secretName" . }}
                   key: {{ .Values.secrets.existingSecretKeys.llmApiKey }}
                   optional: true
             {{- end }}
@@ -213,7 +213,7 @@ spec:
             - name: OIDC_CLIENT_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "libredb-studio.secretName" . }}
+                  name: {{ include "dbportal.secretName" . }}
                   key: {{ .Values.secrets.existingSecretKeys.oidcClientId }}
                   optional: true
             {{- end }}
@@ -221,7 +221,7 @@ spec:
             - name: OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "libredb-studio.secretName" . }}
+                  name: {{ include "dbportal.secretName" . }}
                   key: {{ .Values.secrets.existingSecretKeys.oidcClientSecret }}
                   optional: true
             {{- end }}
@@ -229,15 +229,15 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "libredb-studio.postgresql.fullname" . }}
+                  name: {{ include "dbportal.postgresql.fullname" . }}
                   key: password
             - name: STORAGE_POSTGRES_URL
-              value: {{ include "libredb-studio.postgresql.url" . | quote }}
+              value: {{ include "dbportal.postgresql.url" . | quote }}
             {{- else if or .Values.secrets.storagePostgresUrl .Values.secrets.existingSecret }}
             - name: STORAGE_POSTGRES_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "libredb-studio.secretName" . }}
+                  name: {{ include "dbportal.secretName" . }}
                   key: {{ .Values.secrets.existingSecretKeys.storagePostgresUrl }}
                   optional: true
             {{- end }}
@@ -252,24 +252,24 @@ spec:
                    quoted because EnvVar.value is a string and an unquoted `true` is rejected
                    by the API server. Written before extraEnv so an extraEnv entry of the same
                    name still wins. */}}
-            {{- if include "libredb-studio.agentFlagSet" . }}
-            - name: LIBREDB_AGENT_ENABLED
+            {{- if include "dbportal.agentFlagSet" . }}
+            - name: DBPORTAL_AGENT_ENABLED
               value: {{ get .Values.agent "enabled" | quote }}
             {{- end }}
             {{- /* The conversation off-switch, on the same rule as the flag above: unset
                    writes nothing and the app keeps its own default, which is on. Quoted for
                    the same reason, and written before extraEnv for the same reason. */}}
             {{- if not (kindIs "invalid" (get .Values.agent "threadContext")) }}
-            - name: LIBREDB_AGENT_THREAD_CONTEXT
+            - name: DBPORTAL_AGENT_THREAD_CONTEXT
               value: {{ get .Values.agent "threadContext" | quote }}
             {{- end }}
             {{- /* Where the mounted tuning document lands. Its own directory rather than
                    /app/config, which the seed ConfigMap already claims: a second volume at
                    the same mountPath would hide the first. Written before extraEnv so an
                    extraEnv entry of the same name still wins, like the flag above. */}}
-            {{- if include "libredb-studio.agentTuningSet" . }}
+            {{- if include "dbportal.agentTuningSet" . }}
             - name: AGENT_MODEL_TUNING_PATH
-              value: "/app/model-tuning/{{ include "libredb-studio.agentTuningKey" . }}"
+              value: "/app/model-tuning/{{ include "dbportal.agentTuningKey" . }}"
             {{- end }}
             {{- /* The agent's ledger directory, set by the chart because the image a
                    default install pulls does not yet set it. image.tag defaults to
@@ -290,15 +290,15 @@ spec:
             {{- end }}
           {{- with .Values.startupProbe }}
           startupProbe:
-            {{- include "libredb-studio.probe" (dict "probe" . "basePath" ($.Values.config.basePath | default "")) | nindent 12 }}
+            {{- include "dbportal.probe" (dict "probe" . "basePath" ($.Values.config.basePath | default "")) | nindent 12 }}
           {{- end }}
           {{- with .Values.readinessProbe }}
           readinessProbe:
-            {{- include "libredb-studio.probe" (dict "probe" . "basePath" ($.Values.config.basePath | default "")) | nindent 12 }}
+            {{- include "dbportal.probe" (dict "probe" . "basePath" ($.Values.config.basePath | default "")) | nindent 12 }}
           {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
-            {{- include "libredb-studio.probe" (dict "probe" . "basePath" ($.Values.config.basePath | default "")) | nindent 12 }}
+            {{- include "dbportal.probe" (dict "probe" . "basePath" ($.Values.config.basePath | default "")) | nindent 12 }}
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
@@ -314,7 +314,7 @@ spec:
               mountPath: /app/config
               readOnly: true
             {{- end }}
-            {{- if include "libredb-studio.agentTuningSet" . }}
+            {{- if include "dbportal.agentTuningSet" . }}
             - name: agent-model-tuning
               mountPath: /app/model-tuning
               readOnly: true
@@ -324,10 +324,10 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
-        {{- if include "libredb-studio.persistenceEnabled" . }}
+        {{- if include "dbportal.persistenceEnabled" . }}
         - name: data
           persistentVolumeClaim:
-            claimName: {{ include "libredb-studio.pvcName" . }}
+            claimName: {{ include "dbportal.pvcName" . }}
         {{- else }}
         - name: data
           {{- /* /app/data is the one volume a user can grow (SQLite storage, seeded samples),
@@ -343,12 +343,12 @@ spec:
         {{- if .Values.seedConnections.enabled }}
         - name: seed-config
           configMap:
-            name: {{ .Values.seedConnections.existingConfigMap | default (printf "%s-seed-connections" (include "libredb-studio.fullname" .)) }}
+            name: {{ .Values.seedConnections.existingConfigMap | default (printf "%s-seed-connections" (include "dbportal.fullname" .)) }}
         {{- end }}
-        {{- if include "libredb-studio.agentTuningSet" . }}
+        {{- if include "dbportal.agentTuningSet" . }}
         - name: agent-model-tuning
           configMap:
-            name: {{ get (get .Values.agent "modelTuning") "existingConfigMap" | default (printf "%s-agent-model-tuning" (include "libredb-studio.fullname" .)) }}
+            name: {{ get (get .Values.agent "modelTuning") "existingConfigMap" | default (printf "%s-agent-model-tuning" (include "dbportal.fullname" .)) }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

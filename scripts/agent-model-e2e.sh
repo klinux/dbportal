@@ -40,9 +40,9 @@ export PWSLOWMO="${PWSLOWMO:-350}"
 # path in it, which meant the `-f` test simply failed everywhere else — reinstating, for every
 # environment but its author's, the exact silent-empty-configuration bug the guard exists to
 # prevent. `--git-common-dir` resolves to the primary checkout's `.git` from inside a worktree, so
-# its parent is the checkout git itself considers primary; `LIBREDB_MAIN_CHECKOUT` overrides it for
+# its parent is the checkout git itself considers primary; `DBPORTAL_MAIN_CHECKOUT` overrides it for
 # a layout git cannot derive.
-MAIN_CHECKOUT="${LIBREDB_MAIN_CHECKOUT:-$(cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd)}"
+MAIN_CHECKOUT="${DBPORTAL_MAIN_CHECKOUT:-${LIBREDB_MAIN_CHECKOUT:-$(cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd)}}"
 if [ ! -f .env.gemini.local ] && [ -f "$MAIN_CHECKOUT/.env.gemini.local" ]; then
   cp "$MAIN_CHECKOUT/.env.gemini.local" .env.gemini.local
 fi
@@ -90,7 +90,7 @@ do
     # failure the fetch above exists to prevent. A sweep that cannot configure a model has to stop.
     if [ ! -f .env.gemini.local ]; then
       echo "!!!! .env.gemini.local not found here or in $MAIN_CHECKOUT." >&2
-      echo "!!!! Put the file in the checkout, or set LIBREDB_MAIN_CHECKOUT to where it lives." >&2
+      echo "!!!! Put the file in the checkout, or set DBPORTAL_MAIN_CHECKOUT to where it lives." >&2
       echo "!!!! Refusing to measure a server with no model configured." >&2
       exit 1
     fi

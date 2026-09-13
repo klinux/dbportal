@@ -1,7 +1,7 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "libredb-studio.name" -}}
+{{- define "dbportal.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
@@ -9,7 +9,7 @@ Expand the name of the chart.
 Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 */}}
-{{- define "libredb-studio.fullname" -}}
+{{- define "dbportal.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -25,16 +25,16 @@ We truncate at 63 chars because some Kubernetes name fields are limited to this 
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "libredb-studio.chart" -}}
+{{- define "dbportal.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "libredb-studio.labels" -}}
-helm.sh/chart: {{ include "libredb-studio.chart" . }}
-{{ include "libredb-studio.selectorLabels" . }}
+{{- define "dbportal.labels" -}}
+helm.sh/chart: {{ include "dbportal.chart" . }}
+{{ include "dbportal.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -44,17 +44,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "libredb-studio.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "libredb-studio.name" . }}
+{{- define "dbportal.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "dbportal.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "libredb-studio.serviceAccountName" -}}
+{{- define "dbportal.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "libredb-studio.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "dbportal.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
@@ -63,29 +63,29 @@ Create the name of the service account to use
 {{/*
 Return the secret name (existing or generated)
 */}}
-{{- define "libredb-studio.secretName" -}}
+{{- define "dbportal.secretName" -}}
 {{- if .Values.secrets.existingSecret }}
 {{- .Values.secrets.existingSecret }}
 {{- else }}
-{{- include "libredb-studio.fullname" . }}
+{{- include "dbportal.fullname" . }}
 {{- end }}
 {{- end }}
 
 {{/*
 Return the configmap name
 */}}
-{{- define "libredb-studio.configMapName" -}}
-{{- printf "%s-config" (include "libredb-studio.fullname" .) }}
+{{- define "dbportal.configMapName" -}}
+{{- printf "%s-config" (include "dbportal.fullname" .) }}
 {{- end }}
 
 {{/*
 Return the PVC name (existing or generated)
 */}}
-{{- define "libredb-studio.pvcName" -}}
+{{- define "dbportal.pvcName" -}}
 {{- if .Values.persistence.existingClaim }}
 {{- .Values.persistence.existingClaim }}
 {{- else }}
-{{- printf "%s-data" (include "libredb-studio.fullname" .) }}
+{{- printf "%s-data" (include "dbportal.fullname" .) }}
 {{- end }}
 {{- end }}
 
@@ -93,7 +93,7 @@ Return the PVC name (existing or generated)
 Determine if persistence should be enabled.
 Returns "true" if persistence.enabled OR storageProvider is sqlite.
 */}}
-{{- define "libredb-studio.persistenceEnabled" -}}
+{{- define "dbportal.persistenceEnabled" -}}
 {{- if or .Values.persistence.enabled (eq .Values.config.storageProvider "sqlite") }}
 {{- true }}
 {{- end }}
@@ -108,7 +108,7 @@ same off-synonyms so any accepted spelling - or an install that bypasses
 schema validation (helm --skip-schema-validation) - stays strict in both the
 chart and the app instead of splitting into a half-strict state.
 */}}
-{{- define "libredb-studio.authStrict" -}}
+{{- define "dbportal.authStrict" -}}
 {{- if has (.Values.config.authBootstrap | toString | trim | lower) (list "off" "false" "0") }}
 {{- true }}
 {{- end }}
@@ -124,7 +124,7 @@ block an OIDC install for no reason. Anything other than "local" is treated as
 requirements. JWT_SECRET is deliberately NOT scoped: both providers end up
 issuing the app's own session cookie.
 */}}
-{{- define "libredb-studio.localAuth" -}}
+{{- define "dbportal.localAuth" -}}
 {{- if eq (.Values.authProvider | toString | trim | lower) "local" }}
 {{- true }}
 {{- end }}
@@ -134,7 +134,7 @@ issuing the app's own session cookie.
 Return the effective storage provider.
 If postgresql subchart is enabled and storageProvider is "local", auto-switch to "postgres".
 */}}
-{{- define "libredb-studio.storageProvider" -}}
+{{- define "dbportal.storageProvider" -}}
 {{- if and .Values.postgresql.enabled (eq .Values.config.storageProvider "local") }}
 {{- "postgres" }}
 {{- else }}
@@ -149,22 +149,22 @@ file: autoscaling.enabled is ignored (the HPA is not rendered and the
 deployment falls back to replicaCount) when the effective storage provider
 is sqlite. NOTES.txt warns when this happens.
 */}}
-{{- define "libredb-studio.autoscalingEnabled" -}}
-{{- if and .Values.autoscaling.enabled (ne (include "libredb-studio.storageProvider" .) "sqlite") }}
+{{- define "dbportal.autoscalingEnabled" -}}
+{{- if and .Values.autoscaling.enabled (ne (include "dbportal.storageProvider" .) "sqlite") }}
 {{- true }}
 {{- end }}
 {{- end }}
 
 {{/*
 The explicit agent off-switch, when the operator set one. Empty means "unset":
-the chart then writes no LIBREDB_AGENT_ENABLED and the app derives availability
+the chart then writes no DBPORTAL_AGENT_ENABLED and the app derives availability
 itself (#331 T5), which is the whole point of the derived default and the one
 thing this chart must not undo by hard-coding a value.
 
 Absent, present-but-null and a key deleted by a user's `agent: null` all land on
 "unset", so the caller never has to tell those three apart.
 */}}
-{{- define "libredb-studio.agentFlagSet" -}}
+{{- define "dbportal.agentFlagSet" -}}
 {{- $agent := .Values.agent | default dict }}
 {{- if and (hasKey $agent "enabled") (not (kindIs "invalid" (get $agent "enabled"))) }}
 {{- true }}
@@ -179,7 +179,7 @@ the rule that either source counts is exactly the kind of condition that drifts 
 out in each place. Naming a source is what enables the feature: there is no separate flag to leave
 inconsistent with it, so no values combination renders a pod that mounts a ConfigMap nobody created.
 */}}
-{{- define "libredb-studio.agentTuningSet" -}}
+{{- define "dbportal.agentTuningSet" -}}
 {{- $tuning := get (.Values.agent | default dict) "modelTuning" | default dict }}
 {{- if or (get $tuning "existingConfigMap") (get $tuning "document") }}
 {{- true }}
@@ -190,7 +190,7 @@ inconsistent with it, so no values combination renders a pod that mounts a Confi
 The file name the tuning document is mounted under, and therefore the tail of the path the app is
 told to read. One definition so the ConfigMap key, the mount and the env var cannot disagree.
 */}}
-{{- define "libredb-studio.agentTuningKey" -}}
+{{- define "dbportal.agentTuningKey" -}}
 {{- $tuning := get (.Values.agent | default dict) "modelTuning" | default dict }}
 {{- get $tuning "configMapKey" | default "model-tuning.json" }}
 {{- end }}
@@ -232,10 +232,10 @@ install that keeps a JWT secret in an existingSecret and configures no AI at all
 The cost is that a multi-replica release configuring its model any of those ways
 needs agent.enabled=false set by hand.
 */}}
-{{- define "libredb-studio.agentPossible" -}}
+{{- define "dbportal.agentPossible" -}}
 {{- $agent := .Values.agent | default dict }}
 {{- $keyless := list "ollama" "custom" }}
-{{- if include "libredb-studio.agentFlagSet" . }}
+{{- if include "dbportal.agentFlagSet" . }}
 {{- if get $agent "enabled" }}{{- true }}{{- end }}
 {{- else if or .Values.secrets.llmApiKey (has (.Values.config.llmProvider | toString | trim | lower) $keyless) }}
 {{- true }}
@@ -247,8 +247,8 @@ Whether this release can run more than one pod. The HPA governs when it is
 effectively enabled (the deployment then renders no replicas at all), so its
 ceiling is the number that matters there; otherwise replicaCount is.
 */}}
-{{- define "libredb-studio.multiReplica" -}}
-{{- if include "libredb-studio.autoscalingEnabled" . }}
+{{- define "dbportal.multiReplica" -}}
+{{- if include "dbportal.autoscalingEnabled" . }}
 {{- if gt (int .Values.autoscaling.maxReplicas) 1 }}{{- true }}{{- end }}
 {{- else if gt (int .Values.replicaCount) 1 }}
 {{- true }}
@@ -261,7 +261,7 @@ field for it on purpose: that backend also needs WORKFLOW_POSTGRES_URL, which
 belongs in a Secret and therefore in an extraEnv entry with valueFrom - so the
 chart reads the operator's own entry rather than adding a second way to say it.
 */}}
-{{- define "libredb-studio.agentPostgresWorld" -}}
+{{- define "dbportal.agentPostgresWorld" -}}
 {{- range .Values.extraEnv }}
 {{- if and (eq (.name | default "") "WORKFLOW_TARGET_WORLD") (eq (.value | default "" | toString) "@workflow/world-postgres") }}
 {{- true }}
@@ -278,7 +278,7 @@ admission. Controlled by global.compatibility.openshift.adaptSecurityContext
 adapts both charts): "auto" adapts when the API server exposes
 security.openshift.io/v1, "force" always adapts, "disabled" never does.
 */}}
-{{- define "libredb-studio.adaptOpenShiftSecurityContext" -}}
+{{- define "dbportal.adaptOpenShiftSecurityContext" -}}
 {{- $mode := dig "compatibility" "openshift" "adaptSecurityContext" "auto" (.Values.global | default dict) }}
 {{- if or (eq $mode "force") (and (eq $mode "auto") (.Capabilities.APIVersions.Has "security.openshift.io/v1")) }}
 {{- true }}
@@ -292,9 +292,9 @@ IDs (runAsNonRoot and seccompProfile are kept). The app image supports
 arbitrary UIDs: all writable paths are volume mounts and the entrypoint
 execs directly when not running as root.
 */}}
-{{- define "libredb-studio.podSecurityContext" -}}
+{{- define "dbportal.podSecurityContext" -}}
 {{- $psc := .Values.podSecurityContext }}
-{{- if include "libredb-studio.adaptOpenShiftSecurityContext" . }}
+{{- if include "dbportal.adaptOpenShiftSecurityContext" . }}
 {{- $psc = omit $psc "runAsUser" "runAsGroup" "fsGroup" }}
 {{- end }}
 {{- toYaml $psc }}
@@ -319,7 +319,7 @@ should not fire at someone who supplied the right answer through a secret. An
 operator who does pin IPv4 that way keeps the diagnosis: the container prints the
 address it bound and why.
 */}}
-{{- define "libredb-studio.effectiveBindAddress" -}}
+{{- define "dbportal.effectiveBindAddress" -}}
 {{- $bind := .Values.config.bindAddress | default "" | toString | trim }}
 {{- range .Values.extraEnv }}
 {{- if eq (.name | default "" | toString) "HOSTNAME" }}
@@ -337,8 +337,8 @@ not be paired with. "::" and "::1" are IPv6 forms and are left alone, and empty
 is the image-resolved default, which is dual-stack wherever the namespace
 allows it.
 */}}
-{{- define "libredb-studio.bindPinnedToIPv4" -}}
-{{- $bind := include "libredb-studio.effectiveBindAddress" . }}
+{{- define "dbportal.bindPinnedToIPv4" -}}
+{{- $bind := include "dbportal.effectiveBindAddress" . }}
 {{- if and $bind (not (contains ":" $bind)) }}
 {{- true }}
 {{- end }}
@@ -358,7 +358,7 @@ its own address and prefers a verified dual-stack "::", so this can only happen
 when the release pins IPv4 explicitly; NOTES.txt warns about exactly that
 pairing.
 */}}
-{{- define "libredb-studio.serviceWantsIPv6" -}}
+{{- define "dbportal.serviceWantsIPv6" -}}
 {{- if or (has .Values.service.ipFamilyPolicy (list "PreferDualStack" "RequireDualStack")) (has "IPv6" (default (list) .Values.service.ipFamilies)) }}
 {{- true }}
 {{- end }}
@@ -367,7 +367,7 @@ pairing.
 {{/*
 Return the full image reference (repository:tag)
 */}}
-{{- define "libredb-studio.image" -}}
+{{- define "dbportal.image" -}}
 {{- $tag := default .Chart.AppVersion .Values.image.tag }}
 {{- printf "%s:%s" .Values.image.repository $tag }}
 {{- end }}
@@ -376,19 +376,19 @@ Return the full image reference (repository:tag)
 Return the PostgreSQL subchart fullname.
 Bitnami subchart names resources as: <release>-postgresql (not <release>-<chart>-postgresql).
 */}}
-{{- define "libredb-studio.postgresql.fullname" -}}
+{{- define "dbportal.postgresql.fullname" -}}
 {{- printf "%s-postgresql" .Release.Name }}
 {{- end }}
 
 {{/*
 Return the PostgreSQL URL when subchart is enabled
 */}}
-{{- define "libredb-studio.postgresql.url" -}}
-{{- printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s:5432/%s" .Values.postgresql.auth.username (include "libredb-studio.postgresql.fullname" .) .Values.postgresql.auth.database }}
+{{- define "dbportal.postgresql.url" -}}
+{{- printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s:5432/%s" .Values.postgresql.auth.username (include "dbportal.postgresql.fullname" .) .Values.postgresql.auth.database }}
 {{- end }}
 
 {{/* Prefix only the shipped health path; preserve explicit HTTP/exec/TCP probes. */}}
-{{- define "libredb-studio.probe" -}}
+{{- define "dbportal.probe" -}}
 {{- $probe := deepCopy .probe -}}
 {{- if and $probe.httpGet (eq ($probe.httpGet.path | default "") "/api/db/health") -}}
 {{- $_ := set $probe.httpGet "path" (printf "%s/api/db/health" .basePath) -}}

@@ -13,6 +13,7 @@ import {
 import type { ManagedConnection, SeedConnection } from "./types";
 import { listSharedDatasources } from "@/lib/datasources/store";
 import { logger } from "@/lib/logger";
+import { readEnv } from "@/lib/config/env-alias";
 
 export type { ManagedConnection } from "./types";
 export { resetCache } from "./config-loader";
@@ -81,7 +82,7 @@ export async function getManagedConnections(roles: string[]): Promise<ManagedCon
     }
   }
 
-  const libredbSampleConsidered = process.env.NODE_ENV !== "test" || !!process.env.LIBREDB_EMBEDDED_SAMPLE_PATH;
+  const libredbSampleConsidered = process.env.NODE_ENV !== "test" || !!readEnv("EMBEDDED_SAMPLE_PATH");
   if (isSampleEnabled() && libredbSampleConsidered) {
     try {
       if (fs.existsSync(resolveSamplePath())) {

@@ -20,9 +20,9 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { parseAllDocuments } from "yaml";
 
-const CHART_DIR = join(import.meta.dir, "../../charts/libredb-studio");
+const CHART_DIR = join(import.meta.dir, "../../charts/dbportal");
 const RELEASE = "release-under-test";
-const SECRET_NAME = `${RELEASE}-libredb-studio`;
+const SECRET_NAME = `${RELEASE}-dbportal`;
 const STRICT = ["--set", "config.authBootstrap=off"];
 const OIDC = ["--set", "authProvider=oidc"];
 const JWT = ["--set", "secrets.jwtSecret=0123456789abcdef0123456789abcdef"];

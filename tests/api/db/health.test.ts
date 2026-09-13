@@ -102,7 +102,7 @@ describe("GET /api/db/health", () => {
 
     expect(res.status).toBe(200);
     expect(data.status).toBe("healthy");
-    expect(data.service).toBe("libredb-studio");
+    expect(data.service).toBe("dbportal");
     expect(data.timestamp).toBeDefined();
   });
 });

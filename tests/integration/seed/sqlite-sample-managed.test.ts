@@ -65,7 +65,7 @@ describe("getManagedConnections: sqlite embedded sample", () => {
     const libredbDir = fs.mkdtempSync(path.join(os.tmpdir(), "libredb-sample-order-"));
     tmpDirs.push(libredbDir);
     const libredbFile = path.join(libredbDir, "sample.libredb");
-    process.env.LIBREDB_EMBEDDED_SAMPLE_PATH = libredbFile;
+    process.env.DBPORTAL_EMBEDDED_SAMPLE_PATH = libredbFile;
     const { seedSampleFile, SAMPLE_SEED_ID } = await import("@/lib/seed/libredb-sample");
     await seedSampleFile(libredbFile);
 
@@ -74,7 +74,7 @@ describe("getManagedConnections: sqlite embedded sample", () => {
       expect(seedIds).toContain(SAMPLE_SEED_ID);
       expect(seedIds.indexOf(SQLITE_SAMPLE_SEED_ID)).toBeLessThan(seedIds.indexOf(SAMPLE_SEED_ID));
     } finally {
-      delete process.env.LIBREDB_EMBEDDED_SAMPLE_PATH;
+      delete process.env.DBPORTAL_EMBEDDED_SAMPLE_PATH;
     }
   });
 

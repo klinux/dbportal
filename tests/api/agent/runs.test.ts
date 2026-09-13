@@ -454,7 +454,7 @@ describe("POST /api/agent/runs", () => {
 
   test("with the operator switch off, previousRunId is ignored and the run says so", async () => {
     const before = mockStatus.mock.calls.length;
-    process.env.LIBREDB_AGENT_THREAD_CONTEXT = "false";
+    process.env.DBPORTAL_AGENT_THREAD_CONTEXT = "false";
     runs.set("arun_1", fakeRun({ status: "succeeded" }));
 
     try {
@@ -468,7 +468,7 @@ describe("POST /api/agent/runs", () => {
       // ledger is touched.
       expect(mockStatus.mock.calls.length).toBe(before);
     } finally {
-      delete process.env.LIBREDB_AGENT_THREAD_CONTEXT;
+      delete process.env.DBPORTAL_AGENT_THREAD_CONTEXT;
     }
   });
 

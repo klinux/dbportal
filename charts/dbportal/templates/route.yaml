@@ -1,4 +1,4 @@
-{{- $fullName := include "libredb-studio.fullname" . }}
+{{- $fullName := include "dbportal.fullname" . }}
 {{- $namespace := .Release.Namespace -}}
 {{- /*
   `labels` and `annotations` directly under `route` are shared across every
@@ -28,7 +28,7 @@ metadata:
     the API server rejects. The chart labels win.
   */}}
   labels:
-    {{- toYaml (merge (include "libredb-studio.labels" $ | fromYaml) $labels) | nindent 4 }}
+    {{- toYaml (merge (include "dbportal.labels" $ | fromYaml) $labels) | nindent 4 }}
   {{- with $annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}

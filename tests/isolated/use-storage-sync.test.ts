@@ -105,7 +105,7 @@ describe("useStorageSync", () => {
 
     test("switches to server mode when config returns serverMode=true", async () => {
       setupServerMode();
-      localStorage.setItem("libredb_server_migrated", "true"); // Skip migration
+      localStorage.setItem("dbportal_server_migrated", "true"); // Skip migration
 
       const { result } = renderHook(() => useStorageSync());
 
@@ -150,7 +150,7 @@ describe("useStorageSync", () => {
   describe("migration", () => {
     test("performs migration on first server-mode visit when localStorage has data", async () => {
       // Seed localStorage with actual data so migration has something to send
-      localStorage.setItem("libredb_connections", JSON.stringify([{ id: "test", name: "Test DB" }]));
+      localStorage.setItem("dbportal_connections", JSON.stringify([{ id: "test", name: "Test DB" }]));
       const fetchMock = setupServerMode();
 
       const { result } = renderHook(() => useStorageSync());
@@ -160,7 +160,7 @@ describe("useStorageSync", () => {
       });
 
       // Migration flag should be set
-      expect(localStorage.getItem("libredb_server_migrated")).not.toBeNull();
+      expect(localStorage.getItem("dbportal_server_migrated")).not.toBeNull();
 
       // migrate endpoint was called
       const calls = (fetchMock.mock.calls as unknown[][]).map((c) => {
@@ -180,7 +180,7 @@ describe("useStorageSync", () => {
       });
 
       // Migration flag should still be set (to prevent future re-checks)
-      expect(localStorage.getItem("libredb_server_migrated")).not.toBeNull();
+      expect(localStorage.getItem("dbportal_server_migrated")).not.toBeNull();
 
       // migrate endpoint should NOT be called — no local data to migrate
       const calls = (fetchMock.mock.calls as unknown[][]).map((c) => {
@@ -191,7 +191,7 @@ describe("useStorageSync", () => {
     });
 
     test("skips migration when flag already set", async () => {
-      localStorage.setItem("libredb_server_migrated", "2026-01-01");
+      localStorage.setItem("dbportal_server_migrated", "2026-01-01");
       const fetchMock = setupServerMode();
 
       const { result } = renderHook(() => useStorageSync());
@@ -221,13 +221,13 @@ describe("useStorageSync", () => {
         expect(result.current.isServerMode).toBe(true);
       });
 
-      expect(localStorage.getItem("libredb_server_migrated")).not.toBeNull();
+      expect(localStorage.getItem("dbportal_server_migrated")).not.toBeNull();
     });
 
     test("sets flag without calling migrate when local keys exist but getters return no data", async () => {
       // Key exists in localStorage (hasLocalData=true) but the facade getter
       // returns null, so allData stays empty and migration is skipped.
-      localStorage.setItem("libredb_active_connection_id", "stale");
+      localStorage.setItem("dbportal_active_connection_id", "stale");
       mockStorage.getActiveConnectionId.mockReturnValue(null);
       const fetchMock = setupServerMode();
 
@@ -237,12 +237,12 @@ describe("useStorageSync", () => {
         expect(result.current.isServerMode).toBe(true);
       });
 
-      expect(localStorage.getItem("libredb_server_migrated")).not.toBeNull();
+      expect(localStorage.getItem("dbportal_server_migrated")).not.toBeNull();
       expect(calledPaths(fetchMock)).not.toContain("/api/storage/migrate");
     });
 
     test("does not set flag when migrate fetch throws", async () => {
-      localStorage.setItem("libredb_connections", JSON.stringify([{ id: "test" }]));
+      localStorage.setItem("dbportal_connections", JSON.stringify([{ id: "test" }]));
       mockStorage.getConnections.mockReturnValue([{ id: "test" }]);
       mockGlobalFetch({
         "/api/storage/config": { ok: true, status: 200, json: { provider: "postgres", serverMode: true } },
@@ -259,7 +259,7 @@ describe("useStorageSync", () => {
       });
 
       // Migration failed silently; flag must stay unset so it retries next visit
-      expect(localStorage.getItem("libredb_server_migrated")).toBeNull();
+      expect(localStorage.getItem("dbportal_server_migrated")).toBeNull();
       expect(result.current.isServerMode).toBe(true);
     });
 
@@ -296,7 +296,7 @@ describe("useStorageSync", () => {
 
   describe("pull from server", () => {
     test("pulls data from server on mount in server mode", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       const fetchMock = setupServerMode();
 
       const { result } = renderHook(() => useStorageSync());
@@ -314,7 +314,7 @@ describe("useStorageSync", () => {
     });
 
     test("writes server data to localStorage on pull", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       setupServerMode();
 
       const { result } = renderHook(() => useStorageSync());
@@ -324,13 +324,13 @@ describe("useStorageSync", () => {
       });
 
       // Server returned connections: [{ id: 'server-c1' }]
-      const stored = localStorage.getItem("libredb_connections");
+      const stored = localStorage.getItem("dbportal_connections");
       expect(stored).not.toBeNull();
       expect(JSON.parse(stored!)).toEqual([{ id: "server-c1" }]);
     });
 
     test("sets syncError on pull failure", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       mockGlobalFetch({
         "/api/storage/config": { ok: true, status: 200, json: { provider: "postgres", serverMode: true } },
         "/api/storage": { ok: false, status: 500, json: { error: "DB error" } },
@@ -348,7 +348,7 @@ describe("useStorageSync", () => {
     });
 
     test("sets syncError when pull fetch throws", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       mockGlobalFetch({
         "/api/storage/config": { ok: true, status: 200, json: { provider: "postgres", serverMode: true } },
         "/api/storage": () => {
@@ -366,7 +366,7 @@ describe("useStorageSync", () => {
     });
 
     test("writes string active_connection_id to localStorage on pull", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       setupServerMode({
         "/api/storage": { ok: true, status: 200, json: { active_connection_id: "conn-1" } },
       });
@@ -377,12 +377,12 @@ describe("useStorageSync", () => {
         expect(result.current.lastSyncedAt).not.toBeNull();
       });
 
-      expect(localStorage.getItem("libredb_active_connection_id")).toBe("conn-1");
+      expect(localStorage.getItem("dbportal_active_connection_id")).toBe("conn-1");
     });
 
     test("removes active_connection_id from localStorage when server returns null", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
-      localStorage.setItem("libredb_active_connection_id", "stale");
+      localStorage.setItem("dbportal_server_migrated", "true");
+      localStorage.setItem("dbportal_active_connection_id", "stale");
       setupServerMode({
         "/api/storage": { ok: true, status: 200, json: { active_connection_id: null } },
       });
@@ -393,7 +393,7 @@ describe("useStorageSync", () => {
         expect(result.current.lastSyncedAt).not.toBeNull();
       });
 
-      expect(localStorage.getItem("libredb_active_connection_id")).toBeNull();
+      expect(localStorage.getItem("dbportal_active_connection_id")).toBeNull();
     });
   });
 
@@ -401,7 +401,7 @@ describe("useStorageSync", () => {
 
   describe("push to server", () => {
     test("pushes collection to server on storage-change event", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       const fetchMock = mockGlobalFetch({
         "/api/storage/config": { ok: true, status: 200, json: { provider: "postgres", serverMode: true } },
         "/api/storage/migrate": { ok: true, status: 200, json: { ok: true, migrated: [] } },
@@ -418,7 +418,7 @@ describe("useStorageSync", () => {
       // Dispatch storage change event
       act(() => {
         window.dispatchEvent(
-          new CustomEvent("libredb-storage-change", {
+          new CustomEvent("dbportal-storage-change", {
             detail: { collection: "connections", data: [{ id: "c1" }] },
           }),
         );
@@ -444,7 +444,7 @@ describe("useStorageSync", () => {
      * queue must therefore outlive the failure.
      */
     test("retries a collection whose push failed instead of dropping it", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       let attempts = 0;
       const fetchMock = mockGlobalFetch({
         "/api/storage/config": { ok: true, status: 200, json: { provider: "postgres", serverMode: true } },
@@ -464,7 +464,7 @@ describe("useStorageSync", () => {
       });
 
       act(() => {
-        window.dispatchEvent(new CustomEvent("libredb-storage-change", { detail: { collection: "connections" } }));
+        window.dispatchEvent(new CustomEvent("dbportal-storage-change", { detail: { collection: "connections" } }));
       });
 
       await waitFor(
@@ -491,7 +491,7 @@ describe("useStorageSync", () => {
     });
 
     test("stops retrying once the push lands", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       let attempts = 0;
       mockGlobalFetch({
         "/api/storage/config": { ok: true, status: 200, json: { provider: "postgres", serverMode: true } },
@@ -509,7 +509,7 @@ describe("useStorageSync", () => {
       });
 
       act(() => {
-        window.dispatchEvent(new CustomEvent("libredb-storage-change", { detail: { collection: "connections" } }));
+        window.dispatchEvent(new CustomEvent("dbportal-storage-change", { detail: { collection: "connections" } }));
       });
 
       await waitFor(
@@ -540,7 +540,7 @@ describe("useStorageSync", () => {
      * between the two with room on both sides.
      */
     test("a failed push does not swallow a later edit's debounce", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       let connectionsAttempts = 0;
       let historyAt: number | null = null;
 
@@ -567,7 +567,7 @@ describe("useStorageSync", () => {
       });
 
       act(() => {
-        window.dispatchEvent(new CustomEvent("libredb-storage-change", { detail: { collection: "connections" } }));
+        window.dispatchEvent(new CustomEvent("dbportal-storage-change", { detail: { collection: "connections" } }));
       });
       // The failing push has STARTED but not resolved: this is the window in which
       // the user's next edit arms the debounce the retry used to steal.
@@ -576,7 +576,7 @@ describe("useStorageSync", () => {
       });
       const editedAt = Date.now();
       act(() => {
-        window.dispatchEvent(new CustomEvent("libredb-storage-change", { detail: { collection: "history" } }));
+        window.dispatchEvent(new CustomEvent("dbportal-storage-change", { detail: { collection: "history" } }));
       });
 
       await waitFor(
@@ -598,7 +598,7 @@ describe("useStorageSync", () => {
      * the life of the page.
      */
     test("a push that fails after unmount does not leave a timer running", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       let attempts = 0;
 
       mockGlobalFetch({
@@ -618,7 +618,7 @@ describe("useStorageSync", () => {
       });
 
       act(() => {
-        window.dispatchEvent(new CustomEvent("libredb-storage-change", { detail: { collection: "connections" } }));
+        window.dispatchEvent(new CustomEvent("dbportal-storage-change", { detail: { collection: "connections" } }));
       });
       await waitFor(() => {
         expect(attempts).toBe(1);
@@ -633,7 +633,7 @@ describe("useStorageSync", () => {
     });
 
     test("sets syncError on push failure", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
 
       // Use a request handler that returns 500 specifically for PUT /connections
       const fetchMock = mockGlobalFetch({
@@ -656,7 +656,7 @@ describe("useStorageSync", () => {
 
       act(() => {
         window.dispatchEvent(
-          new CustomEvent("libredb-storage-change", {
+          new CustomEvent("dbportal-storage-change", {
             detail: { collection: "connections", data: [{ id: "c1" }] },
           }),
         );
@@ -672,7 +672,7 @@ describe("useStorageSync", () => {
     });
 
     test("updates lastSyncedAt after successful push", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       setupServerMode();
 
       const { result } = renderHook(() => useStorageSync());
@@ -684,7 +684,7 @@ describe("useStorageSync", () => {
 
       act(() => {
         window.dispatchEvent(
-          new CustomEvent("libredb-storage-change", {
+          new CustomEvent("dbportal-storage-change", {
             detail: { collection: "connections", data: [{ id: "c1" }] },
           }),
         );
@@ -701,7 +701,7 @@ describe("useStorageSync", () => {
     });
 
     test("coalesces rapid changes into a single debounced flush", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       const fetchMock = setupServerMode();
 
       const { result } = renderHook(() => useStorageSync());
@@ -712,8 +712,8 @@ describe("useStorageSync", () => {
 
       // Second event lands inside the debounce window and resets the timer
       act(() => {
-        window.dispatchEvent(new CustomEvent("libredb-storage-change", { detail: { collection: "history" } }));
-        window.dispatchEvent(new CustomEvent("libredb-storage-change", { detail: { collection: "saved_queries" } }));
+        window.dispatchEvent(new CustomEvent("dbportal-storage-change", { detail: { collection: "history" } }));
+        window.dispatchEvent(new CustomEvent("dbportal-storage-change", { detail: { collection: "saved_queries" } }));
       });
 
       await waitFor(
@@ -727,7 +727,7 @@ describe("useStorageSync", () => {
     });
 
     test("pushes null data for an unknown collection", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       const fetchMock = setupServerMode();
 
       const { result } = renderHook(() => useStorageSync());
@@ -737,7 +737,7 @@ describe("useStorageSync", () => {
       });
 
       act(() => {
-        window.dispatchEvent(new CustomEvent("libredb-storage-change", { detail: { collection: "bogus" } }));
+        window.dispatchEvent(new CustomEvent("dbportal-storage-change", { detail: { collection: "bogus" } }));
       });
 
       await waitFor(
@@ -764,7 +764,7 @@ describe("useStorageSync", () => {
       const spy = mock(() => {});
       const origAdd = window.addEventListener.bind(window);
       window.addEventListener = mock((...args: Parameters<typeof window.addEventListener>) => {
-        if (args[0] === "libredb-storage-change") spy();
+        if (args[0] === "dbportal-storage-change") spy();
         origAdd(...args);
       }) as typeof window.addEventListener;
 
@@ -798,7 +798,7 @@ describe("useStorageSync", () => {
     });
 
     test("updates lastSyncedAt after successful pull", async () => {
-      localStorage.setItem("libredb_server_migrated", "true");
+      localStorage.setItem("dbportal_server_migrated", "true");
       setupServerMode();
 
       const { result } = renderHook(() => useStorageSync());

@@ -51,7 +51,7 @@ import {
 /** Looks like what Docker exports as HOSTNAME for every container process. */
 const CONTAINER_ID = "3f9a1c2b4d5e";
 /** Looks like what a kubelet exports as HOSTNAME inside a pod. */
-const POD_NAME = "libredb-studio-7c9f5b8d64-2xqkz";
+const POD_NAME = "dbportal-7c9f5b8d64-2xqkz";
 
 /** A dual-stack-capable namespace: `::` bound and accepted an IPv4 client. */
 const PROBE_DUAL_STACK = { bound: true, ipv4: true } as const;
@@ -64,7 +64,7 @@ const PROBE_FAILED = { failed: true, error: "timeout" } as const;
 
 function choose(overrides: Record<string, unknown> = {}) {
   return chooseBindAddress({
-    libredbBind: undefined,
+    dbportalBind: undefined,
     hostnameEnv: undefined,
     systemHostname: CONTAINER_ID,
     probe: PROBE_DUAL_STACK,
@@ -74,12 +74,12 @@ function choose(overrides: Record<string, unknown> = {}) {
 }
 
 describe("chooseBindAddress - explicit operator overrides (R0/R1)", () => {
-  test("LIBREDB_BIND wins over everything, including an explicit HOSTNAME", () => {
-    // LIBREDB_BIND already means "a literal bind address" in
-    // packaging/linux/libredb-studio (#134); the container keeps that meaning.
-    const decision = choose({ libredbBind: "192.0.2.7", hostnameEnv: "::" });
+  test("DBPORTAL_BIND wins over everything, including an explicit HOSTNAME", () => {
+    // DBPORTAL_BIND already means "a literal bind address" in
+    // packaging/linux/dbportal (#134); the container keeps that meaning.
+    const decision = choose({ dbportalBind: "192.0.2.7", hostnameEnv: "::" });
     expect(decision.address).toBe("192.0.2.7");
-    expect(decision.reason).toBe("explicit-libredb-bind");
+    expect(decision.reason).toBe("explicit-dbportal-bind");
   });
 
   test.each([["::"], ["0.0.0.0"], ["127.0.0.1"], ["::1"], ["192.0.2.7"]])(
@@ -122,8 +122,8 @@ describe("chooseBindAddress - explicit operator overrides (R0/R1)", () => {
     expect(choose({ hostnameEnv: value as string | undefined }).reason).toBe("dual-stack-verified");
   });
 
-  test.each([[""], ["   "]])("a blank LIBREDB_BIND (%p) does not count as a choice", (value) => {
-    expect(choose({ libredbBind: value }).reason).toBe("dual-stack-verified");
+  test.each([[""], ["   "]])("a blank DBPORTAL_BIND (%p) does not count as a choice", (value) => {
+    expect(choose({ dbportalBind: value }).reason).toBe("dual-stack-verified");
   });
 });
 
@@ -278,13 +278,13 @@ describe("probeDualStack - injected socket seams", () => {
   //
   // It asserts the CONTRACT, never a value: the answer legitimately differs
   // between an IPv6-capable CI runner and one without AF_INET6, and neither may
-  // turn this suite red. HOSTNAME and LIBREDB_BIND are cleared so an inherited
+  // turn this suite red. HOSTNAME and DBPORTAL_BIND are cleared so an inherited
   // one cannot short-circuit the probe into the explicit-choice branch.
   test("running the resolver for real prints one address and one log line", () => {
     const run = Bun.spawnSync(["node", `${import.meta.dir}/../../docker/bind-address.mjs`], {
       stdout: "pipe",
       stderr: "pipe",
-      env: { ...process.env, HOSTNAME: "", LIBREDB_BIND: "" },
+      env: { ...process.env, HOSTNAME: "", DBPORTAL_BIND: "" },
     });
     expect(run.exitCode).toBe(0);
     expect(["::\n", "0.0.0.0\n"]).toContain(run.stdout.toString());
@@ -333,9 +333,9 @@ describe("main - stdout contract and the one stderr line", () => {
     expect(viaHostname.stdout).toBe("0.0.0.0\n");
     expect(viaHostname.stderr).toContain("dbportal: bind address 0.0.0.0 (explicit HOSTNAME)");
 
-    const viaLibredbBind = await run({ env: { LIBREDB_BIND: "192.0.2.7" } });
+    const viaLibredbBind = await run({ env: { DBPORTAL_BIND: "192.0.2.7" } });
     expect(viaLibredbBind.stdout).toBe("192.0.2.7\n");
-    expect(viaLibredbBind.stderr).toContain("dbportal: bind address 192.0.2.7 (explicit LIBREDB_BIND)");
+    expect(viaLibredbBind.stderr).toContain("dbportal: bind address 192.0.2.7 (explicit DBPORTAL_BIND)");
   });
 
   test("says IPv6 is unavailable, and that IPv6 clients will be refused", async () => {

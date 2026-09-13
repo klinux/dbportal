@@ -137,7 +137,7 @@ domain does get the cookie and can time an authenticated endpoint. That residual
 
 **1.2.** The counters live in the application process. With more than one replica the budgets apply
 per replica; multi-replica deployments should enforce the same budgets at the ingress. See
-[`charts/libredb-studio/README.md`](../charts/libredb-studio/README.md).
+[`charts/dbportal/README.md`](../charts/dbportal/README.md).
 
 **1.4.** Marked Partial: sessions and origin failures are audited, role failures are not. Four
 in-handler admin checks and the middleware's `/admin` redirect return their denial with no audit

@@ -375,14 +375,14 @@ describe("storage facade: event dispatch completeness", () => {
       const handler = (e: Event) => {
         captured = e as CustomEvent;
       };
-      window.addEventListener("libredb-storage-change", handler);
+      window.addEventListener("dbportal-storage-change", handler);
 
       fn();
 
       expect(captured).not.toBeNull();
       expect(captured!.detail.collection).toBe(expectedCollection);
 
-      window.removeEventListener("libredb-storage-change", handler);
+      window.removeEventListener("dbportal-storage-change", handler);
     });
   }
 });

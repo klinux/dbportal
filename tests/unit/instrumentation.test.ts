@@ -9,8 +9,8 @@ import { hasAuditPersistence, setAuditPersistence } from "@/lib/audit";
 
 const ENV_KEYS = [
   "NEXT_RUNTIME",
-  "LIBREDB_EMBEDDED_SAMPLE",
-  "LIBREDB_EMBEDDED_SAMPLE_PATH",
+  "DBPORTAL_EMBEDDED_SAMPLE",
+  "DBPORTAL_EMBEDDED_SAMPLE_PATH",
   "SQLITE_EMBEDDED_SAMPLE",
   "SQLITE_EMBEDDED_SAMPLE_PATH",
   "SQLITE_EMBEDDED_SAMPLE_TEMPLATE",
@@ -19,7 +19,7 @@ const ENV_KEYS = [
   "JWT_SECRET",
   "ADMIN_PASSWORD",
   "AUTH_BOOTSTRAP",
-  "LIBREDB_NO_BANNER",
+  "DBPORTAL_NO_BANNER",
 ] as const;
 
 /** The sqlite sample seeds fire-and-forget; poll for its observable effects. */
@@ -45,7 +45,7 @@ describe("instrumentation register()", () => {
     process.env.STORAGE_SQLITE_PATH = path.join(tmpDir, "libredb-storage.db");
     // Keep the boot banner out of the test output; the banner tests below opt
     // back in explicitly.
-    process.env.LIBREDB_NO_BANNER = "1";
+    process.env.DBPORTAL_NO_BANNER = "1";
     setSqliteSampleSeedState("idle");
   });
 
@@ -65,7 +65,7 @@ describe("instrumentation register()", () => {
     process.env.JWT_SECRET = "x".repeat(32);
     process.env.ADMIN_PASSWORD = "admin-password";
     process.env.AUTH_BOOTSTRAP = "off";
-    process.env.LIBREDB_EMBEDDED_SAMPLE = "false";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE = "false";
     process.env.SQLITE_EMBEDDED_SAMPLE = "false";
     try {
       setAuditPersistence(null);
@@ -91,7 +91,7 @@ describe("instrumentation register()", () => {
 
   test("runs auth bootstrap, then seeds nothing when both samples are disabled", async () => {
     process.env.NEXT_RUNTIME = "nodejs";
-    process.env.LIBREDB_EMBEDDED_SAMPLE = "false";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE = "false";
     process.env.SQLITE_EMBEDDED_SAMPLE = "false";
     const log = spyOn(console, "log").mockImplementation(() => {});
     try {
@@ -112,7 +112,7 @@ describe("instrumentation register()", () => {
     process.env.NEXT_RUNTIME = "nodejs";
     process.env.JWT_SECRET = "x".repeat(24); // Cosmos randomString(24)
     process.env.ADMIN_PASSWORD = "set-so-bootstrap-has-nothing-to-do";
-    process.env.LIBREDB_EMBEDDED_SAMPLE_PATH = path.join(tmpDir, "sample.libredb");
+    process.env.DBPORTAL_EMBEDDED_SAMPLE_PATH = path.join(tmpDir, "sample.libredb");
     process.env.SQLITE_EMBEDDED_SAMPLE_PATH = path.join(tmpDir, "sample-employees.db");
 
     const originalExit = process.exit;
@@ -144,7 +144,7 @@ describe("instrumentation register()", () => {
   test("seeds the sample file on a nodejs boot", async () => {
     process.env.NEXT_RUNTIME = "nodejs";
     process.env.AUTH_BOOTSTRAP = "off";
-    process.env.LIBREDB_EMBEDDED_SAMPLE_PATH = path.join(tmpDir, "sample.libredb");
+    process.env.DBPORTAL_EMBEDDED_SAMPLE_PATH = path.join(tmpDir, "sample.libredb");
 
     await register();
 
@@ -155,7 +155,7 @@ describe("instrumentation register()", () => {
   test("seeds the sqlite sample asynchronously without blocking boot", async () => {
     process.env.NEXT_RUNTIME = "nodejs";
     process.env.AUTH_BOOTSTRAP = "off";
-    process.env.LIBREDB_EMBEDDED_SAMPLE = "false";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE = "false";
     process.env.SQLITE_EMBEDDED_SAMPLE_PATH = path.join(tmpDir, "sample-employees.db");
 
     await register(); // must resolve without waiting for the copy
@@ -175,7 +175,7 @@ describe("instrumentation register()", () => {
   test("fast-path boot (sample already present) stays quiet: one debug line, no info pair", async () => {
     process.env.NEXT_RUNTIME = "nodejs";
     process.env.AUTH_BOOTSTRAP = "off";
-    process.env.LIBREDB_EMBEDDED_SAMPLE = "false";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE = "false";
     const samplePath = path.join(tmpDir, "sample-employees.db");
     process.env.SQLITE_EMBEDDED_SAMPLE_PATH = samplePath;
     fs.writeFileSync(samplePath, "already seeded on a previous boot");
@@ -199,7 +199,7 @@ describe("instrumentation register()", () => {
   test("marks the sqlite seed failed and keeps boot alive when the template is missing", async () => {
     process.env.NEXT_RUNTIME = "nodejs";
     process.env.AUTH_BOOTSTRAP = "off";
-    process.env.LIBREDB_EMBEDDED_SAMPLE = "false";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE = "false";
     process.env.SQLITE_EMBEDDED_SAMPLE_PATH = path.join(tmpDir, "sample-employees.db");
     process.env.SQLITE_EMBEDDED_SAMPLE_TEMPLATE = path.join(tmpDir, "no-such-template.db");
     const warn = spyOn(logger, "warn").mockImplementation(() => {});
@@ -216,9 +216,9 @@ describe("instrumentation register()", () => {
   test("prints the boot banner even when the sqlite sample is disabled", async () => {
     process.env.NEXT_RUNTIME = "nodejs";
     process.env.AUTH_BOOTSTRAP = "off";
-    process.env.LIBREDB_EMBEDDED_SAMPLE = "false";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE = "false";
     process.env.SQLITE_EMBEDDED_SAMPLE = "false";
-    delete process.env.LIBREDB_NO_BANNER;
+    delete process.env.DBPORTAL_NO_BANNER;
 
     const log = spyOn(console, "log").mockImplementation(() => {});
     let output = "";
@@ -238,9 +238,9 @@ describe("instrumentation register()", () => {
     process.env.NEXT_RUNTIME = "nodejs";
     process.env.JWT_SECRET = "x".repeat(24);
     process.env.ADMIN_PASSWORD = "set-so-bootstrap-has-nothing-to-do";
-    process.env.LIBREDB_EMBEDDED_SAMPLE = "false";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE = "false";
     process.env.SQLITE_EMBEDDED_SAMPLE = "false";
-    delete process.env.LIBREDB_NO_BANNER;
+    delete process.env.DBPORTAL_NO_BANNER;
 
     const originalExit = process.exit;
     process.exit = (() => {}) as unknown as typeof process.exit;
@@ -266,7 +266,7 @@ describe("instrumentation register()", () => {
     const lockedDir = path.join(tmpDir, "locked");
     fs.mkdirSync(lockedDir);
     fs.chmodSync(lockedDir, 0o500);
-    process.env.LIBREDB_EMBEDDED_SAMPLE_PATH = path.join(lockedDir, "sample.libredb");
+    process.env.DBPORTAL_EMBEDDED_SAMPLE_PATH = path.join(lockedDir, "sample.libredb");
     const warn = spyOn(logger, "warn").mockImplementation(() => {});
     try {
       await expect(register()).resolves.toBeUndefined();

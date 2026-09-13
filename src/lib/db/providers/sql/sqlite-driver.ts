@@ -12,13 +12,14 @@
  *   the installing runtime's ABI, while `node:sqlite` needs no native
  *   dependency)
  *
- * Set LIBREDB_SQLITE_DRIVER=bun|node to force a driver (deterministic tests).
+ * Set DBPORTAL_SQLITE_DRIVER=bun|node to force a driver (deterministic tests).
  * Both drivers load lazily via dynamic import, so neither is required unless
  * a sqlite connection is actually used. This module is internal to the SQLite
  * provider — other code must not depend on it.
  */
 
 import { DatabaseConfigError } from "../../errors";
+import { readEnv } from "@/lib/config/env-alias";
 
 // The exact driver surface the SQLite provider uses (bun:sqlite-shaped).
 export type SQLiteStatement = {
@@ -68,11 +69,11 @@ const loadedDrivers = new Map<SQLiteDriverName, SQLiteConstructor>();
 const driverLoadErrors = new Map<SQLiteDriverName, Error>();
 
 /**
- * Resolve which driver to use: the LIBREDB_SQLITE_DRIVER override wins,
+ * Resolve which driver to use: the DBPORTAL_SQLITE_DRIVER override wins,
  * otherwise pick by the current runtime.
  */
 export function resolveSQLiteDriverName(): SQLiteDriverName {
-  const override = process.env.LIBREDB_SQLITE_DRIVER;
+  const override = readEnv("SQLITE_DRIVER");
   if (override === "bun" || override === "node") {
     return override;
   }

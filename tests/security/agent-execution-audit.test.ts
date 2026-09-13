@@ -266,7 +266,7 @@ describe("agent execution audit — the authoritative stdout line", () => {
     const lines = consoleSpy.mock.calls.map((call) => JSON.parse(String(call[0])) as Record<string, unknown>);
     expect(lines).toHaveLength(2);
     for (const line of lines) {
-      expect(line.schema).toBe("libredb.audit.v1");
+      expect(line.schema).toBe("dbportal.audit.v1");
       expect(line.event).toBe("agent_operation");
       expect(line.correlation_id).toBe(outcome.correlationId);
       expect(line.actor).toBe("agent:user");

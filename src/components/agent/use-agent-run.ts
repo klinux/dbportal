@@ -204,7 +204,7 @@ const isStartRefusalCode = (value: unknown): value is AgentStartRefusalCode => v
  * existed: a rail that cannot say a conversation ended is strictly better than one that
  * cannot open a run (#518).
  */
-const THREAD_STORAGE_KEY = "libredb_agent_thread";
+const THREAD_STORAGE_KEY = "dbportal_agent_thread";
 
 /** A conversation this browser was in and is no longer following. */
 export interface AgentInterruptedThread {

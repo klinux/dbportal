@@ -441,7 +441,7 @@ describe("TrinoHttpTransport request", () => {
     await makeTransport({ user: "analyst" }).query("SELECT 1");
 
     expect(firstCall().headers["X-Trino-User"]).toBe("analyst");
-    expect(firstCall().headers["X-Trino-Source"]).toBe("libredb-studio");
+    expect(firstCall().headers["X-Trino-Source"]).toBe("dbportal");
     expect(firstCall().headers["X-Trino-Time-Zone"]).toBe("UTC");
   });
 

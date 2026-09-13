@@ -11,10 +11,10 @@ template. Converting makes the file the app expects whatever they typed.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "libredb-studio.fullname" . }}-agent-model-tuning
+  name: {{ include "dbportal.fullname" . }}-agent-model-tuning
   labels:
-    {{- include "libredb-studio.labels" . | nindent 4 }}
+    {{- include "dbportal.labels" . | nindent 4 }}
 data:
-  {{ include "libredb-studio.agentTuningKey" . }}: |
+  {{ include "dbportal.agentTuningKey" . }}: |
     {{- get $tuning "document" | toJson | nindent 4 }}
 {{- end }}

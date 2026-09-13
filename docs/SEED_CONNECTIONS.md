@@ -549,7 +549,7 @@ This is the standard application logger (`src/lib/logger.ts`), not a persisted a
 | `SEED_CONFIG_PATH` | `/app/config/seed-connections.yaml` | Path to config file |
 | `SEED_CACHE_TTL_MS` | `60000` | Cache TTL in milliseconds |
 
-These are unrelated to the embedded sample connection described below, which uses its own `LIBREDB_EMBEDDED_SAMPLE` / `LIBREDB_EMBEDDED_SAMPLE_PATH` variables.
+These are unrelated to the embedded sample connection described below, which uses its own `DBPORTAL_EMBEDDED_SAMPLE` / `DBPORTAL_EMBEDDED_SAMPLE_PATH` variables.
 
 ---
 
@@ -566,8 +566,8 @@ This is separate from the `SEED_CONFIG_PATH` file and needs no config of its own
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LIBREDB_EMBEDDED_SAMPLE` | `true` | Set to `false` (exact match) to disable the LibreDB sample |
-| `LIBREDB_EMBEDDED_SAMPLE_PATH` | `<data dir>/sample.libredb` | Override the LibreDB sample file's location |
+| `DBPORTAL_EMBEDDED_SAMPLE` | `true` | Set to `false` (exact match) to disable the LibreDB sample |
+| `DBPORTAL_EMBEDDED_SAMPLE_PATH` | `<data dir>/sample.libredb` | Override the LibreDB sample file's location |
 | `SQLITE_EMBEDDED_SAMPLE` | `true` | Set to `false` (exact match) to disable the SQLite sample |
 | `SQLITE_EMBEDDED_SAMPLE_PATH` | `<data dir>/sample-employees.db` | Override the SQLite sample file's location |
 | `SQLITE_EMBEDDED_SAMPLE_TEMPLATE` | `<cwd>/seed-assets/sqlite/employee.db` | Override the vendored template's location |

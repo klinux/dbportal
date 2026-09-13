@@ -26,7 +26,7 @@ Tailwind + Radix for UI. No Go, no Rust.
 - `src/lib/storage/` — per-user state in one `user_storage` table (`local` | `sqlite` | `postgres`).
 - `src/lib/db/operations/execution.ts` — `executeAuditedOperation`, the policy→audit→driver
   pipeline (agent-only today; generalise it, don't duplicate it).
-- `charts/libredb-studio/` — Helm chart (name kept until the rebrand pass). `docker/`, `Dockerfile`.
+- `charts/dbportal/` — Helm chart. `docker/`, `Dockerfile`.
 - `public/brand/` — logo SVGs and OG image, generated from docs/DESIGN.md.
 
 ## Commands

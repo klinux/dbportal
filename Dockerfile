@@ -161,7 +161,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # the entrypoint, OUTSIDE /app, so a volume mounted on /app cannot hide it, and
 # outside the standalone payload so the native channels - which bind 127.0.0.1
 # by design (#134) - can never inherit container bind policy.
-COPY docker/bind-address.mjs /usr/local/lib/libredb-studio/bind-address.mjs
+COPY docker/bind-address.mjs /usr/local/lib/dbportal/bind-address.mjs
 
 # Render uses PORT env variable, default to 3000
 EXPOSE 3000/tcp

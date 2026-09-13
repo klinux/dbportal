@@ -1,7 +1,7 @@
 /**
  * "The agent runtime is on" stopped being one variable a test can set (#331 T5):
  * availability is derived from the `LLM_*` configuration and the ledger path, and
- * `LIBREDB_AGENT_ENABLED` is only the off-switch.
+ * `DBPORTAL_AGENT_ENABLED` is only the off-switch.
  *
  * Two hazards make this a helper rather than four copies. First, `bun` loads a
  * checkout's `.env` into `process.env`, so a suite that leaves the LLM keys alone

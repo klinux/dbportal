@@ -53,7 +53,7 @@ function describeError(error) {
 /**
  * An address the operator asked for, or null when nobody chose.
  *
- * `LIBREDB_BIND` keeps exactly the meaning it already has in
+ * `DBPORTAL_BIND` (or the snapshot's `LIBREDB_BIND`, read for one release) keeps exactly the meaning it already has in
  * packaging/linux/libredb-studio (#134): a literal bind address.
  *
  * `HOSTNAME` is overloaded: Docker injects `HOSTNAME=<container-id>` when the
@@ -64,13 +64,13 @@ function describeError(error) {
  *
  * The known cost, measured: naming the container after the address you also pin
  * (`--hostname 0.0.0.0 -e HOSTNAME=0.0.0.0`) makes the two indistinguishable, so
- * the pin is dropped and the address is auto-resolved instead. Use LIBREDB_BIND,
+ * the pin is dropped and the address is auto-resolved instead. Use DBPORTAL_BIND,
  * which carries no second meaning. The choice is never hidden either way - the
  * startup line names the address and the reason it was picked.
  */
-function explicitChoice(libredbBind, hostnameEnv, systemHostname) {
-  const bind = trimmed(libredbBind);
-  if (bind) return { address: bind, reason: "explicit-libredb-bind", detail: "LIBREDB_BIND" };
+function explicitChoice(dbportalBind, hostnameEnv, systemHostname) {
+  const bind = trimmed(dbportalBind);
+  if (bind) return { address: bind, reason: "explicit-dbportal-bind", detail: "DBPORTAL_BIND" };
   const host = trimmed(hostnameEnv);
   if (host && host !== trimmed(systemHostname)) {
     return { address: host, reason: "explicit-hostname", detail: "HOSTNAME" };
@@ -178,8 +178,8 @@ export function probeDualStack({ createServer, createConnection, timeoutMs } = {
  * `0.0.0.0` binds a family no client can reach, which is strictly worse than
  * the bug being fixed.
  */
-export function chooseBindAddress({ libredbBind, hostnameEnv, systemHostname, probe, nonLoopbackIPv4 } = {}) {
-  const explicit = explicitChoice(libredbBind, hostnameEnv, systemHostname);
+export function chooseBindAddress({ dbportalBind, hostnameEnv, systemHostname, probe, nonLoopbackIPv4 } = {}) {
+  const explicit = explicitChoice(dbportalBind, hostnameEnv, systemHostname);
   if (explicit) return explicit;
 
   const result = probe ?? {};
@@ -206,7 +206,7 @@ export function chooseBindAddress({ libredbBind, hostnameEnv, systemHostname, pr
 function describeDecision(decision, nonLoopbackIPv4) {
   const { address, reason, detail } = decision;
   switch (reason) {
-    case "explicit-libredb-bind":
+    case "explicit-dbportal-bind":
     case "explicit-hostname":
       return `dbportal: bind address ${address} (explicit ${detail})`;
     case "dual-stack-verified":
@@ -218,7 +218,7 @@ function describeDecision(decision, nonLoopbackIPv4) {
     case "ipv6-only-host":
       return `dbportal: bind address :: (the :: listener refused IPv4, but this namespace has no non-loopback IPv4 address)`;
     default:
-      return `libredb-studio: WARNING bind probe failed (${detail}); falling back to ${address} (${describeEvidence(nonLoopbackIPv4)})`;
+      return `dbportal: WARNING bind probe failed (${detail}); falling back to ${address} (${describeEvidence(nonLoopbackIPv4)})`;
   }
 }
 
@@ -250,7 +250,7 @@ export async function main({ env, systemHostname, probe, interfaces, stdout, std
 
   let decision;
   let addresses;
-  const explicit = explicitChoice(environment.LIBREDB_BIND, environment.HOSTNAME, hostname);
+  const explicit = explicitChoice(environment.DBPORTAL_BIND ?? environment.LIBREDB_BIND, environment.HOSTNAME, hostname);
   if (explicit) {
     decision = explicit;
   } else {
@@ -266,7 +266,7 @@ export async function main({ env, systemHostname, probe, interfaces, stdout, std
     else if (typeof probe === "function") probeResult = await probe();
     else probeResult = probe;
     decision = chooseBindAddress({
-      libredbBind: environment.LIBREDB_BIND,
+      dbportalBind: environment.DBPORTAL_BIND ?? environment.LIBREDB_BIND,
       hostnameEnv: environment.HOSTNAME,
       systemHostname: hostname,
       probe: probeResult,
