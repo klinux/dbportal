@@ -1,6 +1,7 @@
 import { logger } from "@/lib/logger";
 import type { DatabaseConnection } from "@/lib/types";
 import type { SeedConnection } from "./types";
+import { isVaultReference } from "@/lib/vault/credentials";
 
 const ENV_VAR_PATTERN = /^\$\{([A-Z_][A-Z0-9_]*)\}$/;
 const RESOLVABLE_FIELDS = ["password", "connectionString", "user", "host", "database"] as const;
@@ -16,7 +17,9 @@ function resolveField(value: string | undefined, fieldName: string, connId: stri
 
   const match = value.match(ENV_VAR_PATTERN);
   if (!match) {
-    if (fieldName === "password" && value.length > 0 && !warnedPlaintext.has(connId)) {
+    // A `vault:` reference is resolved later, per person, when the datasource is opened
+    // (docs/CONTEXT.md §4.5); it is a pointer, not a plaintext credential.
+    if (fieldName === "password" && value.length > 0 && !isVaultReference(value) && !warnedPlaintext.has(connId)) {
       warnedPlaintext.add(connId);
       logger.warn("Seed connection has plaintext password, use ${ENV_VAR} syntax", {
         route: "seed/credential-resolver",

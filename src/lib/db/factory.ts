@@ -462,6 +462,12 @@ export function providerCacheKey(connectionId: string, applicationName?: string,
   return readOnly ? `${labelled}::ro` : labelled;
 }
 
+function credentialsChanged(open: DatabaseConnection, wanted: DatabaseConnection): boolean {
+  return (
+    open.password !== wanted.password || open.user !== wanted.user || open.connectionString !== wanted.connectionString
+  );
+}
+
 export async function getOrCreateProvider(
   connection: DatabaseConnection,
   options: ProviderOptions = {},
@@ -475,7 +481,13 @@ export async function getOrCreateProvider(
   const cached = providerCache.get(cacheKey);
 
   // A saved timeout change must reach the next query, even when the connection is already open.
-  if (cached && cached.provider.config.queryTimeout !== connection.queryTimeout) {
+  // So must a credential that changed under it: a Vault lease re-issued at 80% of its life
+  // (docs/CONTEXT.md §4.5) replaces the pool before Vault revokes the user the pool holds.
+  if (
+    cached &&
+    (cached.provider.config.queryTimeout !== connection.queryTimeout ||
+      credentialsChanged(cached.provider.config, connection))
+  ) {
     try {
       await cached.provider.disconnect();
     } catch (error) {

@@ -36,3 +36,15 @@ connections:
     password: "${SHARED_PG_PASS}"
     roles: ["*", "group:sre"]
     writeRoles: ["group:dba"]
+  - id: "vault-orders"
+    name: "Orders via Vault"
+    type: postgres
+    host: orders.internal
+    password: "vault:db:database/orders"
+    roles: ["*"]
+  - id: "vault-broken"
+    name: "Broken reference"
+    type: postgres
+    host: orders.internal
+    password: "vault:kv:secret/only"
+    roles: ["*"]

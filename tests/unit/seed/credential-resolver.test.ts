@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import {
   resolveConnectionCredentials,
   resolveAllCredentials,
@@ -77,6 +77,20 @@ describe("credential-resolver", () => {
     expect(resolved).toHaveLength(2);
     expect(resolved[0].id).toBe("good");
     expect(resolved[1].id).toBe("also-good");
+  });
+
+  // docs/CONTEXT.md §4.5: a `vault:` reference is resolved later, per person; it passes the
+  // seed loader untouched and is not a plaintext password to warn about.
+  it("leaves a vault: reference untouched, without a plaintext warning", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const conn = { ...baseConn, id: "vaulted", password: "vault:db:database/orders" };
+      expect(resolveConnectionCredentials(conn).password).toBe("vault:db:database/orders");
+      expect(resolveAllCredentials([conn])).toHaveLength(1);
+      expect(warnSpy.mock.calls.some((c) => String(c[0]).includes("plaintext"))).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("does not throw for plaintext passwords, just warns", () => {

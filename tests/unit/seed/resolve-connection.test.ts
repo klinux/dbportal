@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, spyOn } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import path from "path";
 import type { DatabaseConnection } from "@/lib/types";
 
@@ -17,6 +17,7 @@ import {
 } from "@/lib/seed/resolve-connection";
 import { resetCache } from "@/lib/seed/config-loader";
 import { clearRateLimitState } from "@/lib/api/rate-limit";
+import { resetVaultCache } from "@/lib/vault/credentials";
 
 const clientConn: DatabaseConnection = {
   id: "user-conn",
@@ -184,6 +185,88 @@ describe("resolve-connection", () => {
     } catch (err) {
       expect((err as SeedConnectionError).statusCode).toBe(403);
     }
+  });
+
+  // docs/CONTEXT.md §4.5: a datasource whose credential Vault issues is opened with a
+  // credential issued for THIS person; what Vault said stays in the server log, and the
+  // client learns only that the credential could not be obtained (503) - or, for a
+  // reference the declaration got wrong, that the declaration is at fault (400).
+  describe("Vault references", () => {
+    const savedAddr = process.env.VAULT_ADDR;
+    const savedToken = process.env.VAULT_TOKEN;
+    type FetchLike = (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+    const fetchHolder = globalThis as unknown as { fetch: FetchLike };
+    let fetchSpy: ReturnType<typeof spyOn<{ fetch: FetchLike }, "fetch">>;
+    let errorSpy: ReturnType<typeof spyOn<Console, "error">>;
+    let logSpy: ReturnType<typeof spyOn<Console, "log">>;
+
+    beforeEach(() => {
+      resetVaultCache();
+      process.env.VAULT_ADDR = "https://vault.internal";
+      process.env.VAULT_TOKEN = "s.token";
+      fetchSpy = spyOn(fetchHolder, "fetch").mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ lease_duration: 60, data: { username: "v-ana", password: "issued-pw" } }), {
+            status: 200,
+          }),
+      );
+      errorSpy = spyOn(console, "error").mockImplementation(() => {});
+      logSpy = spyOn(console, "log").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      fetchSpy.mockRestore();
+      errorSpy.mockRestore();
+      logSpy.mockRestore();
+      if (savedAddr === undefined) delete process.env.VAULT_ADDR;
+      else process.env.VAULT_ADDR = savedAddr;
+      if (savedToken === undefined) delete process.env.VAULT_TOKEN;
+      else process.env.VAULT_TOKEN = savedToken;
+    });
+
+    it("resolves a seed datasource's db reference for the session's person", async () => {
+      const resolved = await resolveConnection(
+        { connectionId: "seed:vault-orders" },
+        { role: "user", username: "ana" },
+      );
+      expect(resolved.user).toBe("v-ana");
+      expect(resolved.password).toBe("issued-pw");
+      expect(String((fetchSpy.mock.calls[0] as [string])[0])).toContain("/v1/database/creds/orders");
+    });
+
+    it("answers 503 without Vault's words when the credential cannot be obtained", async () => {
+      fetchSpy.mockImplementation(
+        async () => new Response(JSON.stringify({ errors: ["permission denied"] }), { status: 403 }),
+      );
+      const err = await resolveConnection(
+        { connectionId: "seed:vault-orders" },
+        { role: "user", username: "ana" },
+      ).catch((e) => e);
+      expect(err).toBeInstanceOf(SeedConnectionError);
+      expect((err as SeedConnectionError).statusCode).toBe(503);
+      expect((err as SeedConnectionError).message).toBe(
+        'Credentials for "Orders via Vault" could not be obtained from the secrets manager',
+      );
+      expect(errorSpy).toHaveBeenCalled();
+    });
+
+    it("answers 400 for a malformed reference, naming the datasource", async () => {
+      const err = await resolveConnection(
+        { connectionId: "seed:vault-broken" },
+        { role: "user", username: "ana" },
+      ).catch((e) => e);
+      expect((err as SeedConnectionError).statusCode).toBe(400);
+      expect((err as SeedConnectionError).message).toContain("malformed Vault reference");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("resolves a reference in an admin's draft too, so the draft is tested with the issued credential", async () => {
+      const draft = await resolveDraftConnection(
+        { ...clientConn, password: "vault:db:database/orders" },
+        { role: "admin", username: "root" },
+      );
+      expect(draft).toMatchObject({ user: "v-ana", password: "issued-pw" });
+    });
   });
 
   it("throws 404 when seed connection does not exist", async () => {

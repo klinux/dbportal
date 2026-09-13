@@ -306,6 +306,14 @@ describe("DatasourcesTab", () => {
         datasources: [
           { ...storeRow, id: "a", name: "A", passwordEnv: undefined, hasPassword: true },
           { ...storeRow, id: "b", name: "B", passwordEnv: undefined, hasPassword: false },
+          {
+            ...storeRow,
+            id: "c",
+            name: "C",
+            passwordEnv: undefined,
+            hasPassword: true,
+            passwordVault: "vault:db:database/orders",
+          },
         ],
       }),
     });
@@ -314,6 +322,9 @@ describe("DatasourcesTab", () => {
     expect(getByTestId("datasource-secret-note").textContent).toContain("never shown here");
     fireEvent.click(getByLabelText("Edit B"));
     expect(getByTestId("datasource-secret-note").textContent).toContain("No credential is stored yet.");
+    // docs/CONTEXT.md §4.5: the reference is shown; it is a pointer, not the value.
+    fireEvent.click(getByLabelText("Edit C"));
+    expect(getByTestId("datasource-secret-note").textContent).toContain("Vault (vault:db:database/orders)");
   });
 
   test("deleting asks first, then DELETEs by id and reloads", async () => {

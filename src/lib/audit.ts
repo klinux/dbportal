@@ -22,7 +22,13 @@ export type AuditEventType =
   | "login_failure"
   | "logout"
   | "permission_denied"
-  | "rate_limit_exceeded";
+  | "rate_limit_exceeded"
+  /**
+   * A database credential Vault issued (or failed to issue) for one person on one
+   * datasource (docs/CONTEXT.md §4.5). The line that joins the database's own log - which
+   * names the issued user - to the person the portal issued it for.
+   */
+  | "credential_issued";
 
 /**
  * Why a reason is a closed union and never free text: it is the mechanism that makes redaction
@@ -89,6 +95,8 @@ export type AuditReason =
   // CLASS - never its message, which may quote the statement or the server's reply.
   // A write refused by the datasource's own access rule (docs/CONTEXT.md §4.4).
   | "read_only_datasource"
+  /** The secrets manager did not answer, refused, or answered without a credential (§4.5). */
+  | "credential_provider_failed"
   | "query_error"
   | "query_timeout"
   | "query_cancelled"

@@ -116,6 +116,7 @@ interface StoreRow {
   skipObjectScan?: boolean;
   hasPassword: boolean;
   passwordEnv?: string;
+  passwordVault?: string;
   hasConnectionString: boolean;
   updatedAt: string;
   updatedBy: string;
@@ -370,10 +371,12 @@ export function DatasourcesTab() {
   const secretNote = editing
     ? editing.passwordEnv
       ? `The stored password references \${${editing.passwordEnv}} on the server. Leave the password blank to keep it.`
-      : editing.hasPassword || editing.hasConnectionString
-        ? "A credential is stored on the server and is never shown here. Leave the password blank to keep it."
-        : "No credential is stored yet."
-    : "Type the password, or a ${ENV_VAR} reference to a secret the server holds. It is tested before it is saved.";
+      : editing.passwordVault
+        ? `The password is obtained from Vault (${editing.passwordVault}) when the datasource is opened. Leave it blank to keep that.`
+        : editing.hasPassword || editing.hasConnectionString
+          ? "A credential is stored on the server and is never shown here. Leave the password blank to keep it."
+          : "No credential is stored yet."
+    : "Type the password, a ${ENV_VAR} reference to a secret the server holds, or a vault:kv:… / vault:db:… reference. It is tested before it is saved.";
 
   const sharingFields = (
     <div className="mb-6 rounded-xl border border-hairline bg-panel p-4 space-y-3" data-testid="datasource-sharing">

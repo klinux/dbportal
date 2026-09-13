@@ -1,4 +1,5 @@
 import { getStorageProvider, isServerStorageEnabled } from "@/lib/storage/factory";
+import { isVaultReference } from "@/lib/vault/credentials";
 import { SeedConnectionSchema, type SeedConnection } from "@/lib/seed/types";
 import type { DatabaseConnection } from "@/lib/types";
 import { SHARED_DATASOURCES_OWNER } from "./owner";
@@ -45,6 +46,8 @@ export interface SharedDatasourceView extends Omit<SharedDatasourceRecord, "pass
   hasPassword: boolean;
   /** The `${ENV_VAR}` name the password references, when it is a reference rather than a value. */
   passwordEnv?: string;
+  /** The `vault:` reference the password is, when it is one (docs/CONTEXT.md §4.5). */
+  passwordVault?: string;
   hasConnectionString: boolean;
 }
 
@@ -178,6 +181,7 @@ export function toSharedDatasourceView(record: SharedDatasourceRecord): SharedDa
     ...(publicSsl ? { ssl: publicSsl } : {}),
     hasPassword: !!password,
     ...(envMatch ? { passwordEnv: envMatch[1] } : {}),
+    ...(isVaultReference(password) ? { passwordVault: password } : {}),
     hasConnectionString: !!connectionString,
   };
 }

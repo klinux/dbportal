@@ -184,6 +184,40 @@ connections:
 1. Config file is read from disk (YAML/JSON)
 2. `${VARIABLE_NAME}` patterns are resolved from `process.env`
 3. If an env var is undefined, that connection is **skipped** (others continue working)
+
+### Vault references
+
+A credential can also live in HashiCorp Vault and be fetched when the datasource is
+opened (docs/CONTEXT.md §4.5). Two shapes, in the same fields `${ENV_VAR}` may occupy:
+
+```yaml
+connections:
+  - id: "orders"
+    type: postgres
+    host: orders.internal
+    password: "vault:db:database/orders"           # the database secrets engine ISSUES it
+  - id: "reports"
+    type: postgres
+    host: reports.internal
+    user: "vault:kv:secret/db/reports#user"         # one field of a KV v2 secret
+    password: "vault:kv:secret/db/reports#password"
+```
+
+- `vault:kv:<mount>/<path>#<key>` reads `GET /v1/<mount>/data/<path>` once and keeps the
+  secret for `VAULT_KV_TTL_MS` (default five minutes). The mount is the first path segment.
+- `vault:db:<mount>/<role>` asks `GET /v1/<mount>/creds/<role>` for a credential with a
+  lease. Valid in `password` only; it fills `user` too. One credential is issued **per
+  person** who opens the datasource, so the database's own log names a user that belongs
+  to one person, and it is re-issued at 80% of the lease so a pool never holds a user Vault
+  is about to revoke. Each issue is an audited `credential_issued` event.
+
+The server talks to Vault with `VAULT_ADDR` and `VAULT_TOKEN` (or `VAULT_TOKEN_FILE`, what
+the Kubernetes injector and Vault Agent leave behind - re-read on every call), optionally
+`VAULT_NAMESPACE`, with a `VAULT_TIMEOUT_MS` (default 5 s) on every request. A reference
+the server cannot resolve refuses that request with a 503 that names the datasource and
+never what Vault said (that goes to the server log); a malformed reference is a 400.
+References pass the seed loader untouched, so a datasource with one is listed even while
+Vault is down.
 4. Plaintext passwords trigger a warning log (but still work)
 
 **Resolvable fields:** `password`, `connectionString`, `user`, `host`, `database`

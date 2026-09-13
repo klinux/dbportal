@@ -45,7 +45,7 @@ Verified in code, not from the README:
 | Gap | Where | What actually happens today |
 |---|---|---|
 | Two-role RBAC | [`src/lib/auth.ts`](../src/lib/auth.ts) — `type Role = "admin" \| "user"` | Seed YAML supports `roles: ["admin"]` / `["*"]`. No groups, no per-datasource read/write matrix. |
-| Static shared credentials | [`src/lib/db/factory.ts`](../src/lib/db/factory.ts) — provider cache keyed by connection | Every user shares the database role; the database's own logs cannot name the person. |
+| Static shared credentials | [`src/lib/db/factory.ts`](../src/lib/db/factory.ts) — provider cache keyed by connection | Every user shares the database role; the database's own logs cannot name the person. (§4.3 labels the pool per person; §4.5 issues a credential per person through Vault.) |
 | Masking is client-side | [`src/lib/data-masking.ts`](../src/lib/data-masking.ts) | Column-name regex in the browser; `salary AS x` escapes it; the API returns raw values. |
 | Only the AI agent path is policy-checked | [`src/lib/db/operations/execution.ts`](../src/lib/db/operations/execution.ts) — `executeAuditedOperation` | Policy → audit → budget → driver pipeline exists, but only for agent runs and only on PostgreSQL/SQLite/DuckDB. It is the best piece to generalise to the human editor path. |
 
@@ -172,7 +172,31 @@ Deliberately two lists and one vocabulary, nothing more ([`src/lib/access.ts`](.
   the datasource editor takes group names and a write mode (everyone / admins / nobody;
   a custom rule from the API or YAML is shown and kept).
 
-### 4.5 Ephemeral credentials (Vault) → 4.6 Approval flow → 4.7 Server-side masking
+### 4.5 Ephemeral credentials (Vault) — done
+
+A credential reference the datasource carries instead of a value, resolved on the server
+when the datasource is opened — the value never sits in the seed file, the store, or the
+browser ([`src/lib/vault/`](../src/lib/vault/), docs/SEED_CONNECTIONS.md "Vault references"):
+
+- `vault:kv:<mount>/<path>#<key>` — a KV v2 field, read once per `VAULT_KV_TTL_MS`.
+- `vault:db:<mount>/<role>` — the database secrets engine issues a user + password with a
+  lease, **per person** (cache key `<role>::<username>`), re-issued at 80% of the lease.
+  Each issue is a `credential_issued` audit event (success or `credential_provider_failed`),
+  which joins the database's own log (it names the issued user) to the person.
+- No client library: two GETs with a token header (`VAULT_TOKEN` or `VAULT_TOKEN_FILE`, read
+  per call), a per-request timeout, errors that name the path and never the token or a value.
+- Wiring: `resolveConnection` and `resolveDraftConnection` resolve references after `${ENV}`
+  ones; a Vault failure is a 503 that names the datasource (Vault's words stay in the server
+  log), a malformed reference a 400. `getOrCreateProvider` replaces a cached pool whose
+  user/password/connectionString differ from the freshly resolved connection, the same way
+  it already did for a changed `queryTimeout` — that is what makes a re-issued lease reach
+  the pool before Vault revokes the old user. The cache lives on `globalThis`
+  (`Symbol.for("dbportal.vault-cache")`) for the same reason the audit sink does.
+- Deliberately not done: lease renewal (`sys/leases/renew`) — re-issuing is one code path
+  and Vault revokes the old user on its own; and Vault auth methods beyond a token (AppRole,
+  Kubernetes) — the injector/agent already turns those into a token file.
+
+### 4.6 Approval flow → 4.7 Server-side masking
 
 Design notes for these live in [DESIGN.md](DESIGN.md) §"State Management" and
 §"Interactions" (write window, awaiting-approval state, masked columns, audit rail).

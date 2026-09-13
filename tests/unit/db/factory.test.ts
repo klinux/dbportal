@@ -1808,6 +1808,25 @@ describe("cached connection query timeout", () => {
       expect(restored.isConnected()).toBe(true);
     },
   );
+  // docs/CONTEXT.md §4.5: a Vault lease re-issued at 80% of its life arrives as a new user and
+  // password on the same connection id; the pool holding the old ones is replaced, so a
+  // query never runs on a credential Vault is about to revoke.
+  test("recreates a provider when the credential under it changed", async () => {
+    const connection = makeConnection("postgres");
+    const initial = await getOrCreateProvider(connection);
+    const reissued = await getOrCreateProvider({ ...connection, user: "v-token-2", password: "pw-2" });
+    expect(reissued).not.toBe(initial);
+    expect(initial.isConnected()).toBe(false);
+    expect(await getOrCreateProvider({ ...connection, user: "v-token-2", password: "pw-2" })).toBe(reissued);
+    const viaString = await getOrCreateProvider({
+      ...connection,
+      user: "v-token-2",
+      password: "pw-2",
+      connectionString: "postgres://x",
+    });
+    expect(viaString).not.toBe(reissued);
+  });
+
   test.each([false, true])(
     "recreates a provider after changing or clearing the timeout (profiled: %s)",
     async (profiled) => {

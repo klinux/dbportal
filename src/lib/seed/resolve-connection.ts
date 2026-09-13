@@ -4,6 +4,8 @@ import { logger } from "@/lib/logger";
 import { auditRoleDenial } from "@/lib/api/role-denial";
 import { resolveEnvPlaceholders } from "./credential-resolver";
 import { principalsOf } from "@/lib/access";
+import { resolveVaultReferences } from "@/lib/vault/credentials";
+import { VaultError } from "@/lib/vault/client";
 
 /**
  * What the audit line names as the target of a refused client-supplied connection. There is
@@ -84,7 +86,7 @@ export async function resolveConnection(
       user: session.username,
     });
 
-    return seedConn;
+    return withVaultCredentials(seedConn, session.username);
   }
 
   throw new SeedConnectionError("connectionId is required", 400);
@@ -113,9 +115,35 @@ export async function resolveDraftConnection(
     auditRoleDenial({ route: CLIENT_CONNECTION_TARGET, user: session.username });
     throw new SeedConnectionError("Only administrators can test a connection draft", 403);
   }
+  let resolved: DatabaseConnection;
   try {
-    return resolveEnvPlaceholders(connection);
+    resolved = resolveEnvPlaceholders(connection);
   } catch (error) {
     throw new SeedConnectionError(error instanceof Error ? error.message : String(error), 400);
+  }
+  return withVaultCredentials(resolved, session.username);
+}
+
+/**
+ * A `vault:` reference resolved for the person opening the datasource (docs/CONTEXT.md
+ * §4.5). What Vault said is logged here, server-side; the client learns that the
+ * credential could not be obtained and for which datasource - a 503, since the datasource
+ * is declared correctly and the secrets manager is what did not answer. A malformed
+ * reference is the declaration's fault and a 400 that says so.
+ */
+async function withVaultCredentials<T extends DatabaseConnection>(conn: T, subject: string): Promise<T> {
+  try {
+    return await resolveVaultReferences(conn, subject);
+  } catch (error) {
+    if (!(error instanceof VaultError)) throw error;
+    logger.error("Vault credential could not be obtained", error, {
+      route: "seed/resolve-connection",
+      connectionId: conn.id,
+      user: subject,
+    });
+    if (error.message.startsWith("Malformed Vault reference")) {
+      throw new SeedConnectionError(`Datasource "${conn.name}" declares a malformed Vault reference`, 400);
+    }
+    throw new SeedConnectionError(`Credentials for "${conn.name}" could not be obtained from the secrets manager`, 503);
   }
 }

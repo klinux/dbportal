@@ -243,6 +243,7 @@ function OperationsAudit() {
             <SelectItem value="logout">Logout</SelectItem>
             <SelectItem value="permission_denied">Permission Denied</SelectItem>
             <SelectItem value="rate_limit_exceeded">Rate Limited</SelectItem>
+            <SelectItem value="credential_issued">Credential Issued</SelectItem>
           </SelectContent>
         </Select>
         <Input

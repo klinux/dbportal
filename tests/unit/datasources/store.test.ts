@@ -186,5 +186,13 @@ describe("shared datasource store", () => {
     expect(bare.hasPassword).toBe(false);
     expect(bare).not.toHaveProperty("passwordEnv");
     expect(bare).not.toHaveProperty("ssl");
+
+    // docs/CONTEXT.md §4.5: a Vault reference is named as such - it is a pointer, not a value.
+    const vault = toSharedDatasourceView(
+      await createSharedDatasource({ ...valid, id: "vault", password: "vault:db:database/orders" }, "a"),
+    );
+    expect(vault.hasPassword).toBe(true);
+    expect(vault.passwordVault).toBe("vault:db:database/orders");
+    expect(vault).not.toHaveProperty("passwordEnv");
   });
 });
