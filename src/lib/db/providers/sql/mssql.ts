@@ -1368,6 +1368,8 @@ export class MSSQLProvider extends SQLBaseProvider {
         trustServerCertificate,
         connectTimeout: this.poolConfig.acquireTimeout,
         requestTimeout: this.queryTimeout,
+        // The person behind the shared login, as sys.dm_exec_sessions.program_name (§4.3).
+        ...(this.options.applicationName ? { appName: this.options.applicationName } : {}),
       },
     };
 

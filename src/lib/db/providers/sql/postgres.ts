@@ -1602,6 +1602,8 @@ export class PostgresProvider extends SQLBaseProvider {
       connectionTimeoutMillis: this.poolConfig.acquireTimeout,
       statement_timeout: this.queryTimeout,
       ssl: sslConfig,
+      // The person behind the shared role, for pg_stat_activity and pgAudit (§4.3).
+      ...(this.options.applicationName ? { application_name: this.options.applicationName } : {}),
     };
 
     if (this.config.connectionString) {

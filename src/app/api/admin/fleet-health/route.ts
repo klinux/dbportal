@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getOrCreateProvider } from "@/lib/db";
+import { applicationNameFor } from "@/lib/db/application-name";
 import type { DatabaseConnection } from "@/lib/types";
 import { createErrorResponse } from "@/lib/api/errors";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
@@ -74,7 +75,9 @@ export async function POST(request: Request) {
             conn.managed && conn.seedId
               ? await resolveConnection({ connectionId: `seed:${conn.seedId}` }, guard.session)
               : conn;
-          const provider = await getOrCreateProvider(resolved);
+          const provider = await getOrCreateProvider(resolved, {
+            applicationName: applicationNameFor(guard.session.username),
+          });
           const health = await provider.getHealth();
           const latencyMs = Date.now() - start;
 

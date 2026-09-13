@@ -140,6 +140,10 @@ describe("POST /api/db/query", () => {
         }) as never,
       );
       expect(ok.status).toBe(200);
+      // docs/CONTEXT.md §4.3: the pool is obtained under the person's own label.
+      expect(mockGetOrCreateProvider).toHaveBeenLastCalledWith(expect.anything(), {
+        applicationName: "admin@dbportal",
+      });
       (mockProvider.query as ReturnType<typeof mock>).mockRejectedValueOnce(new QueryError("syntax error near 'x'"));
       const failed = await POST(
         createMockRequest("/api/db/query", {

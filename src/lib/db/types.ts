@@ -812,6 +812,12 @@ export interface DatabaseProvider {
 export interface ProviderOptions {
   /** Connection pool configuration */
   pool?: Partial<PoolConfig>;
+  /**
+   * The session label this pool carries into the engine - `<user>@dbportal`, built by
+   * `applicationNameFor` (docs/CONTEXT.md §4.3). A pool is cached per (connection, label),
+   * so the engine's own session views name the person behind the shared role.
+   */
+  applicationName?: string;
   /** Query timeout in milliseconds */
   queryTimeout?: number;
   /** Enable SSL/TLS connection */

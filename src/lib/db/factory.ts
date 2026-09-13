@@ -449,11 +449,26 @@ function startIdleSweep(): void {
  * @param options - Optional provider options
  * @returns Cached or new DatabaseProvider instance
  */
+/**
+ * How a per-person pool is sized (docs/CONTEXT.md §4.3). One pool per (datasource, person)
+ * is what lets the engine name the person, and it multiplies pools by the number of
+ * people on a datasource, so each one is kept small unless the caller sized it itself.
+ */
+export const PER_USER_POOL_MAX = 3;
+
+/** The cache key: the datasource, and the person when the pool is labelled for one. */
+export function providerCacheKey(connectionId: string, applicationName?: string): string {
+  return applicationName ? `${connectionId}::${applicationName}` : connectionId;
+}
+
 export async function getOrCreateProvider(
   connection: DatabaseConnection,
   options: ProviderOptions = {},
 ): Promise<DatabaseProvider> {
-  const cacheKey = connection.id;
+  const cacheKey = providerCacheKey(connection.id, options.applicationName);
+  if (options.applicationName && options.pool?.max === undefined) {
+    options = { ...options, pool: { ...options.pool, max: PER_USER_POOL_MAX } };
+  }
 
   // Check cache
   const cached = providerCache.get(cacheKey);
@@ -721,15 +736,15 @@ export async function acquireExecutionProfileProvider(
  * not leave a stale agent pool running under the old configuration.
  */
 export async function removeProvider(connectionId: string): Promise<void> {
-  const cached = providerCache.get(connectionId);
-
-  if (cached) {
+  // The shared pool and every person's labelled pool for this datasource (§4.3).
+  for (const [key, cached] of providerCache) {
+    if (key !== connectionId && !key.startsWith(`${connectionId}::`)) continue;
     try {
       await cached.provider.disconnect();
     } catch (error) {
-      logger.warn(`Error disconnecting provider ${connectionId}`, { connectionId, error: String(error) });
+      logger.warn(`Error disconnecting provider ${key}`, { connectionId, error: String(error) });
     }
-    providerCache.delete(connectionId);
+    providerCache.delete(key);
   }
 
   for (const [key, entry] of profiledProviderCache) {

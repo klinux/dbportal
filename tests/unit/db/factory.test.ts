@@ -281,6 +281,8 @@ const {
   removeProvider,
   clearProviderCache,
   getProviderCacheStats,
+  providerCacheKey,
+  PER_USER_POOL_MAX,
   evictIdleProviders,
   registerShutdownHandlers,
   acquireExecutionProfileProvider,
@@ -537,6 +539,39 @@ describe("getOrCreateProvider", () => {
     expect(first).toBe(second);
   });
 
+  // docs/CONTEXT.md §4.3: a pool labelled for a person is that person's pool. Two people on
+  // one datasource get two pools, each small, and the unlabelled pool is a third thing.
+  test("caches one pool per (datasource, person) when an application name is given", async () => {
+    const conn = makeConnection("sqlite");
+    const ana = await getOrCreateProvider(conn, { applicationName: "ana@dbportal" });
+    const bob = await getOrCreateProvider(conn, { applicationName: "bob@dbportal" });
+    const shared = await getOrCreateProvider(conn);
+
+    expect(ana).not.toBe(bob);
+    expect(shared).not.toBe(ana);
+    expect(await getOrCreateProvider(conn, { applicationName: "ana@dbportal" })).toBe(ana);
+    expect(getProviderCacheStats().connections.sort()).toEqual([
+      "test-sqlite",
+      "test-sqlite::ana@dbportal",
+      "test-sqlite::bob@dbportal",
+    ]);
+    expect(providerCacheKey("c1", "x@dbportal")).toBe("c1::x@dbportal");
+    expect(providerCacheKey("c1")).toBe("c1");
+  });
+
+  test("a person's pool is kept small unless the caller sized it", async () => {
+    const conn = makeConnection("sqlite");
+    const small = (await getOrCreateProvider(conn, { applicationName: "ana@dbportal" })) as unknown as {
+      poolConfig: { max: number };
+    };
+    expect(small.poolConfig.max).toBe(PER_USER_POOL_MAX);
+    const sized = (await getOrCreateProvider(conn, {
+      applicationName: "bob@dbportal",
+      pool: { max: 7 },
+    })) as unknown as { poolConfig: { max: number } };
+    expect(sized.poolConfig.max).toBe(7);
+  });
+
   test("creates new provider if cached one is disconnected", async () => {
     const conn = makeConnection("sqlite");
     const first = await getOrCreateProvider(conn);
@@ -629,6 +664,19 @@ describe("removeProvider", () => {
     const stats = getProviderCacheStats();
     expect(stats.size).toBe(0);
     expect(stats.connections).not.toContain("test-sqlite");
+  });
+
+  test("removes every person's pool for the datasource as well as the shared one", async () => {
+    const conn = makeConnection("sqlite");
+    const other = makeConnection("sqlite", { id: "other-sqlite" });
+    await getOrCreateProvider(conn);
+    const ana = await getOrCreateProvider(conn, { applicationName: "ana@dbportal" });
+    await getOrCreateProvider(other, { applicationName: "ana@dbportal" });
+
+    await removeProvider(conn.id);
+
+    expect(ana.isConnected()).toBe(false);
+    expect(getProviderCacheStats().connections).toEqual(["other-sqlite::ana@dbportal"]);
   });
 
   test("calls closeSSHTunnel", async () => {

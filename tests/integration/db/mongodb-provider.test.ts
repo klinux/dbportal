@@ -2015,3 +2015,18 @@ describe("object surface", () => {
     expect(new Set(mongoOpenedDatabases)).toEqual(new Set(["app"]));
   });
 });
+
+// docs/CONTEXT.md §4.3: the person behind the shared user, as currentOp() reports appName.
+describe("the application name handed to MongoClient", () => {
+  test("is the caller's label, and absent when no caller gave one", async () => {
+    const labelled = new MongoDBProvider({ ...baseConfig }, { applicationName: "ana@dbportal" });
+    await labelled.connect();
+    expect(lastMongoOptions.appName).toBe("ana@dbportal");
+    await labelled.disconnect();
+
+    const plain = new MongoDBProvider({ ...baseConfig });
+    await plain.connect();
+    expect(lastMongoOptions).not.toHaveProperty("appName");
+    await plain.disconnect();
+  });
+});

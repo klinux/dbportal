@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOrCreateProvider } from "@/lib/db";
+import { applicationNameFor } from "@/lib/db/application-name";
 import { splitStatements } from "@/lib/sql/statement-splitter";
 import { resolveSqlGrammar } from "@/lib/sql/grammar";
 import { isSelectQuery } from "@/lib/db/utils/query-limiter";
@@ -131,7 +132,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No valid SQL statements found" }, { status: 400 });
     }
 
-    const provider = await getOrCreateProvider(connection);
+    const provider = await getOrCreateProvider(connection, {
+      applicationName: applicationNameFor(guard.session.username),
+    });
     const results: StatementResult[] = [];
     let totalExecutionTime = 0;
     const audit: Omit<ExecutionAuditContext, "statement"> = {

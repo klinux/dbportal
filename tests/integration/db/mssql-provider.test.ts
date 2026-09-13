@@ -514,6 +514,18 @@ describe("MSSQLProvider", () => {
       expect(await connectWithSSL("disable")).toMatchObject({ encrypt: false });
     });
 
+    // docs/CONTEXT.md §4.3: the person behind the shared login, as
+    // sys.dm_exec_sessions.program_name. Absent when no caller labelled the pool.
+    test("carries the caller's application name as tedious's appName, and only then", async () => {
+      provider = new MSSQLProvider(baseConfig, { applicationName: "ana@dbportal" });
+      await provider.connect();
+      expect(lastPoolConfig.options).toMatchObject({ appName: "ana@dbportal" });
+      await provider.disconnect();
+      provider = new MSSQLProvider(baseConfig);
+      await provider.connect();
+      expect(lastPoolConfig.options).not.toHaveProperty("appName");
+    });
+
     test("mode require encrypts and trusts whatever certificate is presented", async () => {
       expect(await connectWithSSL("require")).toMatchObject({ encrypt: true, trustServerCertificate: true });
     });

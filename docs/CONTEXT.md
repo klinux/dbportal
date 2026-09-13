@@ -131,11 +131,18 @@ Two steps. The first closes the hole; the second delivers the product.
   table in the `postgres` storage provider — so the tab outlives the process. stdout to the
   log pipeline remains the durable channel until then.
 
-### 4.3 `application_name` per user
+### 4.3 `application_name` per user — done
 
-On provider connect, set `application_name = "<username>@dbportal"` (PostgreSQL) or the
-engine's equivalent, so `pg_stat_activity` and pgAudit show the person behind a shared
-role. Cheap, and gives a second, independent audit trail.
+Every route obtains its provider with `{ applicationName: applicationNameFor(user) }`
+(`<user>@dbportal`, 63 chars, ASCII — [`src/lib/db/application-name.ts`](../src/lib/db/application-name.ts)),
+and `getOrCreateProvider` caches **one pool per (datasource, person)** under that label,
+capped at `PER_USER_POOL_MAX = 3` connections unless the caller sized it. PostgreSQL gets
+`application_name`, MySQL `connectAttributes.program_name`, SQL Server `options.appName`,
+MongoDB `appName`; the other engines ignore the option. So `pg_stat_activity`, pgAudit,
+`session_connect_attrs`, `sys.dm_exec_sessions` and `currentOp()` name the person behind
+the shared role — a second audit trail the database keeps itself. A side effect worth
+knowing: a transaction opened by one person no longer shares its pool with another's.
+`removeProvider(connectionId)` closes the shared pool and every person's pool for it.
 
 ### 4.4 Real RBAC → 4.5 Ephemeral credentials (Vault) → 4.6 Approval flow → 4.7 Server-side masking
 

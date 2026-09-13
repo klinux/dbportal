@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getOrCreateProvider, type MaintenanceType } from "@/lib/db";
+import { applicationNameFor } from "@/lib/db/application-name";
 import { emitAuditEvent } from "@/lib/audit";
 import { createErrorResponse } from "@/lib/api/errors";
 import { maintenanceControl, type MaintenancePlacement } from "@/lib/db/types";
@@ -33,7 +34,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Maintenance type is required" }, { status: 400 });
     }
 
-    const provider = await getOrCreateProvider(connection);
+    const provider = await getOrCreateProvider(connection, {
+      applicationName: applicationNameFor(guard.session.username),
+    });
     const capabilities = provider.getCapabilities();
 
     if (!capabilities.supportsMaintenance) {

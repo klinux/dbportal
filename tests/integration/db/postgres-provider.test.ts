@@ -729,6 +729,18 @@ describe("PostgresProvider", () => {
       expect(lastPoolConfig.ssl).toEqual({ rejectUnauthorized: false });
     });
 
+    // docs/CONTEXT.md §4.3: the person behind the shared role, for pg_stat_activity and
+    // pgAudit. Absent when no caller labelled the pool, so the engine keeps its default.
+    test("labels the pool with the caller's application name, and only then", async () => {
+      provider = new PostgresProvider(makePgConfig(), { applicationName: "ana@dbportal" });
+      await provider.connect();
+      expect(lastPoolConfig.application_name).toBe("ana@dbportal");
+      await provider.disconnect();
+      provider = new PostgresProvider(makePgConfig());
+      await provider.connect();
+      expect(lastPoolConfig).not.toHaveProperty("application_name");
+    });
+
     test("ssl mode verify-ca sets rejectUnauthorized to true", async () => {
       provider = new PostgresProvider(
         makePgConfig({

@@ -1607,6 +1607,9 @@ export class MySQLProvider extends SQLBaseProvider {
       queueLimit: 0,
       enableKeepAlive: true,
       keepAliveInitialDelay: 10000,
+      // The person behind the shared role, as performance_schema.session_connect_attrs
+      // shows it (§4.3).
+      ...(this.options.applicationName ? { connectAttributes: { program_name: this.options.applicationName } } : {}),
     };
 
     if (this.config.connectionString) {

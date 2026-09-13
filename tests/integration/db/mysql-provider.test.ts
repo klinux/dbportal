@@ -2157,6 +2157,18 @@ describe("MySQLProvider", () => {
       expect(lastPoolConfig.ssl).toEqual({ rejectUnauthorized: false });
     });
 
+    // docs/CONTEXT.md §4.3: the person behind the shared role, as
+    // performance_schema.session_connect_attrs shows it. Absent when no caller labelled it.
+    test("carries the caller's application name as the program_name connect attribute", async () => {
+      provider = new MySQLProvider(makeMySQLConfig(), { applicationName: "ana@dbportal" });
+      await provider.connect();
+      expect(lastPoolConfig.connectAttributes).toEqual({ program_name: "ana@dbportal" });
+      await provider.disconnect();
+      provider = new MySQLProvider(makeMySQLConfig());
+      await provider.connect();
+      expect(lastPoolConfig).not.toHaveProperty("connectAttributes");
+    });
+
     test("ssl mode verify-ca carries the pasted CA alongside the chain check", async () => {
       provider = new MySQLProvider(makeMySQLConfig({ ssl: { mode: "verify-ca", caCert: "ca-pem" } }));
       await provider.connect();

@@ -605,6 +605,8 @@ export class MongoDBProvider extends BaseDatabaseProvider {
         connectTimeoutMS: this.poolConfig.acquireTimeout,
         serverSelectionTimeoutMS: this.poolConfig.acquireTimeout,
         ...this.buildTLSOptions(),
+        // The person behind the shared user, as currentOp()'s appName (§4.3).
+        ...(this.options.applicationName ? { appName: this.options.applicationName } : {}),
       };
 
       this.client = new MongoClient(connectionString, options);
