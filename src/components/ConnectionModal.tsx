@@ -2,7 +2,8 @@
 
 import type { ReactNode } from "react";
 
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { CONFIG_SHEET_CLASS } from "@/lib/ui/config-sheet";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1126,16 +1127,15 @@ export function ConnectionModal({
     );
   }
 
+  // A right-anchored sheet at half the viewport rather than a centred dialog (docs/CONTEXT.md
+  // §4.8): the form is long, and the list it was opened from stays in view beside it.
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent
-        className="sm:max-w-[500px] lg:max-w-[540px] max-h-[90vh] bg-surface border-hairline text-fg p-0 overflow-hidden shadow-2xl flex flex-col"
-        showCloseButton={false}
-      >
-        <DialogTitle className="sr-only">{title}</DialogTitle>
-        <DialogDescription className="sr-only">Configure database connection parameters.</DialogDescription>
+    <Sheet open={isOpen} onOpenChange={onClose}>
+      <SheetContent side="right" className={`${CONFIG_SHEET_CLASS} p-0 gap-0`} showCloseButton={false}>
+        <SheetTitle className="sr-only">{title}</SheetTitle>
+        <SheetDescription className="sr-only">Configure database connection parameters.</SheetDescription>
         {formContent}
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

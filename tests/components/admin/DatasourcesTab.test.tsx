@@ -80,11 +80,22 @@ const built: DatabaseConnection = {
   createdAt: new Date(0),
 };
 
+/**
+ * Waits for the first read to land. A plain throw, not `expect(node).toBeNull()`: a failed
+ * expect on a DOM node serialises the node into its message on every retry, which measured
+ * 1.2 s per wait in happy-dom and turned a 2 s file into a 25 s one.
+ */
 async function renderLoaded() {
   const result = render(<DatasourcesTab />);
-  await waitFor(() => expect(result.queryByTestId("datasources-loading")).toBeNull());
+  await waitFor(() => {
+    if (result.queryByTestId("datasources-loading")) throw new Error("still loading");
+  });
   return result;
 }
+
+const gone = (query: () => HTMLElement | null) => () => {
+  if (query()) throw new Error("still on screen");
+};
 
 describe("DatasourcesTab", () => {
   beforeEach(() => {
@@ -265,7 +276,7 @@ describe("DatasourcesTab", () => {
     fireEvent.click(getByLabelText("Delete Orders"));
     expect(getByText("Delete datasource?")).not.toBeNull();
     fireEvent.click(getByText("Cancel"));
-    await waitFor(() => expect(queryByText("Delete datasource?")).toBeNull());
+    await waitFor(gone(() => queryByText("Delete datasource?")));
     expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === "DELETE")).toBe(false);
 
     fireEvent.click(getByLabelText("Delete Orders"));
@@ -288,7 +299,7 @@ describe("DatasourcesTab", () => {
       fireEvent.click(getByText("Delete", { selector: "button" }));
     });
     await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("Could not delete datasource: no store"));
-    await waitFor(() => expect(queryByText("Delete datasource?")).toBeNull());
+    await waitFor(gone(() => queryByText("Delete datasource?")));
   });
 
   test("an empty list says so, in the words that fit the store's availability", async () => {

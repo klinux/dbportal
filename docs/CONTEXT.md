@@ -126,16 +126,16 @@ role. Cheap, and gives a second, independent audit trail.
 Design notes for these live in [DESIGN.md](DESIGN.md) §"State Management" and
 §"Interactions" (write window, awaiting-approval state, masked columns, audit rail).
 
-### 4.8 UI: configuration dialogs become side sheets
+### 4.8 UI: configuration dialogs are side sheets (done)
 
-Every configuration dialog — the connection/datasource editor first
-(`src/components/ConnectionModal.tsx`, a 1,100-line centred modal that already scrolls
-at 800px), then the create-table, import and save-query dialogs — moves to a **Sheet**
-anchored to the right edge at **50 % of the viewport** (`src/components/ui/sheet.tsx`
-exists; the mobile Drawer stays). A sheet keeps the list it was opened from visible,
+The connection/datasource editor (`src/components/ConnectionModal.tsx`), the create-table
+editor and the data-import wizard open in a **Sheet** anchored to the right edge at
+**50 % of the viewport**, full height (`CONFIG_SHEET_CLASS` in
+[`src/lib/ui/config-sheet.ts`](../src/lib/ui/config-sheet.ts), one string so the three
+cannot drift; the mobile Drawer stays). A sheet keeps the list it was opened from visible,
 gives a long form its full height, and does not fight the page for the centre. The
-datasource editor is the first candidate because it grew the roles block in §4.1 B and
-is the one administrators will live in. Requested 2026-09-13.
+save-query prompt and the masking-rule dialog stay centred: they are one-field prompts,
+not configuration. Requested 2026-09-13.
 
 ## 5. Decisions already taken
 

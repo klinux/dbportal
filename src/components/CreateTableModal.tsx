@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { CONFIG_SHEET_CLASS } from "@/lib/ui/config-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -386,19 +387,19 @@ export function CreateTableModal({ isOpen, onClose, onTableCreated, dbType }: Cr
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl bg-surface border-hairline-strong text-fg p-0 overflow-hidden flex flex-col max-h-[90vh]">
-        <DialogHeader className="px-6 py-4 border-b border-hairline bg-panel">
+    <Sheet open={isOpen} onOpenChange={onClose}>
+      <SheetContent side="right" className={`${CONFIG_SHEET_CLASS} p-0 gap-0`} showCloseButton={false}>
+        <SheetHeader className="px-6 py-4 border-b border-hairline bg-panel">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-brand-tint/10 border border-brand-tint/20">
               <TableIcon strokeWidth={1.5} className="w-5 h-5 text-brand" />
             </div>
             <div>
-              <DialogTitle className="text-xs font-medium">Create New Table</DialogTitle>
+              <SheetTitle className="text-xs font-medium">Create New Table</SheetTitle>
               <p className="text-xs text-fg-muted mt-1 font-medium">Define schema structure</p>
             </div>
           </div>
-        </DialogHeader>
+        </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
           {/* Table Name Section */}
@@ -552,7 +553,7 @@ export function CreateTableModal({ isOpen, onClose, onTableCreated, dbType }: Cr
           </div>
         </div>
 
-        <DialogFooter className="px-6 py-4 border-t border-hairline bg-panel">
+        <SheetFooter className="px-6 py-4 border-t border-hairline bg-panel flex-col-reverse sm:flex-row sm:justify-end">
           <Button variant="ghost" onClick={onClose} className="text-xs text-fg-tertiary hover:text-fg-bright">
             Cancel
           </Button>
@@ -568,8 +569,8 @@ export function CreateTableModal({ isOpen, onClose, onTableCreated, dbType }: Cr
             )}
             CREATE TABLE
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useCallback, useRef, useMemo } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { CONFIG_SHEET_CLASS } from "@/lib/ui/config-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CopyButton } from "@/components/copy-button";
@@ -383,15 +384,15 @@ export function DataImportModal({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="bg-surface border-hairline-strong text-fg max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+    <Sheet open={isOpen} onOpenChange={handleClose}>
+      <SheetContent side="right" className={`${CONFIG_SHEET_CLASS} p-6`}>
+        <SheetHeader className="p-0">
+          <SheetTitle className="flex items-center gap-2">
             <Upload strokeWidth={1.5} className="w-5 h-5 text-brand" />
             {"Import Data"}
             {fileName && <span className="text-xs text-fg-muted font-normal ml-2">{fileName}</span>}
-          </DialogTitle>
-        </DialogHeader>
+          </SheetTitle>
+        </SheetHeader>
 
         {/* Step Indicator */}
         <div className="flex items-center gap-2 px-1 py-2">
@@ -774,7 +775,7 @@ export function DataImportModal({
             </div>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

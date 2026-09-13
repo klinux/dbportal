@@ -44,9 +44,9 @@ mock.module("@/hooks/use-mobile", () => ({
   useIsMobile: () => false,
 }));
 
-// ── Mock Radix Dialog via @/components/ui/dialog ────────────────────────────
-mock.module("@/components/ui/dialog", () => ({
-  Dialog: ({
+// ── Mock the Sheet via @/components/ui/sheet (the desktop frame since docs/CONTEXT.md §4.8) ──
+mock.module("@/components/ui/sheet", () => ({
+  Sheet: ({
     open,
     children,
   }: {
@@ -55,21 +55,21 @@ mock.module("@/components/ui/dialog", () => ({
     onOpenChange?: (open: boolean) => void;
   }) => {
     if (!open) return null;
-    return React.createElement("div", { "data-testid": "dialog", "data-open": open }, children);
+    return React.createElement("div", { "data-testid": "sheet", "data-open": open }, children);
   },
-  DialogContent: ({ children, className }: { children: React.ReactNode; className?: string }) =>
-    React.createElement("div", { "data-testid": "dialog-content", className }, children),
-  DialogHeader: ({ children, className }: { children: React.ReactNode; className?: string }) =>
-    React.createElement("div", { "data-testid": "dialog-header", className }, children),
-  DialogTitle: ({ children, className }: { children: React.ReactNode; className?: string }) =>
-    React.createElement("h2", { "data-testid": "dialog-title", className }, children),
-  DialogFooter: ({ children, className }: { children: React.ReactNode; className?: string }) =>
-    React.createElement("div", { "data-testid": "dialog-footer", className }, children),
-  DialogDescription: ({ children }: { children: React.ReactNode }) => React.createElement("p", null, children),
-  DialogClose: ({ children }: { children: React.ReactNode }) => React.createElement("button", null, children),
-  DialogTrigger: ({ children }: { children: React.ReactNode }) => children,
-  DialogPortal: ({ children }: { children: React.ReactNode }) => children,
-  DialogOverlay: () => null,
+  SheetContent: ({ children, className }: { children: React.ReactNode; className?: string }) =>
+    React.createElement("div", { "data-testid": "sheet-content", className }, children),
+  SheetHeader: ({ children, className }: { children: React.ReactNode; className?: string }) =>
+    React.createElement("div", { "data-testid": "sheet-header", className }, children),
+  SheetTitle: ({ children, className }: { children: React.ReactNode; className?: string }) =>
+    React.createElement("h2", { "data-testid": "sheet-title", className }, children),
+  SheetFooter: ({ children, className }: { children: React.ReactNode; className?: string }) =>
+    React.createElement("div", { "data-testid": "sheet-footer", className }, children),
+  SheetDescription: ({ children }: { children: React.ReactNode }) => React.createElement("p", null, children),
+  SheetClose: ({ children }: { children: React.ReactNode }) => React.createElement("button", null, children),
+  SheetTrigger: ({ children }: { children: React.ReactNode }) => children,
+  SheetPortal: ({ children }: { children: React.ReactNode }) => children,
+  SheetOverlay: () => null,
 }));
 
 // ── Mock Shadcn UI primitives ───────────────────────────────────────────────
