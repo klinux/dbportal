@@ -1219,6 +1219,13 @@ order }] }`, ordered. Admin: `GET /api/admin/environments` (each with `source`: 
 `DELETE /api/admin/environments/[id]` — `409` for production or one a datasource uses, `404` for a built-in
 or seed-file one. Audited as `environment`.
 
+Vault KV browser (docs/CONTEXT.md §4.39). Admin: `GET /api/admin/vault/kv?path=<folder>` → `{ mount, path,
+folders, secrets }` under the `VAULT_KV_MOUNT` mount; `GET /api/admin/vault/kv?secret=<path>` → `{ path, keys,
+fields: { host?, port?, user?, database? }, references: { password?, connectionString? } }` - values for the plain
+fields, `vault:kv:` references for the credential, mapped by key name. `503` without `VAULT_ADDR`, `400` for a
+malformed path, `502` when Vault refuses (the reason stays in the server log). Reading a secret is audited as
+`vault_secret`.
+
 Runbooks (docs/CONTEXT.md §4.20). Admin: `GET /api/admin/runbooks` → `{ runbooks: [{ id, name,
 description?, datasource, sql, params?, source }] }`; `POST /api/admin/runbooks` — body
 `{ id, name, description?, datasource, sql, params?: [{ name, type, label?, required?, default? }] }`,

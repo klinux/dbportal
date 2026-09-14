@@ -324,6 +324,10 @@ the server cannot resolve refuses that request with a 503 that names the datasou
 never what Vault said (that goes to the server log); a malformed reference is a 400.
 References pass the seed loader untouched, so a datasource with one is listed even while
 Vault is down.
+
+In the admin sheet, "From Vault" browses the KV v2 mount `VAULT_KV_MOUNT` (default `secret`) and
+fills the fields from a picked secret: host, port, user and database as values, the password as
+a `vault:kv:` reference (docs/CONTEXT.md §4.39).
 4. Plaintext passwords trigger a warning log (but still work)
 
 **Resolvable fields:** `password`, `connectionString`, `user`, `host`, `database`

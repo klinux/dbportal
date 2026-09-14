@@ -248,6 +248,8 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists and declares environments in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/environments.test.ts proves the 403",
   "admin/environments/[id]":
     "deletes one stored environment (DELETE, no POST export), asking the datasource store whether it is used; never opens a user database. Same admin gate",
+  "admin/vault/kv":
+    "browses the Vault KV mount and shapes one secret for the datasource sheet (GET); talks to Vault, never opens a user database. Admin-gated by requireAdmin; tests/api/admin/vault-kv.test.ts proves the 403",
   "admin/principals":
     "lists the principals already named anywhere - the seed file, the app's own storage backend, the tokens (GET); never opens a user database. Admin-gated by requireAdmin; tests/api/admin/principals.test.ts proves the 403",
   "admin/roles":
@@ -473,6 +475,10 @@ describe("routes that reach a provider require a session", () => {
       "turns a datasource id into the connection record - access rule, Vault reference, SSH profile - and opens nothing; the backup routes hand the record to pg_dump, not to a provider",
     "@/lib/backups/store": `pg_dump and pg_restore as child processes, and it ${PROVIDER_NAMING_HELPER} (@/lib/db/factory) only for withOneShotTunnel, the SSH tunnel a dump crosses - it opens no provider; the tools connect on their own`,
     "@/lib/vault/health": "one GET to Vault's sys/health for the readiness probe; opens no user database",
+    "@/lib/vault/client":
+      "the Vault HTTP client - configuration, KV reads and lists, database credential issue; opens no user database",
+    "@/lib/vault/kv-browser":
+      "LIST and GET on the KV v2 mount, the secret shaped for the sheet with the credential as a reference; opens no user database",
     "@/lib/metrics/registry": "in-process counters, gauges and a histogram rendered as Prometheus text; opens nothing",
     "@/lib/api/service-auth":
       "the Bearer-token guard of the v1 routes: resolves a token in the app's own storage backend and meters it; opens no user database",

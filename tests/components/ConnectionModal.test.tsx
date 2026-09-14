@@ -268,7 +268,8 @@ mock.module("lucide-react", () => {
 
 // ── Imports AFTER mocks ─────────────────────────────────────────────────────
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { render, fireEvent, cleanup, act } from "@testing-library/react";
+import { render, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
+import { mockGlobalFetch, restoreGlobalFetch } from "../helpers/mock-fetch";
 import { ConnectionModal } from "@/components/ConnectionModal";
 
 // =============================================================================
@@ -503,6 +504,52 @@ describe("ConnectionModal", () => {
     expect((getByTestId("sheet-connection") as HTMLElement).hidden).toBe(true);
     fireEvent.mouseDown(getByTestId("sheet-tab-connection"), { button: 0 });
     expect(queryByTestId("caller-security")).toBeNull();
+  });
+
+  test("a picked Vault secret fills the connection fields, the password as a reference, and shows the Connection tab", async () => {
+    mockGlobalFetch({
+      "/api/admin/vault/kv": (req) =>
+        new URL(req.url).searchParams.get("secret") === "orders"
+          ? {
+              json: {
+                path: "orders",
+                keys: ["host", "port", "user", "database", "password", "url"],
+                fields: { host: "db.internal", port: "5433", user: "app", database: "orders" },
+                references: {
+                  password: "vault:kv:secret/orders#password",
+                  connectionString: "vault:kv:secret/orders#url",
+                },
+              },
+            }
+          : { json: { mount: "secret", path: "", folders: [], secrets: ["orders"] } },
+    });
+    try {
+      const props = createDefaultProps({
+        vaultPicker: true,
+        securityFields: React.createElement("div", null, "rules"),
+      });
+      const { getByTestId, queryByTestId } = render(React.createElement(ConnectionModal, props));
+      fireEvent.mouseDown(getByTestId("sheet-tab-security"), { button: 0 });
+      expect((getByTestId("sheet-connection") as HTMLElement).hidden).toBe(true);
+      fireEvent.click(getByTestId("vault-picker-open"));
+      await waitFor(() => {
+        if (!queryByTestId("vault-secret-orders")) throw new Error("not yet");
+      });
+      fireEvent.click(getByTestId("vault-secret-orders"));
+      // The form hook is mocked here: the pick is proven by what the sheet hands its setters.
+      await waitFor(() => {
+        if (mockSetHost.mock.calls.length === 0) throw new Error("not yet");
+      });
+      expect(mockSetHost).toHaveBeenLastCalledWith("db.internal");
+      expect(mockSetPort).toHaveBeenLastCalledWith("5433");
+      expect(mockSetUser).toHaveBeenLastCalledWith("app");
+      expect(mockSetDatabase).toHaveBeenLastCalledWith("orders");
+      expect(mockSetPassword).toHaveBeenLastCalledWith("vault:kv:secret/orders#password");
+      expect(mockSetConnectionString).toHaveBeenLastCalledWith("vault:kv:secret/orders#url");
+      expect((getByTestId("sheet-connection") as HTMLElement).hidden).toBe(false);
+    } finally {
+      restoreGlobalFetch();
+    }
   });
 
   // ── 11. onClose fires when Cancel clicked ──────────────────────────────────

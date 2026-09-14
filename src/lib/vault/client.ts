@@ -97,6 +97,23 @@ export async function readKvSecret(mount: string, path: string): Promise<Record<
   return data as Record<string, unknown>;
 }
 
+/**
+ * The keys under a KV v2 path: `LIST <mount>/metadata/<path>` (a GET with `?list=true`).
+ * A folder ends with `/`. Nothing there is an empty list, not an error - Vault answers 404.
+ */
+export async function listKvKeys(mount: string, path: string): Promise<string[]> {
+  const location = path ? `${mount}/metadata/${path}` : `${mount}/metadata`;
+  let body: Record<string, unknown>;
+  try {
+    body = await vaultGet(`${location}?list=true`);
+  } catch (error) {
+    if (error instanceof VaultError && error.status === 404) return [];
+    throw error;
+  }
+  const keys = (body.data as { keys?: unknown } | undefined)?.keys;
+  return Array.isArray(keys) ? keys.filter((k): k is string => typeof k === "string") : [];
+}
+
 export interface IssuedCredentials {
   username: string;
   password: string;

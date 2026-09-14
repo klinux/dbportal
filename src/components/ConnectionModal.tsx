@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { VaultSecretPicker } from "@/components/VaultSecretPicker";
 
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { CONFIG_SHEET_CLASS } from "@/lib/ui/config-sheet";
@@ -84,6 +85,8 @@ interface ConnectionModalProps {
   securityFields?: ReactNode;
   /** A note under the password field, e.g. what credential is stored already. */
   passwordNote?: ReactNode;
+  /** Offer the Vault KV browser that fills the connection fields (admin sheets only, docs/CONTEXT.md §4.39). */
+  vaultPicker?: boolean;
 }
 
 export function ConnectionModal({
@@ -98,6 +101,7 @@ export function ConnectionModal({
   extraFields,
   securityFields,
   passwordNote,
+  vaultPicker = false,
 }: ConnectionModalProps) {
   const isMobile = useIsMobile();
   const {
@@ -241,15 +245,30 @@ export function ConnectionModal({
           </div>
           <div className="flex items-center justify-between">
             <p className="text-xs text-fg-muted">{description}</p>
-            {!isEditMode && (
-              <button
-                onClick={() => setShowPasteInput(!showPasteInput)}
-                className="flex items-center gap-1.5 text-xs font-mediumr text-brand hover:text-brand-bright transition-colors px-2 py-1 rounded-md hover:bg-brand-tint/10"
-              >
-                <ClipboardPaste strokeWidth={1.5} className="w-3 h-3" />
-                Paste URL
-              </button>
-            )}
+            <div className="flex items-center gap-1 shrink-0">
+              {vaultPicker && (
+                <VaultSecretPicker
+                  onPick={(picked) => {
+                    if (picked.fields.host) setHost(picked.fields.host);
+                    if (picked.fields.port) setPort(picked.fields.port);
+                    if (picked.fields.user) setUser(picked.fields.user);
+                    if (picked.fields.database) setDatabase(picked.fields.database);
+                    if (picked.references.password) setPassword(picked.references.password);
+                    if (picked.references.connectionString) setConnectionString(picked.references.connectionString);
+                    setSheetTab("connection");
+                  }}
+                />
+              )}
+              {!isEditMode && (
+                <button
+                  onClick={() => setShowPasteInput(!showPasteInput)}
+                  className="flex items-center gap-1.5 text-xs font-mediumr text-brand hover:text-brand-bright transition-colors px-2 py-1 rounded-md hover:bg-brand-tint/10"
+                >
+                  <ClipboardPaste strokeWidth={1.5} className="w-3 h-3" />
+                  Paste URL
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

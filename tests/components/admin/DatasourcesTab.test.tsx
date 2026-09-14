@@ -250,6 +250,8 @@ describe("DatasourcesTab", () => {
       { id: "prod-bastion", name: "Production bastion", host: "b.internal", username: "portal" },
     ]);
     expect(getByTestId("connection-modal")).not.toBeNull();
+    // docs/CONTEXT.md §4.39: the admin sheet offers the Vault browser; a person's own connection sheet does not.
+    expect(capturedModalProps.vaultPicker).toBe(true);
     cleanup();
     restoreGlobalFetch();
 

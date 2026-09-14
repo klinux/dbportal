@@ -595,6 +595,15 @@ built. Each lands as its own section when done.
   selector over four tabs - Global operations (the maintenance body: whole-database work,
   tables, sessions, the session's log), Runbooks (§4.20), Seed from schemas (§4.23, with a
   note where the datasource is not a non-production PostgreSQL) and Backups (§4.14).
+- **4.39 Vault secret picker — done (asked 2026-09-14).** The datasource sheet has a
+  "From Vault" button: an administrator walks the KV v2 mount `VAULT_KV_MOUNT` names
+  (default `secret`) through `GET /api/admin/vault/kv?path=`, picks a secret, and the
+  sheet is filled from it (`?secret=`): host, port, user and database as values, read off
+  the keys' names; the password (and a connection string) as a `vault:kv:<mount>/<path>#<key>`
+  reference the server resolves when the datasource is opened (§4.5) - the credential never
+  reaches the browser or the store. Reading a secret's shape is audited as `vault_secret`;
+  what Vault answered stays in the server log (the client sees a 502). Not a Vault UI: a
+  secret whose keys carry other names fills nothing and the sheet says which keys it saw.
 - **4.35 Operator guide** — `docs/OPERATOR_GUIDE.md`: from zero to the first datasource,
   OIDC, the seed file, a backup; screenshots of the newer pages.
 

@@ -42,6 +42,8 @@ export type AuditEventType =
   | "runbook"
   /** An environment declared, redefined or deleted by an administrator (docs/CONTEXT.md §4.36). */
   | "environment"
+  /** A KV secret an administrator read, shaped for the datasource sheet (docs/CONTEXT.md §4.39). */
+  | "vault_secret"
   /** A reviewer's decision on a write approval request (docs/CONTEXT.md §4.6). */
   | "approval_decision"
   /** A permitted reveal of masked columns; the columns are named, never their values (§4.7). */

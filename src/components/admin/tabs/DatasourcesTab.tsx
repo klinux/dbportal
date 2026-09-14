@@ -868,6 +868,7 @@ export function DatasourcesTab() {
         submitLabel={editing ? "Save datasource" : "Create datasource"}
         sshProfiles={sshProfiles}
         securityFields={sharingFields}
+        vaultPicker
         passwordNote={
           <p className="text-xs text-fg-muted leading-relaxed" data-testid="datasource-secret-note">
             {secretNote}
