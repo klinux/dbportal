@@ -370,6 +370,8 @@ export interface TabApproval {
   requestedAt: string;
   reviewer?: string;
   windowUntil?: string;
+  /** The guardrail the statement tripped, when that is why it waits (docs/CONTEXT.md §4.15). */
+  guardrail?: string;
 }
 
 export interface QueryTab {

@@ -52,6 +52,7 @@ export function filterByRoles(connections: SeedConnection[], userRoles: string[]
       roles: conn.roles,
       ...(conn.writeRoles !== undefined ? { writeRoles: conn.writeRoles } : {}),
       ...(conn.writeApproval !== undefined ? { writeApproval: conn.writeApproval } : {}),
+      ...(conn.guardrails !== undefined ? { guardrails: conn.guardrails } : {}),
       ...(conn.approverRoles !== undefined ? { approverRoles: conn.approverRoles } : {}),
       ...(conn.sshProfile !== undefined ? { sshProfile: conn.sshProfile } : {}),
       seedId: conn.id,

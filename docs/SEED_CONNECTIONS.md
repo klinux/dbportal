@@ -185,6 +185,19 @@ connections:
 2. `${VARIABLE_NAME}` patterns are resolved from `process.env`
 3. If an env var is undefined, that connection is **skipped** (others continue working)
 
+### Guardrails
+
+Whatever the write rule says, a `DELETE` or `UPDATE` without `WHERE`, a `DROP` and a
+`TRUNCATE` wait for a reviewer on `/admin/approvals` (docs/CONTEXT.md §4.15). A datasource
+where that is unwanted - a scratch database - opts out:
+
+```yaml
+  - id: "scratch"
+    type: postgres
+    host: scratch.internal
+    guardrails: false
+```
+
 ### SSH profiles
 
 A bastion is declared once and referenced by name (docs/CONTEXT.md §4.9); the server builds

@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ClipboardCheck, RefreshCw, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
+import { GUARDRAIL_LABEL } from "@/lib/guardrails";
 import type { ApprovalRequest } from "@/lib/storage/types";
 
 /**
@@ -183,6 +184,14 @@ export function ApprovalsTab() {
                         </TableCell>
                         <TableCell className="text-xs text-fg-secondary">{record.datasourceName}</TableCell>
                         <TableCell className="text-xs">
+                          {record.guardrail && (
+                            <Badge
+                              variant="outline"
+                              className="mb-1 text-[10px] text-status-danger border-status-danger/40"
+                            >
+                              guardrail: {GUARDRAIL_LABEL[record.guardrail]}
+                            </Badge>
+                          )}
                           <pre className="font-mono text-[11px] whitespace-pre-wrap break-all max-w-xl text-fg-secondary">
                             {record.statement}
                           </pre>

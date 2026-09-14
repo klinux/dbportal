@@ -9,6 +9,9 @@ import type { ManagedConnection } from "@/lib/seed";
  * what it refuses, and the trail a refusal leaves.
  */
 const base: ManagedConnection = {
+  // docs/CONTEXT.md §4.15: the guardrails are proven in tests/unit/lib/api/write-gate-approval.test.ts;
+  // this file is about something else, and a bare DELETE or DROP here must reach what it tests.
+  guardrails: false,
   id: "seed:orders",
   seedId: "orders",
   name: "Orders",

@@ -319,4 +319,11 @@ describe("SeedConnectionSchema: write approval", () => {
     expect(SeedConnectionSchema.safeParse({ ...base, writeApproval: "yes" }).success).toBe(false);
     expect(SeedConnectionSchema.safeParse({ ...base, approverRoles: ["dba"] }).success).toBe(false);
   });
+
+  // docs/CONTEXT.md §4.15: on unless declared off.
+  it("accepts guardrails: false as the opt-out and nothing else in that field", () => {
+    expect(SeedConnectionSchema.parse({ ...base, guardrails: false }).guardrails).toBe(false);
+    expect(SeedConnectionSchema.parse(base).guardrails).toBeUndefined();
+    expect(SeedConnectionSchema.safeParse({ ...base, guardrails: "off" }).success).toBe(false);
+  });
 });

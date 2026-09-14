@@ -106,6 +106,8 @@ export type AuditReason =
   // CLASS - never its message, which may quote the statement or the server's reply.
   // A write refused by the datasource's own access rule (docs/CONTEXT.md §4.4).
   | "read_only_datasource"
+  /** A statement a guardrail holds for a reviewer (docs/CONTEXT.md §4.15). */
+  | "guardrail"
   /** The secrets manager did not answer, refused, or answered without a credential (§4.5). */
   | "credential_provider_failed"
   /** A write on an approval-gated datasource with no open window: it became a request (§4.6). */

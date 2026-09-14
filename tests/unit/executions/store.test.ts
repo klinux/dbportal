@@ -151,11 +151,11 @@ describe("executions store", () => {
 
   test("a token's datasource allowlist and the datasource's write rule refuse with 403 before anything is stored", async () => {
     expect(await status(ask({ datasourceId: "plain" }, bot({ datasources: ["orders"] })))).toBe(403);
-    expect(await status(ask({ datasourceId: "locked", statement: "DELETE FROM t" }))).toBe(403);
+    expect(await status(ask({ datasourceId: "locked", statement: "DELETE FROM t WHERE id = 1" }))).toBe(403);
     expect(provider.putApproval).not.toHaveBeenCalled();
     // The allowlist admits what it names; an admin token may write on the locked one.
     const ran = await ask(
-      { datasourceId: "locked", statement: "DELETE FROM t" },
+      { datasourceId: "locked", statement: "DELETE FROM t WHERE id = 1" },
       bot({ role: "admin" }, { role: "admin" }),
     );
     expect(ran.status).toBe("approved");
@@ -212,6 +212,22 @@ describe("executions store", () => {
     // A read on the approval-gated datasource does not need the reviewer.
     const plainRead = await ask({ datasourceId: "orders", statement: "SELECT 1" });
     expect(plainRead.status).toBe("approved");
+  });
+
+  // docs/CONTEXT.md §4.15: a guardrail holds a bot's statement too, on any datasource, unless it opted out.
+  test("a statement that trips a guardrail waits with the guardrail on the record; an opted-out datasource runs it", async () => {
+    const held = await ask({ datasourceId: "plain", statement: "DELETE FROM orders" });
+    expect(held.status).toBe("pending");
+    expect(held.guardrail).toBe("delete_without_where");
+    expect(query).not.toHaveBeenCalled();
+    datasources.plain.guardrails = false;
+    try {
+      const ran = await ask({ datasourceId: "plain", statement: "DELETE FROM orders" });
+      expect(ran.status).toBe("approved");
+      expect(ran).not.toHaveProperty("guardrail");
+    } finally {
+      delete datasources.plain.guardrails;
+    }
   });
 
   test("a failed run stores a closed reason, never the driver's words, and still answers the thread", async () => {

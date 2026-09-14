@@ -1,6 +1,7 @@
 "use client";
 
 import { appFetch } from "@/lib/config/base-path";
+import { GUARDRAIL_LABEL, type Guardrail } from "@/lib/guardrails";
 import { useState, useEffect, useCallback, useRef, type Dispatch, type SetStateAction, type RefObject } from "react";
 import type { DatabaseConnection, QueryTab } from "@/lib/types";
 import type { ProviderMetadata } from "@/hooks/use-provider-metadata";
@@ -505,6 +506,7 @@ export function useQueryExecution({
                 requestedAt: string;
                 reviewer?: string;
                 windowUntil?: string;
+                guardrail?: string;
               }
             | undefined;
           if (errorCode === ApiErrorCode.APPROVAL_REQUIRED && approval) {
@@ -521,11 +523,14 @@ export function useQueryExecution({
                 requestedAt: approval.requestedAt,
                 reviewer: approval.reviewer,
                 windowUntil: approval.windowUntil,
+                ...(approval.guardrail ? { guardrail: approval.guardrail } : {}),
               },
             }));
             toast({
               title: "Awaiting approval",
-              description: `A reviewer has to open a write window on "${approval.datasourceName}" before this runs.`,
+              description: approval.guardrail
+                ? `The statement trips a guardrail (${GUARDRAIL_LABEL[approval.guardrail as Guardrail] ?? approval.guardrail}); a reviewer has to open a write window on "${approval.datasourceName}" before this runs.`
+                : `A reviewer has to open a write window on "${approval.datasourceName}" before this runs.`,
             });
             return;
           }

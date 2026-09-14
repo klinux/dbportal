@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { canWrite, isReadStatement } from "@/lib/access";
+import { dangerOf } from "@/lib/guardrails";
 import { auditExecution } from "@/lib/audit-execution";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
@@ -160,10 +161,12 @@ export async function submitExecution(
       403,
     );
   }
+  const guardrail = connection.guardrails === false ? null : dangerOf(statement, connection.type);
   const store = await requireStore();
   const record: ApprovalRequest = {
     id: randomUUID(),
     kind: "execution",
+    ...(guardrail ? { guardrail } : {}),
     datasourceId,
     datasourceName: connection.name,
     requester: identity.session.username,
@@ -174,7 +177,7 @@ export async function submitExecution(
     requestedAt: new Date().toISOString(),
     ...(reply ? { reply } : {}),
   };
-  const needsReview = token.requireApproval || (writes && connection.writeApproval === true);
+  const needsReview = token.requireApproval || guardrail !== null || (writes && connection.writeApproval === true);
   if (needsReview) {
     await store.putApproval(record);
     logger.info("Execution queued for approval", {

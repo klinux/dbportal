@@ -3,6 +3,7 @@ import type { AuditEvent } from "../audit";
 import type { MaskingConfig } from "../data-masking";
 import type { ThresholdConfig } from "../monitoring-thresholds";
 import type { SshProfileRecord } from "../ssh-profiles/types";
+import type { Guardrail } from "../guardrails";
 import type { ServiceTokenRecord } from "../service-tokens/types";
 
 /**
@@ -85,6 +86,8 @@ export interface ApprovalRequest {
   reply?: ExecutionReply;
   /** The outcome of an `execution` request once it ran. */
   execution?: ExecutionOutcome;
+  /** The guardrail the statement tripped (§4.15), when that is why the request exists. */
+  guardrail?: Guardrail;
 }
 
 export interface ExecutionReply {

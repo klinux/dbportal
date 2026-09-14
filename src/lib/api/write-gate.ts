@@ -1,4 +1,5 @@
 import { canWrite, isReadStatement } from "@/lib/access";
+import { firstGuardrail } from "@/lib/guardrails";
 import { auditRoleDenial } from "@/lib/api/role-denial";
 import { ApprovalError } from "@/lib/approvals/errors";
 import { requireWriteWindow } from "@/lib/approvals/store";
@@ -46,7 +47,10 @@ export async function assertWriteAllowed(opts: {
       403,
     );
   }
-  if (!opts.connection.writeApproval) return {};
+  // A guardrail (§4.15) holds the statement for a reviewer on any datasource that has not
+  // opted out, whoever asks; the request records which one, so the reviewer sees why.
+  const guardrail = opts.connection.guardrails === false ? null : firstGuardrail(opts.statements, opts.connection.type);
+  if (!opts.connection.writeApproval && !guardrail) return {};
   try {
     const window = await requireWriteWindow({
       datasourceId: opts.connection.seedId ?? opts.connection.id,
@@ -54,6 +58,7 @@ export async function assertWriteAllowed(opts: {
       requester: opts.session.username,
       statement: offending,
       route: opts.route,
+      ...(guardrail ? { guardrail } : {}),
     });
     return { approvalId: window.id, reviewer: window.reviewer };
   } catch (error) {
@@ -63,7 +68,7 @@ export async function assertWriteAllowed(opts: {
         route: opts.route,
         user: opts.session.username,
         request: opts.request,
-        reason: "approval_required",
+        reason: guardrail ? "guardrail" : "approval_required",
       });
     }
     throw error;

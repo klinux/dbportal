@@ -103,6 +103,8 @@ export const SeedConnectionSchema = z.object({
   writeApproval: z.boolean().optional(),
   /** Who may grant one; administrators when absent. */
   approverRoles: z.array(AllowedRoleSchema).optional(),
+  /** Whether DELETE/UPDATE without WHERE, DROP and TRUNCATE need a reviewer even from a writer (§4.15). On unless `false`. */
+  guardrails: z.boolean().optional(),
   /** The SSH profile (a bastion declared once) this datasource is reached through (§4.9). */
   sshProfile: z.string().optional(),
   managed: z.boolean().optional(),
@@ -152,6 +154,7 @@ export interface ManagedConnection extends DatabaseConnection {
   writeRoles?: string[];
   writeApproval?: boolean;
   approverRoles?: string[];
+  guardrails?: boolean;
   sshProfile?: string;
   seedId: string;
 }

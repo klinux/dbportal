@@ -366,9 +366,15 @@ built. Each lands as its own section when done.
   `pg_restore --clean` is offered only where the datasource is not production, whatever
   the caller's role. Audited as `backup` created/uploaded/restored. The image installs
   `postgresql-client`; a server without it says so and takes none.
-- **4.15 Guardrails per statement** — `DELETE`/`UPDATE` without `WHERE`, `DROP`,
-  `TRUNCATE` need approval even from a writer; an automatic `EXPLAIN` before a write
-  where the engine has one.
+- **4.15 Guardrails per statement — done.** [`src/lib/guardrails.ts`](../src/lib/guardrails.ts):
+  a `DELETE` or `UPDATE` without `WHERE`, a `DROP`, a `TRUNCATE` - read from the
+  statement's code with comments and string literals blanked - is held for a reviewer on
+  every datasource, whoever asks and whether or not the datasource requires approval
+  for writes; the request records which guardrail (`guardrail` on the approval record,
+  shown on the reviewer's page and in the studio's waiting state), and the refusal is
+  audited as `guardrail`. The bot queue applies the same rule. A datasource opts out with
+  `guardrails: false`. Not done: the automatic `EXPLAIN` before a write - a reviewer sees
+  the text, not the plan.
 - **4.16 Limits per datasource** — maximum rows, statement timeout, concurrency per person.
 - **4.17 Freeze windows** — no writes on a datasource (or anywhere) between two instants,
   declared once; a write inside the window is refused with the window's reason.

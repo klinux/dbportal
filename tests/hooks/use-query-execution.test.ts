@@ -1454,6 +1454,41 @@ describe("useQueryExecution", () => {
     expect(mockToastError).not.toHaveBeenCalled();
   });
 
+  // docs/CONTEXT.md §4.15: when a guardrail held the statement, the tab's record carries it
+  // and the notice says which one, so the person knows it is the statement, not the datasource.
+  test("carries the guardrail into the parked request and names it in the notice", async () => {
+    const approval = {
+      id: "req-2",
+      status: "pending" as const,
+      datasourceId: "orders",
+      datasourceName: "Orders",
+      requestedAt: "2026-09-14T00:00:00.000Z",
+      guardrail: "update_without_where",
+    };
+    mockGlobalFetch({
+      "/api/db/query": {
+        ok: false,
+        status: 403,
+        json: { error: "needs approval", code: "APPROVAL_REQUIRED", statusCode: 403, approval },
+      },
+    });
+    const snapshots: QueryTab[][] = [];
+    const tab = createTab({ result: mockQueryResult as never });
+    const setTabsMock = mock((fn: unknown) => {
+      if (typeof fn === "function") snapshots.push((fn as (prev: QueryTab[]) => QueryTab[])([tab]));
+    });
+    const params = createDefaultParams({ tabs: [tab], currentTab: tab, setTabs: setTabsMock });
+    const { result } = renderHook(() => useQueryExecution(params));
+    await act(async () => {
+      await result.current.executeQuery("UPDATE users SET name = 'x'");
+    });
+    expect(snapshots.at(-1)![0].approval?.guardrail).toBe("update_without_where");
+    // useToast hands sonner the title first and the rest as options.
+    const [title, options] = (mockToastSuccess.mock.calls as unknown[][]).at(-1) as [string, { description?: string }];
+    expect(title).toBe("Awaiting approval");
+    expect(options.description).toContain("UPDATE without WHERE");
+  });
+
   // ── execute-query custom event listener ────────────────────────────────
 
   test("listens for execute-query custom events", async () => {

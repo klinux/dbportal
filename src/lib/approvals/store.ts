@@ -4,6 +4,7 @@ import { canApprove, type AccessSession } from "@/lib/access";
 import { logger } from "@/lib/logger";
 import { getSeedConnectionByIdUnfiltered } from "@/lib/seed";
 import { getStorageProvider } from "@/lib/storage/factory";
+import type { Guardrail } from "@/lib/guardrails";
 import type { ApprovalDecision, ApprovalRequest } from "@/lib/storage/types";
 import { ApprovalError, ApprovalRequiredError } from "./errors";
 
@@ -59,6 +60,7 @@ export async function requestApproval(input: {
   requester: string;
   statement: string;
   route: string;
+  guardrail?: Guardrail;
 }): Promise<ApprovalRequest> {
   const store = await requireStore();
   const [pending] = await store.listApprovals({
@@ -77,6 +79,7 @@ export async function requestApproval(input: {
     route: input.route,
     status: "pending",
     requestedAt: new Date().toISOString(),
+    ...(input.guardrail ? { guardrail: input.guardrail } : {}),
   };
   await store.putApproval(record);
   logger.info("Write approval requested", {
@@ -99,6 +102,7 @@ export async function requireWriteWindow(input: {
   requester: string;
   statement: string;
   route: string;
+  guardrail?: Guardrail;
 }): Promise<ApprovalRequest> {
   const open = await findOpenWindow(input.datasourceId, input.requester);
   if (open) return open;

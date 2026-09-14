@@ -1230,6 +1230,10 @@ Admin: `GET /api/admin/service-tokens`, `POST /api/admin/service-tokens` — bod
 `{ name, role?, groups?, datasources?, requireApproval? }`, `201 { token, secret }` (the secret
 is returned once); `DELETE /api/admin/service-tokens/[id]` revokes. Audited as `service_token`.
 
+An approval record may carry `guardrail` (docs/CONTEXT.md §4.15): `delete_without_where`,
+`update_without_where`, `drop` or `truncate` - the reason the statement waits even on a
+datasource without `writeApproval`. The 403 `APPROVAL_REQUIRED` answer carries the same field.
+
 ### Approvals API
 
 Write approval (docs/CONTEXT.md §4.6). A write on a datasource declared `writeApproval: true`

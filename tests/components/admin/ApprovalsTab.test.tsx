@@ -222,4 +222,13 @@ describe("ApprovalsTab", () => {
     });
     expect(mockToastSuccess).toHaveBeenCalledWith('Ran on "Orders" for U0123');
   });
+
+  // docs/CONTEXT.md §4.15: the reviewer sees why a statement waits when a guardrail held it.
+  test("a request held by a guardrail is badged with the guardrail's name", async () => {
+    mockGlobalFetch({
+      "/api/approvals": { ok: true, json: { approvals: [{ ...pending, guardrail: "delete_without_where" }] } },
+    });
+    const { getByTestId } = await renderLoaded();
+    expect(within(getByTestId("approval-req-1")).getByText("guardrail: DELETE without WHERE")).not.toBeNull();
+  });
 });

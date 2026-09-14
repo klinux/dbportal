@@ -66,14 +66,16 @@ describe("assertWriteAllowed with write approval", () => {
   test("a write without a window becomes a pending request, refused as APPROVAL_REQUIRED and audited", async () => {
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     try {
-      const err = await gate(["SELECT 1", "UPDATE t SET a = 1"]).catch((e) => e);
+      // With its WHERE, so this is the write rule alone and not the guardrail of §4.15.
+      const err = await gate(["SELECT 1", "UPDATE t SET a = 1 WHERE id = 1"]).catch((e) => e);
       expect(err).toBeInstanceOf(ApprovalRequiredError);
       expect(err.approval).toMatchObject({
         status: "pending",
         datasourceId: "orders",
         requester: "ana",
-        statement: "UPDATE t SET a = 1",
+        statement: "UPDATE t SET a = 1 WHERE id = 1",
       });
+      expect(err.approval).not.toHaveProperty("guardrail");
       const res = createErrorResponse(err, { route: "POST /api/db/query" });
       expect(res.status).toBe(403);
       const body = (await res.json()) as { code: string; approval: { id: string } };
@@ -90,6 +92,25 @@ describe("assertWriteAllowed with write approval", () => {
     } finally {
       logSpy.mockRestore();
     }
+  });
+
+  // docs/CONTEXT.md §4.15: a guardrail holds the statement on a datasource WITHOUT write
+  // approval too, records which one, and is audited as such; an opt-out lets it through.
+  test("a statement that trips a guardrail waits for a reviewer on any datasource, with the guardrail on the record", async () => {
+    const plain = { ...gated, writeApproval: undefined };
+    const err = await gate(["DELETE FROM orders"], plain).catch((e) => e);
+    expect(err).toBeInstanceOf(ApprovalRequiredError);
+    expect(err.approval.guardrail).toBe("delete_without_where");
+    expect([...rows.values()][0].guardrail).toBe("delete_without_where");
+    // A statement that reads, or a write with its WHERE, is not held on that datasource.
+    expect(await gate(["DELETE FROM orders WHERE id = 1"], plain)).toEqual({});
+    expect(await gate(["SELECT 1"], plain)).toEqual({});
+    // Opted out, the same statement runs.
+    expect(await gate(["TRUNCATE orders"], { ...plain, guardrails: false })).toEqual({});
+    // On a gated datasource the record carries the guardrail as well.
+    rows = new Map();
+    const gatedErr = await gate(["DROP TABLE orders"]).catch((e) => e);
+    expect(gatedErr.approval.guardrail).toBe("drop");
   });
 
   test("inside a window the write runs, and the gate names the approval and its reviewer", async () => {

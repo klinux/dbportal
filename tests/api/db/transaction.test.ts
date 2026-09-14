@@ -103,6 +103,9 @@ const { POST } = await import("@/app/api/db/transaction/route");
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const validConnection = {
+  // docs/CONTEXT.md §4.15: the guardrails are proven in tests/unit/lib/api/write-gate-approval.test.ts;
+  // this file is about something else, and a bare DELETE or DROP here must reach what it tests.
+  guardrails: false,
   id: "test-1",
   name: "Test DB",
   type: "postgres",

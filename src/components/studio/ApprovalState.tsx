@@ -1,6 +1,7 @@
 "use client";
 
 import { ClipboardCheck, Clock, XCircle } from "lucide-react";
+import { GUARDRAIL_LABEL, type Guardrail } from "@/lib/guardrails";
 import type { TabApproval } from "@/lib/types";
 
 /**
@@ -53,6 +54,12 @@ export function ApprovalState({ approval }: { approval: TabApproval }) {
         Writes on &ldquo;{approval.datasourceName}&rdquo; need a reviewer. The statement did not run; this tab checks
         every few seconds and tells you when a window opens.
       </p>
+      {approval.guardrail && (
+        <p className="text-xs text-fg-tertiary mt-2 max-w-md leading-relaxed" data-testid="approval-guardrail">
+          It waits because it trips a guardrail:{" "}
+          <span className="font-medium">{GUARDRAIL_LABEL[approval.guardrail as Guardrail] ?? approval.guardrail}</span>.
+        </p>
+      )}
       <p className="text-[11px] font-mono text-fg-muted mt-3">request {approval.id}</p>
     </div>
   );
