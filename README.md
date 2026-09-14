@@ -83,6 +83,31 @@ design and what was deliberately left out of each.
 Things deliberately **out of scope**: desktop apps, marketplace listings, npm
 library packaging, and any AI agent work beyond what is already here.
 
+## Screenshots
+
+| Sign-in | Studio |
+| --- | --- |
+| ![Sign-in page](docs/screenshots/login.png) | ![The studio: object tree, editor, results](docs/screenshots/studio.png) |
+
+| Admin · Overview | Admin · Datasources |
+| --- | --- |
+| ![Fleet health, key metrics, recent activity](docs/screenshots/admin-overview.png) | ![Shared datasources, one tab per environment](docs/screenshots/admin-datasources.png) |
+
+| Admin · Approvals | Admin · Operations |
+| --- | --- |
+| ![Write approvals waiting for a reviewer](docs/screenshots/admin-approvals.png) | ![Maintenance on one datasource](docs/screenshots/admin-operations.png) |
+
+| Admin · Monitoring | Admin · Security |
+| --- | --- |
+| ![Live metrics of one datasource](docs/screenshots/admin-monitoring.png) | ![Masking, access, thresholds and SSH profiles](docs/screenshots/admin-security.png) |
+
+| Admin · Audit | |
+| --- | --- |
+| ![Every execution and operation](docs/screenshots/admin-audit.png) | |
+
+Regenerate them against a running dev server with `node scripts/screenshots.mjs`
+(see the header of that script for the variables it reads).
+
 ## Quick start
 
 ```bash
