@@ -16,6 +16,10 @@ mock.module("@/components/admin/tabs/FreezeWindowsTab", () => ({
   FreezeWindowsTab: () => <div data-testid="freeze-windows-tab">FreezeWindowsTab</div>,
 }));
 
+mock.module("@/components/admin/tabs/EnvironmentsTab", () => ({
+  EnvironmentsTab: () => <div data-testid="environments-tab">EnvironmentsTab</div>,
+}));
+
 mock.module("@/components/admin/tabs/NamedRolesTab", () => ({
   NamedRolesTab: () => <div data-testid="named-roles-tab">NamedRolesTab</div>,
 }));
@@ -88,6 +92,9 @@ describe("SecurityTab", () => {
     // docs/CONTEXT.md §4.19: who is who, named once.
     clickRadixTab(getByText("Roles"));
     expect(getByTestId("named-roles-tab")).not.toBeNull();
+    // docs/CONTEXT.md §4.36: the labels datasources are filed under.
+    clickRadixTab(getByText("Environments"));
+    expect(getByTestId("environments-tab")).not.toBeNull();
   });
 
   test("renders 3 tabs (Data Masking, Access, Thresholds)", async () => {

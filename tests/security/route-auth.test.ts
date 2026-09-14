@@ -242,6 +242,12 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists and declares freeze windows in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/freezes.test.ts proves the 403",
   "admin/freezes/[id]":
     "ends one freeze window in the same storage backend; never opens a user database (DELETE, no POST export). Same admin gate",
+  environments:
+    "lists the environments datasources are filed under, from the built-ins, the seed file and the app's own storage backend (GET); never opens a user database. Session-gated by guardRoute; tests/api/admin/environments.test.ts proves the 401",
+  "admin/environments":
+    "lists and declares environments in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/environments.test.ts proves the 403",
+  "admin/environments/[id]":
+    "deletes one stored environment (DELETE, no POST export), asking the datasource store whether it is used; never opens a user database. Same admin gate",
   "admin/roles":
     "lists and declares named roles in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/roles.test.ts proves the 403",
   "admin/roles/[id]":
@@ -444,6 +450,9 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/api/backups": "the backup routes' error answer; reaches no provider",
     "@/lib/api/freezes": "the freeze window routes' error answer; reaches no provider",
     "@/lib/api/roles": "the named role routes' error answer; reaches no provider",
+    "@/lib/api/environments": "the environment routes' error answer; reaches no provider",
+    "@/lib/environments/store":
+      "environments from the built-ins, the seed file and the app's own storage backend, merged by id; opens no user database",
     "@/lib/api/runbooks": "the runbook routes' error answer and id reader; reaches no provider",
     "@/lib/api/seed-data": "the seed-data routes' error answer; reaches no provider",
     "@/lib/audit-query":

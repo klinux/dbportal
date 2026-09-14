@@ -5,13 +5,8 @@ import { Eye, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { getDBIcon } from "@/lib/db-ui-config";
-import {
-  type ConnectionEnvironment,
-  type DatabaseConnection,
-  ENVIRONMENT_COLORS,
-  ENVIRONMENT_LABELS,
-  ENVIRONMENT_ORDER,
-} from "@/lib/types";
+import { BUILTIN_ENVIRONMENTS, type Environment, environmentOf, type DatabaseConnection } from "@/lib/types";
+import { useEnvironments } from "@/hooks/use-environments";
 import { cn } from "@/lib/utils";
 
 /**
@@ -31,25 +26,35 @@ interface ConnectionsListProps {
 }
 
 export interface EnvironmentGroup {
-  env: ConnectionEnvironment;
+  env: string;
   label: string;
   color: string;
   connections: DatabaseConnection[];
 }
 
-/** Production first, then staging, development, local, and whatever declared no environment. */
-export function groupByEnvironment(connections: readonly DatabaseConnection[]): EnvironmentGroup[] {
-  const byEnv = new Map<ConnectionEnvironment, DatabaseConnection[]>();
+/**
+ * The listing's order (docs/CONTEXT.md §4.36): production first, then the rest as the
+ * environments list orders them, and whatever declared no environment - or one the list
+ * does not know - after, under its own name.
+ */
+export function groupByEnvironment(
+  connections: readonly DatabaseConnection[],
+  environments: readonly Environment[] = BUILTIN_ENVIRONMENTS,
+): EnvironmentGroup[] {
+  const byEnv = new Map<string, DatabaseConnection[]>();
   for (const conn of connections) {
     const env = conn.environment ?? "other";
     byEnv.set(env, [...(byEnv.get(env) ?? []), conn]);
   }
-  return ENVIRONMENT_ORDER.filter((env) => byEnv.has(env)).map((env) => ({
-    env,
-    label: ENVIRONMENT_LABELS[env] || "Other",
-    color: ENVIRONMENT_COLORS[env],
-    connections: byEnv.get(env)!,
-  }));
+  return [...byEnv.keys()]
+    .map((id) => environmentOf(environments, id))
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+    .map((environment) => ({
+      env: environment.id,
+      label: environment.label || "Other",
+      color: environment.color,
+      connections: byEnv.get(environment.id)!,
+    }));
 }
 
 export function ConnectionsList({
@@ -59,7 +64,8 @@ export function ConnectionsList({
   onAddConnection,
   autoFocus = false,
 }: ConnectionsListProps) {
-  const groups = useMemo(() => groupByEnvironment(connections), [connections]);
+  const environments = useEnvironments();
+  const groups = useMemo(() => groupByEnvironment(connections, environments), [connections, environments]);
 
   if (connections.length === 0) {
     return (

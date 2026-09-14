@@ -1,6 +1,17 @@
 import "../setup-dom";
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+// docs/CONTEXT.md §4.36: the environments list is the hook's own read; here the built-ins stand in,
+// so the fetch this file counts is the form's alone.
+mock.module("@/hooks/use-environments", () => ({
+  useEnvironments: () => [
+    { id: "production", label: "PROD", color: "#ef4444", order: 0 },
+    { id: "staging", label: "STAGING", color: "#eab308", order: 1 },
+    { id: "development", label: "DEV", color: "#22c55e", order: 2 },
+    { id: "local", label: "LOCAL", color: "#3b82f6", order: 3 },
+    { id: "other", label: "", color: "#6b7280", order: 4 },
+  ],
+}));
 import { useEffect, useRef } from "react";
 import { renderHook, act } from "@testing-library/react";
 import { mockGlobalFetch, restoreGlobalFetch } from "../helpers/mock-fetch";

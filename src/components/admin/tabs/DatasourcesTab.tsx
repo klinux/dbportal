@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ADMIN_SUBTAB_LIST_CLASS, ADMIN_SUBTAB_TRIGGER_CLASS } from "@/lib/ui/admin-tabs";
 import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
+import { useEnvironments } from "@/hooks/use-environments";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -27,8 +28,9 @@ import {
 import { ConnectionModal } from "@/components/ConnectionModal";
 import { getDBConfig } from "@/lib/db-ui-config";
 import {
-  ENVIRONMENT_COLORS,
   type ConnectionEnvironment,
+  type Environment,
+  environmentOf as environmentDefinitionOf,
   type DatabaseConnection,
   type DatabaseType,
   ENVIRONMENT_ORDER,
@@ -90,13 +92,18 @@ export function parseGroupNames(input: string): string[] {
   ].map((g) => `group:${g}`);
 }
 
-const ENVIRONMENT_TITLES: Record<ConnectionEnvironment, string> = {
+/** The tab's title: the built-ins by the word they always had, a declared one by its label. */
+const BUILTIN_TITLES: Record<string, string> = {
   production: "Production",
   staging: "Staging",
   development: "Development",
   local: "Local",
   other: "Other",
 };
+
+export function environmentTitle(environment: Environment): string {
+  return BUILTIN_TITLES[environment.id] ?? (environment.label || environment.id);
+}
 
 interface StoreRow {
   source: "store";
@@ -312,14 +319,8 @@ async function fetchDatasources(): Promise<ListResponse> {
   return (await res.json()) as ListResponse;
 }
 
-function EnvironmentDot({ environment }: { environment: ConnectionEnvironment }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="inline-block h-2 w-2 rounded-full"
-      style={{ backgroundColor: ENVIRONMENT_COLORS[environment] }}
-    />
-  );
+function EnvironmentDot({ color }: { color: string }) {
+  return <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: color }} />;
 }
 
 export function DatasourcesTab() {
@@ -373,17 +374,22 @@ export function DatasourcesTab() {
     void load();
   };
 
+  const environments = useEnvironments();
   const groups = useMemo(() => {
     const byEnvironment = new Map<ConnectionEnvironment, Row[]>();
     for (const row of rows) {
       const env = environmentOf(row);
       byEnvironment.set(env, [...(byEnvironment.get(env) ?? []), row]);
     }
-    return ENVIRONMENT_ORDER.filter((env) => byEnvironment.has(env)).map((env) => ({
-      environment: env,
-      rows: byEnvironment.get(env)!.sort((a, b) => a.name.localeCompare(b.name)),
-    }));
-  }, [rows]);
+    return [...byEnvironment.keys()]
+      .map((id) => environmentDefinitionOf(environments, id))
+      .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+      .map((definition) => ({
+        environment: definition.id,
+        definition,
+        rows: byEnvironment.get(definition.id)!.sort((a, b) => a.name.localeCompare(b.name)),
+      }));
+  }, [rows, environments]);
 
   // The tab the operator picked; when a reload leaves that environment empty, the first one.
   const [selectedEnvironment, setSelectedEnvironment] = useState<ConnectionEnvironment | null>(null);
@@ -682,8 +688,8 @@ export function DatasourcesTab() {
                 data-testid={`env-tab-${group.environment}`}
                 className={ADMIN_SUBTAB_TRIGGER_CLASS}
               >
-                <EnvironmentDot environment={group.environment} />
-                {ENVIRONMENT_TITLES[group.environment]}
+                <EnvironmentDot color={group.definition.color} />
+                {environmentTitle(group.definition)}
                 <span className="font-normal text-fg-muted">({group.rows.length})</span>
               </TabsTrigger>
             ))}

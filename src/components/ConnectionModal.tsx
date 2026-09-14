@@ -9,13 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  DatabaseConnection,
-  ConnectionEnvironment,
-  ENVIRONMENT_COLORS,
-  ENVIRONMENT_LABELS,
-  SSLMode,
-} from "@/lib/types";
+import { DatabaseConnection, SSLMode } from "@/lib/types";
 import {
   Database,
   ShieldCheck,
@@ -38,6 +32,7 @@ import type { DatabaseType } from "@/lib/types";
 import { getDBConfig, isFileBased, takesConnectionField } from "@/lib/db-ui-config";
 import { motion, AnimatePresence } from "framer-motion";
 import { useConnectionForm } from "@/hooks/use-connection-form";
+import { useEnvironments } from "@/hooks/use-environments";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { WireCompatibilityHint } from "@/components/WireCompatibilityHint";
 
@@ -168,6 +163,7 @@ export function ConnectionModal({
     // Derived data
     dbTypes,
   } = useConnectionForm({ isOpen, onClose, onConnect, editConnection, onTestConnection, submitLabel });
+  const environments = useEnvironments();
 
   const title = heading?.title ?? (isEditMode ? "Edit Connection" : "New Connection");
   const description =
@@ -347,19 +343,19 @@ export function ConnectionModal({
           <div className="space-y-2">
             <Label className="text-xs font-mediumr text-fg-muted">Environment</Label>
             <div className="flex flex-wrap items-center gap-2">
-              {(Object.keys(ENVIRONMENT_COLORS) as ConnectionEnvironment[]).map((env) => (
+              {environments.map((env) => (
                 <button
-                  key={env}
-                  onClick={() => setEnvironment(env)}
+                  key={env.id}
+                  onClick={() => setEnvironment(env.id)}
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-mediumr transition-all border",
-                    environment === env
+                    environment === env.id
                       ? "border-edge bg-fill text-fg"
                       : "border-transparent text-fg-muted hover:text-fg-secondary hover:bg-fill",
                   )}
                 >
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: ENVIRONMENT_COLORS[env] }} />
-                  {env === "other" ? "Other" : ENVIRONMENT_LABELS[env]}
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: env.color }} />
+                  {env.label || "Other"}
                 </button>
               ))}
             </div>

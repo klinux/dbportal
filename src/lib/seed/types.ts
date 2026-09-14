@@ -17,7 +17,18 @@ const SSLConfigSchema = z
   })
   .optional();
 
-const ConnectionEnvironmentSchema = z.enum(["production", "staging", "development", "local", "other"]);
+// An environment id (docs/CONTEXT.md §4.36): a built-in or one declared; a slug, not an enum.
+const ConnectionEnvironmentSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/, "Must be an environment id");
+
+/** An environment declared once (§4.36): id, label, colour and where it sorts. */
+export const EnvironmentSchema = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/),
+  label: z.string().min(1).max(24),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex colour"),
+  order: z.number().int().min(0).max(1000),
+});
+
+export type Environment = z.infer<typeof EnvironmentSchema>;
 
 // A principal (docs/CONTEXT.md §4.4): the wildcard, a portal role, `group:<name>` for a
 // group the identity provider puts in the token, or `role:<id>` for a named role (§4.19).
@@ -234,6 +245,8 @@ export const SeedConfigSchema = z
     namedRoles: z.array(NamedRoleSchema).optional(),
     /** Runbooks declared once (§4.20); read-only on the admin page. */
     runbooks: z.array(RunbookSchema).optional(),
+    /** Environments declared once (§4.36); relabelled or extended on the admin page. */
+    environments: z.array(EnvironmentSchema).optional(),
   })
   .refine((cfg) => new Set(cfg.connections.map((c) => c.id)).size === cfg.connections.length, {
     message: "Connection IDs must be unique",

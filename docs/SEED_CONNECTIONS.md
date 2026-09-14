@@ -144,6 +144,7 @@ connections:
 | `defaults.managed` | No | `true` | Default managed state |
 | `defaults.environment` | No | — | Default environment label |
 | `defaults.ssl` | No | — | Default SSL config |
+| `environments` | No | — | Environments (docs/CONTEXT.md §4.36): `{ id, label, color, order }`, relabelling the built-ins or adding to them |
 | `namedRoles` | No | — | Named roles (docs/CONTEXT.md §4.19): `{ id, name, members }`, referred to as `role:<id>` |
 | `runbooks` | No | — | Runbooks (docs/CONTEXT.md §4.20): `{ id, name, description?, datasource, sql, params? }` |
 | `connections` | Yes | — | Array of connection definitions (min 1) |

@@ -83,32 +83,49 @@ export type DatabaseType =
   // no name it has not connected to.
   | "duckdb";
 
-export type ConnectionEnvironment = "production" | "staging" | "development" | "local" | "other";
+/**
+ * An environment's id (docs/CONTEXT.md §4.36): the five built-ins, or one an administrator
+ * declared. Kept as a string so a declared one is not a type error; `production` is the
+ * one with rules of its own.
+ */
+export type ConnectionEnvironment = string;
+export const PRODUCTION_ENVIRONMENT = "production";
 
-export const ENVIRONMENT_COLORS: Record<ConnectionEnvironment, string> = {
-  production: "#ef4444",
-  staging: "#eab308",
-  development: "#22c55e",
-  local: "#3b82f6",
-  other: "#6b7280",
-};
+/** What a listing needs to file a datasource: the id, a short label, a colour, and where it sorts. */
+export interface Environment {
+  id: string;
+  label: string;
+  color: string;
+  order: number;
+}
 
-export const ENVIRONMENT_LABELS: Record<ConnectionEnvironment, string> = {
-  production: "PROD",
-  staging: "STAGING",
-  development: "DEV",
-  local: "LOCAL",
-  other: "",
-};
+/** The five every deployment starts with; the server's list may relabel, recolour or extend them. */
+export const BUILTIN_ENVIRONMENTS: readonly Environment[] = [
+  { id: "production", label: "PROD", color: "#ef4444", order: 0 },
+  { id: "staging", label: "STAGING", color: "#eab308", order: 1 },
+  { id: "development", label: "DEV", color: "#22c55e", order: 2 },
+  { id: "local", label: "LOCAL", color: "#3b82f6", order: 3 },
+  { id: "other", label: "", color: "#6b7280", order: 4 },
+];
+
+const OTHER = BUILTIN_ENVIRONMENTS[4];
+
+/** The environment of an id in a list, or `other`'s colour under the id's own name for one the list lacks. */
+export function environmentOf(environments: readonly Environment[], id: string | undefined): Environment {
+  const found = environments.find((e) => e.id === (id ?? "other"));
+  return found ?? (id ? { id, label: id.toUpperCase(), color: OTHER.color, order: Number.MAX_SAFE_INTEGER } : OTHER);
+}
+
+export const ENVIRONMENT_COLORS: Record<string, string> = Object.fromEntries(
+  BUILTIN_ENVIRONMENTS.map((e) => [e.id, e.color]),
+);
+
+export const ENVIRONMENT_LABELS: Record<string, string> = Object.fromEntries(
+  BUILTIN_ENVIRONMENTS.map((e) => [e.id, e.label]),
+);
 
 /** The order every grouped listing uses: what matters most first. */
-export const ENVIRONMENT_ORDER: readonly ConnectionEnvironment[] = [
-  "production",
-  "staging",
-  "development",
-  "local",
-  "other",
-];
+export const ENVIRONMENT_ORDER: readonly ConnectionEnvironment[] = BUILTIN_ENVIRONMENTS.map((e) => e.id);
 
 /**
  * How much TLS a connection asks for.

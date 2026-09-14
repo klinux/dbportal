@@ -4,7 +4,8 @@ import React, { useState } from "react";
 import { ChevronsUpDown, Database, Eye } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { getDBIcon } from "@/lib/db-ui-config";
-import { type DatabaseConnection, ENVIRONMENT_COLORS, ENVIRONMENT_LABELS } from "@/lib/types";
+import { type DatabaseConnection, environmentOf } from "@/lib/types";
+import { useEnvironments } from "@/hooks/use-environments";
 import { cn } from "@/lib/utils";
 import { ConnectionsList } from "./ConnectionsList";
 
@@ -27,7 +28,8 @@ export function ConnectionPicker({
   onAddConnection,
 }: ConnectionPickerProps) {
   const [open, setOpen] = useState(false);
-  const env = activeConnection?.environment;
+  const environments = useEnvironments();
+  const env = activeConnection?.environment ? environmentOf(environments, activeConnection.environment) : null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -52,12 +54,12 @@ export function ConnectionPicker({
           <span className="truncate flex-1 text-left font-medium">
             {activeConnection?.name ?? "Choose a datasource"}
           </span>
-          {env && env !== "other" && (
+          {env && env.label && (
             <span
               className="text-[0.5rem] font-medium px-1.5 py-0.5 rounded-sm shrink-0"
-              style={{ color: ENVIRONMENT_COLORS[env], backgroundColor: `${ENVIRONMENT_COLORS[env]}22` }}
+              style={{ color: env.color, backgroundColor: `${env.color}22` }}
             >
-              {ENVIRONMENT_LABELS[env]}
+              {env.label}
             </span>
           )}
           {activeConnection?.readOnly && (

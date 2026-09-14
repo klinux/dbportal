@@ -1,6 +1,7 @@
 import { getStorageProvider, isServerStorageEnabled } from "@/lib/storage/factory";
 import { isVaultReference } from "@/lib/vault/credentials";
 import { SeedConnectionSchema, type SeedConnection } from "@/lib/seed/types";
+import { environmentIds } from "@/lib/environments/store";
 import type { DatabaseConnection } from "@/lib/types";
 import { SHARED_DATASOURCES_OWNER } from "./owner";
 
@@ -111,8 +112,20 @@ function validate(input: unknown): SeedConnection {
   return { ...result.data, managed: true };
 }
 
+/** The environment a datasource is filed under must be on the list (docs/CONTEXT.md §4.36). */
+async function assertKnownEnvironment(environment: string | undefined): Promise<void> {
+  if (environment === undefined) return;
+  if (!(await environmentIds()).has(environment)) {
+    throw new SharedDatasourceError(
+      `Environment "${environment}" is not declared; declare it under Security first`,
+      400,
+    );
+  }
+}
+
 export async function createSharedDatasource(input: unknown, actor: string): Promise<SharedDatasourceRecord> {
   const data = validate(input);
+  await assertKnownEnvironment(data.environment);
   const records = await readAll();
   if (records.some((r) => r.id === data.id)) {
     throw new SharedDatasourceError(`A datasource with id "${data.id}" already exists`, 409);
@@ -142,6 +155,7 @@ export async function updateSharedDatasource(
 ): Promise<SharedDatasourceRecord> {
   const candidate = typeof input === "object" && input !== null ? { ...(input as Record<string, unknown>), id } : input;
   const data = validate(candidate);
+  await assertKnownEnvironment(data.environment);
   const records = await readAll();
   const existing = records.find((r) => r.id === id);
   if (!existing) throw new SharedDatasourceError(`Datasource "${id}" not found`, 404);

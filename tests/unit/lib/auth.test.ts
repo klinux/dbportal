@@ -208,6 +208,8 @@ describe("auth", () => {
       await expect(login("user", "shared:freezes")).rejects.toThrow("reserved");
       // docs/CONTEXT.md §4.19: and the named roles' owner.
       await expect(login("user", "shared:roles")).rejects.toThrow("reserved");
+      await expect(login("user", "shared:runbooks")).rejects.toThrow("reserved");
+      await expect(login("user", "shared:environments")).rejects.toThrow("reserved");
       expect(mockSetCalls.length).toBe(0);
     });
 

@@ -239,7 +239,8 @@ describe("SeedDefaultsSchema", () => {
   });
 
   it("rejects invalid environment", () => {
-    const result = SeedDefaultsSchema.safeParse({ environment: "unknown" });
+    // docs/CONTEXT.md §4.36: an environment is an id, not one of five words; only its shape is refused here.
+    const result = SeedDefaultsSchema.safeParse({ environment: "Not Valid" });
     expect(result.success).toBe(false);
   });
 });

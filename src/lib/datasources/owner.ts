@@ -23,6 +23,8 @@ export const SHARED_FREEZES_OWNER = "shared:freezes";
 export const SHARED_ROLES_OWNER = "shared:roles";
 /** Runbooks (docs/CONTEXT.md §4.20). */
 export const SHARED_RUNBOOKS_OWNER = "shared:runbooks";
+/** Environments (docs/CONTEXT.md §4.36). */
+export const SHARED_ENVIRONMENTS_OWNER = "shared:environments";
 
 /** Every owner id no account may ever be. */
 export const RESERVED_OWNERS: readonly string[] = [
@@ -33,4 +35,5 @@ export const RESERVED_OWNERS: readonly string[] = [
   SHARED_FREEZES_OWNER,
   SHARED_ROLES_OWNER,
   SHARED_RUNBOOKS_OWNER,
+  SHARED_ENVIRONMENTS_OWNER,
 ];

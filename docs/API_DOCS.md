@@ -1213,6 +1213,12 @@ Admin only (docs/CONTEXT.md §4.19). `GET /api/admin/roles` → `{ roles: [{ id,
 `user:<username>`), `201`, `409` when the id exists or the seed file declares it;
 `DELETE /api/admin/roles/[id]`. Audited as `named_role`. Every datasource list accepts `role:<id>`.
 
+Environments (docs/CONTEXT.md §4.36). Any session: `GET /api/environments` → `{ environments: [{ id, label, color,
+order }] }`, ordered. Admin: `GET /api/admin/environments` (each with `source`: `builtin` | `config` | `store`),
+`POST /api/admin/environments` — body `{ id, label, color, order }`, `201`, declares or redefines one;
+`DELETE /api/admin/environments/[id]` — `409` for production or one a datasource uses, `404` for a built-in
+or seed-file one. Audited as `environment`.
+
 Runbooks (docs/CONTEXT.md §4.20). Admin: `GET /api/admin/runbooks` → `{ runbooks: [{ id, name,
 description?, datasource, sql, params?, source }] }`; `POST /api/admin/runbooks` — body
 `{ id, name, description?, datasource, sql, params?: [{ name, type, label?, required?, default? }] }`,

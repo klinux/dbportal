@@ -1,6 +1,7 @@
 "use client";
 
 import { appFetch, withBasePath } from "@/lib/config/base-path";
+import { useEnvironments } from "@/hooks/use-environments";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,13 +10,7 @@ import { storage } from "@/lib/storage";
 import { useAllConnections } from "@/hooks/use-all-connections";
 import { getDBIcon, getDBColor } from "@/lib/db-ui-config";
 import { formatBytes } from "@/lib/db/utils/pool-manager";
-import {
-  type DatabaseType,
-  type DatabaseConnection,
-  type QueryHistoryItem,
-  ENVIRONMENT_COLORS,
-  ENVIRONMENT_LABELS,
-} from "@/lib/types";
+import { type DatabaseType, type DatabaseConnection, type QueryHistoryItem, environmentOf } from "@/lib/types";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, RadialBarChart, RadialBar } from "recharts";
 import { format, subDays, startOfDay } from "date-fns";
 import {
@@ -644,6 +639,7 @@ function FleetHealthSection({
   fleetLoading: boolean;
   connections: DatabaseConnection[];
 }) {
+  const environments = useEnvironments();
   if (connections.length === 0) return null;
 
   const getStatusColor = (status: string) => {
@@ -734,11 +730,11 @@ function FleetHealthSection({
                         variant="outline"
                         className="text-[0.625rem] h-4"
                         style={{
-                          borderColor: ENVIRONMENT_COLORS[item.environment as keyof typeof ENVIRONMENT_COLORS],
-                          color: ENVIRONMENT_COLORS[item.environment as keyof typeof ENVIRONMENT_COLORS],
+                          borderColor: environmentOf(environments, item.environment).color,
+                          color: environmentOf(environments, item.environment).color,
                         }}
                       >
-                        {ENVIRONMENT_LABELS[item.environment as keyof typeof ENVIRONMENT_LABELS] || item.environment}
+                        {environmentOf(environments, item.environment).label || item.environment}
                       </Badge>
                     )}
                     <div className="p-1 rounded bg-fill">

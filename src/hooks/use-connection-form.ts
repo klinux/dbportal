@@ -1,12 +1,13 @@
 "use client";
 
 import { appFetch } from "@/lib/config/base-path";
+import { useEnvironments } from "@/hooks/use-environments";
 import { useState, useCallback } from "react";
 import {
   DatabaseConnection,
   DatabaseType,
   ConnectionEnvironment,
-  ENVIRONMENT_COLORS,
+  environmentOf,
   SSLMode,
   SSLConfig,
   SSHTunnelConfig,
@@ -183,6 +184,7 @@ export function useConnectionForm({
   const [connectionString, setConnectionString] = useState("");
   const [mongoConnectionMode, setMongoConnectionMode] = useState<"host" | "connectionString">("host");
   const [environment, setEnvironment] = useState<ConnectionEnvironment>("local");
+  const environments = useEnvironments();
   const [testResult, setTestResult] = useState<{ tone: TestResultTone; message: string; latency?: number } | null>(
     null,
   );
@@ -421,7 +423,7 @@ export function useConnectionForm({
       color:
         editConnection?.color && (editConnection.environment ?? "local") === environment
           ? editConnection.color
-          : ENVIRONMENT_COLORS[environment],
+          : environmentOf(environments, environment).color,
       ...(sslConfig ? { ssl: sslConfig } : {}),
       ...(sshConfig ? { sshTunnel: sshConfig } : {}),
       ...(sshProfile ? { sshProfile } : {}),
@@ -443,6 +445,7 @@ export function useConnectionForm({
       ...(skipObjectScan ? { skipObjectScan } : {}),
     };
   }, [
+    environments,
     sslMode,
     caCert,
     clientCert,

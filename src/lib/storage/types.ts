@@ -8,6 +8,7 @@ import type { ServiceTokenRecord } from "../service-tokens/types";
 import type { FreezeWindowRecord } from "../freezes/store";
 import type { NamedRoleRecord } from "../roles/store";
 import type { RunbookRecord } from "../runbooks/store";
+import type { EnvironmentRecord } from "../environments/store";
 
 /**
  * All persistable collections and their data types. Maps 1:1 with localStorage keys (minus
@@ -39,6 +40,8 @@ export interface StorageData {
   named_roles: NamedRoleRecord[];
   /** Runbooks (docs/CONTEXT.md §4.20), under the reserved owner `shared:runbooks`. */
   runbooks: RunbookRecord[];
+  /** Environments (docs/CONTEXT.md §4.36), under the reserved owner `shared:environments`. */
+  environments: EnvironmentRecord[];
 }
 
 /** Collection names that can be synced to server storage */

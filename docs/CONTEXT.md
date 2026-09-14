@@ -570,6 +570,18 @@ built. Each lands as its own section when done.
 - **4.33 Release hardening** — SBOM, a signed image, `SECURITY.md` with a disclosure policy.
 - **4.34 Integration tests per engine in CI** for the export, runbook and seed routes
   against a real PostgreSQL, today verified live only locally.
+- **4.36 Environments as a list — done (asked 2026-09-14).** The five environments were
+  words in code; they are a list now: the built-ins, the seed file's `environments:`, and
+  what an administrator declares under Security → Environments, merged by id (a later
+  source relabels or recolours, never removes) and ordered
+  ([`src/lib/environments/store.ts`](../src/lib/environments/store.ts)). `GET
+  /api/environments` serves the list to every listing (the sidebar's groups, the
+  datasources page's tabs, the overview's badges, the connection sheet's selector) through
+  one hook with the built-ins as the answer until the server's arrives. `production` keeps
+  its rules (exports closed, no seed, no restore) and cannot be deleted; a stored
+  environment can be deleted when no stored datasource uses it; a datasource declared
+  here must name an environment on the list. A datasource under an id the list lacks is
+  listed under its own name.
 - **4.35 Operator guide** — `docs/OPERATOR_GUIDE.md`: from zero to the first datasource,
   OIDC, the seed file, a backup; screenshots of the newer pages.
 
