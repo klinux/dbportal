@@ -543,13 +543,29 @@ built. Each lands as its own section when done.
   720) is `expired` - settled on every read (the page, the tab's poll, the bot, the gate),
   written back and audited as `approval_decision` / `expired` by `system`, so nothing
   schedules it; the studio says so and running again asks again.
-- **4.29 Alerts** (asked 2026-09-14) — an alerts area, in the shape of Redash's: a person
-  writes a query on a datasource they may open, a schedule, and a condition on the value it
-  returns (`> 100`, `== 0`, changed since last run); when the condition holds the alert
-  fires to a **channel** declared once by an administrator - Slack (the existing bot), a
-  generic webhook (signed as §4.25), and the on-call receivers (Rootly, a generic on-call
-  webhook) - with a cooldown so a firing alert does not page every minute. Every run is a
-  `query_execution` under the alert's owner, read-only, bounded by the datasource's limits.
+- **4.29 Alerts — done (asked 2026-09-14).** In the shape of Redash's. A person declares an
+  alert on `/alerts`: a read on a datasource they may open, how often it runs (1 min to a
+  week), a condition on the value it returns - the named column of the first row, else the
+  first column: `>`, `>=`, `<`, `<=`, `==`, `!=` (numeric when both sides are numbers, text
+  otherwise), `changed` since the last run, any row / no row - the channels it fires to, and a
+  cooldown. **Channels** are declared once by an administrator under Security → Channels
+  (or `channels:` in the seed file): a Slack channel the existing bot posts to, a generic
+  webhook (JSON, signed with `CALLBACK_SIGNING_SECRET` when set, headers as §4.25), a Grafana
+  OnCall formatted webhook, a Rootly alert source; each can be sent a test message. The alert
+  editor sees a channel's id, name and kind, never its target. **Runs**: one in-process
+  scheduler (`src/lib/alerts/scheduler.ts`, started at boot, `ALERTS_TICK_MS` default 30 s,
+  off with `ALERTS_ENABLED=false` and off by default in the agent role of §4.30) runs the due
+  alerts one after the other; "Run now" runs one on demand. The run has no session, so the
+  alert keeps its **owner's principal snapshot** (role, groups, named roles) from when it was
+  saved and opens the datasource with those - the access rule, read-only pool, the
+  datasource's limits, at most 100 rows - and the read is the ordinary `query_execution`,
+  action `alert`, under the owner. State moves ok → firing (fires, audited `alert fired`),
+  firing → firing (fires again once the cooldown has passed), firing → ok (resolves, audited
+  `alert resolved`); a read that fails - a statement that writes, an owner who lost access,
+  an engine error - lands in `error` with the closed audit reason and pages nobody. A
+  delivery the receiver refused is an `alert delivery_failed` line. An administrator sees
+  every alert; everyone else their own. Not built: alerts on a value across runs (rate of
+  change), quiet hours, per-channel severity - each a small addition to the record.
 - **4.30 An MCP surface for troubleshooting agents, run apart** (asked 2026-09-14) — an
   MCP server that lets an agent list the datasources a service token may open, describe a
   schema and run read-only statements, with the same gates as the bot API (§4.10: token,

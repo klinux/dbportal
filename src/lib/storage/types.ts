@@ -9,6 +9,8 @@ import type { FreezeWindowRecord } from "../freezes/store";
 import type { NamedRoleRecord } from "../roles/store";
 import type { RunbookRecord } from "../runbooks/store";
 import type { EnvironmentRecord } from "../environments/store";
+import type { ChannelRecord } from "../channels/store";
+import type { AlertRecord } from "../alerts/store";
 
 /**
  * All persistable collections and their data types. Maps 1:1 with localStorage keys (minus
@@ -42,6 +44,10 @@ export interface StorageData {
   runbooks: RunbookRecord[];
   /** Environments (docs/CONTEXT.md §4.36), under the reserved owner `shared:environments`. */
   environments: EnvironmentRecord[];
+  /** Notification channels (docs/CONTEXT.md §4.29), under `shared:channels`. */
+  notification_channels: ChannelRecord[];
+  /** Alerts (docs/CONTEXT.md §4.29), under `shared:alerts`; every owner's, told apart by the record. */
+  alerts: AlertRecord[];
 }
 
 /** Collection names that can be synced to server storage */

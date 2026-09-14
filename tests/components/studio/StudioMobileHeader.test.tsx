@@ -246,6 +246,16 @@ describe("StudioMobileHeader", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/approvals");
   });
 
+  // docs/CONTEXT.md §4.29: the alerts page is in the menu for everyone.
+  test("Alerts in the user menu goes to /alerts, for a non-admin too", () => {
+    mockRouterPush.mockClear();
+    const { queryByText } = render(<StudioMobileHeader {...defaults} user={{ role: "user" }} isAdmin={false} />);
+    const item = queryByText("Alerts");
+    expect(item).not.toBeNull();
+    fireEvent.click(item!.closest('[role="menuitem"]')!);
+    expect(mockRouterPush).toHaveBeenCalledWith("/alerts");
+  });
+
   test("BEGIN Transaction click calls onBeginTransaction", () => {
     const { queryByText } = render(<StudioMobileHeader {...defaults} />);
     const item = queryByText("BEGIN Transaction");

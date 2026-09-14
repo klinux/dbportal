@@ -44,6 +44,10 @@ export type AuditEventType =
   | "environment"
   /** A KV secret an administrator read, shaped for the datasource sheet (docs/CONTEXT.md §4.39). */
   | "vault_secret"
+  /** A notification channel declared, tested or deleted by an administrator (docs/CONTEXT.md §4.29). */
+  | "notification_channel"
+  /** An alert saved or deleted, and each time it fires, resolves or cannot be delivered (docs/CONTEXT.md §4.29). */
+  | "alert"
   /** A reviewer's decision on a write approval request (docs/CONTEXT.md §4.6). */
   | "approval_decision"
   /** A permitted reveal of masked columns; the columns are named, never their values (§4.7). */

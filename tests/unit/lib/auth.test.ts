@@ -210,6 +210,9 @@ describe("auth", () => {
       await expect(login("user", "shared:roles")).rejects.toThrow("reserved");
       await expect(login("user", "shared:runbooks")).rejects.toThrow("reserved");
       await expect(login("user", "shared:environments")).rejects.toThrow("reserved");
+      // docs/CONTEXT.md §4.29: the channels' and the alerts' owners.
+      await expect(login("user", "shared:channels")).rejects.toThrow("reserved");
+      await expect(login("user", "shared:alerts")).rejects.toThrow("reserved");
       expect(mockSetCalls.length).toBe(0);
     });
 

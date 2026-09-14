@@ -248,6 +248,16 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists and declares environments in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/environments.test.ts proves the 403",
   "admin/environments/[id]":
     "deletes one stored environment (DELETE, no POST export), asking the datasource store whether it is used; never opens a user database. Same admin gate",
+  channels:
+    "lists the notification channels an alert may name - id, name, kind, never the target (GET, no POST export); reads the app's own storage backend and the seed file, never opens a user database. Session-gated by guardRoute; tests/api/channels.test.ts proves the 401",
+  "admin/channels":
+    "lists and declares notification channels in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/channels.test.ts proves the 403",
+  "admin/channels/[id]":
+    "deletes one stored channel (DELETE, no POST export), asking the alert store whether it is used; never opens a user database. Same admin gate",
+  "admin/channels/[id]/test":
+    "sends a test message to one channel (POST): an HTTPS call to the receiver or the Slack bot, never a user database. Same admin gate; tests/api/admin/channels.test.ts proves the 403",
+  "alerts/[id]":
+    "replaces or deletes one alert in the app's own storage backend (PUT/DELETE, no POST export); resolving the datasource opens nothing. Session-gated by guardRoute; tests/api/alerts.test.ts proves the 401",
   "admin/vault/kv":
     "browses the Vault KV mount and shapes one secret for the datasource sheet (GET); talks to Vault, never opens a user database. Admin-gated by requireAdmin; tests/api/admin/vault-kv.test.ts proves the 403",
   "admin/principals":
@@ -475,6 +485,13 @@ describe("routes that reach a provider require a session", () => {
       "turns a datasource id into the connection record - access rule, Vault reference, SSH profile - and opens nothing; the backup routes hand the record to pg_dump, not to a provider",
     "@/lib/backups/store": `pg_dump and pg_restore as child processes, and it ${PROVIDER_NAMING_HELPER} (@/lib/db/factory) only for withOneShotTunnel, the SSH tunnel a dump crosses - it opens no provider; the tools connect on their own`,
     "@/lib/vault/health": "one GET to Vault's sys/health for the readiness probe; opens no user database",
+    "@/lib/channels/store":
+      "notification channels in the app's own storage backend and the seed file; opens no user database",
+    "@/lib/alerts/store":
+      "alerts in the app's own storage backend - definitions, owners' principal snapshots and run states; opens no user database",
+    "@/lib/notify/channels":
+      "delivery of an alert message to a Slack channel or an HTTPS receiver; opens no user database",
+    "@/lib/api/alerts": "the alert and channel routes' error answer; reaches no provider",
     "@/lib/vault/client":
       "the Vault HTTP client - configuration, KV reads and lists, database credential issue; opens no user database",
     "@/lib/vault/kv-browser":

@@ -4,7 +4,7 @@ import React from "react";
 import type { DatabaseConnection } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { ClipboardCheck, Database, Gauge, LogOut, Settings, User } from "lucide-react";
+import { BellRing, ClipboardCheck, Database, Gauge, LogOut, Settings, User } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -117,6 +117,10 @@ export function StudioDesktopHeader({
               {/* docs/CONTEXT.md §4.19: a reviewer who does not administer reaches the requests here. */}
               <DropdownMenuItem onClick={() => router.push("/approvals")} className="cursor-pointer">
                 <ClipboardCheck strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Approvals
+              </DropdownMenuItem>
+              {/* docs/CONTEXT.md §4.29: the alerts a person keeps on the datasources they may open. */}
+              <DropdownMenuItem onClick={() => router.push("/alerts")} className="cursor-pointer">
+                <BellRing strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Alerts
               </DropdownMenuItem>
               <div className="border-t border-hairline my-1" />
               <DropdownMenuItem onClick={onLogout} className="text-danger cursor-pointer">

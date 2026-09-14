@@ -22,6 +22,7 @@ import {
   Snowflake,
   Users,
   Layers,
+  BellRing,
 } from "lucide-react";
 import { MaskingSettings } from "@/components/MaskingSettings";
 import { SshProfilesTab } from "@/components/admin/tabs/SshProfilesTab";
@@ -29,6 +30,7 @@ import { ServiceTokensTab } from "@/components/admin/tabs/ServiceTokensTab";
 import { FreezeWindowsTab } from "@/components/admin/tabs/FreezeWindowsTab";
 import { NamedRolesTab } from "@/components/admin/tabs/NamedRolesTab";
 import { EnvironmentsTab } from "@/components/admin/tabs/EnvironmentsTab";
+import { ChannelsTab } from "@/components/admin/tabs/ChannelsTab";
 import { DEFAULT_THRESHOLDS, type ThresholdConfig } from "@/lib/monitoring-thresholds";
 import { storage } from "@/lib/storage";
 import { toast } from "sonner";
@@ -41,6 +43,7 @@ const TOKENS_TAB_LABEL = "Service tokens";
 const FREEZES_TAB_LABEL = "Freeze windows";
 const ROLES_TAB_LABEL = "Roles";
 const ENVIRONMENTS_TAB_LABEL = "Environments";
+const CHANNELS_TAB_LABEL = "Channels";
 const ACCESS_CARD_TITLE = "Security & Access";
 const SUPPORTED_LABEL = "Supported";
 const CONFIGURABLE_LABEL = "Configurable";
@@ -92,6 +95,10 @@ export function SecurityTab() {
             <Layers className="h-3.5 w-3.5" />
             {ENVIRONMENTS_TAB_LABEL}
           </TabsTrigger>
+          <TabsTrigger value="channels" className={ADMIN_SUBTAB_TRIGGER_CLASS}>
+            <BellRing className="h-3.5 w-3.5" />
+            {CHANNELS_TAB_LABEL}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="masking" className="mt-4">
@@ -125,6 +132,11 @@ export function SecurityTab() {
         {/* docs/CONTEXT.md §4.36: the labels datasources are filed under. */}
         <TabsContent value="environments" className="mt-4">
           <EnvironmentsTab />
+        </TabsContent>
+
+        {/* docs/CONTEXT.md §4.29: where alerts fire to, declared once. */}
+        <TabsContent value="channels" className="mt-4">
+          <ChannelsTab />
         </TabsContent>
 
         <TabsContent value="thresholds" className="mt-4">

@@ -26,6 +26,7 @@ import {
   Upload,
   User,
   Zap,
+  BellRing,
   ClipboardCheck,
 } from "lucide-react";
 import {
@@ -243,6 +244,9 @@ export function StudioMobileHeader({
                 {/* docs/CONTEXT.md §4.19: the reviewer's page, for everyone who reviews somewhere. */}
                 <DropdownMenuItem onClick={() => router.push("/approvals")} className="cursor-pointer">
                   <ClipboardCheck strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Approvals
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => router.push("/alerts")} className="cursor-pointer">
+                  <BellRing strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Alerts
                 </DropdownMenuItem>
                 <div className="border-t border-hairline my-1" />
                 {/*

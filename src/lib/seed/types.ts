@@ -30,6 +30,25 @@ export const EnvironmentSchema = z.object({
 
 export type Environment = z.infer<typeof EnvironmentSchema>;
 
+/** Where an alert fires to (docs/CONTEXT.md §4.29): declared once by an administrator. */
+export const CHANNEL_KINDS = ["slack", "webhook", "oncall", "rootly"] as const;
+export const ChannelSchema = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+  name: z.string().min(1).max(64),
+  kind: z.enum(CHANNEL_KINDS),
+  /** A Slack channel id, or the HTTPS URL the receiver gave. */
+  target: z.string().min(1).max(512),
+});
+
+export type Channel = z.infer<typeof ChannelSchema>;
+export type ChannelKind = Channel["kind"];
+/** What anyone signed in may see of a channel: enough to pick it, never where it goes. */
+export interface ChannelSummary {
+  id: string;
+  name: string;
+  kind: ChannelKind;
+}
+
 // A principal (docs/CONTEXT.md §4.4): the wildcard, a portal role, `group:<name>` for a
 // group the identity provider puts in the token, or `role:<id>` for a named role (§4.19).
 // Not an enum any more, because group names are the operator's, not this product's.
@@ -247,6 +266,8 @@ export const SeedConfigSchema = z
     runbooks: z.array(RunbookSchema).optional(),
     /** Environments declared once (§4.36); relabelled or extended on the admin page. */
     environments: z.array(EnvironmentSchema).optional(),
+    /** Notification channels declared once (§4.29); read-only on the admin page. */
+    channels: z.array(ChannelSchema).optional(),
   })
   .refine((cfg) => new Set(cfg.connections.map((c) => c.id)).size === cfg.connections.length, {
     message: "Connection IDs must be unique",
@@ -259,6 +280,9 @@ export const SeedConfigSchema = z
   })
   .refine((cfg) => new Set((cfg.runbooks ?? []).map((r) => r.id)).size === (cfg.runbooks ?? []).length, {
     message: "Runbook IDs must be unique",
+  })
+  .refine((cfg) => new Set((cfg.channels ?? []).map((c) => c.id)).size === (cfg.channels ?? []).length, {
+    message: "Channel IDs must be unique",
   });
 
 export type SeedConnection = z.infer<typeof SeedConnectionSchema>;

@@ -27,6 +27,10 @@ export async function register(): Promise<void> {
   const { registerAuditPersistence } = await import("@/lib/audit-persistence");
   registerAuditPersistence();
 
+  // Alerts (docs/CONTEXT.md §4.29): the one scheduler this process holds.
+  const { startAlertScheduler } = await import("@/lib/alerts/scheduler");
+  startAlertScheduler();
+
   // LibreDB sample: programmatic and fast — seeded synchronously as before.
   const { isSampleEnabled, resolveSamplePath, seedSampleFile } = await import("@/lib/seed/libredb-sample");
   if (isSampleEnabled()) {

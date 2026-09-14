@@ -31,7 +31,9 @@ export type ExecutionAction =
   | "transaction:rollback"
   | "transaction:query"
   /** The read a file export ran again on the server (docs/CONTEXT.md §4.22). */
-  | "export";
+  | "export"
+  /** The read an alert ran on its schedule or on demand (docs/CONTEXT.md §4.29). */
+  | "alert";
 
 export interface ExecutionAuditContext {
   /** "POST /api/db/query" - recorded verbatim as the target. */

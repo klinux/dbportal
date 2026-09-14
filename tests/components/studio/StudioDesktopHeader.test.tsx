@@ -277,6 +277,13 @@ describe("StudioDesktopHeader", () => {
       expect(mockRouterPush).toHaveBeenCalledWith("/approvals");
     });
 
+    // docs/CONTEXT.md §4.29: the alerts page is for everyone who may open a datasource.
+    test("navigates to /alerts when Alerts clicked, for any user", () => {
+      const { getByText } = render(<StudioDesktopHeader {...defaultProps} isAdmin={false} />);
+      fireEvent.click(getByText("Alerts"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/alerts");
+    });
+
     test("shows Monitoring in dropdown menu", () => {
       const { getAllByText } = render(<StudioDesktopHeader {...defaultProps} />);
       // Monitoring appears both as standalone button and in dropdown

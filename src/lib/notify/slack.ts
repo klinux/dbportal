@@ -86,7 +86,13 @@ function appUrl(path: string): string {
   return base ? `${base}${path}` : path;
 }
 
-async function post(body: { channel: string; text: string; thread_ts?: string; blocks?: Block[] }): Promise<boolean> {
+/** One message to one channel, best effort; the alert channels (§4.29) post through here too. */
+export async function postSlackMessage(body: {
+  channel: string;
+  text: string;
+  thread_ts?: string;
+  blocks?: Block[];
+}): Promise<boolean> {
   const token = process.env.SLACK_BOT_TOKEN;
   if (!token) return false;
   try {
@@ -149,7 +155,7 @@ export async function notifyReviewers(record: ApprovalRequest): Promise<boolean>
     `Review: ${appUrl("/admin/approvals")}`,
   ].join("\n");
   // With a signing secret the message carries the two buttons; without one, the link is the way.
-  return post({ channel, text, ...(slackInteractive() ? { blocks: approvalBlocks(record, text) } : {}) });
+  return postSlackMessage({ channel, text, ...(slackInteractive() ? { blocks: approvalBlocks(record, text) } : {}) });
 }
 
 /** The outcome, into the thread the request named. */
@@ -169,7 +175,7 @@ export async function notifyExecutionOutcome(record: ApprovalRequest): Promise<b
     const preview = outcome.fields && outcome.rows ? previewOf(outcome.fields, outcome.rows, outcome.truncated) : "";
     text = preview ? `${head}\n${preview}` : head;
   }
-  return post({
+  return postSlackMessage({
     channel: record.reply.channel,
     text,
     ...(record.reply.threadTs ? { thread_ts: record.reply.threadTs } : {}),

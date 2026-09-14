@@ -328,6 +328,34 @@ Vault is down.
 In the admin sheet, "From Vault" browses the KV v2 mount `VAULT_KV_MOUNT` (default `secret`) and
 fills the fields from a picked secret: host, port, user and database as values, the password as
 a `vault:kv:` reference (docs/CONTEXT.md §4.39).
+
+### Notification channels
+
+Where alerts fire to (docs/CONTEXT.md §4.29) can be declared once here, read-only on the
+admin page; an administrator declares more under Security → Channels.
+
+```yaml
+channels:
+  - id: "ops-slack"
+    name: "Ops"
+    kind: slack                    # the bot posts to this channel id (SLACK_BOT_TOKEN)
+    target: "C0123ABCD"
+  - id: "oncall"
+    name: "On-call"
+    kind: oncall                   # a Grafana OnCall "formatted webhook" integration URL
+    target: "https://oncall.example.test/integrations/v1/formatted_webhook/xxx/"
+  - id: "rootly"
+    name: "Rootly"
+    kind: rootly                   # a Rootly generic webhook alert source URL
+    target: "https://webhooks.rootly.com/webhooks/incoming/generic_webhook_alerts/xxx"
+  - id: "hook"
+    name: "Generic"
+    kind: webhook                  # JSON, signed with CALLBACK_SIGNING_SECRET when set
+    target: "https://hooks.example.test/dbportal"
+```
+
+The target of a webhook kind must be an `https` URL without credentials; the alert editor
+shows a channel's id, name and kind, never the target.
 4. Plaintext passwords trigger a warning log (but still work)
 
 **Resolvable fields:** `password`, `connectionString`, `user`, `host`, `database`

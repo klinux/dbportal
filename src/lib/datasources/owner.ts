@@ -25,6 +25,10 @@ export const SHARED_ROLES_OWNER = "shared:roles";
 export const SHARED_RUNBOOKS_OWNER = "shared:runbooks";
 /** Environments (docs/CONTEXT.md §4.36). */
 export const SHARED_ENVIRONMENTS_OWNER = "shared:environments";
+/** Notification channels (docs/CONTEXT.md §4.29). */
+export const SHARED_CHANNELS_OWNER = "shared:channels";
+/** Alerts (docs/CONTEXT.md §4.29). */
+export const SHARED_ALERTS_OWNER = "shared:alerts";
 
 /** Every owner id no account may ever be. */
 export const RESERVED_OWNERS: readonly string[] = [
@@ -36,4 +40,6 @@ export const RESERVED_OWNERS: readonly string[] = [
   SHARED_ROLES_OWNER,
   SHARED_RUNBOOKS_OWNER,
   SHARED_ENVIRONMENTS_OWNER,
+  SHARED_CHANNELS_OWNER,
+  SHARED_ALERTS_OWNER,
 ];

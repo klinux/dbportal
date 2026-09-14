@@ -1226,6 +1226,20 @@ fields, `vault:kv:` references for the credential, mapped by key name. `503` wit
 malformed path, `502` when Vault refuses (the reason stays in the server log). Reading a secret is audited as
 `vault_secret`.
 
+Alerts and channels (docs/CONTEXT.md §4.29). Any session: `GET /api/channels` → `{ channels: [{ id, name,
+kind }] }` (kind: `slack` | `webhook` | `oncall` | `rootly`; never the target); `GET /api/alerts` → `{ alerts }`
+(the session's own; every one for an administrator); `POST /api/alerts` — body `{ id, name, datasource, sql,
+column?, op, value?, everyMinutes, cooldownMinutes, channels, enabled }`, `201`; admitted only when the
+datasource opens for this session, the statement reads and every channel is declared (`400`/`404`);
+`PUT /api/alerts/[id]` replaces one (owner or admin; `404` otherwise), `DELETE /api/alerts/[id]`,
+`POST /api/alerts/[id]/run` → `{ state: { status, lastRunAt, lastValue?, lastError?, lastFiredAt?,
+lastNotifiedAt? } }`. Admin: `GET /api/admin/channels` (with `target` and `source`), `POST /api/admin/channels`
+— body `{ id, name, kind, target }` (`target`: a Slack channel id, or an https URL bare of credentials), `201`,
+`409` when the id exists; `DELETE /api/admin/channels/[id]` — `409` while an alert names it, `404` for a
+seed-file one; `POST /api/admin/channels/[id]/test` → `{ delivered }`. Audited as `alert` (saved, deleted,
+fired, resolved, delivery_failed) and `notification_channel` (saved, deleted, tested); each run is a
+`query_execution` with action `alert` under the alert's owner.
+
 Runbooks (docs/CONTEXT.md §4.20). Admin: `GET /api/admin/runbooks` → `{ runbooks: [{ id, name,
 description?, datasource, sql, params?, source }] }`; `POST /api/admin/runbooks` — body
 `{ id, name, description?, datasource, sql, params?: [{ name, type, label?, required?, default? }] }`,
