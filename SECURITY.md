@@ -32,3 +32,28 @@ are especially relevant:
 
 Findings in third-party database drivers should be reported to those projects; we
 will still track them here and bump the dependency.
+
+## Verifying a release image
+
+Every image the `Docker image` workflow pushes to `ghcr.io/klinux/dbportal` is signed
+keyless with Sigstore (the workflow's own GitHub OIDC identity, so there is no key to
+keep or lose) and carries an SBOM and a provenance statement as OCI attestations.
+
+Verify the signature before you run an image - pin the repository and the workflow file,
+and the branch or tag it was built from:
+
+```sh
+cosign verify ghcr.io/klinux/dbportal:<tag> \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/klinux/dbportal/\.github/workflows/docker\.yml@refs/(heads/main|tags/v[^/]+)$'
+```
+
+Read the SBOM (SPDX) and the provenance (SLSA) the build attached:
+
+```sh
+docker buildx imagetools inspect ghcr.io/klinux/dbportal:<tag> --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/klinux/dbportal:<tag> --format '{{ json .Provenance }}'
+```
+
+An image that fails `cosign verify` was not built by this repository's workflow; do not
+run it.

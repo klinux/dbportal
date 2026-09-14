@@ -624,7 +624,14 @@ built. Each lands as its own section when done.
   most. The message names the person and what happened, never a statement. A delivery the
   receiver refused is an `alert delivery_failed` line, and the observer's own lines trip
   nothing. Nothing fires until a channel is ticked.
-- **4.33 Release hardening** — SBOM, a signed image, `SECURITY.md` with a disclosure policy.
+- **4.33 Release hardening — done.** The image workflow attaches an SBOM and a
+  `mode=max` provenance statement to every push as OCI attestations (`sbom: true`,
+  `provenance: mode=max` on the build step) and signs each pushed tag by digest with
+  cosign, keyless - the workflow's GitHub OIDC identity is the signer, so there is no key
+  to keep. `SECURITY.md` carries the disclosure policy (private reporting through GitHub,
+  72-hour acknowledgement, the latest release only) and the verification recipe: the
+  `cosign verify` identity pinned to this repository's `docker.yml` on `main` or a `v*` tag,
+  and `imagetools inspect` for the SBOM and the provenance.
 - **4.34 Integration tests per engine in CI** for the export, runbook and seed routes
   against a real PostgreSQL, today verified live only locally.
 - **4.36 Environments as a list — done (asked 2026-09-14).** The five environments were
