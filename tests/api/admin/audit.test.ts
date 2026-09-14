@@ -114,18 +114,36 @@ describe("/api/admin/audit", () => {
     test("reads the durable store when one is configured, type and limit included", async () => {
       mockStore = {
         listAuditEvents: mock(async () => [mockEvents[1]]),
-        countAuditEvents: mock(async () => 1234),
+        countAuditEvents: mock(async (_filter?: unknown) => 1234),
       };
       const res = await GET(createMockRequest("/api/admin/audit?type=query_execution&limit=7"));
-      const data = await parseResponseJSON<{ events: AuditEvent[]; total: number; source: string }>(res);
+      const data = await parseResponseJSON<{
+        events: AuditEvent[];
+        total: number;
+        limit: number;
+        offset: number;
+        source: string;
+      }>(res);
       expect(res.status).toBe(200);
-      expect(mockStore.listAuditEvents).toHaveBeenCalledWith({ type: "query_execution", limit: 7 });
-      expect(data).toEqual({ events: [mockEvents[1]], total: 1234, source: "store" });
-      expect(mockBuffer.getRecent).not.toHaveBeenCalled();
-      expect(mockBuffer.filter).not.toHaveBeenCalled();
+      expect(mockStore.listAuditEvents).toHaveBeenCalledWith({ type: "query_execution", limit: 7, offset: 0 });
+      expect(((mockStore.countAuditEvents as ReturnType<typeof mock>).mock.calls as unknown[][])[0]?.[0]).toEqual({
+        type: "query_execution",
+      });
+      expect(data).toEqual({ events: [mockEvents[1]], total: 1234, limit: 7, offset: 0, source: "store" });
+      expect(mockBuffer.getAll).not.toHaveBeenCalled();
 
       await GET(createMockRequest("/api/admin/audit"));
-      expect(mockStore.listAuditEvents).toHaveBeenLastCalledWith({ limit: 100 });
+      expect(mockStore.listAuditEvents).toHaveBeenLastCalledWith({ limit: 100, offset: 0 });
+      // docs/CONTEXT.md §4.27: the page's question, whole; a malformed one is a 400.
+      await GET(createMockRequest("/api/admin/audit?actor=ana&connection=Orders&from=2026-09-01&offset=200&limit=50"));
+      expect(((mockStore.listAuditEvents as ReturnType<typeof mock>).mock.calls as unknown[][]).at(-1)?.[0]).toEqual({
+        actor: "ana",
+        connectionName: "Orders",
+        from: "2026-09-01T00:00:00.000Z",
+        limit: 50,
+        offset: 200,
+      });
+      expect((await GET(createMockRequest("/api/admin/audit?limit=0"))).status).toBe(400);
     });
 
     test("returns events as admin", async () => {
@@ -208,19 +226,24 @@ describe("/api/admin/audit", () => {
       expect(res.status).toBe(403);
     });
 
-    test("filters by type when type param is provided", async () => {
-      const req = createMockRequest("/api/admin/audit?type=maintenance");
-
-      const res = await GET(req);
-      const data = await parseResponseJSON<{ events: AuditEvent[] }>(res);
-
+    test("filters the ring by the same question, newest first, and pages it", async () => {
+      const res = await GET(createMockRequest("/api/admin/audit?type=maintenance"));
+      const data = await parseResponseJSON<{ events: AuditEvent[]; total: number; source: string }>(res);
       expect(res.status).toBe(200);
-      expect(mockBuffer.filter).toHaveBeenCalled();
-      expect(data.events).toBeArray();
+      expect(mockBuffer.getAll).toHaveBeenCalled();
+      expect(data.events.every((e) => e.type === "maintenance")).toBe(true);
+      expect(data.total).toBe(mockEvents.filter((e) => e.type === "maintenance").length);
+      expect(data.source).toBe("buffer");
+      const paged = await parseResponseJSON<{ events: AuditEvent[]; total: number; offset: number }>(
+        await GET(createMockRequest("/api/admin/audit?limit=1&offset=1")),
+      );
+      expect(paged.total).toBe(mockEvents.length);
+      expect(paged.events).toEqual([[...mockEvents].reverse()[1]]);
+      expect(paged.offset).toBe(1);
     });
 
     test("returns 500 when buffer read fails", async () => {
-      mockBuffer.getRecent.mockImplementationOnce(() => {
+      mockBuffer.getAll.mockImplementationOnce(() => {
         throw new Error("Buffer read failed");
       });
 

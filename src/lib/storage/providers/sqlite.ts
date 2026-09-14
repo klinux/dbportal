@@ -7,6 +7,7 @@
 import type {
   ApprovalQuery,
   ApprovalRequest,
+  AuditEventFilter,
   AuditEventQuery,
   ServerStorageProvider,
   StorageCollection,
@@ -89,6 +90,7 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
           data TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS audit_events_ts ON audit_events (ts DESC);
+        CREATE INDEX IF NOT EXISTS audit_events_type_ts ON audit_events (type, ts DESC);
       `);
       // Write approvals (docs/CONTEXT.md §4.6): the record as JSON plus the columns the
       // gate and the reviewer list filter on.
@@ -191,22 +193,40 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
     );
   }
 
+  /** The WHERE the filter asks for (docs/CONTEXT.md §4.27), the JSON fields read with json_extract. */
+  private auditWhere(filter: AuditEventFilter | undefined): { sql: string; params: unknown[] } {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    const add = (sql: string, value: unknown) => {
+      clauses.push(sql);
+      params.push(value);
+    };
+    if (filter?.type) add("type = ?", filter.type);
+    if (filter?.actor) add("json_extract(data, '$.user') = ?", filter.actor);
+    if (filter?.connectionName) add("json_extract(data, '$.connectionName') = ?", filter.connectionName);
+    if (filter?.result) add("json_extract(data, '$.result') = ?", filter.result);
+    if (filter?.from) add("ts >= ?", filter.from);
+    if (filter?.to) add("ts <= ?", filter.to);
+    return { sql: clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "", params };
+  }
+
   async listAuditEvents(query: AuditEventQuery): Promise<AuditEvent[]> {
     this.ensureDb();
-    const rows = (
-      query.type
-        ? this.db!.prepare("SELECT data FROM audit_events WHERE type = ? ORDER BY ts DESC LIMIT ?").all(
-            query.type,
-            query.limit,
-          )
-        : this.db!.prepare("SELECT data FROM audit_events ORDER BY ts DESC LIMIT ?").all(query.limit)
+    const where = this.auditWhere(query);
+    const rows = this.db!.prepare(`SELECT data FROM audit_events${where.sql} ORDER BY ts DESC LIMIT ? OFFSET ?`).all(
+      ...where.params,
+      query.limit,
+      query.offset ?? 0,
     ) as { data: string }[];
     return rows.map((row) => JSON.parse(row.data) as AuditEvent);
   }
 
-  async countAuditEvents(): Promise<number> {
+  async countAuditEvents(filter?: AuditEventFilter): Promise<number> {
     this.ensureDb();
-    const row = this.db!.prepare("SELECT COUNT(*) AS n FROM audit_events").get() as { n: number } | undefined;
+    const where = this.auditWhere(filter);
+    const row = this.db!.prepare(`SELECT COUNT(*) AS n FROM audit_events${where.sql}`).get(...where.params) as
+      | { n: number }
+      | undefined;
     return row?.n ?? 0;
   }
 

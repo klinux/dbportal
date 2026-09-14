@@ -446,6 +446,8 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/api/roles": "the named role routes' error answer; reaches no provider",
     "@/lib/api/runbooks": "the runbook routes' error answer and id reader; reaches no provider",
     "@/lib/api/seed-data": "the seed-data routes' error answer; reaches no provider",
+    "@/lib/audit-query":
+      "the admin audit route's question, read from the query string and asked of the ring; reaches no provider",
     "@/lib/seed-data/run":
       "the seed job's state and its filling of tables through a runner the route hands it; opens no provider of its own (the type import of @/lib/seed is a type)",
     "@/lib/runbooks/store":

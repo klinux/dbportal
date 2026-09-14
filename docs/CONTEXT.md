@@ -523,10 +523,16 @@ built. Each lands as its own section when done.
 
 ### 4.27 → the next sequence (agreed 2026-09-14, in this order)
 
-- **4.27 Durable audit with retention and a paged view** — the stdout line stays the
-  record; the store keeps the events under `AUDIT_RETENTION_DAYS` (§4.12 sweeps them), and
-  the admin Audit page reads the store paged and filtered (type, actor, datasource,
-  period) instead of the 1000-event ring, so a week of a fleet can be read.
+- **4.27 Durable audit, paged and filtered — done.** The stdout line stays the record and
+  the store keeps the events under `AUDIT_RETENTION_DAYS` (§4.12); what changed is the
+  read. `GET /api/admin/audit` takes one question ([`src/lib/audit-query.ts`](../src/lib/audit-query.ts)):
+  type, actor, datasource, result, a period, and a page (`limit` ≤ 500, `offset`), answered
+  by the store with bound WHERE clauses (expression indexes on the actor and the datasource
+  inside the JSON, `(type, ts)` on the columns) and by the ring, when there is no store,
+  with the same predicate; the answer says how many the filters match. The admin page's
+  Operations and Queries tabs carry the filters and a pager over the store's answer, so a
+  week of a fleet is read a page at a time; the Stats tab keeps a bounded window of the
+  newest executions.
 - **4.28 Two reviewers, and requests that expire** — a datasource may ask for two
   approvals (`approvalsRequired: 2`) before a write on production runs; a pending request
   expires after a bounded time (`APPROVAL_TTL_HOURS`) and is answered as such.

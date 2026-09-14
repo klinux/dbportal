@@ -517,6 +517,65 @@ describe("AuditTab", () => {
       expect(queryByText("SELECT 1")).toBeNull();
     });
   });
+  // docs/CONTEXT.md §4.27: the actor, datasource and period filters and the page go to the server
+  // as the question; the answer's total drives the pager.
+  test("the operations filters and the pager refetch with their params, from the first page", async () => {
+    const paged = mockGlobalFetch({
+      "/api/admin/audit": (req: Request) =>
+        req.url.includes("type=query_execution")
+          ? { json: { events: queryEvents, total: queryEvents.length } }
+          : { json: { events: defaultExecutions(), total: 250 } },
+    });
+    const view = render(<AuditTab />);
+    await waitFor(() => expect(auditCalls(paged).length).toBe(1));
+    expect(auditCalls(paged)[0]).toContain("limit=100");
+    expect(auditCalls(paged)[0]).toContain("offset=0");
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Next page"));
+    });
+    await waitFor(() => expect(auditCalls(paged).length).toBe(2));
+    expect(auditCalls(paged)[1]).toContain("offset=100");
+    expect(view.getByTestId("operations-page-range").textContent).toContain("of 250");
+    await act(async () => {
+      fireEvent.change(view.getByLabelText("Actor"), { target: { value: "ana" } });
+    });
+    await waitFor(() => expect(auditCalls(paged).length).toBe(3));
+    expect(auditCalls(paged)[2]).toContain("actor=ana");
+    // A filter change starts again from the first page.
+    expect(auditCalls(paged)[2]).toContain("offset=0");
+    await act(async () => {
+      fireEvent.change(view.getByLabelText("From"), { target: { value: "2026-09-14T09:00" } });
+    });
+    await waitFor(() => expect(auditCalls(paged).length).toBe(4));
+    expect(auditCalls(paged)[3]).toContain("from=");
+  });
+
+  test("the queries filters and pager refetch the executions with their params", async () => {
+    const paged = mockGlobalFetch({
+      "/api/admin/audit": (req: Request) =>
+        req.url.includes("type=query_execution")
+          ? { json: { events: queryEvents, total: 450 } }
+          : { json: { events: [], total: 0 } },
+    });
+    const user = userEvent.setup();
+    const view = render(<AuditTab />);
+    await user.click(view.getByRole("tab", { name: "Queries" }));
+    const executionReads = () => auditCalls(paged).filter((url) => url.includes("type=query_execution"));
+    await waitFor(() => expect(executionReads().length).toBe(1));
+    expect(executionReads()[0]).toContain("limit=200");
+    await act(async () => {
+      fireEvent.change(view.getByLabelText("Datasource"), { target: { value: "TestDB" } });
+    });
+    await waitFor(() => expect(executionReads().length).toBe(2));
+    expect(executionReads()[1]).toContain("connection=TestDB");
+    await act(async () => {
+      fireEvent.click(view.getByLabelText("Next page"));
+    });
+    await waitFor(() => expect(executionReads().length).toBe(3));
+    expect(executionReads()[2]).toContain("offset=200");
+    expect(view.getByTestId("queries-page-range").textContent).toContain("of 450");
+  });
+
   test("changing the type filter refetches with the type param", async () => {
     let renderResult: ReturnType<typeof render>;
     await act(async () => {

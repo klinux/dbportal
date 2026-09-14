@@ -58,10 +58,21 @@ export const STORAGE_COLLECTIONS: StorageCollection[] = [
 ];
 
 /** What the admin API asks the audit store for. */
+/** The admin Audit page's question (docs/CONTEXT.md §4.27); every field but `limit` narrows. */
 export interface AuditEventQuery {
   type?: string;
+  /** The event's `user`. */
+  actor?: string;
+  connectionName?: string;
+  result?: "success" | "failure";
+  /** ISO instants, inclusive. */
+  from?: string;
+  to?: string;
   limit: number;
+  offset?: number;
 }
+
+export type AuditEventFilter = Omit<AuditEventQuery, "limit" | "offset">;
 
 /**
  * A write awaiting, granted or refused approval (docs/CONTEXT.md §4.6). `windowUntil` is the
@@ -151,7 +162,8 @@ export interface ServerStorageProvider {
   /** The most recent events, newest first, optionally of one type. */
   listAuditEvents(query: AuditEventQuery): Promise<AuditEvent[]>;
   /** How many events the store holds. */
-  countAuditEvents(): Promise<number>;
+  /** How many events the filter matches - the page's total - or every event without one. */
+  countAuditEvents(filter?: AuditEventFilter): Promise<number>;
   /** Delete audit events older than `before` (ISO instant); the number removed (§4.12 retention). */
   pruneAuditEvents(before: string): Promise<number>;
   /** Write or replace one approval request by its id (§4.6). */

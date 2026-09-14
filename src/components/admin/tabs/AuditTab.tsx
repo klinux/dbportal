@@ -6,6 +6,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ADMIN_SUBTAB_LIST_CLASS, ADMIN_SUBTAB_TRIGGER_CLASS } from "@/lib/ui/admin-tabs";
 import { formatStatement, statementOverview } from "@/lib/audit-view/statement";
 import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
+import {
+  AuditFilters,
+  AuditPager,
+  EMPTY_AUDIT_FILTERS,
+  auditPageParams,
+  type AuditFilterValues,
+} from "@/components/admin/AuditPaging";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -105,22 +112,28 @@ export function AuditTab() {
  * shape react.dev prescribes for fetching. A failed request reads as "no events"
  * — the same thing the old catch branch put on screen.
  */
-async function loadAuditEvents(type: string, limit = 200): Promise<AuditEvent[]> {
+/** One page of the trail (docs/CONTEXT.md §4.27): the events and how many the question matches. */
+export const OPERATIONS_PAGE = 100;
+export const QUERIES_PAGE = 200;
+
+async function loadAuditPage(params: URLSearchParams): Promise<{ events: AuditEvent[]; total: number }> {
   try {
-    const params = new URLSearchParams({ limit: String(limit) });
-    if (type !== "all") params.set("type", type);
     const res = await appFetch(`/api/admin/audit?${params}`);
-    const data = await res.json();
-    return data.events || [];
+    const data = (await res.json()) as { events?: AuditEvent[]; total?: number };
+    const events = data.events || [];
+    return { events, total: typeof data.total === "number" ? data.total : events.length };
   } catch {
-    return [];
+    return { events: [], total: 0 };
   }
 }
 
 function OperationsAudit() {
   const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [filters, setFilters] = useState<AuditFilterValues>(EMPTY_AUDIT_FILTERS);
+  const [offset, setOffset] = useState(0);
   const [refreshCount, setRefreshCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -131,17 +144,28 @@ function OperationsAudit() {
   // (Bundling matters: a bare refresh token is never read inside the Effect, so it
   // cannot honestly be a dependency — inside the descriptor it is the value the Effect
   // synchronizes against. Same shape as OverviewTab's fleet health.)
-  const auditRequest = useMemo(() => ({ typeFilter, refreshCount }), [typeFilter, refreshCount]);
+  const auditRequest = useMemo(
+    () => ({ typeFilter, filters, offset, refreshCount }),
+    [typeFilter, filters, offset, refreshCount],
+  );
 
   useEffect(() => {
-    const { typeFilter: requestedType } = auditRequest;
+    const { typeFilter: requestedType, filters: requestedFilters, offset: requestedOffset } = auditRequest;
     let ignore = false;
     async function run() {
-      const next = await loadAuditEvents(requestedType);
+      const next = await loadAuditPage(
+        auditPageParams({
+          type: requestedType,
+          filters: requestedFilters,
+          limit: OPERATIONS_PAGE,
+          offset: requestedOffset,
+        }),
+      );
       // A response that lost the race (unmount, a newer filter, or a newer refresh)
       // must not win.
       if (ignore) return;
-      setEvents(next);
+      setEvents(next.events);
+      setTotal(next.total);
       setLoading(false);
     }
     run();
@@ -156,6 +180,18 @@ function OperationsAudit() {
   const handleTypeChange = (value: string) => {
     setLoading(true);
     setTypeFilter(value);
+    setOffset(0);
+  };
+
+  const handleFilters = (next: AuditFilterValues) => {
+    setLoading(true);
+    setFilters(next);
+    setOffset(0);
+  };
+
+  const handlePage = (next: number) => {
+    setLoading(true);
+    setOffset(next);
   };
 
   const handleRefresh = () => {
@@ -272,9 +308,19 @@ function OperationsAudit() {
         </Button>
         <AuditExport disabled={loading || filteredEvents.length === 0} onExport={exportEvents} />
       </div>
+      {/* docs/CONTEXT.md §4.27: who, which datasource, which period - narrowed by the store, not here. */}
+      <AuditFilters values={filters} onChange={handleFilters} idPrefix="operations" />
 
       {/* Stats Summary */}
       <div className="flex items-center gap-4 text-xs text-fg-muted">
+        <AuditPager
+          offset={offset}
+          limit={OPERATIONS_PAGE}
+          total={total}
+          shown={events.length}
+          onPage={handlePage}
+          idPrefix="operations"
+        />
         <span>
           Total: <span className="font-bold text-fg-secondary">{events.length}</span> ops
         </span>
@@ -362,17 +408,27 @@ function OperationsAudit() {
  * request descriptor carries the refresh count so the Effect synchronises against a value it
  * reads (the OperationsAudit idiom above), rather than against a token it never touches.
  */
-function useExecutionEvents() {
+function useExecutionEvents(input: { filters?: AuditFilterValues; offset?: number; limit?: number } = {}) {
   const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshCount, setRefreshCount] = useState(0);
-  const request = useMemo(() => ({ type: "query_execution", limit: 1000, refreshCount }), [refreshCount]);
+  const filters = input.filters ?? EMPTY_AUDIT_FILTERS;
+  const offset = input.offset ?? 0;
+  const limit = input.limit ?? QUERIES_PAGE;
+  const request = useMemo(
+    () => ({ type: "query_execution", filters, offset, limit, refreshCount }),
+    [filters, offset, limit, refreshCount],
+  );
 
   useEffect(() => {
     let ignore = false;
-    loadAuditEvents(request.type, request.limit).then((next) => {
+    loadAuditPage(
+      auditPageParams({ type: request.type, filters: request.filters, limit: request.limit, offset: request.offset }),
+    ).then((next) => {
       if (ignore) return;
-      setEvents(next);
+      setEvents(next.events);
+      setTotal(next.total);
       setLoading(false);
     });
     return () => {
@@ -385,7 +441,7 @@ function useExecutionEvents() {
     setRefreshCount((c) => c + 1);
   };
 
-  return { events, loading, refresh };
+  return { events, total, loading, refresh, setLoading };
 }
 
 /** What the Queries tab can say about an execution's statement. */
@@ -394,7 +450,9 @@ function statementOf(event: AuditEvent): string | null {
 }
 
 function QueryAudit() {
-  const { events, loading, refresh } = useExecutionEvents();
+  const [filters, setFilters] = useState<AuditFilterValues>(EMPTY_AUDIT_FILTERS);
+  const [offset, setOffset] = useState(0);
+  const { events, total, loading, refresh, setLoading } = useExecutionEvents({ filters, offset });
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   // The one row whose statement is unfolded, formatted (requested 2026-09-14).
@@ -489,6 +547,29 @@ function QueryAudit() {
           <RefreshCw className="w-3 h-3" /> Refresh
         </Button>
         <AuditExport disabled={loading || filteredEvents.length === 0} onExport={exportHistory} />
+      </div>
+      {/* docs/CONTEXT.md §4.27: who, which datasource, which period, and the page - the store's answer. */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <AuditFilters
+          values={filters}
+          onChange={(next) => {
+            setLoading(true);
+            setFilters(next);
+            setOffset(0);
+          }}
+          idPrefix="queries"
+        />
+        <AuditPager
+          offset={offset}
+          limit={QUERIES_PAGE}
+          total={total}
+          shown={events.length}
+          onPage={(next) => {
+            setLoading(true);
+            setOffset(next);
+          }}
+          idPrefix="queries"
+        />
       </div>
 
       {!loading && events.length > 0 && !statementsRecorded && (
@@ -596,7 +677,8 @@ function QueryAudit() {
 }
 
 function AuditStats() {
-  const { events } = useExecutionEvents();
+  // A bounded window of the newest executions, not the whole trail: the charts are a glance.
+  const { events } = useExecutionEvents({ limit: 500 });
   const tooltipStyle = chartTooltipStyle(useEffectiveTheme());
 
   const stats = useMemo(() => {

@@ -1,10 +1,11 @@
 import { getSession } from "@/lib/auth";
 import { NextResponse } from "next/server";
-import { getServerAuditBuffer, sanitizeAuditInput, type AuditEventType } from "@/lib/audit";
+import { getServerAuditBuffer, sanitizeAuditInput } from "@/lib/audit";
 import { auditRoleDenial } from "@/lib/api/role-denial";
 import { createErrorResponse } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 import { getStorageProvider } from "@/lib/storage/factory";
+import { matchesAuditQuery, readAuditQuery } from "@/lib/audit-query";
 
 export async function GET(request: Request) {
   try {
@@ -14,25 +15,27 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized. Admin access required." }, { status: 403 });
     }
 
-    const { searchParams } = new URL(request.url);
-    const type = searchParams.get("type") as AuditEventType | null;
-    const limit = parseInt(searchParams.get("limit") || "100", 10);
+    // The page's question (docs/CONTEXT.md §4.27): type, actor, datasource, result, period,
+    // and which page of it.
+    const read = readAuditQuery(new URL(request.url).searchParams);
+    if ("error" in read) return NextResponse.json({ error: read.error }, { status: 400 });
+    const { query } = read;
+    const { limit, offset = 0, ...filter } = query;
 
     // The durable record when a server store is configured (docs/CONTEXT.md §4.2) - every
     // process, every restart - and the per-process ring buffer otherwise.
     const store = await getStorageProvider();
     if (store) {
-      const [events, total] = await Promise.all([
-        store.listAuditEvents({ ...(type ? { type } : {}), limit }),
-        store.countAuditEvents(),
-      ]);
-      return NextResponse.json({ events, total, source: "store" });
+      const [events, total] = await Promise.all([store.listAuditEvents(query), store.countAuditEvents(filter)]);
+      return NextResponse.json({ events, total, limit, offset, source: "store" });
     }
 
-    const buffer = getServerAuditBuffer();
-    const events = type ? buffer.filter({ type }) : buffer.getRecent(limit);
-
-    return NextResponse.json({ events, total: buffer.size, source: "buffer" });
+    const matching = getServerAuditBuffer()
+      .getAll()
+      .filter((event) => matchesAuditQuery(event, filter))
+      .reverse();
+    const events = matching.slice(offset, offset + limit);
+    return NextResponse.json({ events, total: matching.length, limit, offset, source: "buffer" });
   } catch (error) {
     return createErrorResponse(error, { route: "GET /api/admin/audit" });
   }

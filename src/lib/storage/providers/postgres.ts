@@ -6,6 +6,7 @@
 import type {
   ApprovalQuery,
   ApprovalRequest,
+  AuditEventFilter,
   AuditEventQuery,
   ServerStorageProvider,
   StorageCollection,
@@ -75,6 +76,13 @@ export class PostgresStorageProvider implements ServerStorageProvider {
         )
       `);
       await this.pool.query("CREATE INDEX IF NOT EXISTS audit_events_ts ON audit_events (ts DESC)");
+      // The admin page's filters (docs/CONTEXT.md §4.27): the actor and the datasource live in
+      // the JSON, so each gets an expression index; the type has the column.
+      await this.pool.query("CREATE INDEX IF NOT EXISTS audit_events_type_ts ON audit_events (type, ts DESC)");
+      await this.pool.query("CREATE INDEX IF NOT EXISTS audit_events_actor ON audit_events ((data::jsonb->>'user'))");
+      await this.pool.query(
+        "CREATE INDEX IF NOT EXISTS audit_events_connection ON audit_events ((data::jsonb->>'connectionName'))",
+      );
       // Write approvals (docs/CONTEXT.md §4.6); see the SQLite provider for the shape.
       await this.pool.query(`
         CREATE TABLE IF NOT EXISTS approval_requests (
@@ -176,20 +184,38 @@ export class PostgresStorageProvider implements ServerStorageProvider {
     );
   }
 
+  /** The WHERE the filter asks for, with its bound values, or none. */
+  private auditWhere(filter: AuditEventFilter | undefined): { sql: string; params: unknown[] } {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    const add = (sql: string, value: unknown) => {
+      params.push(value);
+      clauses.push(sql.replace("?", `$${params.length}`));
+    };
+    if (filter?.type) add("type = ?", filter.type);
+    if (filter?.actor) add("data::jsonb->>'user' = ?", filter.actor);
+    if (filter?.connectionName) add("data::jsonb->>'connectionName' = ?", filter.connectionName);
+    if (filter?.result) add("data::jsonb->>'result' = ?", filter.result);
+    if (filter?.from) add("ts >= ?", filter.from);
+    if (filter?.to) add("ts <= ?", filter.to);
+    return { sql: clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "", params };
+  }
+
   async listAuditEvents(query: AuditEventQuery): Promise<AuditEvent[]> {
     this.ensurePool();
-    const { rows } = query.type
-      ? await this.pool!.query("SELECT data FROM audit_events WHERE type = $1 ORDER BY ts DESC LIMIT $2", [
-          query.type,
-          query.limit,
-        ])
-      : await this.pool!.query("SELECT data FROM audit_events ORDER BY ts DESC LIMIT $1", [query.limit]);
+    const where = this.auditWhere(query);
+    const n = where.params.length;
+    const { rows } = await this.pool!.query(
+      `SELECT data FROM audit_events${where.sql} ORDER BY ts DESC LIMIT $${n + 1} OFFSET $${n + 2}`,
+      [...where.params, query.limit, query.offset ?? 0],
+    );
     return rows.map((row: { data: string }) => JSON.parse(row.data) as AuditEvent);
   }
 
-  async countAuditEvents(): Promise<number> {
+  async countAuditEvents(filter?: AuditEventFilter): Promise<number> {
     this.ensurePool();
-    const { rows } = await this.pool!.query("SELECT COUNT(*)::int AS n FROM audit_events");
+    const where = this.auditWhere(filter);
+    const { rows } = await this.pool!.query(`SELECT COUNT(*)::int AS n FROM audit_events${where.sql}`, where.params);
     return rows[0]?.n ?? 0;
   }
 

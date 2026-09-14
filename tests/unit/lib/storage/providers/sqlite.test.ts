@@ -383,12 +383,37 @@ describe("SQLiteStorageProvider", () => {
       const all = mock(() => [{ data: JSON.stringify(event) }]);
       mockPrepare.mockImplementation(() => ({ all, run: mock(() => {}), get: mock(() => undefined) }));
       expect(await provider.listAuditEvents({ limit: 5 })).toEqual([event]);
-      expect((mockPrepare.mock.calls as unknown[][]).at(-1)![0] as string).toContain("ORDER BY ts DESC LIMIT ?");
-      expect(all).toHaveBeenLastCalledWith(5);
+      expect((mockPrepare.mock.calls as unknown[][]).at(-1)![0] as string).toContain(
+        "ORDER BY ts DESC LIMIT ? OFFSET ?",
+      );
+      expect(all).toHaveBeenLastCalledWith(5, 0);
 
       await provider.listAuditEvents({ type: "maintenance", limit: 2 });
       expect((mockPrepare.mock.calls as unknown[][]).at(-1)![0] as string).toContain("WHERE type = ?");
-      expect(all).toHaveBeenLastCalledWith("maintenance", 2);
+      expect(all).toHaveBeenLastCalledWith("maintenance", 2, 0);
+      // docs/CONTEXT.md §4.27: every filter is a bound clause; the JSON fields through json_extract.
+      await provider.listAuditEvents({
+        actor: "ana",
+        connectionName: "Orders",
+        result: "failure",
+        from: "2026-09-01T00:00:00.000Z",
+        to: "2026-09-14T00:00:00.000Z",
+        limit: 10,
+        offset: 20,
+      });
+      const sql = (mockPrepare.mock.calls as unknown[][]).at(-1)![0] as string;
+      expect(sql).toContain(
+        "WHERE json_extract(data, '$.user') = ? AND json_extract(data, '$.connectionName') = ? AND json_extract(data, '$.result') = ? AND ts >= ? AND ts <= ? ORDER BY ts DESC LIMIT ? OFFSET ?",
+      );
+      expect(all).toHaveBeenLastCalledWith(
+        "ana",
+        "Orders",
+        "failure",
+        "2026-09-01T00:00:00.000Z",
+        "2026-09-14T00:00:00.000Z",
+        10,
+        20,
+      );
     });
 
     test("countAuditEvents answers the count, and 0 for an empty answer", async () => {
@@ -399,6 +424,13 @@ describe("SQLiteStorageProvider", () => {
         run: mock(() => {}),
       }));
       expect(await provider.countAuditEvents()).toBe(7);
+      const get = mock(() => ({ n: 2 }));
+      mockPrepare.mockImplementationOnce(() => ({ get, all: mock(() => []), run: mock(() => {}) }));
+      expect(await provider.countAuditEvents({ type: "maintenance", actor: "ana" })).toBe(2);
+      expect((mockPrepare.mock.calls as unknown[][]).at(-1)![0] as string).toContain(
+        "FROM audit_events WHERE type = ? AND json_extract(data, '$.user') = ?",
+      );
+      expect(get).toHaveBeenCalledWith("maintenance", "ana");
       mockPrepare.mockImplementationOnce(() => ({
         get: mock(() => undefined),
         all: mock(() => []),

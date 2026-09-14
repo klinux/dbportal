@@ -3,6 +3,7 @@ import { decryptConnections, decryptSshProfiles, encryptConnections, encryptSshP
 import type {
   ApprovalQuery,
   ApprovalRequest,
+  AuditEventFilter,
   AuditEventQuery,
   ServerStorageProvider,
   StorageCollection,
@@ -76,8 +77,8 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
     return this.inner.pruneAuditEvents(before);
   }
 
-  countAuditEvents(): Promise<number> {
-    return this.inner.countAuditEvents();
+  countAuditEvents(filter?: AuditEventFilter): Promise<number> {
+    return this.inner.countAuditEvents(filter);
   }
 
   // Approval requests carry a statement and names, never a credential: passed through.

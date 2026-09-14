@@ -60,12 +60,15 @@ describe("PostgresStorageProvider", () => {
 
   test("initialize creates the user table, the audit table and its index", async () => {
     await provider.initialize();
-    // user_storage, the audit table and its index (§4.2), the approval table and its index (§4.6).
-    expect(mockQuery).toHaveBeenCalledTimes(5);
+    // user_storage, the audit table and its four indexes (§4.2, §4.27), the approval table and its index (§4.6).
+    expect(mockQuery).toHaveBeenCalledTimes(8);
     const sql = (mockQuery.mock.calls as unknown[][]).map((call) => call[0] as string);
     expect(sql[0]).toContain("CREATE TABLE IF NOT EXISTS user_storage");
     expect(sql[1]).toContain("CREATE TABLE IF NOT EXISTS audit_events");
     expect(sql[2]).toContain("CREATE INDEX IF NOT EXISTS audit_events_ts");
+    expect(sql[3]).toContain("audit_events_type_ts ON audit_events (type, ts DESC)");
+    expect(sql[4]).toContain("audit_events_actor ON audit_events ((data::jsonb->>'user'))");
+    expect(sql[5]).toContain("audit_events_connection ON audit_events ((data::jsonb->>'connectionName'))");
   });
 
   // docs/CONTEXT.md §4.2: the durable audit record. Append-only by contract - the one write
@@ -97,19 +100,46 @@ describe("PostgresStorageProvider", () => {
       mockQuery.mockImplementation(async () => ({ rows: [{ data: JSON.stringify(event) }] }));
       expect(await provider.listAuditEvents({ limit: 5 })).toEqual([event]);
       let [sql, params] = (mockQuery.mock.calls as unknown[][]).at(-1) as [string, unknown[]];
-      expect(sql).toContain("ORDER BY ts DESC LIMIT $1");
-      expect(params).toEqual([5]);
+      expect(sql).toContain("ORDER BY ts DESC LIMIT $1 OFFSET $2");
+      expect(params).toEqual([5, 0]);
 
       await provider.listAuditEvents({ type: "maintenance", limit: 2 });
       [sql, params] = (mockQuery.mock.calls as unknown[][]).at(-1) as [string, unknown[]];
       expect(sql).toContain("WHERE type = $1");
-      expect(params).toEqual(["maintenance", 2]);
+      expect(params).toEqual(["maintenance", 2, 0]);
+      // docs/CONTEXT.md §4.27: every filter is a bound clause; the JSON fields read from the JSON.
+      await provider.listAuditEvents({
+        actor: "ana",
+        connectionName: "Orders",
+        result: "failure",
+        from: "2026-09-01T00:00:00.000Z",
+        to: "2026-09-14T00:00:00.000Z",
+        limit: 10,
+        offset: 20,
+      });
+      [sql, params] = (mockQuery.mock.calls as unknown[][]).at(-1) as [string, unknown[]];
+      expect(sql).toContain(
+        "WHERE data::jsonb->>'user' = $1 AND data::jsonb->>'connectionName' = $2 AND data::jsonb->>'result' = $3 AND ts >= $4 AND ts <= $5 ORDER BY ts DESC LIMIT $6 OFFSET $7",
+      );
+      expect(params).toEqual([
+        "ana",
+        "Orders",
+        "failure",
+        "2026-09-01T00:00:00.000Z",
+        "2026-09-14T00:00:00.000Z",
+        10,
+        20,
+      ]);
     });
 
     test("countAuditEvents answers the count, and 0 for an empty answer", async () => {
       await provider.initialize();
       mockQuery.mockImplementation(async () => ({ rows: [{ n: 42 }] }));
       expect(await provider.countAuditEvents()).toBe(42);
+      expect(await provider.countAuditEvents({ type: "maintenance", from: "2026-09-01T00:00:00.000Z" })).toBe(42);
+      const [sql, params] = (mockQuery.mock.calls as unknown[][]).at(-1) as [string, unknown[]];
+      expect(sql).toContain("FROM audit_events WHERE type = $1 AND ts >= $2");
+      expect(params).toEqual(["maintenance", "2026-09-01T00:00:00.000Z"]);
       mockQuery.mockImplementation(async () => ({ rows: [] }));
       expect(await provider.countAuditEvents()).toBe(0);
     });
