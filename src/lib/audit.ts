@@ -46,6 +46,8 @@ export type AuditEventType =
   | "masking_reveal"
   /** A result exported as a file by a person: the form and the row count, never the rows (§4.22). */
   | "data_export"
+  /** A seed of generated rows started, finished or failed on a non-production datasource (§4.23). */
+  | "data_seed"
   /** An SSH profile created, updated or deleted by an administrator (§4.9). */
   | "ssh_profile";
 

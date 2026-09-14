@@ -256,6 +256,8 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists the runbooks on the datasources the session may open (GET); reads the seed file and the app's own storage backend, never a user database. Session-gated by guardRoute; tests/api/runbooks.test.ts proves the 401",
   "runbooks/[id]/prepare":
     "binds a runbook's values into the datasource engine's placeholders (POST) and hands the statement back; the run itself goes through /api/db/query. It resolves the datasource like every route and opens nothing. Same session gate; tests/api/runbooks.test.ts proves the 401",
+  "admin/seed-data/[id]":
+    "answers where a seed run is from this process's own memory (GET, no POST export); the run itself was started by admin/seed-data/run, which reaches a provider and is checked as one. Admin-gated by requireAdmin; tests/api/admin/seed-data.test.ts proves the 403",
   "admin/backups":
     "lists and takes backups of one datasource through pg_dump (GET/POST); it resolves the datasource like every route and hands it to @/lib/backups/store, pinned below. Admin-gated by requireAdmin; tests/api/admin/backups.test.ts proves the 403",
   "admin/backups/restore":
@@ -443,6 +445,9 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/api/freezes": "the freeze window routes' error answer; reaches no provider",
     "@/lib/api/roles": "the named role routes' error answer; reaches no provider",
     "@/lib/api/runbooks": "the runbook routes' error answer and id reader; reaches no provider",
+    "@/lib/api/seed-data": "the seed-data routes' error answer; reaches no provider",
+    "@/lib/seed-data/run":
+      "the seed job's state and its filling of tables through a runner the route hands it; opens no provider of its own (the type import of @/lib/seed is a type)",
     "@/lib/runbooks/store":
       "runbooks in the app's own storage backend and the seed file, and the binding of their values into an engine's placeholders (@/lib/sql/values, a pure helper); opens no user database",
     "@/lib/roles/store":

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
 import { BackupsPanel } from "@/components/admin/BackupsPanel";
 import { RunbooksPanel } from "@/components/admin/RunbooksPanel";
+import { SeedDataPanel } from "@/components/admin/SeedDataPanel";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -415,6 +416,17 @@ export function OperationsTab() {
           datasourceName={selectedConnection.name}
         />
       )}
+
+      {/* Seed from the schema (docs/CONTEXT.md §4.23): generated rows for a staging datasource; never production. */}
+      {selectedConnection &&
+        selectedConnection.environment !== "production" &&
+        selectedConnection.type === "postgres" && (
+          <SeedDataPanel
+            key={selectedConnection.seedId ?? selectedConnection.id}
+            datasourceId={selectedConnection.seedId ?? selectedConnection.id}
+            datasourceName={selectedConnection.name}
+          />
+        )}
 
       {/* Runbooks (docs/CONTEXT.md §4.20): the statements declared once for this datasource. */}
       {selectedConnection && (

@@ -115,6 +115,15 @@ mock.module("@/components/admin/RunbooksPanel", () => ({
   },
 }));
 
+// docs/CONTEXT.md §4.23: the seed panel likewise (tests/components/admin/SeedDataPanel.test.tsx).
+let seedPanelProps: Record<string, unknown> | null = null;
+mock.module("@/components/admin/SeedDataPanel", () => ({
+  SeedDataPanel: (props: Record<string, unknown>) => {
+    seedPanelProps = props;
+    return React.createElement("div", { "data-testid": "seed-data-panel-stub" });
+  },
+}));
+
 mock.module("@/lib/db-ui-config", () => ({
   getDBIcon: () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1899,5 +1908,7 @@ describe("OperationsTab", () => {
     expect(typeof backupsPanelProps!.datasourceId).toBe("string");
     expect(typeof backupsPanelProps!.datasourceName).toBe("string");
     expect(runbooksPanelProps).toEqual(backupsPanelProps);
+    // docs/CONTEXT.md §4.23: the seed panel too, for a non-production PostgreSQL datasource.
+    expect(seedPanelProps).toEqual(backupsPanelProps);
   });
 });

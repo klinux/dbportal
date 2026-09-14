@@ -463,6 +463,27 @@ built. Each lands as its own section when done.
   run's artifact, which has no statement of its own, is still written in the browser and
   told to `POST /api/audit/export`, behind the same rule. The clipboard copy of a grid is
   not an export and is not audited.
+- **4.23 Seed of a staging datasource from its schema — done (first mode).** Asked
+  2026-09-14: a staging or development datasource filled with generated rows shaped by the
+  schema, so behaviour can be tried without production's data. Admin only, PostgreSQL
+  only, never production, never inside a freeze window. The Operations page's panel reads
+  the schema (`POST /api/admin/seed-data/plan`, from `information_schema` and `pg_enum`:
+  columns as the engine types them, what it fills itself, single-column keys, foreign keys,
+  enum labels) into a plan - the tables in dependency order, a reference to the table itself
+  or a nullable reference that closes a cycle left null, a cycle of required references
+  refused - with a row count per table to edit; `POST /api/admin/seed-data/run` reads the
+  catalog again, bounds the counts (a million per table at most), and starts the job in
+  this process ([`src/lib/seed-data/`](../src/lib/seed-data/)): batches of up to 500 bound
+  rows per INSERT, the keys the engine returns kept as the pool the next table's foreign
+  keys draw from, the columns the engine fills better left to it (identity, serial, a call
+  default such as `now()`; a constant default is still generated, or every row would carry
+  it), a value per column typed as the column is and named as its name suggests
+  (email, name, city, phone, status …), unique where the column is, null now and then where
+  allowed; `truncate: true` empties the tables first. Progress per table by id
+  (`GET /api/admin/seed-data/[id]`); a table that fails keeps its error and the rest go on.
+  Audited as `data_seed` (started, finished or failed, with the row count). Not yet: the
+  second mode, a masked sample of another datasource copied across, and ratios between
+  parents and children (every table takes its own count).
 - **later** — Slack buttons on the approval message (a signed interactivity endpoint), the
   signed HTTP callback for bots outside Slack, shorter sessions with renewal.
 

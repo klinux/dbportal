@@ -1253,6 +1253,13 @@ Admin: `GET /api/admin/service-tokens`, `POST /api/admin/service-tokens` — bod
 `{ name, role?, groups?, datasources?, requireApproval? }`, `201 { token, secret }` (the secret
 is returned once); `DELETE /api/admin/service-tokens/[id]` revokes. Audited as `service_token`.
 
+Seed from the schema (docs/CONTEXT.md §4.23), admin only, PostgreSQL, never production.
+`POST /api/admin/seed-data/plan` — body `{ datasourceId, schema? }` → `{ schema, tables: [{ name, columns,
+dependsOn, rows }] }` in the order they are filled; `POST /api/admin/seed-data/run` — body `{ datasourceId,
+schema?, counts?: { <table>: n }, truncate?: boolean }` → `202 { run }`, `409` while one runs on the datasource;
+`GET /api/admin/seed-data/[id]` → `{ run: { id, status, tables: [{ name, target, inserted, error? }] } }`.
+Audited as `data_seed`.
+
 `POST /api/db/export` (docs/CONTEXT.md §4.22) — body `{ connectionId, sql, format, params?, csvDelimiter?,
 reveal?, tabName? }` with `format` one of `csv`, `json`, `sql-insert`, `sql-ddl`. The datasource's export
 rule first (`403`, audited `export_not_allowed`), then only a statement that reads (`400`); the statement
