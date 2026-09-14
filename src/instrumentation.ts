@@ -27,6 +27,10 @@ export async function register(): Promise<void> {
   const { registerAuditPersistence } = await import("@/lib/audit-persistence");
   registerAuditPersistence();
 
+  // Alerts on the trail (docs/CONTEXT.md §4.32): the observer every audit event passes.
+  const { registerTrailAlerts } = await import("@/lib/trail-alerts/observer");
+  registerTrailAlerts();
+
   // Alerts (docs/CONTEXT.md §4.29): the one scheduler this process holds.
   const { startAlertScheduler } = await import("@/lib/alerts/scheduler");
   startAlertScheduler();

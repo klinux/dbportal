@@ -265,6 +265,8 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "sends a test message to one channel (POST): an HTTPS call to the receiver or the Slack bot, never a user database. Same admin gate; tests/api/admin/channels.test.ts proves the 403",
   "alerts/[id]":
     "replaces or deletes one alert in the app's own storage backend (PUT/DELETE, no POST export); resolving the datasource opens nothing. Session-gated by guardRoute; tests/api/alerts.test.ts proves the 401",
+  "admin/trail-alerts":
+    "reads and saves the trail alert rules in the app's own storage backend (GET/PUT, no POST export); never opens a user database. Admin-gated by requireAdmin; tests/api/admin/trail-alerts.test.ts proves the 403",
   "admin/vault/kv":
     "browses the Vault KV mount and shapes one secret for the datasource sheet (GET); talks to Vault, never opens a user database. Admin-gated by requireAdmin; tests/api/admin/vault-kv.test.ts proves the 403",
   "admin/principals":
@@ -492,6 +494,8 @@ describe("routes that reach a provider require a session", () => {
       "turns a datasource id into the connection record - access rule, Vault reference, SSH profile - and opens nothing; the backup routes hand the record to pg_dump, not to a provider",
     "@/lib/backups/store": `pg_dump and pg_restore as child processes, and it ${PROVIDER_NAMING_HELPER} (@/lib/db/factory) only for withOneShotTunnel, the SSH tunnel a dump crosses - it opens no provider; the tools connect on their own`,
     "@/lib/vault/health": "one GET to Vault's sys/health for the readiness probe; opens no user database",
+    "@/lib/trail-alerts/store":
+      "the trail alert rules, one document in the app's own storage backend; opens no user database",
     "@/lib/channels/store":
       "notification channels in the app's own storage backend and the seed file; opens no user database",
     "@/lib/alerts/store":

@@ -596,6 +596,12 @@ export function emitAuditEvent(event: Omit<AuditEvent, "id" | "timestamp">): Aud
       logger.error("Failed to persist audit event", error, { route: "audit", eventId: stored.id });
     });
   }
+  const observer = getAuditObserver();
+  if (observer) {
+    observer(stored).catch((error: unknown) => {
+      logger.error("Audit observer failed", error, { route: "audit", eventId: stored.id });
+    });
+  }
   return stored;
 }
 
@@ -625,6 +631,23 @@ function getAuditPersistence(): AuditSink | null {
 
 export function hasAuditPersistence(): boolean {
   return getAuditPersistence() !== null;
+}
+
+/**
+ * An observer of the channel (docs/CONTEXT.md §4.32): the trail alerts, registered at boot
+ * the way persistence is and for the same reason held on globalThis. Fire-and-forget like
+ * persistence: an observer that throws is one error line, never a failed request.
+ */
+type AuditObserver = (event: AuditEvent) => Promise<void>;
+const OBSERVER_KEY = Symbol.for("dbportal.audit-observer");
+type ObserverHolder = { [OBSERVER_KEY]?: AuditObserver | null };
+
+export function setAuditObserver(observer: AuditObserver | null): void {
+  (globalThis as ObserverHolder)[OBSERVER_KEY] = observer;
+}
+
+function getAuditObserver(): AuditObserver | null {
+  return (globalThis as ObserverHolder)[OBSERVER_KEY] ?? null;
 }
 
 // Client-side localStorage persistence — delegates to storage module

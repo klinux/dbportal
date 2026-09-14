@@ -12,6 +12,18 @@ import { ChannelsTab, slugifyChannelId } from "@/components/admin/tabs/ChannelsT
 const ops = { id: "ops", name: "Ops", kind: "slack", target: "C0123", source: "config" };
 const hook = { id: "hook", name: "Hook", kind: "webhook", target: "https://h.test/x", source: "store" };
 const listing = (channels: unknown[] = [ops, hook]) => ({ ok: true, json: { channels } });
+// The trail alerts card inside the admin tab (docs/CONTEXT.md §4.32) reads its rules; answered quietly here.
+const trail = {
+  "/api/admin/trail-alerts": {
+    ok: true,
+    json: {
+      trailAlerts: {
+        rules: { guardrail: [], production_export: [], backup_failed: [], seed_failed: [] },
+        exportRowsThreshold: 1000,
+      },
+    },
+  },
+};
 
 async function renderLoaded() {
   const result = render(<ChannelsTab />);
@@ -34,7 +46,7 @@ describe("ChannelsTab", () => {
   });
 
   test("lists channels with source and kind; only a stored one can be deleted; an empty list and a failed read say so", async () => {
-    mockGlobalFetch({ "/api/admin/channels": listing() });
+    mockGlobalFetch({ ...trail, "/api/admin/channels": listing() });
     const { getByTestId } = await renderLoaded();
     const slack = within(getByTestId("channel-ops"));
     expect(slack.getByText("seed file")).not.toBeNull();
@@ -44,12 +56,12 @@ describe("ChannelsTab", () => {
     expect(within(getByTestId("channel-hook")).getByLabelText("Delete hook")).not.toBeNull();
     cleanup();
     restoreGlobalFetch();
-    mockGlobalFetch({ "/api/admin/channels": listing([]) });
+    mockGlobalFetch({ ...trail, "/api/admin/channels": listing([]) });
     const empty = await renderLoaded();
     expect(empty.getByTestId("channels-empty")).not.toBeNull();
     cleanup();
     restoreGlobalFetch();
-    mockGlobalFetch({ "/api/admin/channels": { ok: false, status: 503, json: { error: "no store" } } });
+    mockGlobalFetch({ ...trail, "/api/admin/channels": { ok: false, status: 503, json: { error: "no store" } } });
     const { findByTestId } = render(<ChannelsTab />);
     expect((await findByTestId("channels-error")).textContent).toContain("no store");
   });
@@ -57,6 +69,7 @@ describe("ChannelsTab", () => {
   test("declaring posts the id from the name, the kind and the target; a blank form is refused first; the server's refusal is shown", async () => {
     let refuse = false;
     const fetchMock = mockGlobalFetch({
+      ...trail,
       "/api/admin/channels": (req) =>
         req.method === "POST"
           ? refuse
@@ -99,6 +112,7 @@ describe("ChannelsTab", () => {
     let delivered = true;
     let refuse = false;
     const fetchMock = mockGlobalFetch({
+      ...trail,
       "/api/admin/channels/hook/test": () => ({ ok: true, json: { delivered } }),
       "/api/admin/channels/ops/test": { ok: false, status: 404, json: { error: "not found" } },
       "/api/admin/channels/hook": () =>

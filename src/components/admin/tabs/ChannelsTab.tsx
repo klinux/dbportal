@@ -24,6 +24,7 @@ import { CONFIG_SHEET_CLASS } from "@/lib/ui/config-sheet";
 import { CHANNEL_KINDS, type ChannelKind } from "@/lib/seed/types";
 import { BellRing, Plus, RefreshCw, Send, Trash2, TriangleAlert } from "lucide-react";
 import { SlackChannelPicker } from "@/components/alerts/SlackChannelPicker";
+import { TrailAlertsCard } from "@/components/admin/TrailAlertsCard";
 import { toast } from "sonner";
 
 /**
@@ -283,6 +284,11 @@ export function ChannelsTab({ scope = "admin", username }: { scope?: ChannelsSco
           </div>
         )
       ) : null}
+
+      {/* docs/CONTEXT.md §4.32: what the trail says that someone should hear at once; an administrator's to set. */}
+      {scope === "admin" && channels && (
+        <TrailAlertsCard channels={channels.map((c) => ({ id: c.id, name: c.name }))} />
+      )}
 
       <Sheet open={open} onOpenChange={(next) => !saving && setOpen(next)}>
         <SheetContent side="right" className={`${CONFIG_SHEET_CLASS} p-0 gap-0`} data-testid="channel-sheet">

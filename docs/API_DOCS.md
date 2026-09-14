@@ -1245,6 +1245,12 @@ seed-file one; `POST /api/admin/channels/[id]/test` → `{ delivered }`. Audited
 fired, resolved, delivery_failed) and `notification_channel` (saved, deleted, tested); each run is a
 `query_execution` with action `alert` under the alert's owner.
 
+Alerts on the trail (docs/CONTEXT.md §4.32). Admin: `GET /api/admin/trail-alerts` → `{ trailAlerts: { rules:
+{ guardrail, production_export, backup_failed, seed_failed: [channel ids] }, exportRowsThreshold } }`;
+`PUT /api/admin/trail-alerts` with the same body saves it (`400` invalid, `503` without server storage), audited
+as `alert` / `trail_rules_saved`. A tripped rule is delivered to its channels once per rule and datasource every
+five minutes at most.
+
 ### MCP endpoint (service tokens)
 
 For troubleshooting agents (docs/CONTEXT.md §4.30). `POST /api/mcp` with `Authorization: Bearer dbp_…`

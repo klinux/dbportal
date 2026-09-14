@@ -174,7 +174,8 @@ run_group "Group 2b/6: Datasource picker" \
   tests/components/sidebar/ConnectionsList.test.tsx \
   tests/components/sidebar/ConnectionPicker.test.tsx \
   tests/components/admin/PrincipalPicker.test.tsx \
-  tests/components/VaultSecretPicker.test.tsx
+  tests/components/VaultSecretPicker.test.tsx \
+  tests/components/alerts/AlertsArea.test.tsx
 
 # Group 3: BottomPanel (isolated — mocks ResultsGrid, QueryHistory, DataCharts, SchemaDiff)
 run_group "Group 3/6: BottomPanel" \
@@ -206,9 +207,9 @@ run_group "Group 5b/6: SshProfilesTab" \
   tests/components/admin/NamedRolesTab.test.tsx \
   tests/components/admin/EnvironmentsTab.test.tsx \
   tests/components/admin/ChannelsTab.test.tsx \
+  tests/components/admin/TrailAlertsCard.test.tsx \
   tests/components/alerts/AlertsPanel.test.tsx \
   tests/components/alerts/SlackChannelPicker.test.tsx \
-  tests/components/alerts/AlertsArea.test.tsx \
   tests/components/admin/RunbooksPanel.test.tsx \
   tests/components/admin/SeedDataPanel.test.tsx \
   tests/components/Runbooks.test.tsx \

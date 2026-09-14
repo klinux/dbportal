@@ -596,8 +596,18 @@ built. Each lands as its own section when done.
   where the rule says so), and the seed and backup jobs as a worker role.
 - **4.31 Seed mode 2** — a masked sample of another datasource copied to staging, and
   parent/child ratios per table (§4.23).
-- **4.32 Alerts on the trail** — Slack or e-mail when a guardrail fires, a large export
-  leaves production, or a backup or seed fails (a first consumer of §4.29's channels).
+- **4.32 Alerts on the trail — done (asked 2026-09-14).** The first consumer of §4.29's
+  channels: an observer on the audit channel ([`src/lib/trail-alerts/observer.ts`](../src/lib/trail-alerts/observer.ts),
+  registered at boot like persistence and held on globalThis for the same reason) passes
+  every event through four rules - a guardrail fired (the write gate's denial with that
+  reason), a large export left production (`data_export` of at least `exportRowsThreshold`
+  rows from a datasource filed under production, the environment read off the seed file and
+  the store), a backup failed, a seed run failed - and delivers a tripped rule to the
+  channels an administrator ticked under Security → Channels ("Alerts on the trail",
+  `GET/PUT /api/admin/trail-alerts`), once per rule and datasource every five minutes at
+  most. The message names the person and what happened, never a statement. A delivery the
+  receiver refused is an `alert delivery_failed` line, and the observer's own lines trip
+  nothing. Nothing fires until a channel is ticked.
 - **4.33 Release hardening** — SBOM, a signed image, `SECURITY.md` with a disclosure policy.
 - **4.34 Integration tests per engine in CI** for the export, runbook and seed routes
   against a real PostgreSQL, today verified live only locally.
