@@ -8,6 +8,8 @@ import { logger } from "@/lib/logger";
 
 interface AuthUser {
   role?: string;
+  /** The session's principal, as the server names it in the audit trail (docs/CONTEXT.md §4.29 reads it for one's own channels). */
+  username?: string;
 }
 
 export function useAuth() {

@@ -1,4 +1,5 @@
 import { SHARED_CHANNELS_OWNER } from "@/lib/datasources/owner";
+import { allowedCallbackHosts } from "@/lib/notify/callback";
 import { loadConfig } from "@/lib/seed/config-loader";
 import { ChannelSchema, type Channel, type ChannelKind, type ChannelSummary } from "@/lib/seed/types";
 import { getStorageProvider, isServerStorageEnabled } from "@/lib/storage/factory";
@@ -8,8 +9,13 @@ import { getStorageProvider, isServerStorageEnabled } from "@/lib/storage/factor
  * an administrator - a Slack channel the existing bot posts to, a generic webhook (signed
  * like §4.25 when the signing secret is set), a Grafana OnCall formatted webhook, a Rootly
  * alert source. The seed file's (`channels:`) are read-only here; the rest live in the
- * server store under a reserved owner. The target - a channel id or a URL - is shown to
- * administrators only; the alert editor gets the id, the name and the kind.
+ * server store under a reserved owner. Anyone signed in may declare one next to their
+ * alerts (asked 2026-09-14): a Slack channel picked by name, or a webhook - but a URL a
+ * person supplies is a request this server makes on their word, so for anyone but an
+ * administrator the host must be on CALLBACK_ALLOWED_HOSTS, as a bot's callback must
+ * (§4.25). A channel is deleted by whoever declared it, or by an administrator. The target
+ * is shown to administrators only; everyone else gets the id, the name, the kind and who
+ * declared it.
  */
 export type { Channel, ChannelKind, ChannelSummary };
 
@@ -82,11 +88,21 @@ export async function findChannel(id: string): Promise<Channel | null> {
   return (await listChannels()).find((e) => e.channel.id === id)?.channel ?? null;
 }
 
-export function summarize(channel: Channel): ChannelSummary {
-  return { id: channel.id, name: channel.name, kind: channel.kind };
+export function summarize(channel: Channel | ChannelRecord): ChannelSummary {
+  return {
+    id: channel.id,
+    name: channel.name,
+    kind: channel.kind,
+    ...("createdBy" in channel ? { createdBy: channel.createdBy } : {}),
+  };
 }
 
-function validate(input: unknown): Channel {
+export interface ChannelActor {
+  username: string;
+  admin: boolean;
+}
+
+function validate(input: unknown, actor: ChannelActor): Channel {
   const result = ChannelSchema.safeParse(input);
   if (!result.success) {
     const issues = result.error.issues.map((i) => `${i.path.join(".") || "channel"}: ${i.message}`).join("; ");
@@ -102,26 +118,42 @@ function validate(input: unknown): Channel {
     }
     if (url.protocol !== "https:") throw new ChannelError("Invalid channel: target must be https", 400);
     if (url.username || url.password) throw new ChannelError("Invalid channel: target may not carry credentials", 400);
+    if (!actor.admin && !allowedCallbackHosts().has(url.hostname.toLowerCase())) {
+      throw new ChannelError(
+        `A webhook host must be one an administrator allowed (CALLBACK_ALLOWED_HOSTS); "${url.hostname}" is not`,
+        403,
+      );
+    }
   }
   return channel;
 }
 
 /** Declare one; an id the seed file or the store already has is refused. */
-export async function saveChannel(input: unknown, actor: string): Promise<ChannelRecord> {
-  const data = validate(input);
+export async function saveChannel(input: unknown, actor: ChannelActor): Promise<ChannelRecord> {
+  const data = validate(input, actor);
   if (await findChannel(data.id)) throw new ChannelError(`Channel "${data.id}" already exists`, 409);
-  const record: ChannelRecord = { ...data, createdAt: new Date().toISOString(), createdBy: actor };
+  const record: ChannelRecord = { ...data, createdAt: new Date().toISOString(), createdBy: actor.username };
   await writeAll([...(await readStored()), record]);
   return record;
 }
 
-/** Delete a stored one, never a seed-file one, and never one an alert still names. */
-export async function deleteChannel(id: string, inUse: (id: string) => Promise<boolean>): Promise<ChannelRecord> {
+/** May this person act on the channel - test it, delete it: whoever declared it, or an administrator. */
+export function mayManageChannel(channel: Channel | ChannelRecord, actor: ChannelActor): boolean {
+  return actor.admin || ("createdBy" in channel && channel.createdBy === actor.username);
+}
+
+/** Delete a stored one, never a seed-file one, never someone else's, and never one an alert still names. */
+export async function deleteChannel(
+  id: string,
+  inUse: (id: string) => Promise<boolean>,
+  actor: ChannelActor,
+): Promise<ChannelRecord> {
   const records = await readStored();
   const existing = records.find((c) => c.id === id);
   if (!existing) {
     throw new ChannelError(`Channel "${id}" is not declared here (a seed-file one cannot be deleted)`, 404);
   }
+  if (!mayManageChannel(existing, actor)) throw new ChannelError(`Channel "${id}" is someone else's`, 403);
   if (await inUse(id)) throw new ChannelError(`Channel "${id}" is still used by an alert`, 409);
   await writeAll(records.filter((c) => c.id !== id));
   return existing;

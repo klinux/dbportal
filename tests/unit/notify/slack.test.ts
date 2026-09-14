@@ -19,6 +19,9 @@ const {
   slackInteractive,
   statementExcerpt,
   PREVIEW_ROWS,
+  listSlackChannels,
+  resetSlackChannelsCache,
+  SLACK_CHANNELS_MAX,
 } = await import("@/lib/notify/slack");
 
 type FetchLike = (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -248,5 +251,51 @@ describe("slack notifier", () => {
     expect(previewOf([], [], false)).toBe("");
     expect(previewOf(["id"], [{ id: 1 }], true)).toContain("…");
     expect(previewOf(["id"], [{ id: 1 }], false)).not.toContain("…");
+  });
+
+  // docs/CONTEXT.md §4.29: a Slack channel picked by name - the bot's list, paged, kept five minutes.
+  test("listSlackChannels pages through conversations.list, keeps the list, filters by name and caps it; refusals throw", async () => {
+    resetSlackChannelsCache();
+    fetchSpy.mockImplementation(async (input) => {
+      const url = String(input);
+      const page2 = url.includes("cursor=next");
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          channels: page2
+            ? [{ id: "C3", name: "zebra", is_private: true }, { id: "bad" }]
+            : [
+                { id: "C2", name: "ops-alerts", is_private: false },
+                { id: "C1", name: "general", is_private: false },
+              ],
+          response_metadata: { next_cursor: page2 ? "" : "next" },
+        }),
+        { status: 200 },
+      );
+    });
+    expect(await listSlackChannels("")).toEqual([
+      { id: "C1", name: "general", private: false },
+      { id: "C2", name: "ops-alerts", private: false },
+      { id: "C3", name: "zebra", private: true },
+    ]);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const first = new URL(String(fetchSpy.mock.calls[0][0]));
+    expect(first.searchParams.get("types")).toBe("public_channel,private_channel");
+    expect(first.searchParams.get("exclude_archived")).toBe("true");
+    expect((fetchSpy.mock.calls[0][1] as RequestInit).headers).toEqual({ Authorization: "Bearer xoxb-test" });
+    // The second read comes from the cache, filtered by name, case apart.
+    expect(await listSlackChannels("OPS")).toEqual([{ id: "C2", name: "ops-alerts", private: false }]);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(SLACK_CHANNELS_MAX).toBe(50);
+    resetSlackChannelsCache();
+    fetchSpy.mockImplementation(
+      async () => new Response(JSON.stringify({ ok: false, error: "missing_scope" }), { status: 200 }),
+    );
+    await expect(listSlackChannels("")).rejects.toThrow("Slack answered missing_scope");
+    expect(warn).toHaveBeenLastCalledWith("Slack channel list refused", { status: 200, error: "missing_scope" });
+    fetchSpy.mockImplementation(async () => new Response("<html>", { status: 500 }));
+    await expect(listSlackChannels("")).rejects.toThrow("Slack answered 500");
+    delete process.env.SLACK_BOT_TOKEN;
+    await expect(listSlackChannels("")).rejects.toThrow("SLACK_BOT_TOKEN is not set");
   });
 });

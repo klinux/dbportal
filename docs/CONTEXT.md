@@ -548,11 +548,18 @@ built. Each lands as its own section when done.
   week), a condition on the value it returns - the named column of the first row, else the
   first column: `>`, `>=`, `<`, `<=`, `==`, `!=` (numeric when both sides are numbers, text
   otherwise), `changed` since the last run, any row / no row - the channels it fires to, and a
-  cooldown. **Channels** are declared once by an administrator under Security → Channels
-  (or `channels:` in the seed file): a Slack channel the existing bot posts to, a generic
-  webhook (JSON, signed with `CALLBACK_SIGNING_SECRET` when set, headers as §4.25), a Grafana
-  OnCall formatted webhook, a Rootly alert source; each can be sent a test message. The alert
-  editor sees a channel's id, name and kind, never its target. **Runs**: one in-process
+  cooldown. **Channels** are declared beside the alerts (`/alerts` → Channels) by anyone
+  signed in, under Security → Channels by an administrator, or in the seed file
+  (`channels:`): a Slack channel the existing bot posts to - **picked by name** from the list
+  the bot can see (`GET /api/channels/slack`, `conversations.list`, scopes `channels:read`
+  and `groups:read`, kept five minutes; the channel keeps the id) - a generic webhook (JSON,
+  signed with `CALLBACK_SIGNING_SECRET` when set, headers as §4.25), a Grafana OnCall
+  formatted webhook, a Rootly alert source; each can be sent a test message. A URL a person
+  supplies is a request this server makes on their word, so for anyone but an administrator
+  a webhook host must be on `CALLBACK_ALLOWED_HOSTS`, as a bot's callback must. Anyone may
+  pick any channel; one is deleted by whoever declared it or by an administrator. The alert
+  editor and the user's list see a channel's id, name, kind and who declared it, never its
+  target. **Runs**: one in-process
   scheduler (`src/lib/alerts/scheduler.ts`, started at boot, `ALERTS_TICK_MS` default 30 s,
   off with `ALERTS_ENABLED=false` and off by default in the agent role of §4.30) runs the due
   alerts one after the other; "Run now" runs one on demand. The run has no session, so the

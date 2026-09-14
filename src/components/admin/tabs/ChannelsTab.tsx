@@ -23,20 +23,27 @@ import {
 import { CONFIG_SHEET_CLASS } from "@/lib/ui/config-sheet";
 import { CHANNEL_KINDS, type ChannelKind } from "@/lib/seed/types";
 import { BellRing, Plus, RefreshCw, Send, Trash2, TriangleAlert } from "lucide-react";
+import { SlackChannelPicker } from "@/components/alerts/SlackChannelPicker";
 import { toast } from "sonner";
 
 /**
  * Notification channels (docs/CONTEXT.md §4.29): where alerts fire to, declared once. A
- * Slack channel the bot posts to, a generic signed webhook, a Grafana OnCall formatted
- * webhook, a Rootly alert source. Each can be sent a test message before an alert needs it.
+ * Slack channel the bot posts to (picked by name), a generic signed webhook, a Grafana
+ * OnCall formatted webhook, a Rootly alert source. Each can be sent a test message before
+ * an alert needs it. Two scopes: `admin` (Security → Channels: every channel with its
+ * target, delete any stored one) and `user` (beside the alerts: id, name, kind and who
+ * declared each; delete one's own; a webhook host from the operator's allowed list).
  */
 export interface ChannelView {
   id: string;
   name: string;
   kind: ChannelKind;
-  target: string;
-  source: "config" | "store";
+  target?: string;
+  source?: "config" | "store";
+  createdBy?: string;
 }
+
+export type ChannelsScope = "admin" | "user";
 
 export const KIND_LABELS: Record<ChannelKind, string> = {
   slack: "Slack channel",
@@ -46,8 +53,9 @@ export const KIND_LABELS: Record<ChannelKind, string> = {
 };
 
 const TARGET_HINT: Record<ChannelKind, string> = {
-  slack: "The channel id (C0123…); the bot must be a member. Needs SLACK_BOT_TOKEN on the server.",
-  webhook: "An https URL. The message is POSTed as JSON, signed with CALLBACK_SIGNING_SECRET when set.",
+  slack: "Pick the channel by name, or type its id (C0123…); the bot must be a member.",
+  webhook:
+    "An https URL. The message is POSTed as JSON, signed with CALLBACK_SIGNING_SECRET when set. Unless you administer, the host must be one the operator allowed (CALLBACK_ALLOWED_HOSTS).",
   oncall: "The URL of a Grafana OnCall 'Formatted webhook' integration.",
   rootly: "The URL Rootly gives for a generic webhook alert source.",
 };
@@ -71,13 +79,16 @@ export function slugifyChannelId(name: string): string {
     .slice(0, 64);
 }
 
-async function fetchChannels(): Promise<ChannelView[]> {
-  const res = await appFetch("/api/admin/channels");
+async function fetchChannels(base: string): Promise<ChannelView[]> {
+  const res = await appFetch(base);
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
   return ((await res.json()) as { channels: ChannelView[] }).channels;
 }
 
-export function ChannelsTab() {
+export function ChannelsTab({ scope = "admin", username }: { scope?: ChannelsScope; username?: string }) {
+  const base = scope === "admin" ? "/api/admin/channels" : "/api/channels";
+  const mayDelete = (channel: ChannelView) =>
+    scope === "admin" ? channel.source === "store" : channel.createdBy !== undefined && channel.createdBy === username;
   const [channels, setChannels] = useState<ChannelView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -88,13 +99,13 @@ export function ChannelsTab() {
 
   const load = useCallback(
     () =>
-      fetchChannels()
+      fetchChannels(base)
         .then((list) => {
           setChannels(list);
           setError(null);
         })
         .catch((err: unknown) => setError(err instanceof Error ? err.message : "Channels could not be loaded")),
-    [],
+    [base],
   );
 
   useEffect(() => {
@@ -109,7 +120,7 @@ export function ChannelsTab() {
     }
     setSaving(true);
     try {
-      const res = await appFetch("/api/admin/channels", {
+      const res = await appFetch(base, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, name: draft.name.trim(), kind: draft.kind, target: draft.target.trim() }),
@@ -130,7 +141,7 @@ export function ChannelsTab() {
   const sendTest = async (channel: ChannelView) => {
     setTesting(channel.id);
     try {
-      const res = await appFetch(`/api/admin/channels/${encodeURIComponent(channel.id)}/test`, { method: "POST" });
+      const res = await appFetch(`${base}/${encodeURIComponent(channel.id)}/test`, { method: "POST" });
       const body = (await res.json().catch(() => ({}))) as { delivered?: boolean; error?: string };
       if (!res.ok) throw new Error(body.error ?? `The server refused the test (${res.status})`);
       if (body.delivered) toast.success(`Test message delivered to "${channel.name}"`);
@@ -146,7 +157,7 @@ export function ChannelsTab() {
     if (!pendingDelete) return;
     const target = pendingDelete;
     try {
-      const res = await appFetch(`/api/admin/channels/${encodeURIComponent(target.id)}`, { method: "DELETE" });
+      const res = await appFetch(`${base}/${encodeURIComponent(target.id)}`, { method: "DELETE" });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(body.error ?? `The server refused the deletion (${res.status})`);
       toast.success(`Channel "${target.name}" deleted`);
@@ -163,7 +174,11 @@ export function ChannelsTab() {
       <AdminSectionHeader
         icon={BellRing}
         title="Notification channels"
-        description="Where alerts fire to: a Slack channel, a signed webhook, Grafana OnCall, Rootly. Declared once here, picked by name in an alert."
+        description={
+          scope === "admin"
+            ? "Where alerts fire to: a Slack channel, a signed webhook, Grafana OnCall, Rootly. Declared once here, picked by name in an alert."
+            : "Where your alerts fire to: a Slack channel picked by name, or a webhook on a host the operator allowed. Anyone may pick any channel; you delete the ones you declared."
+        }
         testId="channels-header"
         actions={
           <>
@@ -215,7 +230,7 @@ export function ChannelsTab() {
                 <TableRow>
                   <TableHead className="text-xs">Channel</TableHead>
                   <TableHead className="text-xs">Kind</TableHead>
-                  <TableHead className="text-xs">Target</TableHead>
+                  <TableHead className="text-xs">{scope === "admin" ? "Target" : "Declared by"}</TableHead>
                   <TableHead className="text-xs text-right" />
                 </TableRow>
               </TableHeader>
@@ -231,12 +246,14 @@ export function ChannelsTab() {
                       className="text-xs font-mono text-fg-muted max-w-[280px] truncate"
                       title={channel.target}
                     >
-                      {channel.target}
+                      {scope === "admin" ? channel.target : (channel.createdBy ?? "seed file")}
                     </TableCell>
                     <TableCell className="text-right whitespace-nowrap">
-                      <Badge variant="secondary" className="text-[10px] mr-2">
-                        {channel.source === "config" ? "seed file" : "declared"}
-                      </Badge>
+                      {scope === "admin" && (
+                        <Badge variant="secondary" className="text-[10px] mr-2">
+                          {channel.source === "config" ? "seed file" : "declared"}
+                        </Badge>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -247,7 +264,7 @@ export function ChannelsTab() {
                       >
                         <Send className="h-3.5 w-3.5" strokeWidth={1.75} />
                       </Button>
-                      {channel.source === "store" && (
+                      {mayDelete(channel) && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -331,13 +348,22 @@ export function ChannelsTab() {
                 <Label htmlFor="channel-target" className="text-xs text-fg-tertiary">
                   {draft.kind === "slack" ? "Channel id" : "URL"}
                 </Label>
-                <Input
-                  id="channel-target"
-                  value={draft.target}
-                  onChange={(e) => setDraft({ ...draft, target: e.target.value })}
-                  placeholder={draft.kind === "slack" ? "C0123ABCD" : "https://…"}
-                  className="h-8 text-xs font-mono bg-panel border-hairline-strong"
-                />
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="channel-target"
+                    value={draft.target}
+                    onChange={(e) => setDraft({ ...draft, target: e.target.value })}
+                    placeholder={draft.kind === "slack" ? "C0123ABCD" : "https://…"}
+                    className="h-8 text-xs font-mono bg-panel border-hairline-strong"
+                  />
+                  {draft.kind === "slack" && (
+                    <SlackChannelPicker
+                      onPick={(channel) =>
+                        setDraft((d) => ({ ...d, target: channel.id, name: d.name || `#${channel.name}` }))
+                      }
+                    />
+                  )}
+                </div>
                 <p className="text-[11px] text-fg-muted">{TARGET_HINT[draft.kind]}</p>
               </div>
             </div>

@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   try {
     const body = await readObjectBody(request);
     if (!body) return NextResponse.json({ error: "Request body must be a JSON object" }, { status: 400 });
-    const record = await saveChannel(body, gate.session.username);
+    const record = await saveChannel(body, { username: gate.session.username, admin: true });
     emitAuditEvent({
       type: "notification_channel",
       action: "saved",

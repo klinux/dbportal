@@ -12,6 +12,11 @@ import type { ApprovalRequest } from "@/lib/storage/types";
  * left the server already masked. The full result is behind the portal's own login.
  */
 const POST_MESSAGE = "https://slack.com/api/chat.postMessage";
+const CONVERSATIONS_LIST = "https://slack.com/api/conversations.list";
+/** How long the channel list is kept before Slack is asked again (docs/CONTEXT.md §4.29). */
+export const SLACK_CHANNELS_TTL_MS = 5 * 60_000;
+export const SLACK_CHANNELS_MAX = 50;
+const SLACK_CHANNELS_PAGES = 5;
 export const PREVIEW_ROWS = 10;
 const CELL_MAX = 40;
 
@@ -180,4 +185,63 @@ export async function notifyExecutionOutcome(record: ApprovalRequest): Promise<b
     text,
     ...(record.reply.threadTs ? { thread_ts: record.reply.threadTs } : {}),
   });
+}
+
+export interface SlackChannel {
+  id: string;
+  name: string;
+  private: boolean;
+}
+
+let channelsCache: { at: number; channels: SlackChannel[] } | null = null;
+
+/** Tests only. */
+export function resetSlackChannelsCache(): void {
+  channelsCache = null;
+}
+
+/**
+ * The channels the bot can see, by name (asked 2026-09-14): `conversations.list` with the
+ * bot token (scopes channels:read and groups:read), public and private, unarchived, a few
+ * pages at most, kept for five minutes. A person picks one by name and the channel keeps
+ * the id, which is stable where the name is not. Throws where Slack refuses: the caller
+ * tells the person to type the id instead.
+ */
+export async function listSlackChannels(query: string): Promise<SlackChannel[]> {
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token) throw new Error("SLACK_BOT_TOKEN is not set");
+  if (!channelsCache || Date.now() - channelsCache.at >= SLACK_CHANNELS_TTL_MS) {
+    const channels: SlackChannel[] = [];
+    let cursor = "";
+    for (let page = 0; page < SLACK_CHANNELS_PAGES; page++) {
+      const url = new URL(CONVERSATIONS_LIST);
+      url.searchParams.set("types", "public_channel,private_channel");
+      url.searchParams.set("exclude_archived", "true");
+      url.searchParams.set("limit", "1000");
+      if (cursor) url.searchParams.set("cursor", cursor);
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const reply = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        channels?: { id?: unknown; name?: unknown; is_private?: unknown }[];
+        response_metadata?: { next_cursor?: string };
+      };
+      if (!res.ok || reply.ok !== true) {
+        logger.warn("Slack channel list refused", { status: res.status, error: reply.error });
+        throw new Error(`Slack answered ${reply.error ?? res.status}`);
+      }
+      for (const c of reply.channels ?? []) {
+        if (typeof c.id === "string" && typeof c.name === "string") {
+          channels.push({ id: c.id, name: c.name, private: c.is_private === true });
+        }
+      }
+      cursor = reply.response_metadata?.next_cursor ?? "";
+      if (!cursor) break;
+    }
+    channelsCache = { at: Date.now(), channels: channels.sort((a, b) => a.name.localeCompare(b.name)) };
+  }
+  const needle = query.trim().toLowerCase();
+  return channelsCache.channels
+    .filter((c) => !needle || c.name.toLowerCase().includes(needle))
+    .slice(0, SLACK_CHANNELS_MAX);
 }

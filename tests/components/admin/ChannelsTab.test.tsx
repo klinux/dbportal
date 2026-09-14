@@ -138,4 +138,60 @@ describe("ChannelsTab", () => {
     });
     expect(mockToastError).toHaveBeenLastCalledWith("still used");
   });
+
+  // docs/CONTEXT.md §4.29 (asked 2026-09-14): beside the alerts, for anyone signed in.
+  test("in the user scope the list comes from the session route without targets, only one's own can be deleted, and a Slack channel is picked by name", async () => {
+    const fetchMock = mockGlobalFetch({
+      "/api/channels/slack": { json: { channels: [{ id: "C77", name: "ops-alerts", private: false }] } },
+      "/api/channels": (req) =>
+        req.method === "POST"
+          ? {
+              ok: true,
+              status: 201,
+              json: { channel: { id: "ops-alerts", name: "#ops-alerts", kind: "slack", createdBy: "ana" } },
+            }
+          : {
+              ok: true,
+              json: {
+                channels: [
+                  { id: "ops", name: "Ops", kind: "slack" },
+                  { id: "mine", name: "Mine", kind: "webhook", createdBy: "ana" },
+                  { id: "bobs", name: "Bob's", kind: "rootly", createdBy: "bob" },
+                ],
+              },
+            },
+    });
+    const view = render(<ChannelsTab scope="user" username="ana" />);
+    await waitFor(() => {
+      if (view.queryByTestId("channels-loading")) throw new Error("still loading");
+    });
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/channels");
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain("/api/admin/");
+    expect(view.getByText("Declared by")).not.toBeNull();
+    expect(within(view.getByTestId("channel-ops")).getByText("seed file")).not.toBeNull();
+    expect(within(view.getByTestId("channel-bobs")).getByText("bob")).not.toBeNull();
+    expect(view.queryByLabelText("Delete ops")).toBeNull();
+    expect(view.queryByLabelText("Delete bobs")).toBeNull();
+    expect(view.getByLabelText("Delete mine")).not.toBeNull();
+    fireEvent.click(view.getByText("New channel"));
+    fireEvent.click(view.getByTestId("slack-picker-open"));
+    await waitFor(() => {
+      if (!view.queryByTestId("slack-option-C77")) throw new Error("not yet");
+    });
+    fireEvent.click(view.getByTestId("slack-option-C77"));
+    expect((view.getByLabelText("Channel id") as HTMLInputElement).value).toBe("C77");
+    expect((view.getByLabelText("Name") as HTMLInputElement).value).toBe("#ops-alerts");
+    await act(async () => {
+      fireEvent.click(view.getByText("Save channel"));
+    });
+    const post = calls(fetchMock, "POST")[0];
+    expect(String(post[0])).toMatch(/\/api\/channels$/);
+    expect(JSON.parse((post[1] as RequestInit).body as string)).toEqual({
+      id: "ops-alerts",
+      name: "#ops-alerts",
+      kind: "slack",
+      target: "C77",
+    });
+    expect(mockToastSuccess).toHaveBeenCalledWith('Channel "#ops-alerts" saved');
+  });
 });

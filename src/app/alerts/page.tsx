@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { AlertsPanel } from "@/components/alerts/AlertsPanel";
+import { AlertsArea } from "@/components/alerts/AlertsArea";
+import { useAuth } from "@/hooks/use-auth";
 
 /**
  * The alerts page (docs/CONTEXT.md §4.29): the alerts this person keeps on the datasources
@@ -11,6 +12,7 @@ import { AlertsPanel } from "@/components/alerts/AlertsPanel";
  */
 export default function AlertsPage() {
   const router = useRouter();
+  const { user } = useAuth();
   return (
     <div className="min-h-screen bg-surface flex flex-col">
       <header className="border-b border-hairline bg-surface">
@@ -35,7 +37,7 @@ export default function AlertsPage() {
         </div>
       </header>
       <div data-testid="alerts-content" className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-6">
-        <AlertsPanel />
+        <AlertsArea username={user?.username} />
       </div>
     </div>
   );

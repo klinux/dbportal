@@ -250,7 +250,13 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
   "admin/environments/[id]":
     "deletes one stored environment (DELETE, no POST export), asking the datasource store whether it is used; never opens a user database. Same admin gate",
   channels:
-    "lists the notification channels an alert may name - id, name, kind, never the target (GET, no POST export); reads the app's own storage backend and the seed file, never opens a user database. Session-gated by guardRoute; tests/api/channels.test.ts proves the 401",
+    "lists the notification channels an alert may name - id, name, kind, who declared each, never the target - and declares one (GET/POST); reads and writes the app's own storage backend, never opens a user database. Session-gated by guardRoute; tests/api/channels.test.ts proves the 401",
+  "channels/[id]":
+    "deletes a channel the session declared (DELETE, no POST export), asking the alert store whether it is used; never opens a user database. Same session gate",
+  "channels/[id]/test":
+    "sends a test message to a channel the session declared (POST): an HTTPS call to the receiver or the Slack bot, never a user database. Same session gate; tests/api/channels.test.ts proves the 401",
+  "channels/slack":
+    "the Slack channels the bot can see, by name (GET, no POST export): one call to Slack's API, never a user database. Same session gate",
   "admin/channels":
     "lists and declares notification channels in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/channels.test.ts proves the 403",
   "admin/channels/[id]":
@@ -490,6 +496,8 @@ describe("routes that reach a provider require a session", () => {
       "notification channels in the app's own storage backend and the seed file; opens no user database",
     "@/lib/alerts/store":
       "alerts in the app's own storage backend - definitions, owners' principal snapshots and run states; opens no user database",
+    "@/lib/notify/slack":
+      "the Slack bot: messages posted best effort and the channel list read by name, through Slack's API alone; opens no user database",
     "@/lib/notify/channels":
       "delivery of an alert message to a Slack channel or an HTTPS receiver; opens no user database",
     "@/lib/api/alerts": "the alert and channel routes' error answer; reaches no provider",

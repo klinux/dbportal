@@ -1227,7 +1227,12 @@ malformed path, `502` when Vault refuses (the reason stays in the server log). R
 `vault_secret`.
 
 Alerts and channels (docs/CONTEXT.md §4.29). Any session: `GET /api/channels` → `{ channels: [{ id, name,
-kind }] }` (kind: `slack` | `webhook` | `oncall` | `rootly`; never the target); `GET /api/alerts` → `{ alerts }`
+kind, createdBy? }] }` (kind: `slack` | `webhook` | `oncall` | `rootly`; never the target); `POST /api/channels`
+— body `{ id, name, kind, target }`, `201`, declares one as the session (a webhook host must be in
+`CALLBACK_ALLOWED_HOSTS` unless the session administers: `403`); `DELETE /api/channels/[id]` and
+`POST /api/channels/[id]/test` for one the session declared (`403`/`404` otherwise); `GET /api/channels/slack?q=`
+→ `{ channels: [{ id, name, private }] }` the bot can see, by name (`503` without `SLACK_BOT_TOKEN`, `502`
+when Slack refuses); `GET /api/alerts` → `{ alerts }`
 (the session's own; every one for an administrator); `POST /api/alerts` — body `{ id, name, datasource, sql,
 column?, op, value?, everyMinutes, cooldownMinutes, channels, enabled }`, `201`; admitted only when the
 datasource opens for this session, the statement reads and every channel is declared (`400`/`404`);

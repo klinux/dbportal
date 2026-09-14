@@ -47,6 +47,8 @@ export interface ChannelSummary {
   id: string;
   name: string;
   kind: ChannelKind;
+  /** Who declared it; absent for a seed-file one. */
+  createdBy?: string;
 }
 
 // A principal (docs/CONTEXT.md §4.4): the wildcard, a portal role, `group:<name>` for a

@@ -207,6 +207,8 @@ run_group "Group 5b/6: SshProfilesTab" \
   tests/components/admin/EnvironmentsTab.test.tsx \
   tests/components/admin/ChannelsTab.test.tsx \
   tests/components/alerts/AlertsPanel.test.tsx \
+  tests/components/alerts/SlackChannelPicker.test.tsx \
+  tests/components/alerts/AlertsArea.test.tsx \
   tests/components/admin/RunbooksPanel.test.tsx \
   tests/components/admin/SeedDataPanel.test.tsx \
   tests/components/Runbooks.test.tsx \
