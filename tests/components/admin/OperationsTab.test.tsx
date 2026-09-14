@@ -1899,16 +1899,45 @@ describe("OperationsTab", () => {
     expect(queryByTestId("operations-maintenance-unreachable")).toBeNull();
   });
 
-  test("the backups panel is given the selected datasource's id and name", async () => {
+  test("runbooks, seeding and backups each live on their own tab and are given the selected datasource", async () => {
     backupsPanelProps = null;
-    await act(async () => {
-      render(<OperationsTab />);
-    });
+    runbooksPanelProps = null;
+    seedPanelProps = null;
+    const { getByTestId, queryByTestId } = render(<OperationsTab />);
+    await act(async () => {});
+    // The maintenance body is the default tab; the panels are not mounted until their tab is.
+    expect(queryByTestId("backups-panel-stub")).toBeNull();
+    // Radix tabs switch on pointer down in happy-dom, not on click.
+    fireEvent.mouseDown(getByTestId("operations-tab-backups"), { button: 0 });
     expect(backupsPanelProps).not.toBeNull();
     expect(typeof backupsPanelProps!.datasourceId).toBe("string");
     expect(typeof backupsPanelProps!.datasourceName).toBe("string");
+    fireEvent.mouseDown(getByTestId("operations-tab-runbooks"), { button: 0 });
     expect(runbooksPanelProps).toEqual(backupsPanelProps);
     // docs/CONTEXT.md §4.23: the seed panel too, for a non-production PostgreSQL datasource.
+    fireEvent.mouseDown(getByTestId("operations-tab-seed"), { button: 0 });
     expect(seedPanelProps).toEqual(backupsPanelProps);
+    expect(queryByTestId("operations-seed-unavailable")).toBeNull();
+  });
+
+  test("the Seed tab says why it has nothing to offer where the datasource is not a non-production PostgreSQL", async () => {
+    mockConnectionsList = [
+      {
+        id: "c2",
+        name: "MySQL Prod",
+        type: "mysql",
+        host: "localhost",
+        port: 3306,
+        database: "prod",
+        createdAt: new Date(),
+      },
+    ];
+    mockActiveConnectionId = "c2";
+    seedPanelProps = null;
+    const { getByTestId, queryByTestId } = render(<OperationsTab />);
+    await act(async () => {});
+    fireEvent.mouseDown(getByTestId("operations-tab-seed"), { button: 0 });
+    expect(seedPanelProps).toBeNull();
+    expect(queryByTestId("operations-seed-unavailable")).not.toBeNull();
   });
 });

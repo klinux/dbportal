@@ -590,6 +590,11 @@ built. Each lands as its own section when done.
   from the seed file and the store, every token's groups) or typed once in the kind's own
   shape ([`src/components/admin/PrincipalPicker.tsx`](../src/components/admin/PrincipalPicker.tsx)).
   Not a directory: a group nobody has named yet is typed the first time and picked after.
+- **4.38 Operations in four tabs — done (asked 2026-09-14).** The Operations page stacked
+  backups, seeding, runbooks and the maintenance body in one scroll. It is now one datasource
+  selector over four tabs - Global operations (the maintenance body: whole-database work,
+  tables, sessions, the session's log), Runbooks (§4.20), Seed from schemas (§4.23, with a
+  note where the datasource is not a non-production PostgreSQL) and Backups (§4.14).
 - **4.35 Operator guide** — `docs/OPERATOR_GUIDE.md`: from zero to the first datasource,
   OIDC, the seed file, a backup; screenshots of the newer pages.
 

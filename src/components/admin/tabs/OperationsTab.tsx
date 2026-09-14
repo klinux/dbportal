@@ -10,6 +10,8 @@ import { SeedDataPanel } from "@/components/admin/SeedDataPanel";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ADMIN_SUBTAB_LIST_CLASS, ADMIN_SUBTAB_TRIGGER_CLASS } from "@/lib/ui/admin-tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
@@ -39,6 +41,9 @@ import {
   CircleCheck,
   CircleX,
   Table2,
+  Archive,
+  ListChecks,
+  Sprout,
   type LucideIcon,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -408,386 +413,436 @@ export function OperationsTab() {
         <div className="rounded-xl border border-danger-tint/20 bg-danger-tint/5 p-4 text-danger text-sm">{error}</div>
       )}
 
-      {/* Backups (docs/CONTEXT.md §4.14): a dump of the selected datasource, and a restore
-          where it is not production. The panel asks the server what it may offer. */}
-      {selectedConnection && (
-        <BackupsPanel
-          datasourceId={selectedConnection.seedId ?? selectedConnection.id}
-          datasourceName={selectedConnection.name}
-        />
-      )}
+      {/* One page, four tabs (asked 2026-09-14): the maintenance body under Global operations,
+          and the runbooks (§4.20), the seed from the schema (§4.23) and the backups (§4.14) of
+          the selected datasource each on its own. The selector above applies to all four. */}
+      <Tabs defaultValue="global">
+        <TabsList className={ADMIN_SUBTAB_LIST_CLASS}>
+          <TabsTrigger value="global" className={ADMIN_SUBTAB_TRIGGER_CLASS} data-testid="operations-tab-global">
+            <ShieldAlert className="h-3.5 w-3.5" />
+            Global operations
+          </TabsTrigger>
+          <TabsTrigger value="runbooks" className={ADMIN_SUBTAB_TRIGGER_CLASS} data-testid="operations-tab-runbooks">
+            <ListChecks className="h-3.5 w-3.5" />
+            Runbooks
+          </TabsTrigger>
+          <TabsTrigger value="seed" className={ADMIN_SUBTAB_TRIGGER_CLASS} data-testid="operations-tab-seed">
+            <Sprout className="h-3.5 w-3.5" />
+            Seed from schemas
+          </TabsTrigger>
+          <TabsTrigger value="backups" className={ADMIN_SUBTAB_TRIGGER_CLASS} data-testid="operations-tab-backups">
+            <Archive className="h-3.5 w-3.5" />
+            Backups
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Seed from the schema (docs/CONTEXT.md §4.23): generated rows for a staging datasource; never production. */}
-      {selectedConnection &&
-        selectedConnection.environment !== "production" &&
-        selectedConnection.type === "postgres" && (
-          <SeedDataPanel
-            key={selectedConnection.seedId ?? selectedConnection.id}
-            datasourceId={selectedConnection.seedId ?? selectedConnection.id}
-            datasourceName={selectedConnection.name}
-          />
-        )}
+        <TabsContent value="runbooks" className="mt-4">
+          {selectedConnection && (
+            <RunbooksPanel
+              datasourceId={selectedConnection.seedId ?? selectedConnection.id}
+              datasourceName={selectedConnection.name}
+            />
+          )}
+        </TabsContent>
 
-      {/* Runbooks (docs/CONTEXT.md §4.20): the statements declared once for this datasource. */}
-      {selectedConnection && (
-        <RunbooksPanel
-          datasourceId={selectedConnection.seedId ?? selectedConnection.id}
-          datasourceName={selectedConnection.name}
-        />
-      )}
+        <TabsContent value="seed" className="mt-4">
+          {/* Generated rows for a staging datasource; never production, PostgreSQL only. */}
+          {selectedConnection &&
+          selectedConnection.environment !== "production" &&
+          selectedConnection.type === "postgres" ? (
+            <SeedDataPanel
+              key={selectedConnection.seedId ?? selectedConnection.id}
+              datasourceId={selectedConnection.seedId ?? selectedConnection.id}
+              datasourceName={selectedConnection.name}
+            />
+          ) : (
+            <p className="text-xs text-fg-muted" data-testid="operations-seed-unavailable">
+              Seeding fills a non-production PostgreSQL datasource with generated rows. Select one to use it.
+            </p>
+          )}
+        </TabsContent>
 
-      {/* Global Operations — hidden entirely where not one operation has a
+        <TabsContent value="backups" className="mt-4">
+          {selectedConnection && (
+            <BackupsPanel
+              datasourceId={selectedConnection.seedId ?? selectedConnection.id}
+              datasourceName={selectedConnection.name}
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="global" className="mt-4 space-y-6">
+          {/* Global Operations — hidden entirely where not one operation has a
           whole-database form. On Couchbase every operation needs a keyspace, so this
           section is absent rather than three cards that answer "requires a
           target" (#496). */}
-      {anyMaintenance && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <ShieldAlert className="h-4 w-4 text-brand" />
-            <h3 className="text-sm font-bold text-fg-secondary">Global Operations</h3>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Analyze */}
-            {globalAnalyze && (
-              <div className="p-4 rounded-xl border border-hairline bg-fill-subtle hover:bg-fill transition-colors">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="w-8 h-8 rounded-lg bg-hue-yellow-tint/10 border border-hue-yellow-tint/20 flex items-center justify-center">
-                    <Zap className="w-4 h-4 text-hue-yellow" />
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs border-hairline-strong hover:bg-hue-yellow-tint/10 hover:text-hue-yellow"
-                    onClick={() => handleRunMaintenance("analyze")}
-                    disabled={!!actionLoading || !selectedConnection}
-                  >
-                    {actionLoading === "analyze-global" ? <RefreshCw className="w-3 h-3 animate-spin mr-1" /> : null}
-                    {labels?.analyzeGlobalLabel ?? "Run Analyze"}
-                  </Button>
-                </div>
-                <h4 className="text-sm font-bold text-fg mb-1">{labels?.analyzeGlobalTitle ?? "Update Statistics"}</h4>
-                <p className="text-xs text-fg-muted leading-relaxed">
-                  {labels?.analyzeGlobalDesc ?? "Updates query planner statistics for all tables."}
-                </p>
+          {anyMaintenance && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <ShieldAlert className="h-4 w-4 text-brand" />
+                <h3 className="text-sm font-bold text-fg-secondary">Global Operations</h3>
               </div>
-            )}
-
-            {/* Vacuum */}
-            {globalVacuum && (
-              <div className="p-4 rounded-xl border border-hairline bg-fill-subtle hover:bg-fill transition-colors">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="w-8 h-8 rounded-lg bg-hue-blue-tint/10 border border-hue-blue-tint/20 flex items-center justify-center">
-                    <HardDrive className="w-4 h-4 text-hue-blue" />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Analyze */}
+                {globalAnalyze && (
+                  <div className="p-4 rounded-xl border border-hairline bg-fill-subtle hover:bg-fill transition-colors">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="w-8 h-8 rounded-lg bg-hue-yellow-tint/10 border border-hue-yellow-tint/20 flex items-center justify-center">
+                        <Zap className="w-4 h-4 text-hue-yellow" />
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs border-hairline-strong hover:bg-hue-yellow-tint/10 hover:text-hue-yellow"
+                        onClick={() => handleRunMaintenance("analyze")}
+                        disabled={!!actionLoading || !selectedConnection}
+                      >
+                        {actionLoading === "analyze-global" ? (
+                          <RefreshCw className="w-3 h-3 animate-spin mr-1" />
+                        ) : null}
+                        {labels?.analyzeGlobalLabel ?? "Run Analyze"}
+                      </Button>
+                    </div>
+                    <h4 className="text-sm font-bold text-fg mb-1">
+                      {labels?.analyzeGlobalTitle ?? "Update Statistics"}
+                    </h4>
+                    <p className="text-xs text-fg-muted leading-relaxed">
+                      {labels?.analyzeGlobalDesc ?? "Updates query planner statistics for all tables."}
+                    </p>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs border-hairline-strong hover:bg-hue-blue-tint/10 hover:text-hue-blue"
-                    onClick={() => handleRunMaintenance(vacuumOperation)}
-                    disabled={!!actionLoading || !selectedConnection}
-                  >
-                    {actionLoading === `${vacuumOperation}-global` ? (
-                      <RefreshCw className="w-3 h-3 animate-spin mr-1" />
-                    ) : null}
-                    {labels?.vacuumGlobalLabel ?? "Run Vacuum"}
-                  </Button>
-                </div>
-                <h4 className="text-sm font-bold text-fg mb-1">{labels?.vacuumGlobalTitle ?? "Reclaim Space"}</h4>
-                <p className="text-xs text-fg-muted leading-relaxed">
-                  {labels?.vacuumGlobalDesc ?? "Removes dead rows and returns space to the OS."}
-                </p>
-              </div>
-            )}
+                )}
 
-            {/* Reindex — the triad is OPTIONAL on ProviderLabels (only the three
+                {/* Vacuum */}
+                {globalVacuum && (
+                  <div className="p-4 rounded-xl border border-hairline bg-fill-subtle hover:bg-fill transition-colors">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="w-8 h-8 rounded-lg bg-hue-blue-tint/10 border border-hue-blue-tint/20 flex items-center justify-center">
+                        <HardDrive className="w-4 h-4 text-hue-blue" />
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs border-hairline-strong hover:bg-hue-blue-tint/10 hover:text-hue-blue"
+                        onClick={() => handleRunMaintenance(vacuumOperation)}
+                        disabled={!!actionLoading || !selectedConnection}
+                      >
+                        {actionLoading === `${vacuumOperation}-global` ? (
+                          <RefreshCw className="w-3 h-3 animate-spin mr-1" />
+                        ) : null}
+                        {labels?.vacuumGlobalLabel ?? "Run Vacuum"}
+                      </Button>
+                    </div>
+                    <h4 className="text-sm font-bold text-fg mb-1">{labels?.vacuumGlobalTitle ?? "Reclaim Space"}</h4>
+                    <p className="text-xs text-fg-muted leading-relaxed">
+                      {labels?.vacuumGlobalDesc ?? "Removes dead rows and returns space to the OS."}
+                    </p>
+                  </div>
+                )}
+
+                {/* Reindex — the triad is OPTIONAL on ProviderLabels (only the three
                 providers that declare the `reindex` operation set it), so the
                 hardcoded strings below stay as the fallback (#464). Withheld where the
                 vacuum slot above already names `reindex`: one operation, two sets of
                 words, is a second card that does the same thing (#496). */}
-            {globalReindex && (
-              <div className="p-4 rounded-xl border border-hairline bg-fill-subtle hover:bg-fill transition-colors">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="w-8 h-8 rounded-lg bg-hue-purple-tint/10 border border-hue-purple-tint/20 flex items-center justify-center">
-                    <RefreshCw className="w-4 h-4 text-hue-purple" />
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs border-hairline-strong hover:bg-hue-purple-tint/10 hover:text-hue-purple"
-                    onClick={() => handleRunMaintenance("reindex")}
-                    disabled={!!actionLoading || !selectedConnection}
-                  >
-                    {actionLoading === "reindex-global" ? <RefreshCw className="w-3 h-3 animate-spin mr-1" /> : null}
-                    {labels?.reindexGlobalLabel ?? "Run Reindex"}
-                  </Button>
-                </div>
-                <h4 className="text-sm font-bold text-fg mb-1">{labels?.reindexGlobalTitle ?? "Rebuild Indexes"}</h4>
-                <p className="text-xs text-fg-muted leading-relaxed">
-                  {labels?.reindexGlobalDesc ?? "Reconstructs all indexes in the database."}
-                </p>
-              </div>
-            )}
-
-            {/* Warning Card */}
-            <div className="p-4 rounded-xl border border-danger-tint/10 bg-danger-tint/5 flex flex-col justify-center">
-              <div className="flex items-center gap-2 text-danger mb-2">
-                <ShieldAlert className="w-4 h-4" />
-                <span className="text-xs font-bold uppercase tracking-wider">Warning</span>
-              </div>
-              <p className="text-xs text-danger/70 leading-relaxed italic">
-                These operations can be resource-intensive. Avoid running them during peak traffic hours.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tables + Sessions Split */}
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Table Operations — absent where the provider's rows are derived groupings */}
-        {rowsAreAddressable && (
-          <div className="rounded-xl border border-hairline bg-panel">
-            <div className="p-4 border-b border-hairline flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Table2 className="w-4 h-4 text-brand" />
-                <span className="text-xs font-bold text-fg-secondary">
-                  {tablesUnavailable ? "Tables" : `Tables (${tables.length})`}
-                </span>
-              </div>
-              <Input
-                placeholder="Filter..."
-                value={tableSearch}
-                onChange={(e) => setTableSearch(e.target.value)}
-                className="w-[140px] h-7 text-xs bg-raised border-hairline-strong"
-              />
-            </div>
-            <div className="max-h-[350px] overflow-y-auto">
-              {loading && tables.length === 0 ? (
-                <div className="p-4 space-y-2">
-                  {[...Array(5)].map((_, i) => (
-                    <Skeleton key={i} className="h-10 w-full bg-overlay" />
-                  ))}
-                </div>
-              ) : filteredTables.length === 0 ? (
-                <div className="p-8 text-center text-fg-subtle text-sm" data-testid="operations-tables-empty">
-                  {tablesUnavailable ?? "No tables found."}
-                </div>
-              ) : (
-                <div className="divide-y divide-hairline">
-                  {filteredTables.map((table) => (
-                    <div
-                      key={`${table.schemaName}.${table.tableName}`}
-                      data-selected={isDeepLinkedRow(table) ? "true" : undefined}
-                      className={`group flex items-center justify-between px-4 py-2 hover:bg-fill transition-colors ${
-                        isDeepLinkedRow(table) ? "bg-fill" : ""
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-fg-secondary truncate max-w-[160px]">
-                          {table.tableName}
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-fg-muted">
-                          <span className="font-mono">{table.rowCount.toLocaleString()} rows</span>
-                          <span>-</span>
-                          <span className="font-mono">{table.tableSize}</span>
-                          {(table.bloatRatio ?? 0) > 10 && (
-                            <Badge
-                              variant="outline"
-                              className="text-[0.625rem] text-hue-yellow border-hue-yellow-tint/20 h-4"
-                            >
-                              {(table.bloatRatio ?? 0).toFixed(0)}% bloat
-                            </Badge>
-                          )}
-                        </div>
+                {globalReindex && (
+                  <div className="p-4 rounded-xl border border-hairline bg-fill-subtle hover:bg-fill transition-colors">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="w-8 h-8 rounded-lg bg-hue-purple-tint/10 border border-hue-purple-tint/20 flex items-center justify-center">
+                        <RefreshCw className="w-4 h-4 text-hue-purple" />
                       </div>
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {tableActions.map(({ type, label, Icon, hover }) => (
-                          <Button
-                            key={type}
-                            size="icon"
-                            variant="ghost"
-                            className={`w-7 h-7 text-fg-muted ${hover}`}
-                            title={label}
-                            onClick={() => handleRunMaintenance(type, table.tableName)}
-                            disabled={!!actionLoading}
-                          >
-                            {actionLoading === `${type}-${table.tableName}` ? (
-                              <LoaderCircle className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <Icon className="w-3 h-3" />
-                            )}
-                          </Button>
-                        ))}
-                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs border-hairline-strong hover:bg-hue-purple-tint/10 hover:text-hue-purple"
+                        onClick={() => handleRunMaintenance("reindex")}
+                        disabled={!!actionLoading || !selectedConnection}
+                      >
+                        {actionLoading === "reindex-global" ? (
+                          <RefreshCw className="w-3 h-3 animate-spin mr-1" />
+                        ) : null}
+                        {labels?.reindexGlobalLabel ?? "Run Reindex"}
+                      </Button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            {maintenanceUnreachable && (
-              <TableMaintenanceUnreachableNote
-                actions={tableActions.map((a) => a.label)}
-                missingTable={deepLinkRowMissing ? deepLinkedTable : null}
-              />
-            )}
-          </div>
-        )}
+                    <h4 className="text-sm font-bold text-fg mb-1">
+                      {labels?.reindexGlobalTitle ?? "Rebuild Indexes"}
+                    </h4>
+                    <p className="text-xs text-fg-muted leading-relaxed">
+                      {labels?.reindexGlobalDesc ?? "Reconstructs all indexes in the database."}
+                    </p>
+                  </div>
+                )}
 
-        {/* Session Manager */}
-        <div className="rounded-xl border border-hairline bg-panel">
-          <div className="p-4 border-b border-hairline">
-            <div className="flex items-center gap-2 mb-3">
-              <Users className="w-4 h-4 text-hue-green" />
-              <span className="text-xs font-bold text-fg-secondary">
-                {sessionsUnavailable ? "Sessions" : `Sessions (${sessions.length})`}
-              </span>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              <div className="rounded-lg bg-fill p-2 text-center">
-                <div className="text-lg font-bold text-fg tabular-nums">{activeCount}</div>
-                <div className="text-[0.625rem] text-fg-muted uppercase font-bold">Active</div>
-              </div>
-              <div className="rounded-lg bg-fill p-2 text-center">
-                <div className="text-lg font-bold text-fg tabular-nums">{idleCount}</div>
-                <div className="text-[0.625rem] text-fg-muted uppercase font-bold">Idle</div>
-              </div>
-              <div className="rounded-lg bg-fill p-2 text-center">
-                <div className={`text-lg font-bold tabular-nums ${idleInTxCount > 0 ? "text-hue-yellow" : "text-fg"}`}>
-                  {idleInTxCount}
+                {/* Warning Card */}
+                <div className="p-4 rounded-xl border border-danger-tint/10 bg-danger-tint/5 flex flex-col justify-center">
+                  <div className="flex items-center gap-2 text-danger mb-2">
+                    <ShieldAlert className="w-4 h-4" />
+                    <span className="text-xs font-bold uppercase tracking-wider">Warning</span>
+                  </div>
+                  <p className="text-xs text-danger/70 leading-relaxed italic">
+                    These operations can be resource-intensive. Avoid running them during peak traffic hours.
+                  </p>
                 </div>
-                <div className="text-[0.625rem] text-fg-muted uppercase font-bold">In TX</div>
-              </div>
-              <div className="rounded-lg bg-fill p-2 text-center">
-                <div className={`text-lg font-bold tabular-nums ${waitingCount > 0 ? "text-hue-orange" : "text-fg"}`}>
-                  {waitingCount}
-                </div>
-                <div className="text-[0.625rem] text-fg-muted uppercase font-bold">Wait</div>
               </div>
             </div>
-          </div>
-          <div className="max-h-[280px] overflow-y-auto">
-            {loading && sessions.length === 0 ? (
-              <div className="p-4 space-y-2">
-                {[...Array(4)].map((_, i) => (
-                  <Skeleton key={i} className="h-10 w-full bg-overlay" />
-                ))}
+          )}
+
+          {/* Tables + Sessions Split */}
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Table Operations — absent where the provider's rows are derived groupings */}
+            {rowsAreAddressable && (
+              <div className="rounded-xl border border-hairline bg-panel">
+                <div className="p-4 border-b border-hairline flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Table2 className="w-4 h-4 text-brand" />
+                    <span className="text-xs font-bold text-fg-secondary">
+                      {tablesUnavailable ? "Tables" : `Tables (${tables.length})`}
+                    </span>
+                  </div>
+                  <Input
+                    placeholder="Filter..."
+                    value={tableSearch}
+                    onChange={(e) => setTableSearch(e.target.value)}
+                    className="w-[140px] h-7 text-xs bg-raised border-hairline-strong"
+                  />
+                </div>
+                <div className="max-h-[350px] overflow-y-auto">
+                  {loading && tables.length === 0 ? (
+                    <div className="p-4 space-y-2">
+                      {[...Array(5)].map((_, i) => (
+                        <Skeleton key={i} className="h-10 w-full bg-overlay" />
+                      ))}
+                    </div>
+                  ) : filteredTables.length === 0 ? (
+                    <div className="p-8 text-center text-fg-subtle text-sm" data-testid="operations-tables-empty">
+                      {tablesUnavailable ?? "No tables found."}
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-hairline">
+                      {filteredTables.map((table) => (
+                        <div
+                          key={`${table.schemaName}.${table.tableName}`}
+                          data-selected={isDeepLinkedRow(table) ? "true" : undefined}
+                          className={`group flex items-center justify-between px-4 py-2 hover:bg-fill transition-colors ${
+                            isDeepLinkedRow(table) ? "bg-fill" : ""
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-fg-secondary truncate max-w-[160px]">
+                              {table.tableName}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-fg-muted">
+                              <span className="font-mono">{table.rowCount.toLocaleString()} rows</span>
+                              <span>-</span>
+                              <span className="font-mono">{table.tableSize}</span>
+                              {(table.bloatRatio ?? 0) > 10 && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[0.625rem] text-hue-yellow border-hue-yellow-tint/20 h-4"
+                                >
+                                  {(table.bloatRatio ?? 0).toFixed(0)}% bloat
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {tableActions.map(({ type, label, Icon, hover }) => (
+                              <Button
+                                key={type}
+                                size="icon"
+                                variant="ghost"
+                                className={`w-7 h-7 text-fg-muted ${hover}`}
+                                title={label}
+                                onClick={() => handleRunMaintenance(type, table.tableName)}
+                                disabled={!!actionLoading}
+                              >
+                                {actionLoading === `${type}-${table.tableName}` ? (
+                                  <LoaderCircle className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Icon className="w-3 h-3" />
+                                )}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {maintenanceUnreachable && (
+                  <TableMaintenanceUnreachableNote
+                    actions={tableActions.map((a) => a.label)}
+                    missingTable={deepLinkRowMissing ? deepLinkedTable : null}
+                  />
+                )}
               </div>
-            ) : sessions.length === 0 ? (
-              <div className="p-8 text-center text-fg-subtle text-sm" data-testid="operations-sessions-empty">
-                {/* The order is deliberate: `sessionsUnavailable` is set only when the
+            )}
+
+            {/* Session Manager */}
+            <div className="rounded-xl border border-hairline bg-panel">
+              <div className="p-4 border-b border-hairline">
+                <div className="flex items-center gap-2 mb-3">
+                  <Users className="w-4 h-4 text-hue-green" />
+                  <span className="text-xs font-bold text-fg-secondary">
+                    {sessionsUnavailable ? "Sessions" : `Sessions (${sessions.length})`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="rounded-lg bg-fill p-2 text-center">
+                    <div className="text-lg font-bold text-fg tabular-nums">{activeCount}</div>
+                    <div className="text-[0.625rem] text-fg-muted uppercase font-bold">Active</div>
+                  </div>
+                  <div className="rounded-lg bg-fill p-2 text-center">
+                    <div className="text-lg font-bold text-fg tabular-nums">{idleCount}</div>
+                    <div className="text-[0.625rem] text-fg-muted uppercase font-bold">Idle</div>
+                  </div>
+                  <div className="rounded-lg bg-fill p-2 text-center">
+                    <div
+                      className={`text-lg font-bold tabular-nums ${idleInTxCount > 0 ? "text-hue-yellow" : "text-fg"}`}
+                    >
+                      {idleInTxCount}
+                    </div>
+                    <div className="text-[0.625rem] text-fg-muted uppercase font-bold">In TX</div>
+                  </div>
+                  <div className="rounded-lg bg-fill p-2 text-center">
+                    <div
+                      className={`text-lg font-bold tabular-nums ${waitingCount > 0 ? "text-hue-orange" : "text-fg"}`}
+                    >
+                      {waitingCount}
+                    </div>
+                    <div className="text-[0.625rem] text-fg-muted uppercase font-bold">Wait</div>
+                  </div>
+                </div>
+              </div>
+              <div className="max-h-[280px] overflow-y-auto">
+                {loading && sessions.length === 0 ? (
+                  <div className="p-4 space-y-2">
+                    {[...Array(4)].map((_, i) => (
+                      <Skeleton key={i} className="h-10 w-full bg-overlay" />
+                    ))}
+                  </div>
+                ) : sessions.length === 0 ? (
+                  <div className="p-8 text-center text-fg-subtle text-sm" data-testid="operations-sessions-empty">
+                    {/* The order is deliberate: `sessionsUnavailable` is set only when the
                     READ failed, while `sessionsEmptyState` explains an engine that
                     publishes no session list at all (#518). */}
-                {sessionsUnavailable ?? labels?.sessionsEmptyState ?? "No active sessions found."}
+                    {sessionsUnavailable ?? labels?.sessionsEmptyState ?? "No active sessions found."}
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-hairline hover:bg-transparent">
+                        <TableHead className="text-xs text-fg-muted font-bold uppercase w-[60px]">PID</TableHead>
+                        <TableHead className="text-xs text-fg-muted font-bold uppercase">User</TableHead>
+                        <TableHead className="text-xs text-fg-muted font-bold uppercase">State</TableHead>
+                        <TableHead className="text-xs text-fg-muted font-bold uppercase hidden md:table-cell">
+                          Query
+                        </TableHead>
+                        <TableHead className="text-xs text-fg-muted font-bold uppercase">Time</TableHead>
+                        <TableHead className="text-right text-xs text-fg-muted font-bold uppercase w-10">Act</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sessions.map((session) => (
+                        <TableRow key={session.pid} className="group border-hairline hover:bg-fill">
+                          <TableCell className="font-mono text-xs text-fg-tertiary py-2">{session.pid}</TableCell>
+                          <TableCell className="py-2">
+                            <span className="text-xs text-fg-secondary truncate max-w-[80px] block">
+                              {session.user}
+                            </span>
+                          </TableCell>
+                          <TableCell className="py-2">{getStateBadge(session.state)}</TableCell>
+                          <TableCell className="font-mono text-xs text-fg-muted hidden md:table-cell py-2">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="max-w-[120px] truncate cursor-help">{session.query || "-"}</div>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" className="max-w-lg">
+                                  <pre className="text-xs whitespace-pre-wrap">{session.query || "No query"}</pre>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </TableCell>
+                          <TableCell className="py-2">
+                            <Badge
+                              variant={
+                                session.durationMs > 60000
+                                  ? "destructive"
+                                  : session.durationMs > 10000
+                                    ? "outline"
+                                    : "secondary"
+                              }
+                              className="text-[0.625rem]"
+                            >
+                              {session.duration}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right py-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-fg-subtle hover:text-danger hover:bg-danger-tint/10 opacity-0 group-hover:opacity-100 transition-all"
+                              onClick={() => handleKillClick(session)}
+                              aria-label={`Terminate session ${session.pid}`}
+                              disabled={killingPid === session.pid}
+                            >
+                              {killingPid === session.pid ? (
+                                <LoaderCircle className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Skull className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-hairline hover:bg-transparent">
-                    <TableHead className="text-xs text-fg-muted font-bold uppercase w-[60px]">PID</TableHead>
-                    <TableHead className="text-xs text-fg-muted font-bold uppercase">User</TableHead>
-                    <TableHead className="text-xs text-fg-muted font-bold uppercase">State</TableHead>
-                    <TableHead className="text-xs text-fg-muted font-bold uppercase hidden md:table-cell">
-                      Query
-                    </TableHead>
-                    <TableHead className="text-xs text-fg-muted font-bold uppercase">Time</TableHead>
-                    <TableHead className="text-right text-xs text-fg-muted font-bold uppercase w-10">Act</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sessions.map((session) => (
-                    <TableRow key={session.pid} className="group border-hairline hover:bg-fill">
-                      <TableCell className="font-mono text-xs text-fg-tertiary py-2">{session.pid}</TableCell>
-                      <TableCell className="py-2">
-                        <span className="text-xs text-fg-secondary truncate max-w-[80px] block">{session.user}</span>
-                      </TableCell>
-                      <TableCell className="py-2">{getStateBadge(session.state)}</TableCell>
-                      <TableCell className="font-mono text-xs text-fg-muted hidden md:table-cell py-2">
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className="max-w-[120px] truncate cursor-help">{session.query || "-"}</div>
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" className="max-w-lg">
-                              <pre className="text-xs whitespace-pre-wrap">{session.query || "No query"}</pre>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </TableCell>
-                      <TableCell className="py-2">
-                        <Badge
-                          variant={
-                            session.durationMs > 60000
-                              ? "destructive"
-                              : session.durationMs > 10000
-                                ? "outline"
-                                : "secondary"
-                          }
-                          className="text-[0.625rem]"
-                        >
-                          {session.duration}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right py-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-fg-subtle hover:text-danger hover:bg-danger-tint/10 opacity-0 group-hover:opacity-100 transition-all"
-                          onClick={() => handleKillClick(session)}
-                          aria-label={`Terminate session ${session.pid}`}
-                          disabled={killingPid === session.pid}
-                        >
-                          {killingPid === session.pid ? (
-                            <LoaderCircle className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Skull className="h-3 w-3" />
-                          )}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Operation Log */}
-      {operationLog.length > 0 && (
-        <div className="rounded-xl border border-hairline bg-panel">
-          <div className="p-4 border-b border-hairline flex items-center gap-2">
-            <Clock className="w-4 h-4 text-fg-muted" />
-            <span className="text-xs font-bold text-fg-secondary">Operation Log (this session)</span>
-          </div>
-          <div className="max-h-[200px] overflow-y-auto divide-y divide-hairline">
-            {operationLog.map((entry) => (
-              <div key={entry.id} className="flex items-center gap-3 px-4 py-2 text-xs hover:bg-fill transition-colors">
-                <span className="text-fg-subtle font-mono text-xs w-[50px] shrink-0">
-                  {entry.timestamp.toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-                <Badge
-                  variant="outline"
-                  className="text-[0.625rem] font-bold w-[70px] justify-center shrink-0 border-hairline-strong"
-                >
-                  {entry.type}
-                </Badge>
-                <span className="text-fg-tertiary font-mono truncate">{entry.target}</span>
-                <div className="ml-auto flex items-center gap-2 shrink-0">
-                  {entry.result === "success" ? (
-                    <CircleCheck className="w-3 h-3 text-success" />
-                  ) : (
-                    <CircleX className="w-3 h-3 text-danger" />
-                  )}
-                  <span className="text-fg-subtle font-mono text-xs">{entry.duration}ms</span>
-                </div>
+          {/* Operation Log */}
+          {operationLog.length > 0 && (
+            <div className="rounded-xl border border-hairline bg-panel">
+              <div className="p-4 border-b border-hairline flex items-center gap-2">
+                <Clock className="w-4 h-4 text-fg-muted" />
+                <span className="text-xs font-bold text-fg-secondary">Operation Log (this session)</span>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+              <div className="max-h-[200px] overflow-y-auto divide-y divide-hairline">
+                {operationLog.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="flex items-center gap-3 px-4 py-2 text-xs hover:bg-fill transition-colors"
+                  >
+                    <span className="text-fg-subtle font-mono text-xs w-[50px] shrink-0">
+                      {entry.timestamp.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="text-[0.625rem] font-bold w-[70px] justify-center shrink-0 border-hairline-strong"
+                    >
+                      {entry.type}
+                    </Badge>
+                    <span className="text-fg-tertiary font-mono truncate">{entry.target}</span>
+                    <div className="ml-auto flex items-center gap-2 shrink-0">
+                      {entry.result === "success" ? (
+                        <CircleCheck className="w-3 h-3 text-success" />
+                      ) : (
+                        <CircleX className="w-3 h-3 text-danger" />
+                      )}
+                      <span className="text-fg-subtle font-mono text-xs">{entry.duration}ms</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Kill Session Confirmation Dialog */}
       <AlertDialog open={!!confirmKill} onOpenChange={() => setConfirmKill(null)}>
