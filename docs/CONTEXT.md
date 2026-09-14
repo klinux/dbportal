@@ -401,8 +401,18 @@ built. Each lands as its own section when done.
   not only who and what but which change asked. A datasource with `requireTicket: true`
   (seed file or editor) refuses a write that names none - audited as `ticket_required` -
   and a request that waits for a reviewer carries the ticket for them to see.
-- **4.19 Named roles** — beyond `admin`/`user`: a reviewer who does not administer, an
-  on-call who writes only inside a window; groups from OIDC mapped to them.
+- **4.19 Named roles — done.** A role declared once - `namedRoles:` in the seed file, or
+  the Security page's Roles tab, stored under the reserved owner `shared:roles` - with an
+  id, a name and who is in it: a portal role, a `group:<name>` from the identity provider,
+  or one person as `user:<username>`; never another role, so one lookup and no cycles.
+  Every datasource list (`roles`, `writeRoles`, `approverRoles`) refers to it as
+  `role:<id>`, which is one more principal on the session
+  ([`src/lib/roles/store.ts`](../src/lib/roles/store.ts)). Resolved when the session is
+  read (`getSession`, the Bearer guard, the token behind a queued run) from a list cached
+  five seconds - never in the JWT, so a change applies on the next request; a list that
+  cannot be read grants nothing and is logged. A reviewer who does not administer reaches
+  the requests at `/approvals`, the admin's Approvals section in the studio's shell, linked
+  from the user menu for everyone; the server lists only what the session may review.
 - **4.20 Runbooks** — shared, parameterised saved queries per datasource.
 - **4.21 Large and elaborate scripts** — verify, with a real `UPDATE … WHERE id IN (…)` of
   two thousand ids and a multi-statement script, what the portal does: known today, the

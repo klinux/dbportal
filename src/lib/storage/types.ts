@@ -6,6 +6,7 @@ import type { SshProfileRecord } from "../ssh-profiles/types";
 import type { Guardrail } from "../guardrails";
 import type { ServiceTokenRecord } from "../service-tokens/types";
 import type { FreezeWindowRecord } from "../freezes/store";
+import type { NamedRoleRecord } from "../roles/store";
 
 /**
  * All persistable collections and their data types. Maps 1:1 with localStorage keys (minus
@@ -33,6 +34,8 @@ export interface StorageData {
   service_tokens: ServiceTokenRecord[];
   /** Freeze windows (docs/CONTEXT.md §4.17) under `shared:freezes`; not a per-user collection. */
   freeze_windows: FreezeWindowRecord[];
+  /** Named roles (docs/CONTEXT.md §4.19), under the reserved owner `shared:roles`. */
+  named_roles: NamedRoleRecord[];
 }
 
 /** Collection names that can be synced to server storage */

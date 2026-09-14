@@ -19,6 +19,12 @@ let mockDeleteCalls: Array<string | { name: string; path: string }> = [];
 let mockRequestHeaders: Record<string, string> = {};
 let mockHeadersThrow: Error | null = null;
 
+// docs/CONTEXT.md §4.19: the session reader fills the named roles in; here a stub does.
+const withNamedRoles = mock(async (s: Record<string, unknown>) =>
+  s.username === "ana" ? { ...s, namedRoles: ["oncall"] } : s,
+);
+mock.module("@/lib/roles/store", () => ({ withNamedRoles }));
+
 mock.module("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => mockCookieStore[name],
@@ -133,6 +139,15 @@ describe("auth", () => {
       const session = await getSession();
       expect(session).toBeNull();
     });
+
+    // docs/CONTEXT.md §4.19: named roles are resolved on every read, never carried in the token.
+    test("resolves the session's named roles on every read, and signing never puts them in the token", async () => {
+      const token = await signJWT({ role: "user", username: "ana", namedRoles: ["stale"] });
+      expect(await verifyJWT(token)).not.toHaveProperty("namedRoles");
+      mockCookieStore["auth-token"] = { value: token };
+      expect((await getSession())!.namedRoles).toEqual(["oncall"]);
+      expect(withNamedRoles).toHaveBeenCalled();
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -164,6 +179,8 @@ describe("auth", () => {
       await expect(login("admin", "shared:service-tokens")).rejects.toThrow("reserved");
       // docs/CONTEXT.md §4.17: and the freeze windows' owner.
       await expect(login("user", "shared:freezes")).rejects.toThrow("reserved");
+      // docs/CONTEXT.md §4.19: and the named roles' owner.
+      await expect(login("user", "shared:roles")).rejects.toThrow("reserved");
       expect(mockSetCalls.length).toBe(0);
     });
 

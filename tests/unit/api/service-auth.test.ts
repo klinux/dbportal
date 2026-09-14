@@ -20,6 +20,11 @@ mock.module("@/lib/service-tokens/store", () => ({
   touchServiceToken: (id: string) => touched(id),
 }));
 
+// docs/CONTEXT.md §4.19: a token's groups may put it in a named role, like a person's.
+mock.module("@/lib/roles/store", () => ({
+  withNamedRoles: async (s: Record<string, unknown>) => ({ ...s, namedRoles: ["bots"] }),
+}));
+
 const { guardServiceRoute } = await import("@/lib/api/service-auth");
 const { clearRateLimitState } = await import("@/lib/api/rate-limit");
 
@@ -51,6 +56,7 @@ describe("guardServiceRoute", () => {
   test("a known secret yields the identity and stamps last use, once per request", async () => {
     const result = await guardServiceRoute({ route, request: req("Bearer dbp_good") });
     expect("identity" in result && result.identity.session.username).toBe("svc:bot");
+    expect("identity" in result && result.identity.session.namedRoles).toEqual(["bots"]);
     await Promise.resolve();
     expect(touched).toHaveBeenCalledWith("t1");
     expect(audit).not.toHaveBeenCalled();

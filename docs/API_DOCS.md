@@ -1207,6 +1207,11 @@ answers `404`. Series: `dbportal_audit_events_total{event,action,outcome}`,
 Admin only (docs/CONTEXT.md §4.17). `GET /api/admin/freezes` → `{ windows: [{ id, reason, from, until, datasources?, source }] }`;
 `POST /api/admin/freezes` — body `{ id, reason, from, until, datasources? }` (instants as ISO 8601), `201`,
 `409` when the id exists or the seed file declares it; `DELETE /api/admin/freezes/[id]` ends a window.
+
+Admin only (docs/CONTEXT.md §4.19). `GET /api/admin/roles` → `{ roles: [{ id, name, members, source }] }`;
+`POST /api/admin/roles` — body `{ id, name, members }` (members: `admin`, `user`, `group:<name>`,
+`user:<username>`), `201`, `409` when the id exists or the seed file declares it;
+`DELETE /api/admin/roles/[id]`. Audited as `named_role`. Every datasource list accepts `role:<id>`.
 A write inside a window is refused with `403` whose message names the window's end and reason;
 the bot API answers the same. Audited as `freeze_window` / `created` · `deleted`.
 

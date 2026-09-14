@@ -1,5 +1,13 @@
 import { describe, test, expect } from "bun:test";
-import { canApprove, canWrite, isReadStatement, matchesAccess, normalizeGroups, principalsOf } from "@/lib/access";
+import {
+  canApprove,
+  canWrite,
+  isReadStatement,
+  matchesAccess,
+  memberPrincipalsOf,
+  normalizeGroups,
+  principalsOf,
+} from "@/lib/access";
 
 /**
  * The access model (docs/CONTEXT.md §4.4): principals from the token, two lists on the
@@ -9,6 +17,17 @@ describe("principals", () => {
   test("a session is the wildcard, its role and one group principal per group", () => {
     expect(principalsOf({ role: "user", groups: ["sre", "dba"] })).toEqual(["*", "user", "group:sre", "group:dba"]);
     expect(principalsOf({ role: "admin" })).toEqual(["*", "admin"]);
+  });
+
+  // docs/CONTEXT.md §4.19: a named role is one more principal; membership is judged on the
+  // session's own principals plus the person, never on a role.
+  test("a named role adds role:<id>; the member view names the person and never a role", () => {
+    const session = { role: "user", username: "ana@example.test", groups: ["sre"], namedRoles: ["oncall"] };
+    expect(principalsOf(session)).toEqual(["*", "user", "group:sre", "role:oncall"]);
+    expect(memberPrincipalsOf(session)).toEqual(["user", "group:sre", "user:ana@example.test"]);
+    expect(memberPrincipalsOf({ role: "admin" })).toEqual(["admin"]);
+    expect(canWrite({ roles: ["*"], writeRoles: ["role:oncall"] }, session)).toBe(true);
+    expect(canApprove({ approverRoles: ["role:oncall"] }, { role: "user" })).toBe(false);
   });
 
   test("a rule matches when any of its entries is one of the session's principals", () => {

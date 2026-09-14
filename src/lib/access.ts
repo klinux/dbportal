@@ -19,11 +19,18 @@ import type { DatabaseType } from "@/lib/types";
  *
  * Both checks are pure functions over the token and the resolved datasource: no store is
  * consulted per request, which is what keeps them free.
+ *
+ * Named roles (docs/CONTEXT.md §4.19) add one principal per role the session is in,
+ * `role:<id>`, resolved once when the session is read (src/lib/roles/store.ts) from a
+ * cached list; the checks here stay pure over the session they are handed.
  */
 
 export interface AccessSession {
   role: string;
+  username?: string;
   groups?: string[];
+  /** Ids of the named roles this session is in, resolved when the session was read (§4.19). */
+  namedRoles?: string[];
 }
 
 export interface AccessRules {
@@ -32,6 +39,8 @@ export interface AccessRules {
 }
 
 export const GROUP_PRINCIPAL_PREFIX = "group:";
+export const ROLE_PRINCIPAL_PREFIX = "role:";
+export const USER_PRINCIPAL_PREFIX = "user:";
 
 /** Bounds on what a token may carry: a JWT travels in a cookie on every request. */
 export const MAX_GROUPS = 50;
@@ -59,7 +68,25 @@ export function normalizeGroups(value: unknown): string[] {
 }
 
 export function principalsOf(session: AccessSession): string[] {
-  return ["*", session.role, ...(session.groups ?? []).map((group) => `${GROUP_PRINCIPAL_PREFIX}${group}`)];
+  return [
+    "*",
+    session.role,
+    ...(session.groups ?? []).map((group) => `${GROUP_PRINCIPAL_PREFIX}${group}`),
+    ...(session.namedRoles ?? []).map((id) => `${ROLE_PRINCIPAL_PREFIX}${id}`),
+  ];
+}
+
+/**
+ * What a named role's member list is matched against (§4.19): the session's role, its
+ * groups, and the person by username - never the named roles themselves, so a role
+ * cannot be a member of a role.
+ */
+export function memberPrincipalsOf(session: AccessSession): string[] {
+  return [
+    session.role,
+    ...(session.groups ?? []).map((group) => `${GROUP_PRINCIPAL_PREFIX}${group}`),
+    ...(session.username ? [`${USER_PRINCIPAL_PREFIX}${session.username}`] : []),
+  ];
 }
 
 export function matchesAccess(rule: readonly string[], principals: readonly string[]): boolean {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withNamedRoles } from "@/lib/roles/store";
 import { clientAddress } from "@/lib/api/client-address";
 import { createErrorResponse } from "@/lib/api/errors";
 import { consumeRateLimit, RateLimitError } from "@/lib/api/rate-limit";
@@ -20,7 +21,9 @@ export async function guardServiceRoute(opts: { route: string; request: Request 
   const ip = clientAddress(opts.request);
   const header = opts.request.headers.get("authorization") ?? "";
   const secret = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  const identity = secret ? await authenticateServiceToken(secret) : null;
+  const found = secret ? await authenticateServiceToken(secret) : null;
+  // A token's groups may put it in a named role (§4.19), like a person's.
+  const identity = found ? { ...found, session: await withNamedRoles(found.session) } : null;
   if (!identity) {
     const notice = consumeRateLimit("anon", ip);
     if (notice.allowed || notice.tripped) {

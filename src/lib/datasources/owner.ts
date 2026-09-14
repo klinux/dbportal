@@ -19,6 +19,8 @@ export const SHARED_SSH_PROFILES_OWNER = "shared:ssh-profiles";
 export const SHARED_SERVICE_TOKENS_OWNER = "shared:service-tokens";
 /** Freeze windows (docs/CONTEXT.md §4.17). */
 export const SHARED_FREEZES_OWNER = "shared:freezes";
+/** Named roles (docs/CONTEXT.md §4.19). */
+export const SHARED_ROLES_OWNER = "shared:roles";
 
 /** Every owner id no account may ever be. */
 export const RESERVED_OWNERS: readonly string[] = [
@@ -27,4 +29,5 @@ export const RESERVED_OWNERS: readonly string[] = [
   SHARED_SSH_PROFILES_OWNER,
   SHARED_SERVICE_TOKENS_OWNER,
   SHARED_FREEZES_OWNER,
+  SHARED_ROLES_OWNER,
 ];

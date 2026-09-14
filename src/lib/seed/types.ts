@@ -19,12 +19,34 @@ const SSLConfigSchema = z
 
 const ConnectionEnvironmentSchema = z.enum(["production", "staging", "development", "local", "other"]);
 
-// A principal (docs/CONTEXT.md §4.4): the wildcard, a portal role, or `group:<name>` for a
-// group the identity provider puts in the token. Not an enum any more, because group
-// names are the operator's, not this product's.
+// A principal (docs/CONTEXT.md §4.4): the wildcard, a portal role, `group:<name>` for a
+// group the identity provider puts in the token, or `role:<id>` for a named role (§4.19).
+// Not an enum any more, because group names are the operator's, not this product's.
 const AllowedRoleSchema = z
   .string()
-  .regex(/^(\*|admin|user|group:[\x21-\x7e]{1,64})$/, "Must be *, admin, user or group:<name>");
+  .regex(
+    /^(\*|admin|user|group:[\x21-\x7e]{1,64}|role:[a-z0-9][a-z0-9-]{0,63})$/,
+    "Must be *, admin, user, group:<name> or role:<id>",
+  );
+
+// Who is in a named role (§4.19): a portal role, an identity provider's group, or one
+// person by the username the session carries. Never another named role: one lookup, no
+// cycles.
+const RoleMemberSchema = z
+  .string()
+  .regex(
+    /^(admin|user|group:[\x21-\x7e]{1,64}|user:[\x21-\x7e]{1,254})$/,
+    "Must be admin, user, group:<name> or user:<username>",
+  );
+
+/** A named role (docs/CONTEXT.md §4.19): an id datasources refer to as `role:<id>`, and who is in it. */
+export const NamedRoleSchema = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+  name: z.string().min(1).max(64),
+  members: z.array(RoleMemberSchema).min(1).max(200),
+});
+
+export type NamedRole = z.infer<typeof NamedRoleSchema>;
 
 // Kept in step with DatabaseType in src/lib/types.ts BY HAND: a zod enum is a value,
 // so a type-id missing here is not a compile error - it is a seed file the server
@@ -163,12 +185,17 @@ export const SeedConfigSchema = z
     sshProfiles: z.array(SshProfileSchema).optional(),
     /** Freeze windows declared once (§4.17); read-only on the admin page. */
     freezeWindows: z.array(FreezeWindowSchema).optional(),
+    /** Named roles declared once (§4.19); read-only on the admin page. */
+    namedRoles: z.array(NamedRoleSchema).optional(),
   })
   .refine((cfg) => new Set(cfg.connections.map((c) => c.id)).size === cfg.connections.length, {
     message: "Connection IDs must be unique",
   })
   .refine((cfg) => new Set((cfg.sshProfiles ?? []).map((p) => p.id)).size === (cfg.sshProfiles ?? []).length, {
     message: "SSH profile IDs must be unique",
+  })
+  .refine((cfg) => new Set((cfg.namedRoles ?? []).map((r) => r.id)).size === (cfg.namedRoles ?? []).length, {
+    message: "Named role IDs must be unique",
   });
 
 export type SeedConnection = z.infer<typeof SeedConnectionSchema>;

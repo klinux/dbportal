@@ -144,6 +144,7 @@ connections:
 | `defaults.managed` | No | `true` | Default managed state |
 | `defaults.environment` | No | — | Default environment label |
 | `defaults.ssl` | No | — | Default SSL config |
+| `namedRoles` | No | — | Named roles (docs/CONTEXT.md §4.19): `{ id, name, members }`, referred to as `role:<id>` |
 | `connections` | Yes | — | Array of connection definitions (min 1) |
 | `connections[].id` | Yes | — | Unique slug: `[a-z0-9-]+`, max 64 chars |
 | `connections[].name` | Yes | — | Display name, max 128 chars |
@@ -155,7 +156,7 @@ connections:
 | `connections[].user` | No | — | Username |
 | `connections[].password` | No | — | Password (use `${ENV_VAR}` syntax) |
 | `connections[].connectionString` | No | — | Full connection string (use `${ENV_VAR}`). Druid and Trino have no URI form this build parses — those connections need `host` and are addressed by host and port only |
-| `connections[].roles` | Yes | — | Access control: `["*"]`, `["admin"]`, `["user"]`, `["admin", "user"]` |
+| `connections[].roles` | Yes | — | Who may open: `*`, `admin`, `user`, `group:<name>`, `role:<id>` |
 | `connections[].managed` | No | from defaults | `true` = read-only, `false` = editable copy |
 | `connections[].environment` | No | from defaults | Environment badge |
 | `connections[].group` | No | — | Group label |
@@ -352,7 +353,8 @@ Each connection has a `roles` field that controls which users can see it:
 
 Roles are matched against the JWT session's `role` field. The role is extracted server-side from the JWT token — never from client input.
 
-**Current limitation:** The system supports `admin` and `user` roles only (matching the JWT `role` claim). Custom roles (e.g., `data-team`, `backend`) are planned for a future release with expanded OIDC role claim support.
+Beyond the two portal roles, a list may name a group the identity provider sends
+(`group:<name>`) or a named role declared once (`role:<id>`, below).
 
 ### How Role Filtering Works
 
@@ -428,6 +430,39 @@ This is a policy gate on the statement's text. Where the engine can enforce read
 itself, the session's pool is opened that way too — PostgreSQL gets
 `default_transaction_read_only=on`, so a `SELECT` that calls a writing function is refused
 by the database, not by the classifier.
+
+### Named roles
+
+A role declared once (docs/CONTEXT.md §4.19), with who is in it, that every list above
+refers to as `role:<id>`: a reviewer who does not administer, an on-call who may write,
+named in one place instead of a group repeated on every datasource. Members are a portal
+role (`admin`, `user`), a group from the identity provider (`group:<name>`), or one person
+by the username the session carries (`user:<username>`) - never another role.
+
+```yaml
+namedRoles:
+  - id: "oncall"
+    name: "On-call"
+    members: ["group:sre-oncall", "user:ana@example.test"]
+  - id: "reviewer"
+    name: "Reviewer"
+    members: ["group:dba"]
+
+connections:
+  - id: "prod-orders"
+    type: postgres
+    host: orders.internal
+    roles: ["group:support", "role:oncall"]
+    writeRoles: ["role:oncall"]
+    writeApproval: true
+    approverRoles: ["role:reviewer"]
+```
+
+Administrators declare more on the Security page's Roles tab (server storage needed; a
+seed-file role is read-only there and shadows a stored one with the same id). A session's
+roles are resolved on every request from a list cached five seconds, never written into
+the token: a change applies at once. Reviewers who do not administer find the requests on
+`/approvals`, in the studio's user menu.
 
 ## Every Connection Is Managed
 

@@ -85,6 +85,9 @@ const audit = mock(() => ({}));
 mock.module("@/lib/audit", () => ({ emitAuditEvent: audit, isStatementAuditEnabled: () => false }));
 let frozenWindow: { id: string; reason: string; from: string; until: string } | null = null;
 mock.module("@/lib/freezes/store", () => ({ activeFreeze: async () => frozenWindow }));
+// docs/CONTEXT.md §4.19: the token behind an approved run is rebuilt with its named roles.
+const withNamedRoles = mock(async (s: Record<string, unknown>) => ({ ...s, namedRoles: ["bots"] }));
+mock.module("@/lib/roles/store", () => ({ withNamedRoles }));
 let liveToken: ServiceIdentity | null = null;
 mock.module("@/lib/service-tokens/store", () => ({
   findServiceTokenByActor: async (actor: string) =>

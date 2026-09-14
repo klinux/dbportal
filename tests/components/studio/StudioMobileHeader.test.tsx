@@ -5,6 +5,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, fireEvent, waitFor } from "@testing-library/react";
 import { mockToastError } from "../../helpers/mock-sonner";
+import { mockRouterPush } from "../../helpers/mock-navigation";
 
 // The insecure-context harness, as in tests/components/copy-button.test.tsx: an absent
 // `navigator.clipboard` is what plain HTTP off loopback actually hands the page, and an
@@ -221,6 +222,16 @@ describe("StudioMobileHeader", () => {
   test("Explain Plan not rendered when onExplain is undefined", () => {
     const { queryByText } = render(<StudioMobileHeader {...defaults} />);
     expect(queryByText("Explain Plan")).toBeNull();
+  });
+
+  // docs/CONTEXT.md §4.19: the reviewer's page is in the menu for everyone, admin or not.
+  test("Approvals in the user menu goes to /approvals, for a non-admin too", () => {
+    mockRouterPush.mockClear();
+    const { queryByText } = render(<StudioMobileHeader {...defaults} user={{ role: "user" }} isAdmin={false} />);
+    const item = queryByText("Approvals");
+    expect(item).not.toBeNull();
+    fireEvent.click(item!.closest('[role="menuitem"]')!);
+    expect(mockRouterPush).toHaveBeenCalledWith("/approvals");
   });
 
   test("BEGIN Transaction click calls onBeginTransaction", () => {

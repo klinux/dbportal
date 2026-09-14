@@ -32,5 +32,6 @@ export type ServiceTokenView = Omit<ServiceTokenRecord, "secretHash">;
 /** The identity a valid Bearer resolves to: the record, and the session shape the rest of the server speaks. */
 export interface ServiceIdentity {
   token: ServiceTokenRecord;
-  session: { role: Role; username: string; groups?: string[] };
+  /** `namedRoles` is filled by the guard on every request (docs/CONTEXT.md §4.19), never stored. */
+  session: { role: Role; username: string; groups?: string[]; namedRoles?: string[] };
 }

@@ -267,6 +267,13 @@ describe("StudioDesktopHeader", () => {
       expect(queryByText("Admin Dashboard")).toBeNull();
     });
 
+    // docs/CONTEXT.md §4.19: a reviewer who does not administer reaches the requests from here.
+    test("navigates to /approvals when Approvals clicked, for any user", () => {
+      const { getByText } = render(<StudioDesktopHeader {...defaultProps} isAdmin={false} />);
+      fireEvent.click(getByText("Approvals"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/approvals");
+    });
+
     test("navigates to /admin when Admin Dashboard clicked", () => {
       const { getByText } = render(<StudioDesktopHeader {...defaultProps} isAdmin={true} />);
       fireEvent.click(getByText("Admin Dashboard"));

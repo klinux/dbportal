@@ -26,6 +26,7 @@ import {
   Upload,
   User,
   Zap,
+  ClipboardCheck,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -232,6 +233,10 @@ export function StudioMobileHeader({
                 )}
                 <DropdownMenuItem onClick={() => router.push("/monitoring")} className="cursor-pointer">
                   <Gauge strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Monitoring
+                </DropdownMenuItem>
+                {/* docs/CONTEXT.md §4.19: the reviewer's page, for everyone who reviews somewhere. */}
+                <DropdownMenuItem onClick={() => router.push("/approvals")} className="cursor-pointer">
+                  <ClipboardCheck strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Approvals
                 </DropdownMenuItem>
                 <div className="border-t border-hairline my-1" />
                 {/*

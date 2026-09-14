@@ -18,6 +18,7 @@ import { resolveConnection, SeedConnectionError } from "@/lib/seed/resolve-conne
 import { getStorageProvider } from "@/lib/storage/factory";
 import type { ApprovalRequest, ExecutionOutcome, ExecutionReply } from "@/lib/storage/types";
 import { findServiceTokenByActor } from "@/lib/service-tokens/store";
+import { withNamedRoles } from "@/lib/roles/store";
 import type { ServiceIdentity } from "@/lib/service-tokens/types";
 import { executionFailureReason } from "@/lib/audit-execution";
 
@@ -241,7 +242,8 @@ export async function settleDecision(decided: ApprovalRequest): Promise<Approval
     void notifyExecutionOutcome(decided);
     return decided;
   }
-  const identity = await findServiceTokenByActor(decided.requester);
+  const found = await findServiceTokenByActor(decided.requester);
+  const identity = found ? { ...found, session: await withNamedRoles(found.session) } : null;
   if (!identity) {
     const store = await requireStore();
     const now = new Date().toISOString();

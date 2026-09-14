@@ -1,5 +1,6 @@
 import { getBasePath } from "@/lib/config/base-path";
 import { RESERVED_OWNERS } from "@/lib/datasources/owner";
+import { withNamedRoles } from "@/lib/roles/store";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies, headers } from "next/headers";
 import { logger } from "@/lib/logger";
@@ -24,10 +25,16 @@ export interface UserPayload {
   username: string;
   /** The identity provider's groups, as `group:<name>` principals resolve them (docs/CONTEXT.md §4.4). */
   groups?: string[];
+  /**
+   * The named roles this session is in (docs/CONTEXT.md §4.19). Never in the token: resolved
+   * by `getSession` on every read from the declared list, so a change applies at once.
+   */
+  namedRoles?: string[];
 }
 
 export async function signJWT(payload: UserPayload) {
-  return await new SignJWT({ ...payload })
+  const { namedRoles: _resolvedPerRequest, ...claims } = payload;
+  return await new SignJWT({ ...claims })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("24h")
@@ -50,11 +57,12 @@ export async function verifyJWT(token: string) {
   }
 }
 
-export async function getSession() {
+export async function getSession(): Promise<UserPayload | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get("auth-token")?.value;
   if (!token) return null;
-  return await verifyJWT(token);
+  const session = await verifyJWT(token);
+  return session ? withNamedRoles(session) : null;
 }
 
 /** Hosts whose traffic never leaves the machine (port is stripped before the check). */

@@ -154,6 +154,17 @@ describe("SeedConfigSchema: freeze windows", () => {
   const conn = { id: "a", name: "A", type: "postgres", host: "h", roles: ["*"] };
   const window = { id: "release-42", reason: "Deploy", from: "2026-09-20T22:00:00Z", until: "2026-09-21T02:00:00Z" };
   it("accepts a window list and rejects one whose end is not after its start", () => {
+    // docs/CONTEXT.md §4.19: named roles, declared once, with members that are never roles.
+    const role = { id: "oncall", name: "On-call", members: ["group:sre-oncall", "user:ana@example.test", "admin"] };
+    expect(SeedConfigSchema.safeParse({ version: "1", connections: [conn], namedRoles: [role] }).success).toBe(true);
+    expect(
+      SeedConfigSchema.safeParse({ version: "1", connections: [conn], namedRoles: [role, { ...role, name: "Dup" }] })
+        .success,
+    ).toBe(false);
+    expect(
+      SeedConfigSchema.safeParse({ version: "1", connections: [conn], namedRoles: [{ ...role, members: ["role:x"] }] })
+        .success,
+    ).toBe(false);
     const ok = SeedConfigSchema.safeParse({ version: "1", connections: [conn], freezeWindows: [window] });
     expect(ok.success).toBe(true);
     const backwards = SeedConfigSchema.safeParse({
@@ -327,6 +338,12 @@ describe("SeedConnectionSchema: access rules", () => {
     expect(parsed.writeRoles).toEqual([]);
     expect(SeedConnectionSchema.parse({ ...base, roles: ["admin"] }).writeRoles).toBeUndefined();
     expect(SeedConnectionSchema.safeParse({ ...base, roles: ["group:"] }).success).toBe(false);
+    // docs/CONTEXT.md §4.19: a named role is one more principal; its id has the datasource id's shape.
+    expect(
+      SeedConnectionSchema.parse({ ...base, roles: ["role:oncall"], writeRoles: ["role:on-call-2"] }).roles,
+    ).toEqual(["role:oncall"]);
+    expect(SeedConnectionSchema.safeParse({ ...base, roles: ["role:On Call"] }).success).toBe(false);
+    expect(SeedConnectionSchema.safeParse({ ...base, roles: ["role:"] }).success).toBe(false);
     expect(SeedConnectionSchema.safeParse({ ...base, roles: ["*"], writeRoles: ["dba"] }).success).toBe(false);
   });
 });

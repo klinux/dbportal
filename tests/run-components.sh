@@ -201,6 +201,7 @@ run_group "Group 5b/6: SshProfilesTab" \
   tests/components/admin/ServiceTokensTab.test.tsx \
   tests/components/admin/BackupsPanel.test.tsx \
   tests/components/admin/FreezeWindowsTab.test.tsx \
+  tests/components/admin/NamedRolesTab.test.tsx \
   tests/components/studio/ApprovalState.test.tsx \
   tests/components/admin/AdminSectionHeader.test.tsx
 
@@ -255,6 +256,7 @@ run_group "Group 11/12: Smoke tests" \
   tests/components/GitHubRepoLink.test.tsx \
   tests/components/icons/db-icons.test.tsx \
   tests/components/MonitoringPage.test.tsx \
+  tests/components/ApprovalsPage.test.tsx \
   tests/components/monitoring/PanelUnavailable.test.tsx \
   tests/components/monitoring/MetricChart.test.tsx
 

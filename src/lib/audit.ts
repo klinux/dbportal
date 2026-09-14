@@ -36,6 +36,8 @@ export type AuditEventType =
   | "backup"
   /** A freeze window declared or ended by an administrator (docs/CONTEXT.md §4.17). */
   | "freeze_window"
+  /** A named role declared or deleted by an administrator (docs/CONTEXT.md §4.19). */
+  | "named_role"
   /** A reviewer's decision on a write approval request (docs/CONTEXT.md §4.6). */
   | "approval_decision"
   /** A permitted reveal of masked columns; the columns are named, never their values (§4.7). */

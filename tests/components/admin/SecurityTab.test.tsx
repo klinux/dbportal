@@ -16,6 +16,10 @@ mock.module("@/components/admin/tabs/FreezeWindowsTab", () => ({
   FreezeWindowsTab: () => <div data-testid="freeze-windows-tab">FreezeWindowsTab</div>,
 }));
 
+mock.module("@/components/admin/tabs/NamedRolesTab", () => ({
+  NamedRolesTab: () => <div data-testid="named-roles-tab">NamedRolesTab</div>,
+}));
+
 mock.module("@/components/admin/tabs/ServiceTokensTab", () => ({
   ServiceTokensTab: () => <div data-testid="service-tokens-tab">ServiceTokensTab</div>,
 }));
@@ -81,6 +85,9 @@ describe("SecurityTab", () => {
     // docs/CONTEXT.md §4.17: when nothing may be written.
     clickRadixTab(getByText("Freeze windows"));
     expect(getByTestId("freeze-windows-tab")).not.toBeNull();
+    // docs/CONTEXT.md §4.19: who is who, named once.
+    clickRadixTab(getByText("Roles"));
+    expect(getByTestId("named-roles-tab")).not.toBeNull();
   });
 
   test("renders 3 tabs (Data Masking, Access, Thresholds)", async () => {

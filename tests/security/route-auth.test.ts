@@ -242,6 +242,10 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists and declares freeze windows in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/freezes.test.ts proves the 403",
   "admin/freezes/[id]":
     "ends one freeze window in the same storage backend; never opens a user database (DELETE, no POST export). Same admin gate",
+  "admin/roles":
+    "lists and declares named roles in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/roles.test.ts proves the 403",
+  "admin/roles/[id]":
+    "deletes one named role in the same storage backend; never opens a user database (DELETE, no POST export). Same admin gate",
   "admin/backups":
     "lists and takes backups of one datasource through pg_dump (GET/POST); it resolves the datasource like every route and hands it to @/lib/backups/store, pinned below. Admin-gated by requireAdmin; tests/api/admin/backups.test.ts proves the 403",
   "admin/backups/restore":
@@ -427,6 +431,9 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/api/service-tokens": "the service token routes' error answer; reaches no provider",
     "@/lib/api/backups": "the backup routes' error answer; reaches no provider",
     "@/lib/api/freezes": "the freeze window routes' error answer; reaches no provider",
+    "@/lib/api/roles": "the named role routes' error answer; reaches no provider",
+    "@/lib/roles/store":
+      "named roles in the app's own storage backend and the seed file, and which ones a session is in; opens no user database",
     "@/lib/freezes/store":
       "freeze windows in the app's own storage backend and the seed file, and which one covers a datasource now; opens no user database",
     "@/lib/seed/resolve-connection":
