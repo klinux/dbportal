@@ -143,6 +143,9 @@ export async function proxy(request: NextRequest) {
     pathname === "/favicon.ico" ||
     // Health check endpoint for load balancers (Render, K8s, etc.)
     pathname === "/api/db/health" ||
+    // The probes (docs/CONTEXT.md §4.13): a kubelet carries no credential by nature.
+    pathname === "/api/health/live" ||
+    pathname === "/api/health/ready" ||
     // Storage config endpoint (public, returns only mode info)
     pathname === "/api/storage/config"
   ) {

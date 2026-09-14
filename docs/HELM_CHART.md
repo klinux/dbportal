@@ -441,6 +441,12 @@ The short version:
   served from a non-default origin, set `CSP_REPORT_ONLY=true` (also via `extraEnv`) to downgrade
   it without rebuilding the image while you identify the violated directive.
 
+## Probes
+
+The chart's `startupProbe` and `livenessProbe` call `/api/health/live` (the process answers)
+and its `readinessProbe` calls `/api/health/ready`, which is 503 while the server store or
+Vault - each only when configured - does not answer (docs/CONTEXT.md §4.13).
+
 ## Metrics
 
 Set `METRICS_TOKEN` in the chart's secret and point Prometheus at `GET /api/metrics` with

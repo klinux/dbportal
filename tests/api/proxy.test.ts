@@ -305,12 +305,28 @@ describe("proxy", () => {
   });
 
   describe("agent drive path", () => {
-    test("the public-path list is exactly the five it has always been", () => {
+    test("the public-path list is exactly the seven it has: the five it always had, and the two probes of §4.13", () => {
       const source = readFileSync(new URL("../../src/proxy.ts", import.meta.url), "utf8");
       const block = source.slice(source.indexOf("// Allow public routes"), source.indexOf("if (!token)"));
       const literals = [...block.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 
-      expect(literals).toEqual(["/api/auth", "/_next", "/favicon.ico", "/api/db/health", "/api/storage/config"]);
+      expect(literals).toEqual([
+        "/api/auth",
+        "/_next",
+        "/favicon.ico",
+        "/api/db/health",
+        "/api/health/live",
+        "/api/health/ready",
+        "/api/storage/config",
+      ]);
+    });
+
+    test("both probes pass through without a session, like the older health check", async () => {
+      for (const path of ["/api/health/live", "/api/health/ready"]) {
+        const res = await proxy(createNextRequest(path));
+        expect(isRedirect(res)).toBe(false);
+        expect(res.status).toBe(200);
+      }
     });
 
     test("no unlisted path reaches the app without a credential", () => {

@@ -387,11 +387,14 @@ Return the PostgreSQL URL when subchart is enabled
 {{- printf "postgresql://%s:$(POSTGRES_PASSWORD)@%s:5432/%s" .Values.postgresql.auth.username (include "dbportal.postgresql.fullname" .) .Values.postgresql.auth.database }}
 {{- end }}
 
-{{/* Prefix only the shipped health path; preserve explicit HTTP/exec/TCP probes. */}}
+{{/* Prefix only the shipped probe paths (docs/CONTEXT.md §4.13); preserve explicit HTTP/exec/TCP probes. */}}
 {{- define "dbportal.probe" -}}
 {{- $probe := deepCopy .probe -}}
-{{- if and $probe.httpGet (eq ($probe.httpGet.path | default "") "/api/db/health") -}}
-{{- $_ := set $probe.httpGet "path" (printf "%s/api/db/health" .basePath) -}}
+{{- if $probe.httpGet -}}
+{{- $path := $probe.httpGet.path | default "" -}}
+{{- if has $path (list "/api/db/health" "/api/health/live" "/api/health/ready") -}}
+{{- $_ := set $probe.httpGet "path" (printf "%s%s" .basePath $path) -}}
+{{- end -}}
 {{- end -}}
 {{- toYaml $probe -}}
 {{- end -}}

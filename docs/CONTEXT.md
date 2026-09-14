@@ -347,8 +347,13 @@ built. Each lands as its own section when done.
   Retention: `AUDIT_RETENTION_DAYS` prunes `audit_events` in the server store, swept at
   most once an hour after an append (`pruneAuditEvents` on both providers). Wired in
   `src/lib/audit-persistence.ts`, one sink composed of the store and the exporter.
-- **4.13 Readiness and liveness** — `/api/health/live` (the process answers) apart from
-  `/api/health/ready` (the store, and Vault when configured, answer), for rollouts.
+- **4.13 Readiness and liveness — done.** `GET /api/health/live` answers whenever the
+  process does; `GET /api/health/ready` asks the server store (`isHealthy`) and Vault
+  (`sys/health`, standby accepted, two-second timeout - [`src/lib/vault/health.ts`](../src/lib/vault/health.ts)),
+  each only when configured, and is 503 while either fails, so a rollout keeps the old pod
+  until the new one can serve and an outage of the store is not turned into a crash loop.
+  Both are public paths like every probe; the body names outcomes, never addresses. The
+  chart's probes point at them; `/api/db/health` stays as the older unconditional answer.
 - **4.14 Backup and restore** — the portal's own store is managed (GCP) and backed up
   there. This is about the *datasources*: in development, a person dumps and restores a
   database from the portal; in production, an export to a bucket only, never a restore.

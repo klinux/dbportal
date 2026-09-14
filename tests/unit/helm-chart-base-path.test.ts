@@ -16,20 +16,36 @@ function container(output: string) {
 }
 
 describe("chart probes for a build-time basePath", () => {
+  // docs/CONTEXT.md §4.13: liveness and startup ask whether the process answers; readiness
+  // asks whether it can serve.
+  const DEFAULT_PATHS: Record<string, string> = {
+    startupProbe: "/api/health/live",
+    readinessProbe: "/api/health/ready",
+    livenessProbe: "/api/health/live",
+  };
+
   test("root remains the default", () => {
     const result = render();
     expect(result.code).toBe(0);
-    for (const name of ["startupProbe", "readinessProbe", "livenessProbe"]) {
-      expect(container(result.output)[name].httpGet.path).toBe("/api/db/health");
+    for (const [name, path] of Object.entries(DEFAULT_PATHS)) {
+      expect(container(result.output)[name].httpGet.path).toBe(path);
     }
   });
   for (const prefix of ["/libredb", "/tools/libredb", "/~/libredb"]) {
     test(`${prefix} prefixes each default probe without changing custom probes`, () => {
       const result = render(["--set-string", `config.basePath=${prefix}`]);
       expect(result.code).toBe(0);
-      for (const name of ["startupProbe", "readinessProbe", "livenessProbe"]) {
-        expect(container(result.output)[name].httpGet.path).toBe(`${prefix}/api/db/health`);
+      for (const [name, path] of Object.entries(DEFAULT_PATHS)) {
+        expect(container(result.output)[name].httpGet.path).toBe(`${prefix}${path}`);
       }
+      // The older health path is still prefixed for a values file that kept it.
+      const older = render([
+        "--set-string",
+        `config.basePath=${prefix}`,
+        "--set-string",
+        "livenessProbe.httpGet.path=/api/db/health",
+      ]);
+      expect(container(older.output).livenessProbe.httpGet.path).toBe(`${prefix}/api/db/health`);
       expect(result.output).not.toMatch(/name: BASE_PATH|BASE_PATH:/);
       const custom = render([
         "--set-string",
