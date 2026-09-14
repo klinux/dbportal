@@ -322,8 +322,8 @@ reviewer when there was one. **The Slack notifier** (`src/lib/notify/slack.ts`,
 `SLACK_BOT_TOKEN`, `SLACK_APPROVALS_CHANNEL`, `APP_URL`): best effort, a pending request is
 announced to the reviewers' channel with a link to the page, and the outcome is posted into
 the thread the request named, with ten rows at most; the full result stays behind login.
-Not done: a signed HTTP callback for bots outside Slack (they poll), Slack buttons on the
-announcement (they need a signed interactivity endpoint), and expiry of stored outcomes.
+Slack buttons on the announcement are §4.24; the signed callback for bots outside Slack is
+§4.25. Not done: expiry of stored outcomes.
 
 ### 4.11 → 4.20 The SRE/DevOps sequence (agreed 2026-09-14)
 
@@ -484,8 +484,21 @@ built. Each lands as its own section when done.
   Audited as `data_seed` (started, finished or failed, with the row count). Not yet: the
   second mode, a masked sample of another datasource copied across, and ratios between
   parents and children (every table takes its own count).
-- **later** — Slack buttons on the approval message (a signed interactivity endpoint), the
-  signed HTTP callback for bots outside Slack, shorter sessions with renewal.
+- **4.24 Slack buttons — done.** With `SLACK_SIGNING_SECRET` set, the announcement of a
+  pending execution carries Approve and Reject. Slack posts the press to
+  `POST /api/slack/interactions`, whose credential is the request signature (`v0=` HMAC over
+  timestamp and raw body, five-minute window, constant-time compare,
+  [`src/lib/notify/slack-signature.ts`](../src/lib/notify/slack-signature.ts)); the proxy
+  lets the path through only with the signature header, and a request that fails to verify
+  is a 401 audited as `invalid_signature`, metered. The person who pressed is the reviewer
+  as `slack:<user id>`; whether they may review is the datasource's `approverRoles` through
+  a named role (§4.19) whose members include `user:slack:<id>`, and the person a request
+  was made for cannot decide it. The decision is the page's own `decideApproval`, so the
+  four-eyes rule and the `approval_decision` line are the same; the execution is settled
+  and the announcement rewritten without its buttons through Slack's `response_url` (only
+  Slack's own hooks host). Anything but the two buttons is acknowledged and ignored.
+- **later** — the signed HTTP callback for bots outside Slack, shorter sessions with
+  renewal.
 
 ## 5. Decisions already taken
 

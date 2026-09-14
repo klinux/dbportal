@@ -321,6 +321,21 @@ describe("proxy", () => {
       ]);
     });
 
+    // docs/CONTEXT.md §4.24: Slack's interaction carries its signature and nothing else; the header
+    // lets it reach the route, which verifies it. Without the header it is any other request.
+    test("the Slack interactivity path passes through only with a signature header", async () => {
+      const signed = new NextRequest("http://localhost:3000/api/slack/interactions", {
+        method: "POST",
+        headers: { "x-slack-signature": "v0=abc", "content-type": "application/x-www-form-urlencoded" },
+        body: "payload=%7B%7D",
+      });
+      const through = await proxy(signed);
+      expect(through.status).toBe(200);
+      expect(isRedirect(through)).toBe(false);
+      const bare = await proxy(createNextRequest("/api/slack/interactions"));
+      expect(isRedirect(bare)).toBe(true);
+    });
+
     test("both probes pass through without a session, like the older health check", async () => {
       for (const path of ["/api/health/live", "/api/health/ready"]) {
         const res = await proxy(createNextRequest(path));

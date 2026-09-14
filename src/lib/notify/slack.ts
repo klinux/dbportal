@@ -19,12 +19,74 @@ export function slackConfigured(): boolean {
   return Boolean(process.env.SLACK_BOT_TOKEN);
 }
 
+/** Buttons are offered only when the interactivity endpoint can verify the click (§4.24). */
+export function slackInteractive(): boolean {
+  return Boolean(process.env.SLACK_SIGNING_SECRET);
+}
+
+/** How a Slack user is named as a reviewer: `slack:<user id>`, the id being stable where the handle is not. */
+export const SLACK_REVIEWER_PREFIX = "slack:";
+export const APPROVE_ACTION = "approval_approve";
+export const REJECT_ACTION = "approval_reject";
+
+type Block = Record<string, unknown>;
+
+/** The announcement's blocks: the text, and the two buttons that decide it from the channel. */
+export function approvalBlocks(record: ApprovalRequest, text: string): Block[] {
+  return [
+    { type: "section", text: { type: "mrkdwn", text } },
+    {
+      type: "actions",
+      block_id: `approval:${record.id}`,
+      elements: [
+        {
+          type: "button",
+          action_id: APPROVE_ACTION,
+          value: record.id,
+          style: "primary",
+          text: { type: "plain_text", text: "Approve" },
+        },
+        {
+          type: "button",
+          action_id: REJECT_ACTION,
+          value: record.id,
+          style: "danger",
+          text: { type: "plain_text", text: "Reject" },
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * The answer to a click, through the `response_url` Slack hands the endpoint: the message
+ * rewritten without its buttons once decided, or a note only the clicker sees. Best effort.
+ */
+export async function respondToInteraction(
+  responseUrl: string,
+  body: { text: string; replace_original?: boolean; response_type?: "ephemeral" | "in_channel" },
+): Promise<boolean> {
+  if (!/^https:\/\/hooks\.slack\.com\//.test(responseUrl)) return false;
+  try {
+    const res = await fetch(responseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) logger.warn("Slack interaction response not delivered", { status: res.status });
+    return res.ok;
+  } catch (error) {
+    logger.warn("Slack interaction response not delivered", { error: (error as Error).name });
+    return false;
+  }
+}
+
 function appUrl(path: string): string {
   const base = (process.env.APP_URL ?? "").replace(/\/+$/, "");
   return base ? `${base}${path}` : path;
 }
 
-async function post(body: { channel: string; text: string; thread_ts?: string }): Promise<boolean> {
+async function post(body: { channel: string; text: string; thread_ts?: string; blocks?: Block[] }): Promise<boolean> {
   const token = process.env.SLACK_BOT_TOKEN;
   if (!token) return false;
   try {
@@ -86,7 +148,8 @@ export async function notifyReviewers(record: ApprovalRequest): Promise<boolean>
     `\`\`\`\n${statementExcerpt(record.statement)}\n\`\`\``,
     `Review: ${appUrl("/admin/approvals")}`,
   ].join("\n");
-  return post({ channel, text });
+  // With a signing secret the message carries the two buttons; without one, the link is the way.
+  return post({ channel, text, ...(slackInteractive() ? { blocks: approvalBlocks(record, text) } : {}) });
 }
 
 /** The outcome, into the thread the request named. */

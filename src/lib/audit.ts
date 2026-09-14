@@ -124,6 +124,8 @@ export type AuditReason =
   | "ticket_required"
   /** An export refused by the datasource's export rule (docs/CONTEXT.md §4.22). */
   | "export_not_allowed"
+  /** A request whose signature did not verify: a Slack interaction, a callback (docs/CONTEXT.md §4.24). */
+  | "invalid_signature"
   /** The secrets manager did not answer, refused, or answered without a credential (§4.5). */
   | "credential_provider_failed"
   /** A write on an approval-gated datasource with no open window: it became a request (§4.6). */

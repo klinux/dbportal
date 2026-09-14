@@ -34,12 +34,22 @@ const ORIGIN_MISMATCH_BODY = {
 const SERVICE_API_PREFIX = "/api/v1/";
 const METRICS_PATH = "/api/metrics";
 const SERVICE_BEARER_PREFIX = "Bearer dbp_";
+/** Slack's interactivity endpoint (docs/CONTEXT.md §4.24): its credential is the request signature. */
+const SLACK_INTERACTIONS_PATH = "/api/slack/interactions";
+const SLACK_SIGNATURE_HEADER = "x-slack-signature";
 
 export async function proxy(request: NextRequest) {
   // NextURL removes the configured basePath before exposing pathname; Next also
   // prefixes config.matcher at build time. Keep authorization checks app-relative.
   const { pathname } = request.nextUrl;
   const isStaticAsset = /\.[a-z0-9]+$/i.test(pathname);
+
+  // Slack posts a form from its own servers, with no Origin and no cookie; the signature it
+  // carries is the credential, and the route verifies it against the signing secret. A
+  // request without one takes the ordinary path below and ends as a 401.
+  if (pathname === SLACK_INTERACTIONS_PATH && request.headers.has(SLACK_SIGNATURE_HEADER)) {
+    return withSecurityHeaders(NextResponse.next());
+  }
 
   const origin = checkOrigin(request);
   if (!origin.allowed) {

@@ -1253,6 +1253,12 @@ Admin: `GET /api/admin/service-tokens`, `POST /api/admin/service-tokens` — bod
 `{ name, role?, groups?, datasources?, requireApproval? }`, `201 { token, secret }` (the secret
 is returned once); `DELETE /api/admin/service-tokens/[id]` revokes. Audited as `service_token`.
 
+`POST /api/slack/interactions` (docs/CONTEXT.md §4.24) — Slack's interactivity request URL. No session:
+the request is verified by its `X-Slack-Signature` over `X-Slack-Request-Timestamp` and the raw body under
+`SLACK_SIGNING_SECRET` (`401`, audited `invalid_signature`, otherwise). A press on Approve or Reject decides
+the request as reviewer `slack:<user id>` when the datasource's `approverRoles` admit that principal;
+every other case is answered to the presser alone through `response_url`.
+
 Seed from the schema (docs/CONTEXT.md §4.23), admin only, PostgreSQL, never production.
 `POST /api/admin/seed-data/plan` — body `{ datasourceId, schema? }` → `{ schema, tables: [{ name, columns,
 dependsOn, rows }] }` in the order they are filled; `POST /api/admin/seed-data/run` — body `{ datasourceId,

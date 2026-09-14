@@ -10,8 +10,16 @@ const warn = mock(() => {});
 mock.module("@/lib/logger", () => ({
   logger: { warn, info: () => {}, error: () => {}, debug: () => {} },
 }));
-const { notifyExecutionOutcome, notifyReviewers, previewOf, slackConfigured, statementExcerpt, PREVIEW_ROWS } =
-  await import("@/lib/notify/slack");
+const {
+  notifyExecutionOutcome,
+  notifyReviewers,
+  previewOf,
+  respondToInteraction,
+  slackConfigured,
+  slackInteractive,
+  statementExcerpt,
+  PREVIEW_ROWS,
+} = await import("@/lib/notify/slack");
 
 type FetchLike = (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 const holder = globalThis as unknown as { fetch: FetchLike };
@@ -73,6 +81,50 @@ describe("slack notifier", () => {
     const [body] = sent();
     expect(body.text).not.toContain(long);
     expect(body.text).toContain("more characters");
+  });
+
+  // docs/CONTEXT.md §4.24: the two buttons ride on the announcement only where a click can be verified.
+  test("the announcement carries Approve and Reject buttons when a signing secret is set, and none otherwise", async () => {
+    await notifyReviewers(base);
+    expect(sent()[0]).not.toHaveProperty("blocks");
+    expect(slackInteractive()).toBe(false);
+    process.env.SLACK_SIGNING_SECRET = "s";
+    try {
+      expect(slackInteractive()).toBe(true);
+      await notifyReviewers(base);
+      const blocks = sent()[1].blocks as {
+        type: string;
+        block_id?: string;
+        elements?: { action_id: string; value: string }[];
+      }[];
+      expect(blocks[0].type).toBe("section");
+      expect(blocks[1]).toMatchObject({ type: "actions", block_id: "approval:exec-1" });
+      expect(blocks[1].elements?.map((e) => [e.action_id, e.value])).toEqual([
+        ["approval_approve", "exec-1"],
+        ["approval_reject", "exec-1"],
+      ]);
+    } finally {
+      delete process.env.SLACK_SIGNING_SECRET;
+    }
+  });
+
+  test("a response goes only to Slack's own hooks host, and a failure is one warning", async () => {
+    expect(await respondToInteraction("https://evil.example/x", { text: "no" })).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(
+      await respondToInteraction("https://hooks.slack.com/actions/T/1/abc", { text: "ok", replace_original: true }),
+    ).toBe(true);
+    expect(JSON.parse(((fetchSpy.mock.calls[0] as unknown[])[1] as RequestInit).body as string)).toEqual({
+      text: "ok",
+      replace_original: true,
+    });
+    fetchSpy.mockImplementationOnce(async () => new Response("no", { status: 500 }));
+    expect(await respondToInteraction("https://hooks.slack.com/actions/T/1/abc", { text: "x" })).toBe(false);
+    fetchSpy.mockImplementationOnce(async () => {
+      throw new TypeError("down");
+    });
+    expect(await respondToInteraction("https://hooks.slack.com/actions/T/1/abc", { text: "x" })).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(2);
   });
 
   test("announces a pending request to the reviewers' channel with the person, the statement and the page", async () => {
