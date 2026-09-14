@@ -238,6 +238,10 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "queues, or runs at once, a statement a service token submits (POST). It reaches a provider through @/lib/executions/store, but only behind guardServiceRoute, the Bearer-token twin of guardRoute; tests/api/v1/executions.test.ts proves the 401",
   "v1/executions/[id]":
     "reads one execution request the calling token queued, from the app's own storage backend; never opens a user database (GET, no POST export). Same Bearer gate",
+  "admin/freezes":
+    "lists and declares freeze windows in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/freezes.test.ts proves the 403",
+  "admin/freezes/[id]":
+    "ends one freeze window in the same storage backend; never opens a user database (DELETE, no POST export). Same admin gate",
   "admin/backups":
     "lists and takes backups of one datasource through pg_dump (GET/POST); it resolves the datasource like every route and hands it to @/lib/backups/store, pinned below. Admin-gated by requireAdmin; tests/api/admin/backups.test.ts proves the 403",
   "admin/backups/restore":
@@ -422,6 +426,9 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/api/ssh-profiles": "the SSH profile routes' error answer; reaches no provider",
     "@/lib/api/service-tokens": "the service token routes' error answer; reaches no provider",
     "@/lib/api/backups": "the backup routes' error answer; reaches no provider",
+    "@/lib/api/freezes": "the freeze window routes' error answer; reaches no provider",
+    "@/lib/freezes/store":
+      "freeze windows in the app's own storage backend and the seed file, and which one covers a datasource now; opens no user database",
     "@/lib/seed/resolve-connection":
       "turns a datasource id into the connection record - access rule, Vault reference, SSH profile - and opens nothing; the backup routes hand the record to pg_dump, not to a provider",
     "@/lib/backups/store": `pg_dump and pg_restore as child processes, and it ${PROVIDER_NAMING_HELPER} (@/lib/db/factory) only for withOneShotTunnel, the SSH tunnel a dump crosses - it opens no provider; the tools connect on their own`,

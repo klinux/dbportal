@@ -200,6 +200,7 @@ run_group "Group 5b/6: SshProfilesTab" \
   tests/components/admin/SshProfilesTab.test.tsx \
   tests/components/admin/ServiceTokensTab.test.tsx \
   tests/components/admin/BackupsPanel.test.tsx \
+  tests/components/admin/FreezeWindowsTab.test.tsx \
   tests/components/studio/ApprovalState.test.tsx \
   tests/components/admin/AdminSectionHeader.test.tsx
 

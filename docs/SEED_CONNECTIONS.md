@@ -213,6 +213,22 @@ running at once on the datasource (docs/CONTEXT.md §4.16). Each is optional:
       maxConcurrent: 2       # running statements per person; the next one is refused with 429
 ```
 
+### Freeze windows
+
+No statement that writes runs on the datasources a window names (or on any datasource when
+it names none) between its two instants, whoever asks (docs/CONTEXT.md §4.17). Declared once
+in the seed file, or on the admin page (Security → Freeze windows), where one is ended early
+by deleting it:
+
+```yaml
+freezeWindows:
+  - id: "release-42"
+    reason: "Release 42 deploy"
+    from: "2026-09-20T22:00:00Z"
+    until: "2026-09-21T02:00:00Z"
+    datasources: ["prod-orders", "prod-billing"]   # omit to freeze every datasource
+```
+
 ### SSH profiles
 
 A bastion is declared once and referenced by name (docs/CONTEXT.md §4.9); the server builds

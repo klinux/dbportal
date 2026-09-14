@@ -5,6 +5,7 @@ import type { ThresholdConfig } from "../monitoring-thresholds";
 import type { SshProfileRecord } from "../ssh-profiles/types";
 import type { Guardrail } from "../guardrails";
 import type { ServiceTokenRecord } from "../service-tokens/types";
+import type { FreezeWindowRecord } from "../freezes/store";
 
 /**
  * All persistable collections and their data types. Maps 1:1 with localStorage keys (minus
@@ -30,6 +31,8 @@ export interface StorageData {
   ssh_profiles: SshProfileRecord[];
   /** Service tokens (docs/CONTEXT.md §4.10): hashes and metadata under `shared:service-tokens`; not a per-user collection. */
   service_tokens: ServiceTokenRecord[];
+  /** Freeze windows (docs/CONTEXT.md §4.17) under `shared:freezes`; not a per-user collection. */
+  freeze_windows: FreezeWindowRecord[];
 }
 
 /** Collection names that can be synced to server storage */

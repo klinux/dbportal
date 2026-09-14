@@ -34,6 +34,8 @@ export type AuditEventType =
   | "service_token"
   /** A backup taken, uploaded or restored by an administrator (docs/CONTEXT.md §4.14). */
   | "backup"
+  /** A freeze window declared or ended by an administrator (docs/CONTEXT.md §4.17). */
+  | "freeze_window"
   /** A reviewer's decision on a write approval request (docs/CONTEXT.md §4.6). */
   | "approval_decision"
   /** A permitted reveal of masked columns; the columns are named, never their values (§4.7). */
@@ -108,6 +110,8 @@ export type AuditReason =
   | "read_only_datasource"
   /** A statement a guardrail holds for a reviewer (docs/CONTEXT.md §4.15). */
   | "guardrail"
+  /** A write refused because a freeze window covers the datasource (docs/CONTEXT.md §4.17). */
+  | "freeze_window"
   /** The secrets manager did not answer, refused, or answered without a credential (§4.5). */
   | "credential_provider_failed"
   /** A write on an approval-gated datasource with no open window: it became a request (§4.6). */

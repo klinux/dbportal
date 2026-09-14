@@ -1202,6 +1202,14 @@ answers `404`. Series: `dbportal_audit_events_total{event,action,outcome}`,
 `dbportal_providers_cached`, `dbportal_build_info{version}`, `dbportal_uptime_seconds`, and
 `dbportal_store_scrape_failed` when the store did not answer.
 
+### Freeze windows API
+
+Admin only (docs/CONTEXT.md §4.17). `GET /api/admin/freezes` → `{ windows: [{ id, reason, from, until, datasources?, source }] }`;
+`POST /api/admin/freezes` — body `{ id, reason, from, until, datasources? }` (instants as ISO 8601), `201`,
+`409` when the id exists or the seed file declares it; `DELETE /api/admin/freezes/[id]` ends a window.
+A write inside a window is refused with `403` whose message names the window's end and reason;
+the bot API answers the same. Audited as `freeze_window` / `created` · `deleted`.
+
 ### Backups API
 
 Admin only (docs/CONTEXT.md §4.14), PostgreSQL datasources.

@@ -248,6 +248,7 @@ function OperationsAudit() {
             <SelectItem value="ssh_profile">SSH Profile</SelectItem>
             <SelectItem value="service_token">Service Token</SelectItem>
             <SelectItem value="backup">Backup</SelectItem>
+            <SelectItem value="freeze_window">Freeze Window</SelectItem>
           </SelectContent>
         </Select>
         <Input

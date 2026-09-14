@@ -1,4 +1,10 @@
-import { describe, test, expect, beforeEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, spyOn, mock } from "bun:test";
+// docs/CONTEXT.md §4.17: the freeze store is mocked here; tests/unit/freezes/store.test.ts owns it.
+let frozenWindow: { id: string; reason: string; from: string; until: string } | null = null;
+mock.module("@/lib/freezes/store", () => ({
+  activeFreeze: async () => frozenWindow,
+}));
+
 import { assertWriteAllowed, providerAccessOptions } from "@/lib/api/write-gate";
 import { SeedConnectionError } from "@/lib/seed/resolve-connection";
 import { clearRateLimitState } from "@/lib/api/rate-limit";
@@ -26,6 +32,32 @@ const session = { role: "user" as const, username: "bob" };
 describe("assertWriteAllowed", () => {
   beforeEach(() => {
     clearRateLimitState();
+  });
+
+  // docs/CONTEXT.md §4.17: inside a window a write is refused with the window's words, a read is not.
+  test("a freeze window refuses a write with its end and reason, and lets a read through", async () => {
+    frozenWindow = {
+      id: "w",
+      reason: "Release 42 deploy",
+      from: "2026-09-14T00:00:00.000Z",
+      until: "2026-09-14T02:00:00.000Z",
+    };
+    try {
+      const err = await assertWriteAllowed({
+        route: "r",
+        session,
+        connection: base,
+        statements: ["DELETE FROM t WHERE id = 1"],
+        request,
+      }).catch((e) => e);
+      expect(err.statusCode).toBe(403);
+      expect(err.message).toBe('Writes on "Orders" are frozen until 2026-09-14T02:00:00.000Z: Release 42 deploy');
+      expect(
+        await assertWriteAllowed({ route: "r", session, connection: base, statements: ["SELECT 1"], request }),
+      ).toEqual({});
+    } finally {
+      frozenWindow = null;
+    }
   });
 
   test("lets everything through when the session may write", async () => {

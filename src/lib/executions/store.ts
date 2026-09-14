@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { canWrite, isReadStatement } from "@/lib/access";
 import { dangerOf } from "@/lib/guardrails";
 import { capPrepareOptions, withConcurrency } from "@/lib/limits";
+import { activeFreeze } from "@/lib/freezes/store";
+import { freezeMessage } from "@/lib/api/write-gate";
 import { auditExecution } from "@/lib/audit-execution";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
@@ -28,6 +30,14 @@ import { executionFailureReason } from "@/lib/audit-execution";
  * a window, because the requester is not there to run it again.
  */
 export const ROUTE = "POST /api/v1/executions";
+
+/** Thrown inside a run when a freeze window covers the datasource at that moment. */
+class FrozenError extends Error {
+  constructor() {
+    super("freeze window");
+    this.name = "FrozenError";
+  }
+}
 export const RESULT_MAX_ROWS = 200;
 export const RESULT_MAX_BYTES = 256 * 1024;
 const SUBJECT_MAX = 200;
@@ -81,6 +91,10 @@ export async function runExecution(record: ApprovalRequest, identity: ServiceIde
   let outcome: ExecutionOutcome;
   try {
     const connection = await resolveConnection({ connectionId: `seed:${record.datasourceId}` }, identity.session);
+    // Approved into a freeze window (§4.17): the statement does not run; the outcome says why.
+    if (!isReadStatement(record.statement, connection.type) && (await activeFreeze(record.datasourceId))) {
+      throw new FrozenError();
+    }
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(identity.session.username),
       ...providerAccessOptions(connection, identity.session),
@@ -118,7 +132,12 @@ export async function runExecution(record: ApprovalRequest, identity: ServiceIde
     };
   } catch (error) {
     // The reason is a closed word; the driver's message stays in the server log, never here.
-    const reason = error instanceof SeedConnectionError ? "permission_denied" : executionFailureReason(error);
+    const reason =
+      error instanceof FrozenError
+        ? "freeze_window"
+        : error instanceof SeedConnectionError
+          ? "permission_denied"
+          : executionFailureReason(error);
     logger.warn("Queued execution failed", { route: ROUTE, approvalId: record.id, reason });
     outcome = {
       status: "failed",
@@ -163,6 +182,10 @@ export async function submitExecution(
       `This datasource is read-only for the token: only statements that read may run on "${connection.name}"`,
       403,
     );
+  }
+  if (writes) {
+    const frozen = await activeFreeze(datasourceId);
+    if (frozen) throw new ApprovalError(freezeMessage(connection.name, frozen), 403);
   }
   const guardrail = connection.guardrails === false ? null : dangerOf(statement, connection.type);
   const store = await requireStore();

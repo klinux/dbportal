@@ -83,6 +83,8 @@ const notifyExecutionOutcome = mock(async () => true);
 mock.module("@/lib/notify/slack", () => ({ notifyReviewers, notifyExecutionOutcome }));
 const audit = mock(() => ({}));
 mock.module("@/lib/audit", () => ({ emitAuditEvent: audit, isStatementAuditEnabled: () => false }));
+let frozenWindow: { id: string; reason: string; from: string; until: string } | null = null;
+mock.module("@/lib/freezes/store", () => ({ activeFreeze: async () => frozenWindow }));
 let liveToken: ServiceIdentity | null = null;
 mock.module("@/lib/service-tokens/store", () => ({
   findServiceTokenByActor: async (actor: string) =>
@@ -129,6 +131,7 @@ describe("executions store", () => {
     queryFails = null;
     liveToken = null;
     denyAll = false;
+    frozenWindow = null;
     for (const m of [
       provider.putApproval,
       query,
@@ -245,6 +248,24 @@ describe("executions store", () => {
     }
     await ask({});
     expect(lastPrepareOptions).toEqual({});
+  });
+
+  // docs/CONTEXT.md §4.17: a write during a freeze is refused at once; one approved into a
+  // window does not run and says why; a read is never frozen.
+  test("a freeze window refuses a bot's write with 403, fails an approved one, and leaves a read alone", async () => {
+    frozenWindow = { id: "w", reason: "Deploy", from: "x", until: "2026-09-14T02:00:00.000Z" };
+    const refused = await ask({ datasourceId: "plain", statement: "DELETE FROM t WHERE id = 1" }).catch((e) => e);
+    expect(refused).toBeInstanceOf(ApprovalError);
+    expect(refused.statusCode).toBe(403);
+    expect(refused.message).toContain("frozen until");
+    expect((await ask({})).status).toBe("approved");
+    frozenWindow = null;
+    liveToken = bot();
+    const queued = await ask({ datasourceId: "orders", statement: "DELETE FROM orders WHERE id = 1" });
+    frozenWindow = { id: "w", reason: "Deploy", from: "x", until: "y" };
+    const settled = await settleDecision({ ...queued, status: "approved", reviewer: "root" });
+    expect(settled.execution).toMatchObject({ status: "failed", error: "freeze_window" });
+    expect(query).toHaveBeenCalledTimes(1);
   });
 
   test("a failed run stores a closed reason, never the driver's words, and still answers the thread", async () => {

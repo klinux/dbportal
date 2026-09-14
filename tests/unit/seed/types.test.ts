@@ -1,5 +1,11 @@
 import { describe, it, expect } from "bun:test";
-import { SeedConnectionSchema, SeedConfigSchema, SeedDefaultsSchema, SshProfileSchema } from "@/lib/seed/types";
+import {
+  FreezeWindowSchema,
+  SeedConnectionSchema,
+  SeedConfigSchema,
+  SeedDefaultsSchema,
+  SshProfileSchema,
+} from "@/lib/seed/types";
 
 describe("SeedConnectionSchema", () => {
   const validConn = {
@@ -143,6 +149,23 @@ describe("SeedConfigSchema", () => {
 });
 
 // docs/CONTEXT.md §4.9: a bastion declared once under `sshProfiles`, named by a datasource.
+// docs/CONTEXT.md §4.17: a window declared once, with its two instants in order.
+describe("SeedConfigSchema: freeze windows", () => {
+  const conn = { id: "a", name: "A", type: "postgres", host: "h", roles: ["*"] };
+  const window = { id: "release-42", reason: "Deploy", from: "2026-09-20T22:00:00Z", until: "2026-09-21T02:00:00Z" };
+  it("accepts a window list and rejects one whose end is not after its start", () => {
+    const ok = SeedConfigSchema.safeParse({ version: "1", connections: [conn], freezeWindows: [window] });
+    expect(ok.success).toBe(true);
+    const backwards = SeedConfigSchema.safeParse({
+      version: "1",
+      connections: [conn],
+      freezeWindows: [{ ...window, until: "2026-09-20T21:00:00Z" }],
+    });
+    expect(backwards.success).toBe(false);
+    expect(FreezeWindowSchema.safeParse({ ...window, datasources: ["Bad Id"] }).success).toBe(false);
+  });
+});
+
 describe("SeedConfigSchema: SSH profiles", () => {
   const conn = { id: "a", name: "A", type: "postgres", host: "h", roles: ["*"], sshProfile: "bastion" };
   const profile = { id: "bastion", name: "Bastion", host: "b.internal", username: "portal", authMethod: "privateKey" };

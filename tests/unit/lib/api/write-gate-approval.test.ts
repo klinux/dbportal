@@ -31,6 +31,12 @@ mock.module("@/lib/seed", () => ({
   getSeedConnectionById: async () => null,
 }));
 
+// docs/CONTEXT.md §4.17: the freeze store is mocked here; tests/unit/freezes/store.test.ts owns it.
+let frozenWindow: { id: string; reason: string; from: string; until: string } | null = null;
+mock.module("@/lib/freezes/store", () => ({
+  activeFreeze: async () => frozenWindow,
+}));
+
 const { assertWriteAllowed } = await import("@/lib/api/write-gate");
 const { decideApproval } = await import("@/lib/approvals/store");
 const { ApprovalRequiredError } = await import("@/lib/approvals/errors");

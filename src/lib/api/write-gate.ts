@@ -1,4 +1,5 @@
 import { canWrite, isReadStatement } from "@/lib/access";
+import { activeFreeze } from "@/lib/freezes/store";
 import { firstGuardrail } from "@/lib/guardrails";
 import { auditRoleDenial } from "@/lib/api/role-denial";
 import { ApprovalError } from "@/lib/approvals/errors";
@@ -47,6 +48,12 @@ export async function assertWriteAllowed(opts: {
       403,
     );
   }
+  // A freeze window (§4.17) refuses every write it covers, approval or not, whoever asks.
+  const frozen = await activeFreeze(opts.connection.seedId ?? opts.connection.id);
+  if (frozen) {
+    auditRoleDenial({ route: opts.route, user: opts.session.username, request: opts.request, reason: "freeze_window" });
+    throw new SeedConnectionError(freezeMessage(opts.connection.name, frozen), 403);
+  }
   // A guardrail (§4.15) holds the statement for a reviewer on any datasource that has not
   // opted out, whoever asks; the request records which one, so the reviewer sees why.
   const guardrail = opts.connection.guardrails === false ? null : firstGuardrail(opts.statements, opts.connection.type);
@@ -73,6 +80,11 @@ export async function assertWriteAllowed(opts: {
     }
     throw error;
   }
+}
+
+/** What a refused write is told: the datasource, when the window ends, and why it exists. */
+export function freezeMessage(datasourceName: string, window: { reason: string; until: string }): string {
+  return `Writes on "${datasourceName}" are frozen until ${new Date(window.until).toISOString()}: ${window.reason}`;
 }
 
 /** The provider option that opens the engine's own read-only enforcement where it has one. */

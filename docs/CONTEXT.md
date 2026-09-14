@@ -386,8 +386,14 @@ built. Each lands as its own section when done.
   queue that grows quietly is what the limit exists to prevent. Applied on the query,
   multi-query (the script counts as one) and transaction routes and on the bot's run. The
   gate is per instance: two instances behind a balancer bound twice the number.
-- **4.17 Freeze windows** — no writes on a datasource (or anywhere) between two instants,
-  declared once; a write inside the window is refused with the window's reason.
+- **4.17 Freeze windows — done.** [`src/lib/freezes/store.ts`](../src/lib/freezes/store.ts),
+  `freezeWindows:` in the seed file or Security → Freeze windows (`/api/admin/freezes`,
+  stored under `shared:freezes`): between two instants no statement that writes runs on
+  the datasources named - or on any when none is named - whoever asks, approval or not;
+  the refusal names the window's end and reason and is audited as `freeze_window`. The
+  bot queue refuses a write at submission and fails one approved into a window. Ended
+  early by deleting. The check is a comparison of instants on every write from a cached
+  list; no scheduler. Reads are never frozen.
 - **4.18 Ticket on every execution** — a `reason`/ticket field that travels into the audit
   line; required where the datasource says so.
 - **4.19 Named roles** — beyond `admin`/`user`: a reviewer who does not administer, an

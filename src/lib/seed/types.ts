@@ -82,6 +82,20 @@ export const LimitsSchema = z.object({
   maxConcurrent: z.number().int().min(1).max(100).optional(),
 });
 
+/** A freeze window (docs/CONTEXT.md §4.17): no write between two instants, on the datasources named or on all. */
+export const FreezeWindowSchema = z
+  .object({
+    id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    reason: z.string().min(1).max(200),
+    from: z.string().datetime({ offset: true }),
+    until: z.string().datetime({ offset: true }),
+    /** Datasource ids; empty or absent means every datasource. */
+    datasources: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/)).optional(),
+  })
+  .refine((w) => Date.parse(w.until) > Date.parse(w.from), { message: "until must be after from", path: ["until"] });
+
+export type FreezeWindow = z.infer<typeof FreezeWindowSchema>;
+
 export const SeedConnectionSchema = z.object({
   id: z
     .string()
@@ -145,6 +159,8 @@ export const SeedConfigSchema = z
     defaults: SeedDefaultsSchema.optional(),
     connections: z.array(SeedConnectionSchema).min(1, "At least one connection is required"),
     sshProfiles: z.array(SshProfileSchema).optional(),
+    /** Freeze windows declared once (§4.17); read-only on the admin page. */
+    freezeWindows: z.array(FreezeWindowSchema).optional(),
   })
   .refine((cfg) => new Set(cfg.connections.map((c) => c.id)).size === cfg.connections.length, {
     message: "Connection IDs must be unique",

@@ -9,10 +9,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
-import { EyeOff, Lock, Activity, KeyRound, Save, RotateCcw, Shield, Terminal, Bot } from "lucide-react";
+import { EyeOff, Lock, Activity, KeyRound, Save, RotateCcw, Shield, Terminal, Bot, Snowflake } from "lucide-react";
 import { MaskingSettings } from "@/components/MaskingSettings";
 import { SshProfilesTab } from "@/components/admin/tabs/SshProfilesTab";
 import { ServiceTokensTab } from "@/components/admin/tabs/ServiceTokensTab";
+import { FreezeWindowsTab } from "@/components/admin/tabs/FreezeWindowsTab";
 import { DEFAULT_THRESHOLDS, type ThresholdConfig } from "@/lib/monitoring-thresholds";
 import { storage } from "@/lib/storage";
 import { toast } from "sonner";
@@ -22,6 +23,7 @@ const ACCESS_TAB_LABEL = "Access";
 const THRESHOLDS_TAB_LABEL = "Thresholds";
 const SSH_TAB_LABEL = "SSH profiles";
 const TOKENS_TAB_LABEL = "Service tokens";
+const FREEZES_TAB_LABEL = "Freeze windows";
 const ACCESS_CARD_TITLE = "Security & Access";
 const SUPPORTED_LABEL = "Supported";
 const CONFIGURABLE_LABEL = "Configurable";
@@ -61,6 +63,10 @@ export function SecurityTab() {
             <Bot className="h-3.5 w-3.5" />
             {TOKENS_TAB_LABEL}
           </TabsTrigger>
+          <TabsTrigger value="freezes" className={ADMIN_SUBTAB_TRIGGER_CLASS}>
+            <Snowflake className="h-3.5 w-3.5" />
+            {FREEZES_TAB_LABEL}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="masking" className="mt-4">
@@ -79,6 +85,11 @@ export function SecurityTab() {
         {/* docs/CONTEXT.md §4.10: the identities bots present to the execution API. */}
         <TabsContent value="tokens" className="mt-4">
           <ServiceTokensTab />
+        </TabsContent>
+
+        {/* docs/CONTEXT.md §4.17: when nothing may be written, declared once. */}
+        <TabsContent value="freezes" className="mt-4">
+          <FreezeWindowsTab />
         </TabsContent>
 
         <TabsContent value="thresholds" className="mt-4">
