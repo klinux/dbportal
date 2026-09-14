@@ -20,7 +20,7 @@ mock.module("@/lib/db-ui-config", () => ({
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { render, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
-import { ConnectionsList, SEARCH_FROM, groupByEnvironment } from "@/components/sidebar/ConnectionsList";
+import { ConnectionsList, groupByEnvironment } from "@/components/sidebar/ConnectionsList";
 import { mockPostgresConnection, mockMySQLConnection } from "../../fixtures/connections";
 import type { DatabaseConnection } from "@/lib/types";
 
@@ -77,8 +77,6 @@ describe("ConnectionsList", () => {
     expect(getByTestId("managed-lock-orders")).not.toBeNull();
     expect(getByTestId("connection-orders").getAttribute("data-active")).toBe("true");
     expect(getByTestId("connection-dev").getAttribute("data-active")).toBe("false");
-    // Below the threshold there is nothing to search.
-    expect(container.querySelector("[cmdk-input]")).toBeNull();
   });
 
   test("selecting an item hands the connection over", () => {
@@ -89,8 +87,18 @@ describe("ConnectionsList", () => {
     expect(onSelect).toHaveBeenCalledWith(dev);
   });
 
-  test("a long list gets a search box that narrows the groups", () => {
-    const many = Array.from({ length: SEARCH_FROM }, (_, i) =>
+  // The box is always there (requested 2026-09-14): a fleet has many datasources.
+  test("the search box narrows the groups, and is there for a short list too", () => {
+    const short = render(
+      <ConnectionsList
+        connections={[conn({ id: "seed:one", seedId: "one" })]}
+        activeConnection={null}
+        onSelectConnection={onSelect}
+      />,
+    );
+    expect(short.container.querySelector("[cmdk-input]")).not.toBeNull();
+    short.unmount();
+    const many = Array.from({ length: 6 }, (_, i) =>
       conn({
         id: `seed:c${i}`,
         seedId: `c${i}`,

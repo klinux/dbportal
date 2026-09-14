@@ -13,11 +13,11 @@
  * the window.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CircleAlert, Database, LoaderCircle } from "lucide-react";
 import type { DatabaseObject, ProviderCapabilities, ProviderLabels } from "@/lib/db/types";
 import type { DatabaseConnection } from "@/lib/types";
-import type { TreeRowModel } from "./flatten";
+import { filterRows, type TreeRowModel } from "./flatten";
 import { RowMenu, type RowMenuAnchor } from "./RowMenu";
 import { rowActions, type TreeRowAction, type TreeRowActionHandlers } from "./row-actions";
 import { TREE_ROW_HEIGHT, TreeRow } from "./TreeRow";
@@ -76,6 +76,8 @@ export interface ObjectTreeProps {
    * costs, and why nothing is derived from the statement, is in `useTreeNodes`' `refresh`.
    */
   readonly refreshToken?: number;
+  /** The Explorer's search text (docs/CONTEXT.md §4.1): narrows the loaded object rows, see `filterRows`. */
+  readonly filter?: string;
 }
 
 /** An open menu: which row it belongs to, and where the reader asked for it. */
@@ -130,6 +132,7 @@ export function ObjectTree({
   labels,
   source,
   refreshToken = 0,
+  filter,
 }: ObjectTreeProps) {
   const tree = useTreeNodes(connection, capabilities, deferred, source);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -156,7 +159,7 @@ export function ObjectTree({
     refresh();
   }, [refresh, refreshToken]);
 
-  const rows = tree.rows;
+  const rows = useMemo(() => filterRows(tree.rows, filter ?? ""), [tree.rows, filter]);
   // Exactly one row is tabbable. Until the reader picks one it is the first, and a row that
   // disappeared under a collapse hands the tab stop back rather than taking it out of the page.
   const activeRowId = rows.find((row) => row.id === activeId)?.id ?? rows[0]?.id;

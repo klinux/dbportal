@@ -1,10 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { DatabaseConnection } from "@/lib/types";
 import type { DatabaseObject } from "@/lib/db/types";
 import type { ProviderMetadata } from "@/hooks/use-provider-metadata";
-import { Plus, Layers, LoaderCircle, CircleAlert } from "lucide-react";
+import { Plus, Layers, LoaderCircle, CircleAlert, Search, X } from "lucide-react";
 import { ObjectTree, type ObjectSource, type TreeRowActionHandlers } from "@/components/object-tree";
 import { GitHubRepoLink } from "@/components/github-repo-link";
 import { BrandMark, Wordmark } from "@/components/brand-mark";
@@ -85,6 +85,7 @@ export function Sidebar({
   objectRefreshToken,
 }: SidebarProps) {
   const appVersion = getAppVersion();
+  const [filter, setFilter] = useState("");
 
   return (
     <div className="flex w-full h-full border-r border-border flex-col bg-background select-none">
@@ -104,6 +105,22 @@ export function Sidebar({
               <Layers strokeWidth={1.5} className="w-3.5 h-3.5" />
             </button>
           )}
+        </div>
+      </div>
+
+      {/*
+        Two areas, each named (docs/CONTEXT.md §4.1, requested 2026-09-14): Connections, with
+        the datasource row whose popover lists what this session may open, grouped by
+        environment; and below it the Explorer of the one that is open.
+      */}
+      <section aria-label="Connections" data-testid="sidebar-connections" className="border-b border-border pb-3">
+        <div className="h-9 px-3 flex items-center justify-between">
+          <span className="flex items-center gap-1.5 text-xs font-medium text-fg-secondary">
+            Connections
+            <span className="font-mono text-[10px] text-fg-muted" data-testid="sidebar-connections-count">
+              {connections.length}
+            </span>
+          </span>
           {onAddConnection && (
             <button
               className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
@@ -114,21 +131,50 @@ export function Sidebar({
             </button>
           )}
         </div>
-      </div>
+        <div className="px-2">
+          <ConnectionPicker
+            connections={connections}
+            activeConnection={activeConnection}
+            onSelectConnection={onSelectConnection}
+            onAddConnection={onAddConnection}
+          />
+        </div>
+      </section>
 
-      {/*
-        One row for the datasource, not a list: the tree below is what the sidebar is for
-        once something is open, and a flat list of every datasource took its space. The
-        popover carries the grouped, searchable list.
-      */}
-      <div className="px-2 pt-3 pb-2">
-        <ConnectionPicker
-          connections={connections}
-          activeConnection={activeConnection}
-          onSelectConnection={onSelectConnection}
-          onAddConnection={onAddConnection}
-        />
-      </div>
+      {activeConnection && (
+        <div className="h-9 px-3 flex items-center justify-between shrink-0">
+          <span className="text-xs font-medium text-fg-secondary">Explorer</span>
+          <span className="truncate ml-2 text-[11px] text-fg-muted" title={activeConnection.name}>
+            {activeConnection.name}
+          </span>
+        </div>
+      )}
+      {activeConnection && metadata && (
+        <div className="px-3 pb-2 shrink-0">
+          <div className="relative">
+            <Search strokeWidth={1.5} className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-fg-muted" />
+            <input
+              type="search"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Search loaded tables or objects…"
+              aria-label="Search objects"
+              data-testid="sidebar-explorer-search"
+              className="w-full h-7 pl-7 pr-6 rounded-md border border-hairline bg-panel text-xs text-foreground placeholder:text-fg-muted focus:outline-none focus:border-hairline-strong"
+            />
+            {filter && (
+              <button
+                type="button"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-fg-muted hover:text-foreground"
+                onClick={() => setFilter("")}
+                aria-label="Clear search"
+              >
+                <X strokeWidth={1.5} className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/*
         The object tree replaces the flat table list (#789). It reads the catalog itself,
@@ -153,6 +199,7 @@ export function Sidebar({
               actions={objectActions}
               source={objectSource}
               refreshToken={objectRefreshToken}
+              filter={filter}
             />
           ) : metadataError !== null ? (
             <div

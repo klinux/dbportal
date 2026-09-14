@@ -46,6 +46,7 @@ mock.module("@/components/object-tree", () => ({
           .sort()
           .join(","),
         "data-has-labels": String(props.labels !== undefined),
+        "data-filter": String(props.filter ?? ""),
       },
       "ObjectTree Mock",
     );
@@ -194,7 +195,7 @@ describe("Sidebar", () => {
     const { getByTestId } = render(<Sidebar {...props} />);
 
     expect(getByTestId("object-tree").closest('[data-slot="scroll-area"]')).toBeNull();
-    // The datasource picker is one row above the tree, not a list the tree competes with.
+    // The Connections area sits above the tree; the tree is not inside it.
     const picker = getByTestId("connections-list");
     const tree = getByTestId("object-tree");
     expect(picker.compareDocumentPosition(tree) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -329,16 +330,38 @@ describe("Sidebar", () => {
     expect(noErdButton).toBeNull();
   });
 
-  test("hands the picker the list, the active connection and the add action", () => {
+  // The two areas (docs/CONTEXT.md §4.1, requested 2026-09-14): Connections holds the picker
+  // and its count; Explorer names the open datasource and waits for one.
+  test("hands the picker, inside the Connections area, the list, the active connection and the add action", () => {
     const connections = [mockPostgresConnection, mockMySQLConnection];
     const onAddConnection = mock(() => {});
     const props = createDefaultProps({ connections, activeConnection: mockPostgresConnection, onAddConnection });
-    const { getByTestId } = render(<Sidebar {...props} />);
+    const { getByTestId, getByText } = render(<Sidebar {...props} />);
 
     const picker = getByTestId("connections-list");
     expect(picker.getAttribute("data-connections-count")).toBe("2");
     expect(picker.getAttribute("data-active-connection")).toBe(mockPostgresConnection.id);
+    expect(getByTestId("sidebar-connections").contains(picker)).toBe(true);
     expect(capturedAddHandler).toBe(onAddConnection);
+    expect(getByTestId("sidebar-connections-count").textContent).toBe("2");
+    expect(getByText("Explorer")).not.toBeNull();
+    expect(getByText(mockPostgresConnection.name)).not.toBeNull();
+    cleanup();
+    const { queryByText } = render(<Sidebar {...createDefaultProps({ activeConnection: null })} />);
+    expect(queryByText("Explorer")).toBeNull();
+  });
+
+  test("the Explorer search narrows the tree and clears; it is absent until the declaration arrives", () => {
+    const { getByTestId, getByLabelText, queryByTestId } = render(<Sidebar {...createDefaultProps()} />);
+    const box = getByTestId("sidebar-explorer-search") as HTMLInputElement;
+    fireEvent.change(box, { target: { value: "ord" } });
+    expect(getByTestId("object-tree").getAttribute("data-filter")).toBe("ord");
+    fireEvent.click(getByLabelText("Clear search"));
+    expect(getByTestId("object-tree").getAttribute("data-filter")).toBe("");
+    expect(box.value).toBe("");
+    cleanup();
+    render(<Sidebar {...createDefaultProps({ metadata: null })} />);
+    expect(queryByTestId("sidebar-explorer-search")).toBeNull();
   });
 
   /**

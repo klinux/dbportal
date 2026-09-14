@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { flattenTree } from "@/components/object-tree/flatten";
+import { filterRows, flattenTree, type TreeRowModel } from "@/components/object-tree/flatten";
 import { containerDepth } from "@/lib/db/object-kinds";
 import type { ProviderCapabilities } from "@/lib/db/types";
 
@@ -585,5 +585,29 @@ describe("flattenTree container levels", () => {
       "0:3/3:procedure",
     ]);
     expect(rows[0]?.badge).toBe("5");
+  });
+
+  // The Explorer's search (docs/CONTEXT.md §4.1): objects by label, case-blind; containers and
+  // folders always stay, so a folder not yet opened can still be opened; blank keeps all.
+  test("filterRows keeps every container and folder and the objects whose label holds the text", () => {
+    const row = (id: string, kind: TreeRowModel["kind"], label: string): TreeRowModel => ({
+      id,
+      kind,
+      label,
+      depth: 0,
+      setSize: 1,
+      posInSet: 1,
+      path: [],
+    });
+    const rows = [
+      row("c", "container", "public"),
+      row("f", "folder", "Tables"),
+      row("o1", "object", "orders"),
+      row("o2", "object", "users"),
+    ];
+    expect(filterRows(rows, "")).toBe(rows);
+    expect(filterRows(rows, "  ").map((r) => r.id)).toEqual(["c", "f", "o1", "o2"]);
+    expect(filterRows(rows, "ORD").map((r) => r.id)).toEqual(["c", "f", "o1"]);
+    expect(filterRows(rows, "zzz").map((r) => r.id)).toEqual(["c", "f"]);
   });
 });

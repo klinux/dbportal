@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * The datasources this session may open, grouped by environment in the order the admin
- * page uses (production first) and searchable once there are enough of them to need it.
+ * page uses (production first), with a search box above them: a fleet has many.
  * One list for two surfaces: the desktop sidebar wraps it in a popover
  * (`ConnectionPicker`), the mobile connections tab renders it inline.
  */
@@ -29,9 +29,6 @@ interface ConnectionsListProps {
   /** Focus the search box on mount - the popover does, the inline tab does not steal focus. */
   autoFocus?: boolean;
 }
-
-/** From how many datasources the search box appears. */
-export const SEARCH_FROM = 6;
 
 export interface EnvironmentGroup {
   env: ConnectionEnvironment;
@@ -88,9 +85,8 @@ export function ConnectionsList({
 
   return (
     <Command data-testid="connections-list" loop className="bg-transparent">
-      {connections.length >= SEARCH_FROM && (
-        <CommandInput placeholder="Search datasources…" autoFocus={autoFocus} className="text-xs" />
-      )}
+      {/* Always there (requested 2026-09-14): a fleet has many datasources, and the box is how one is found. */}
+      <CommandInput placeholder="Search datasources…" autoFocus={autoFocus} className="text-xs" />
       <CommandList className="max-h-[60vh]">
         <CommandEmpty className="py-4 text-center text-xs text-fg-muted">No datasource matches.</CommandEmpty>
         {groups.map((group) => (

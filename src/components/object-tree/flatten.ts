@@ -348,3 +348,15 @@ function appendObject(
     kindId: object.kind,
   });
 }
+
+/**
+ * The rows the Explorer's search box keeps: every container and folder, and the objects
+ * whose label holds the text. Only what is LOADED is read - a folder never opened has no
+ * objects to match - so the folders stay to be opened, and the box narrows rather than
+ * searches the catalog. Blank text keeps everything.
+ */
+export function filterRows(rows: readonly TreeRowModel[], text: string): readonly TreeRowModel[] {
+  const needle = text.trim().toLowerCase();
+  if (needle.length === 0) return rows;
+  return rows.filter((row) => row.kind !== "object" || row.label.toLowerCase().includes(needle));
+}
