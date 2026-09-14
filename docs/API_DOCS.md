@@ -1253,6 +1253,12 @@ Admin: `GET /api/admin/service-tokens`, `POST /api/admin/service-tokens` — bod
 `{ name, role?, groups?, datasources?, requireApproval? }`, `201 { token, secret }` (the secret
 is returned once); `DELETE /api/admin/service-tokens/[id]` revokes. Audited as `service_token`.
 
+Every execution route takes at most 1 048 576 characters of statement text per request and
+answers `413` above that; a `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `RELEASE` or `END` sent
+to `/api/db/query` or anywhere in a `/api/db/multi-query` script is refused with `400`, because
+each statement there runs on its own pooled connection - a transaction is `/api/db/transaction`'s
+(docs/CONTEXT.md §4.21). The bot's `statement` may be 32 000 characters.
+
 Every execution route (`/api/db/query`, `/api/db/multi-query`, `/api/db/transaction`) and the
 bot's `POST /api/v1/executions` accept an optional `ticket` (a string, trimmed to 120
 characters) that is written to the `query_execution` audit line as `ticket`; a datasource

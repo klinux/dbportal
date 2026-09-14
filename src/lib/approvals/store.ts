@@ -25,7 +25,12 @@ import { ApprovalError, ApprovalRequiredError } from "./errors";
  */
 export const DEFAULT_WINDOW_MINUTES = 15;
 export const MAX_WINDOW_MINUTES = 240;
-export const STATEMENT_MAX_CHARS = 4000;
+/**
+ * What a request keeps of its statement, and what the bot API takes (docs/CONTEXT.md
+ * §4.21): an `UPDATE … WHERE id IN (…)` of two thousand ids is about twenty thousand
+ * characters, so the bound sits well above that; the reviewer's page folds a long one.
+ */
+export const STATEMENT_MAX_CHARS = 32_000;
 export const NOTE_MAX_CHARS = 500;
 const RECENT_LIMIT = 200;
 

@@ -66,6 +66,35 @@ async function fetchApprovals(): Promise<ApprovalRequest[]> {
   return body.approvals;
 }
 
+/** How much of a statement the table shows before a reviewer asks for the rest (§4.21). */
+export const STATEMENT_FOLD_CHARS = 600;
+
+function FoldedStatement({ id, statement }: { id: string; statement: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = statement.length > STATEMENT_FOLD_CHARS;
+  const shown = long && !expanded ? `${statement.slice(0, STATEMENT_FOLD_CHARS)}…` : statement;
+  return (
+    <>
+      <pre
+        className={`font-mono text-[11px] whitespace-pre-wrap break-all max-w-xl text-fg-secondary${expanded ? " max-h-96 overflow-y-auto" : ""}`}
+        data-testid={`statement-${id}`}
+      >
+        {shown}
+      </pre>
+      {long && (
+        <button
+          type="button"
+          className="text-[10px] text-brand hover:underline"
+          onClick={() => setExpanded((v) => !v)}
+          data-testid={`statement-toggle-${id}`}
+        >
+          {expanded ? "Show less" : `Show all (${statement.length.toLocaleString()} characters)`}
+        </button>
+      )}
+    </>
+  );
+}
+
 export function ApprovalsTab() {
   const [approvals, setApprovals] = useState<ApprovalRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -192,9 +221,7 @@ export function ApprovalsTab() {
                               guardrail: {GUARDRAIL_LABEL[record.guardrail]}
                             </Badge>
                           )}
-                          <pre className="font-mono text-[11px] whitespace-pre-wrap break-all max-w-xl text-fg-secondary">
-                            {record.statement}
-                          </pre>
+                          <FoldedStatement id={record.id} statement={record.statement} />
                           {record.ticket && (
                             <div
                               className="font-mono text-[10px] text-fg-muted mt-1"

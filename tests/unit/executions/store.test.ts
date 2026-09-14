@@ -150,7 +150,7 @@ describe("executions store", () => {
   test("the request must carry a datasource, a statement within bounds, a person, and a well-formed reply", async () => {
     expect(await status(ask({ datasourceId: "" }))).toBe(400);
     expect(await status(ask({ statement: "  " }))).toBe(400);
-    expect(await status(ask({ statement: "x".repeat(4001) }))).toBe(400);
+    expect(await status(ask({ statement: "x".repeat(32_001) }))).toBe(400);
     expect(await status(ask({ onBehalfOf: 42 }))).toBe(400);
     expect(await status(ask({ reply: "C1" }))).toBe(400);
     expect(await status(ask({ reply: { channel: "" } }))).toBe(400);

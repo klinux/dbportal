@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readTicket } from "@/lib/api/ticket";
+import { statementTooLarge } from "@/lib/api/statement-size";
 import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
@@ -51,6 +52,8 @@ export async function POST(req: NextRequest) {
     // Only the statement writes; begin, commit and rollback are the envelope (§4.4).
     let access: WriteAccess = {};
     if (action === "query" && typeof sql === "string") {
+      const tooLarge = statementTooLarge(sql);
+      if (tooLarge) return tooLarge;
       access = await assertWriteAllowed({
         route: "POST /api/db/transaction",
         session: guard.session,

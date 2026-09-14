@@ -10,9 +10,8 @@ const warn = mock(() => {});
 mock.module("@/lib/logger", () => ({
   logger: { warn, info: () => {}, error: () => {}, debug: () => {} },
 }));
-const { notifyExecutionOutcome, notifyReviewers, previewOf, slackConfigured, PREVIEW_ROWS } = await import(
-  "@/lib/notify/slack"
-);
+const { notifyExecutionOutcome, notifyReviewers, previewOf, slackConfigured, statementExcerpt, PREVIEW_ROWS } =
+  await import("@/lib/notify/slack");
 
 type FetchLike = (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 const holder = globalThis as unknown as { fetch: FetchLike };
@@ -61,6 +60,19 @@ describe("slack notifier", () => {
     expect(await notifyReviewers(base)).toBe(false);
     expect(await notifyExecutionOutcome({ ...base, status: "rejected" })).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  // docs/CONTEXT.md §4.21: a script does not fit a Slack message; the excerpt says how much is left.
+  test("a long statement is excerpted in the announcement, pointing at the review page for the rest", async () => {
+    const long = `UPDATE orders SET status = 'x' WHERE id IN (${Array.from({ length: 3_000 }, (_, i) => i).join(", ")})`;
+    expect(statementExcerpt("SELECT 1")).toBe("SELECT 1");
+    const excerpt = statementExcerpt(long);
+    expect(excerpt.startsWith(long.slice(0, 2_500))).toBe(true);
+    expect(excerpt).toContain(`${long.length - 2_500} more characters`);
+    expect(await notifyReviewers({ ...base, statement: long })).toBe(true);
+    const [body] = sent();
+    expect(body.text).not.toContain(long);
+    expect(body.text).toContain("more characters");
   });
 
   test("announces a pending request to the reviewers' channel with the person, the statement and the page", async () => {

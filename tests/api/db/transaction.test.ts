@@ -163,6 +163,17 @@ describe("POST /api/db/transaction", () => {
   });
 
   // docs/CONTEXT.md §4.7: a statement inside a transaction leaves masked like any other.
+  // docs/CONTEXT.md §4.21: the size bound holds inside a transaction too.
+  test("a query past the size bound is refused with 413 inside a transaction", async () => {
+    const res = await POST(
+      createMockRequest("/api/db/transaction", {
+        method: "POST",
+        body: { connection: validConnection, action: "query", sql: `SELECT '${"x".repeat(1_048_576)}'` },
+      }) as never,
+    );
+    expect(res.status).toBe(413);
+  });
+
   test("masks a transaction query's sensitive columns before the rows leave", async () => {
     mockTxProvider.queryInTransaction.mockImplementation(
       async () =>

@@ -13,6 +13,8 @@ import { clientAddress } from "@/lib/api/client-address";
 import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import { readTicket } from "@/lib/api/ticket";
 import { readRunbookId } from "@/lib/api/runbooks";
+import { statementTooLarge } from "@/lib/api/statement-size";
+import { TRANSACTION_CONTROL_MESSAGE, isTransactionControl } from "@/lib/sql/transaction-control";
 import type { ExplainFormat } from "@/lib/db/types";
 
 /**
@@ -65,6 +67,12 @@ export async function POST(req: NextRequest) {
 
     if (!sql) {
       return NextResponse.json({ error: "Connection and query are required" }, { status: 400 });
+    }
+    // Bounded text, and no BEGIN or COMMIT on a pooled connection (docs/CONTEXT.md §4.21).
+    const tooLarge = statementTooLarge(String(sql));
+    if (tooLarge) return tooLarge;
+    if (isTransactionControl(String(sql), connection.type)) {
+      return NextResponse.json({ error: TRANSACTION_CONTROL_MESSAGE }, { status: 400 });
     }
 
     // A generated statement sends its values here rather than writing them into the

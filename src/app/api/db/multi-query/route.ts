@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readTicket } from "@/lib/api/ticket";
+import { statementTooLarge } from "@/lib/api/statement-size";
+import { TRANSACTION_CONTROL_MESSAGE, firstTransactionControl } from "@/lib/sql/transaction-control";
 import type { QueryPrepareOptions } from "@/lib/db/types";
 import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import { getOrCreateProvider } from "@/lib/db";
@@ -135,6 +137,8 @@ export async function POST(req: NextRequest) {
     if (!sql) {
       return NextResponse.json({ error: "Connection and query are required" }, { status: 400 });
     }
+    const tooLarge = statementTooLarge(String(sql));
+    if (tooLarge) return tooLarge;
 
     // The resolved connection's dialect, not the compatibility default: this is the
     // one surface that EXECUTES what the splitter returns, so a fragment invented by
@@ -145,6 +149,16 @@ export async function POST(req: NextRequest) {
 
     if (statements.length === 0) {
       return NextResponse.json({ error: "No valid SQL statements found" }, { status: 400 });
+    }
+    // Each statement of a script takes its own pooled connection (docs/CONTEXT.md §4.21): a
+    // BEGIN here would open a transaction nobody closes. Refused whole, before any of it runs.
+    if (
+      firstTransactionControl(
+        statements.map((s) => s.sql),
+        connection.type,
+      ) !== null
+    ) {
+      return NextResponse.json({ error: TRANSACTION_CONTROL_MESSAGE }, { status: 400 });
     }
 
     // The whole script is judged before any of it runs (§4.4): a script that writes on its

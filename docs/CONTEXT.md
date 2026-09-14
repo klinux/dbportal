@@ -425,14 +425,26 @@ built. Each lands as its own section when done.
   write gate, guardrails, limits and freeze windows apply as to any statement. An engine
   without bound parameters refuses a runbook that has any. The embeddable workspace, which
   hands only statement text to its host, does not offer the tab.
-- **4.21 Large and elaborate scripts** — verify, with a real `UPDATE … WHERE id IN (…)` of
-  two thousand ids and a multi-statement script, what the portal does: known today, the
-  approval record keeps the first 4000 characters of a statement for display (the editor's
-  own run is not cut), the bot API refuses a statement over 4000 characters, the
-  multi-query route splits statements per engine grammar, and every statement has the
-  datasource's `queryTimeout` (60 s by default). To decide: raise the bot limit, stream a
-  script statement by statement with one audit line each, and what a reviewer sees of a
-  script that does not fit on a screen.
+- **4.21 Large and elaborate scripts — done.** Verified with a real `UPDATE … WHERE id IN
+  (…)` of two thousand ids and a three-hundred-statement script on PostgreSQL: both run as
+  they would by hand (11 kB and 2 000 rows in 18 ms; 17 kB and 300 statements in 420 ms),
+  the script statement by statement with one audit line each and a stop at the first
+  error. Every reader that judges a statement before it runs - the
+  splitter, the read-only gate, the guardrails, the classifier - is a linear scan, and
+  [`tests/unit/sql/large-statements.test.ts`](../tests/unit/sql/large-statements.test.ts)
+  keeps them so on twenty thousand ids and two thousand statements. What changed: a bound
+  of one mebibyte of statement text per request (413 above it,
+  [`src/lib/api/statement-size.ts`](../src/lib/api/statement-size.ts)); the bot API and the
+  approval record take 32 000 characters instead of 4 000, the reviewer's page folds a
+  statement past 600 and the Slack announcement excerpts one past 2 500; and one real
+  defect closed - `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT` written as statements are
+  refused on the plain routes ([`src/lib/sql/transaction-control.ts`](../src/lib/sql/transaction-control.ts)),
+  because each statement there takes its own pooled connection, so a BEGIN opened a
+  transaction that the COMMIT on another connection never closed and the next person
+  inherited. A script that must be one transaction uses the studio's transaction mode,
+  which keeps one connection. Known and kept: the audit line's statement is its first 254
+  characters, the datasource's `queryTimeout` (60 s by default) bounds each statement, and
+  a script is not streamed - its results return together when the last statement ends.
 - **4.22 Result export by rule** — downloading a result (CSV, JSON, the clipboard copy of
   a grid) is a way data leaves the portal without the masking and the audit that a query
   gets; make it a permission - per datasource, by role or group, off by default on

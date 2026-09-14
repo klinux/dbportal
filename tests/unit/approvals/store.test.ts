@@ -114,11 +114,11 @@ describe("approvals store", () => {
       datasourceId: "orders",
       datasourceName: "Orders",
       requester: "ana",
-      statement: "x".repeat(5000),
+      statement: "x".repeat(40_000),
       route: "POST /api/db/query",
     });
     expect(first.status).toBe("pending");
-    expect(first.statement).toHaveLength(4000);
+    expect(first.statement).toHaveLength(32_000);
     const again = await ask("ana");
     expect(again.id).toBe(first.id);
     const bob = await ask("bob");

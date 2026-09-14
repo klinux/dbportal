@@ -223,6 +223,27 @@ describe("ApprovalsTab", () => {
     expect(mockToastSuccess).toHaveBeenCalledWith('Ran on "Orders" for U0123');
   });
 
+  // docs/CONTEXT.md §4.21: a statement longer than the fold shows its head, and the rest on request.
+  test("a long statement is folded with a toggle that shows all of it", async () => {
+    const long = `UPDATE orders SET status = 'x' WHERE id IN (${Array.from({ length: 500 }, (_, i) => i).join(", ")})`;
+    mockGlobalFetch({ "/api/approvals": { ok: true, json: { approvals: [{ ...pending, statement: long }] } } });
+    const { getByTestId } = await renderLoaded();
+    const shown = getByTestId("statement-req-1");
+    expect(shown.textContent).toBe(`${long.slice(0, 600)}…`);
+    const toggle = getByTestId("statement-toggle-req-1");
+    expect(toggle.textContent).toBe(`Show all (${long.length.toLocaleString()} characters)`);
+    fireEvent.click(toggle);
+    expect(getByTestId("statement-req-1").textContent).toBe(long);
+    expect(getByTestId("statement-toggle-req-1").textContent).toBe("Show less");
+  });
+
+  test("a short statement is shown whole, with no toggle", async () => {
+    mockGlobalFetch({ "/api/approvals": { ok: true, json: { approvals: [pending] } } });
+    const { getByTestId, queryByTestId } = await renderLoaded();
+    expect(getByTestId("statement-req-1").textContent).toBe(pending.statement);
+    expect(queryByTestId("statement-toggle-req-1")).toBeNull();
+  });
+
   // docs/CONTEXT.md §4.18: the reviewer sees the change the request is for.
   test("a request that named a ticket shows it under the statement", async () => {
     mockGlobalFetch({ "/api/approvals": { ok: true, json: { approvals: [{ ...pending, ticket: "INC-42" }] } } });

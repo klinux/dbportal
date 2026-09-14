@@ -139,6 +139,27 @@ describe("POST /api/db/multi-query", () => {
     expect((mockGetOrCreateProvider.mock.calls[0] as unknown[])[1]).toMatchObject({ readOnly: true });
   });
 
+  // docs/CONTEXT.md §4.21: each statement of a script takes its own pooled connection, so a BEGIN
+  // anywhere in it is refused whole before any statement runs; so is a script past the size bound.
+  test("a script with transaction control, or over the size bound, is refused whole before any of it runs", async () => {
+    const post = (sql: string) =>
+      POST(
+        createMockRequest("/api/db/multi-query", {
+          method: "POST",
+          body: { connection: validConnection, sql },
+        }) as never,
+      );
+    const refused = await post("SELECT 1; BEGIN; UPDATE t SET a = 1 WHERE id = 1; COMMIT");
+    expect(refused.status).toBe(400);
+    expect(((await parseResponseJSON(refused)) as { error: string }).error).toContain("transaction mode");
+    expect((await post(`SELECT 1; SELECT '${"x".repeat(1_048_576)}'`)).status).toBe(413);
+    expect(mockProvider.query).not.toHaveBeenCalled();
+    // A long script of ordinary statements runs statement by statement.
+    const script = Array.from({ length: 300 }, (_, i) => `UPDATE t SET a = ${i} WHERE id = ${i}`).join(";\n");
+    const ok = await parseResponseJSON<{ statementCount: number; executedCount: number }>(await post(script));
+    expect([ok.statementCount, ok.executedCount]).toEqual([300, 300]);
+  });
+
   // docs/CONTEXT.md §4.7: every statement's rows leave masked, and each names its columns.
   test("masks each statement's sensitive columns before the rows leave", async () => {
     (mockProvider.query as ReturnType<typeof mock>).mockImplementation(async () => ({

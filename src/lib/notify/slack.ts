@@ -67,6 +67,14 @@ export function previewOf(fields: string[], rows: Record<string, unknown>[], tru
   return `\`\`\`\n${out.join("\n")}${more}\n\`\`\``;
 }
 
+/** What Slack shows of a statement: a message has room for a few thousand characters, not a script. */
+export const STATEMENT_EXCERPT_CHARS = 2_500;
+
+export function statementExcerpt(statement: string): string {
+  if (statement.length <= STATEMENT_EXCERPT_CHARS) return statement;
+  return `${statement.slice(0, STATEMENT_EXCERPT_CHARS)}\n… (${statement.length - STATEMENT_EXCERPT_CHARS} more characters; the whole statement is on the review page)`;
+}
+
 /** "X asked to run … on Y" to the reviewers' channel, with the page that decides. */
 export async function notifyReviewers(record: ApprovalRequest): Promise<boolean> {
   const channel = process.env.SLACK_APPROVALS_CHANNEL;
@@ -75,7 +83,7 @@ export async function notifyReviewers(record: ApprovalRequest): Promise<boolean>
   const text = [
     `*Execution waiting for approval* on *${record.datasourceName}*`,
     `Asked by ${who}.`,
-    `\`\`\`\n${record.statement}\n\`\`\``,
+    `\`\`\`\n${statementExcerpt(record.statement)}\n\`\`\``,
     `Review: ${appUrl("/admin/approvals")}`,
   ].join("\n");
   return post({ channel, text });

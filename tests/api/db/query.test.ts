@@ -826,6 +826,23 @@ describe("POST /api/db/query with an explain request", () => {
     ).toBe(200);
   });
 
+  // docs/CONTEXT.md §4.21: a BEGIN on a pooled connection would leak a transaction; a statement past
+  // the size bound is refused before anything reads it. Neither reaches the engine.
+  test("refuses transaction control and an oversize statement before the engine", async () => {
+    (mockProvider.query as ReturnType<typeof mock>).mockClear();
+    const post = (sql: string) =>
+      POST(createMockRequest("/api/db/query", { method: "POST", body: { connection: validConnection, sql } }) as never);
+    const begin = await post("BEGIN");
+    expect(begin.status).toBe(400);
+    expect(((await parseResponseJSON(begin)) as { error: string }).error).toContain("transaction mode");
+    expect((await post("COMMIT")).status).toBe(400);
+    expect((await post(`SELECT '${"x".repeat(1_048_576)}'`)).status).toBe(413);
+    expect(mockProvider.query).not.toHaveBeenCalled();
+    // A two-thousand-id UPDATE is an ordinary write.
+    const ids = Array.from({ length: 2_000 }, (_, i) => i).join(", ");
+    expect((await post(`UPDATE users SET name = 'x' WHERE id IN (${ids})`)).status).toBe(200);
+  });
+
   // docs/CONTEXT.md §4.20: a run from a runbook names it on the audit line; anything not an id is dropped.
   test("names the runbook on the audit line when the request carries an id, and never otherwise", async () => {
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
