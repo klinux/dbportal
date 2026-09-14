@@ -521,6 +521,45 @@ built. Each lands as its own section when done.
   expiry (a denylist would need the store on every request); the short lifetime is the
   answer for now.
 
+### 4.27 → the next sequence (agreed 2026-09-14, in this order)
+
+- **4.27 Durable audit with retention and a paged view** — the stdout line stays the
+  record; the store keeps the events under `AUDIT_RETENTION_DAYS` (§4.12 sweeps them), and
+  the admin Audit page reads the store paged and filtered (type, actor, datasource,
+  period) instead of the 1000-event ring, so a week of a fleet can be read.
+- **4.28 Two reviewers, and requests that expire** — a datasource may ask for two
+  approvals (`approvalsRequired: 2`) before a write on production runs; a pending request
+  expires after a bounded time (`APPROVAL_TTL_HOURS`) and is answered as such.
+- **4.29 Alerts** (asked 2026-09-14) — an alerts area, in the shape of Redash's: a person
+  writes a query on a datasource they may open, a schedule, and a condition on the value it
+  returns (`> 100`, `== 0`, changed since last run); when the condition holds the alert
+  fires to a **channel** declared once by an administrator - Slack (the existing bot), a
+  generic webhook (signed as §4.25), and the on-call receivers (Rootly, a generic on-call
+  webhook) - with a cooldown so a firing alert does not page every minute. Every run is a
+  `query_execution` under the alert's owner, read-only, bounded by the datasource's limits.
+- **4.30 An MCP surface for troubleshooting agents, run apart** (asked 2026-09-14) — an
+  MCP server that lets an agent list the datasources a service token may open, describe a
+  schema and run read-only statements, with the same gates as the bot API (§4.10: token,
+  datasource list, guardrails, limits, audit with the agent as `subject`). The point that
+  matters: **today everything runs in one process** - the studio, the routes, the pools to
+  every datasource - so a compromise of the instance is a compromise of every credential
+  it holds. The agent surface must run **apart**: a second deployment of the same image in
+  an `agent` role (`DBPORTAL_ROLE=agent`) that serves only the MCP and bot routes, holds only
+  the datasources its tokens name (never an admin credential, never the store's write
+  path), opens read-only pools, and sits in its own network policy; the studio instance
+  keeps the rest. A compromised agent runtime then reaches what its tokens reach, and no
+  more. Same idea applies to the seed and backup jobs (§4.14, §4.23): candidates for the
+  same worker role later.
+- **4.31 Seed mode 2** — a masked sample of another datasource copied to staging, and
+  parent/child ratios per table (§4.23).
+- **4.32 Alerts on the trail** — Slack or e-mail when a guardrail fires, a large export
+  leaves production, or a backup or seed fails (a first consumer of §4.29's channels).
+- **4.33 Release hardening** — SBOM, a signed image, `SECURITY.md` with a disclosure policy.
+- **4.34 Integration tests per engine in CI** for the export, runbook and seed routes
+  against a real PostgreSQL, today verified live only locally.
+- **4.35 Operator guide** — `docs/OPERATOR_GUIDE.md`: from zero to the first datasource,
+  OIDC, the seed file, a backup; screenshots of the newer pages.
+
 ## 5. Decisions already taken
 
 - **TypeScript stays.** The 50k-line driver layer is the main asset; rewriting the backend
