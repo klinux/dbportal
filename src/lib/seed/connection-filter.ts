@@ -58,6 +58,7 @@ export function filterByRoles(connections: SeedConnection[], userRoles: string[]
       ...(conn.limits !== undefined ? { limits: conn.limits } : {}),
       ...(conn.limits?.queryTimeoutMs !== undefined ? { queryTimeout: conn.limits.queryTimeoutMs } : {}),
       ...(conn.requireTicket !== undefined ? { requireTicket: conn.requireTicket } : {}),
+      ...(conn.exportRoles !== undefined ? { exportRoles: conn.exportRoles } : {}),
       ...(conn.approverRoles !== undefined ? { approverRoles: conn.approverRoles } : {}),
       ...(conn.sshProfile !== undefined ? { sshProfile: conn.sshProfile } : {}),
       seedId: conn.id,

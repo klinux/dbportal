@@ -90,6 +90,18 @@ describe("GET /api/connections/managed", () => {
     expect(byId(data.connections)["readonly-everyone"]).toBe(false);
   });
 
+  // docs/CONTEXT.md §4.22: decided per session like readOnly; the seed file used here declares
+  // no production datasource and no exportRoles, so every row is open to export.
+  it("reports canExport per session", async () => {
+    const data = await (await GET()).json();
+    for (const row of data.connections as Array<{ seedId: string; canExport: boolean; environment?: string }>) {
+      expect({ id: row.seedId, canExport: row.canExport }).toEqual({
+        id: row.seedId,
+        canExport: row.environment !== "production",
+      });
+    }
+  });
+
   it("returns 401 when no session", async () => {
     (getSession as ReturnType<typeof mock>).mockImplementation(() => null);
     const res = await GET();

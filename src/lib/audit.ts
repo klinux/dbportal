@@ -120,6 +120,8 @@ export type AuditReason =
   | "freeze_window"
   /** A write refused because the datasource requires a ticket and none was named (docs/CONTEXT.md §4.18). */
   | "ticket_required"
+  /** An export refused by the datasource's export rule (docs/CONTEXT.md §4.22). */
+  | "export_not_allowed"
   /** The secrets manager did not answer, refused, or answered without a credential (§4.5). */
   | "credential_provider_failed"
   /** A write on an approval-gated datasource with no open window: it became a request (§4.6). */
@@ -141,6 +143,8 @@ export interface AuditEvent {
   user: string;
   result: "success" | "failure";
   duration?: number;
+  /** How many rows left as a file (docs/CONTEXT.md §4.22); a number like `duration`, never text. */
+  rows?: number;
   details?: string;
   /**
    * Derived from forwarded headers. It is a HINT, not an identity: X-Forwarded-For is
@@ -461,7 +465,7 @@ export function sanitizeAuditInput(event: Omit<AuditEvent, "id" | "timestamp">):
     if (typeof value === "string") {
       const limit = key === "details" && event.type === "query_execution" ? MAX_AUDIT_STATEMENT_LENGTH : undefined;
       mutable[key] = sanitizeAuditField(value, limit);
-    } else if (value !== undefined && !(key === "duration" && typeof value === "number")) {
+    } else if (value !== undefined && !((key === "duration" || key === "rows") && typeof value === "number")) {
       mutable[key] = sanitizeAuditField(coerceToString(value));
     }
   }
@@ -485,6 +489,7 @@ export interface AuditLogLine {
   ip?: string;
   connection?: string;
   duration_ms?: number;
+  rows?: number;
   bucket?: string;
   correlation_id?: string;
   approval_id?: string;
@@ -529,6 +534,8 @@ export function toAuditLine(event: AuditEvent): AuditLogLine {
     // which would flip duration_ms from a number to null for that one line in a contract parsers
     // depend on. Omitting it entirely keeps the field's type stable instead.
     ...(event.duration !== undefined && Number.isFinite(event.duration) ? { duration_ms: event.duration } : {}),
+    // The row count of an export (§4.22), guarded the same way and for the same reason.
+    ...(event.rows !== undefined && Number.isFinite(event.rows) ? { rows: event.rows } : {}),
     // `details` never reaches the line on its own; the one thing it may carry out is the
     // statement of a human execution, and only when the operator opted in. The caller
     // (src/lib/audit-execution.ts) puts it there only under that flag, and this second gate

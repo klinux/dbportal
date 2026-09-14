@@ -449,15 +449,20 @@ built. Each lands as its own section when done.
   which keeps one connection. Known and kept: the audit line's statement is bounded to
   32 000 characters like the bot's, the datasource's `queryTimeout` (60 s by default) bounds each statement, and
   a script is not streamed - its results return together when the last statement ends.
-- **4.22 Result export by rule** — first half done 2026-09-14: every export from the studio
-  (CSV, JSON, the SQL forms) is a `data_export` audit event - who, which datasource, which
-  form, how many rows - written by `POST /api/audit/export`, which resolves the datasource
-  like every route; the admin Audit page filters on it. The rule and the server-built file
-  remain. Downloading a result (CSV, JSON, the clipboard copy of
-  a grid) is a way data leaves the portal without the masking and the audit that a query
-  gets; make it a permission - per datasource, by role or group, off by default on
-  production - with every export audited (who, which datasource, how many rows), and the
-  server, not the browser, producing the file so the masking rules apply to it.
+- **4.22 Result export by rule — done.** A datasource's `exportRoles` (seed file or editor,
+  the principal vocabulary of §4.4 and §4.19) says who may take a result out as a file;
+  absent, everyone who can open it may - except on production, where nothing leaves until
+  somebody is named (`canExport` in [`src/lib/access.ts`](../src/lib/access.ts), reported
+  per session by the managed listing so the Export button says so). The tab's file is built
+  by the server (`POST /api/db/export`): the statement runs again there, reads only, on a
+  read-only pool, bounded by the datasource's row cap or 100 000 rows, the rows leave masked
+  as the grid gets them (a reveal is asked for and audited as one), the file is written by
+  the same writers the browser used to run, and the trail carries the execution (`action:
+  export`) and a `data_export` line - who, which datasource, which form, and `rows`, a number
+  on the line like `duration_ms`. A
+  run's artifact, which has no statement of its own, is still written in the browser and
+  told to `POST /api/audit/export`, behind the same rule. The clipboard copy of a grid is
+  not an export and is not audited.
 - **later** — Slack buttons on the approval message (a signed interactivity endpoint), the
   signed HTTP callback for bots outside Slack, shorter sessions with renewal.
 

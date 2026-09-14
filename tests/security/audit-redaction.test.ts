@@ -24,6 +24,7 @@ const ALLOWED_KEYS = new Set([
   "ip",
   "connection",
   "duration_ms",
+  "rows",
   "bucket",
   "correlation_id",
   "approval_id",
@@ -710,6 +711,15 @@ describe("approval fields on the line", () => {
 
   // docs/CONTEXT.md §4.10: a service token's execution names the person it acted for, so the
   // line has two names to attribute by - the token as actor, the person as subject.
+  // docs/CONTEXT.md §4.22: the row count of an export, a number on the line, absent otherwise
+  // and absent when it is not a finite number.
+  test("rows is written as a number when finite and absent otherwise", () => {
+    const base = { type: "data_export" as const, action: "csv", target: "t", user: "ana", result: "success" as const };
+    expect(captureLine(() => emitAuditEvent({ ...base, rows: 42 })).rows).toBe(42);
+    expect(captureLine(() => emitAuditEvent(base))).not.toHaveProperty("rows");
+    expect(captureLine(() => emitAuditEvent({ ...base, rows: Number.NaN }))).not.toHaveProperty("rows");
+  });
+
   // docs/CONTEXT.md §4.20: the runbook a statement came from, by id, and absent otherwise.
   test("runbook is written when set and absent otherwise", () => {
     const line = captureLine(() =>

@@ -193,6 +193,8 @@ export const SeedConnectionSchema = z.object({
   limits: LimitsSchema.optional(),
   /** Writes must name a ticket or incident (§4.18). */
   requireTicket: z.boolean().optional(),
+  /** Who may export a result as a file (§4.22); absent: everyone who can open, nobody on production. */
+  exportRoles: z.array(AllowedRoleSchema).optional(),
   /** The SSH profile (a bastion declared once) this datasource is reached through (§4.9). */
   sshProfile: z.string().optional(),
   managed: z.boolean().optional(),
@@ -257,6 +259,7 @@ export interface ManagedConnection extends DatabaseConnection {
   guardrails?: boolean;
   limits?: DatasourceLimits;
   requireTicket?: boolean;
+  exportRoles?: string[];
   sshProfile?: string;
   seedId: string;
 }

@@ -41,6 +41,8 @@ const {
   groupNamesOf,
   parseGroupNames,
   limitsOf,
+  parseExportRoles,
+  exportRolesText,
 } = await import("@/components/admin/tabs/DatasourcesTab");
 
 const storeRow = {
@@ -182,6 +184,9 @@ describe("DatasourcesTab", () => {
     const { getByText, getByLabelText } = await renderLoaded();
     fireEvent.click(getByText("New datasource"));
     fireEvent.click(getByLabelText("Writes need a ticket"));
+    fireEvent.change(getByLabelText(/^Who may export results/), {
+      target: { value: " group:analysts, role:oncall , group:analysts" },
+    });
     fireEvent.change(getByLabelText("Rows per statement, at most"), { target: { value: "250" } });
     fireEvent.change(getByLabelText("Running statements per person, at most"), { target: { value: "2" } });
     await act(async () => {
@@ -195,6 +200,8 @@ describe("DatasourcesTab", () => {
     expect(posted.limits).toEqual({ maxRows: 250, maxConcurrent: 2, queryTimeoutMs: 1500 });
     // docs/CONTEXT.md §4.18: the ticket rule travels when ticked.
     expect(posted.requireTicket).toBe(true);
+    // docs/CONTEXT.md §4.22: the export rule as typed, deduplicated.
+    expect(posted.exportRoles).toEqual(["group:analysts", "role:oncall"]);
     fireEvent.click(getByLabelText("Edit Orders"));
     expect((getByLabelText("Rows per statement, at most") as HTMLInputElement).value).toBe("50");
     expect((getByLabelText("Running statements per person, at most") as HTMLInputElement).value).toBe("1");
@@ -537,6 +544,15 @@ describe("datasource helpers", () => {
     // docs/CONTEXT.md §4.18: the ticket rule travels only when ticked.
     expect(payload).not.toHaveProperty("requireTicket");
     expect(toDatasourcePayload(built, "id-6", ["*"], undefined, false, {}, true).requireTicket).toBe(true);
+    // docs/CONTEXT.md §4.22: absent unless typed; "nobody" is the empty list; round-trips to the box.
+    expect(payload).not.toHaveProperty("exportRoles");
+    expect(toDatasourcePayload(built, "id-7", ["*"], undefined, false, {}, false, []).exportRoles).toEqual([]);
+    expect(parseExportRoles("  ")).toBeUndefined();
+    expect(parseExportRoles("Nobody")).toEqual([]);
+    expect(parseExportRoles("a, b,,a")).toEqual(["a", "b"]);
+    expect(exportRolesText(undefined)).toBe("");
+    expect(exportRolesText([])).toBe("nobody");
+    expect(exportRolesText(["a", "b"])).toBe("a, b");
     expect(limitsOf(" 100 ", "")).toEqual({ maxRows: 100 });
     expect(limitsOf("0", "abc")).toEqual({});
     expect(limitsOf("", "3")).toEqual({ maxConcurrent: 3 });

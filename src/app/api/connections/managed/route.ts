@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { getManagedConnections, getPendingSeeds } from "@/lib/seed";
-import { canWrite, principalsOf } from "@/lib/access";
+import { canExport, canWrite, principalsOf } from "@/lib/access";
 import { logger } from "@/lib/logger";
 import { SEED_CONFIG_UNREADABLE_REASON } from "@/hooks/use-connection-payload";
 
@@ -39,6 +39,8 @@ export async function GET() {
     const sanitized = connections.map((conn) => ({
       ...Object.fromEntries(Object.entries(conn).filter(([key]) => key !== "password" && key !== "connectionString")),
       readOnly: !canWrite(conn, session),
+      // Whether a result may leave as a file (§4.22), decided here for the same reason.
+      canExport: canExport(conn, session),
     }));
 
     const rawTTL = Number(process.env.SEED_CACHE_TTL_MS);

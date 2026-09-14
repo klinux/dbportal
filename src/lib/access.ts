@@ -38,6 +38,12 @@ export interface AccessRules {
   writeRoles?: string[];
 }
 
+/** Who may take a result out as a file (docs/CONTEXT.md §4.22). */
+export interface ExportRules {
+  environment?: string;
+  exportRoles?: string[];
+}
+
 export const GROUP_PRINCIPAL_PREFIX = "group:";
 export const ROLE_PRINCIPAL_PREFIX = "role:";
 export const USER_PRINCIPAL_PREFIX = "user:";
@@ -96,6 +102,16 @@ export function matchesAccess(rule: readonly string[], principals: readonly stri
 /** Who may review a write on this datasource: its `approverRoles`, or administrators. */
 export function canApprove(rules: { approverRoles?: readonly string[] }, session: AccessSession): boolean {
   return matchesAccess(rules.approverRoles ?? ["admin"], principalsOf(session));
+}
+
+/**
+ * Whether this session may export a result of the datasource (§4.22): the datasource's
+ * `exportRoles` when it declares them (`[]` is nobody); otherwise everyone who can open it,
+ * except on production, where nothing leaves as a file until somebody says who may take it.
+ */
+export function canExport(rules: ExportRules, session: AccessSession): boolean {
+  if (rules.exportRoles !== undefined) return matchesAccess(rules.exportRoles, principalsOf(session));
+  return rules.environment !== "production";
 }
 
 export function canWrite(rules: AccessRules, session: AccessSession): boolean {

@@ -549,6 +549,26 @@ describe("BottomPanel", () => {
     expect(getByTestId("export-row-count").textContent).toBe("2");
   });
 
+  // docs/CONTEXT.md §4.22: the button says when the rule forbids, instead of failing later.
+  test("Export is disabled, and says why, when the session may not export the datasource", () => {
+    const props = createDefaultProps({
+      mode: "results",
+      exportAllowed: false,
+      currentTab: {
+        id: "tab-1",
+        name: "Q",
+        query: "SELECT 1",
+        result: { rows: [{ id: 1 }], fields: ["id"], rowCount: 1, executionTime: 42 },
+        isExecuting: false,
+        type: "sql" as const,
+      },
+    });
+    const { getByTestId } = render(<BottomPanel {...(props as React.ComponentProps<typeof BottomPanel>)} />);
+    const button = getByTestId("export-button") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toContain("not allowed");
+  });
+
   test("Export dropdown is hidden when result is null", () => {
     const props = createDefaultProps({ mode: "results" });
     const { queryByText } = render(<BottomPanel {...(props as React.ComponentProps<typeof BottomPanel>)} />);

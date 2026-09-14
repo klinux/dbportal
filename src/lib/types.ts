@@ -192,6 +192,10 @@ export interface DatabaseConnection {
   sshProfile?: string;
   /** Writes on this datasource must name a ticket or incident (docs/CONTEXT.md §4.18). */
   requireTicket?: boolean;
+  /** Who may export a result of this datasource as a file (docs/CONTEXT.md §4.22); absent means the environment's default. */
+  exportRoles?: string[];
+  /** Decided per session by the server, like `readOnly`: whether this session may export (§4.22). */
+  canExport?: boolean;
   serviceName?: string; // Oracle: service name (e.g. ORCL, XEPDB1)
   instanceName?: string; // MSSQL: named instance (e.g. SQLEXPRESS)
   /**

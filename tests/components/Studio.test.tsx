@@ -1106,24 +1106,17 @@ describe("Studio", () => {
     expect(mockRevokeObjectURL).toHaveBeenCalled();
   });
 
-  // docs/CONTEXT.md §4.22: every export is told to the server, with the datasource, the form and the rows.
-  test("exportResults posts the export to the audit route when a datasource is open, and not otherwise", async () => {
+  // docs/CONTEXT.md §4.22: a run's artifact has no statement to run again, so its rows are written
+  // here and the export is told to the server; without a datasource there is nothing to tell.
+  test("exportResults of an agent run's rows is built here and told to the audit route", async () => {
     const fetchMock = mock(async () => new Response("{}", { status: 200 }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    tabMgrOverride = {
-      currentTab: {
-        id: "tab-1",
-        name: "Users",
-        query: "SELECT 1",
-        result: testResult,
-        isExecuting: false,
-        type: "sql",
-      },
-    };
     connMgrOverride = { activeConnection: pgConn };
     render(<Studio />);
-    const exportFn = capturedBottomPanelProps.onExportResults as (format: string) => void;
-    act(() => exportFn("csv"));
+    const hydrated = { runId: "run-1", correlationId: "c", operationId: "op", surface: "results", result: testResult };
+    const exportFn = capturedBottomPanelProps.onExportResults as (format: string, h: unknown) => void;
+    act(() => exportFn("csv", hydrated));
+    expect(mockCreateObjectURL).toHaveBeenCalledTimes(1);
     const audit = fetchMock.mock.calls.find((c) => String((c as unknown[])[0]).includes("/api/audit/export"));
     expect(audit).toBeDefined();
     expect(JSON.parse(((audit as unknown[])[1] as RequestInit).body as string)).toEqual({
@@ -1181,33 +1174,84 @@ describe("Studio", () => {
   // unattended, and every value in it is data the table held. A cell ending in a
   // backslash would close its literal on a dialect that escapes with one and have
   // the rest of the file read as statements (#290).
-  test("exportResults sql-insert quotes a cell for the connected dialect", async () => {
+  // docs/CONTEXT.md §4.22: with a datasource open, the tab's file is built on the server - the
+  // statement, the form, the delimiter and the tab name go up; the blob the server answers comes
+  // down as the download. A refusal is a toast, and no file.
+  test("exportResults asks the server for the tab's file when a datasource is open, and downloads what it answers", async () => {
+    const fetchMock = mock(
+      async () =>
+        new Response("id,path\n1,x", {
+          status: 200,
+          headers: { "Content-Type": "text/csv;charset=utf-8", "X-Export-Extension": "csv" },
+        }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
     connMgrOverride = { activeConnection: { ...pgConn, type: "mysql" as const } };
     tabMgrOverride = {
       currentTab: {
         id: "tab-1",
         name: "Users",
         query: "SELECT 1",
-        result: {
-          rows: [{ id: 1, path: "C:\\Users\\'); DROP TABLE users; --" }],
-          fields: ["id", "path"],
-          rowCount: 1,
-          executionTime: 1,
-        },
+        result: testResult,
         isExecuting: false,
         type: "sql",
       },
     };
     render(<Studio />);
-    const exportFn = capturedBottomPanelProps.onExportResults as (format: string) => void;
-    act(() => exportFn("sql-insert"));
+    const exportFn = capturedBottomPanelProps.onExportResults as (format: string, a: null, d?: string) => void;
+    await act(async () => {
+      exportFn("csv", null, ";");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const call = fetchMock.mock.calls.find((c) => String((c as unknown[])[0]).includes("/api/db/export")) as unknown[];
+    expect(call).toBeDefined();
+    expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({
+      connectionId: pgConn.id,
+      sql: "SELECT 1",
+      format: "csv",
+      csvDelimiter: ";",
+      // Masking is off in this harness, so the file is asked for as the grid shows it.
+      reveal: true,
+      tabName: "Users",
+    });
+    expect(mockCreateObjectURL).toHaveBeenCalledTimes(1);
+    expect(((mockCreateObjectURL.mock.calls[0] as unknown[])[0] as Blob).type).toContain("text/csv");
+    expect(fetchMock.mock.calls.some((c) => String((c as unknown[])[0]).includes("/api/audit/export"))).toBe(false);
+  });
 
-    const blob = (mockCreateObjectURL.mock.calls[0] as unknown[])[0] as Blob;
-    // The column names are quoted the way the connected dialect spells an
-    // identifier, so an aliased column cannot end the list it sits in either.
-    expect(await blob.text()).toBe(
-      "INSERT INTO Users (`id`, `path`) VALUES (1, 'C:\\\\Users\\\\''); DROP TABLE users; --');",
+  test("exportResults shows the server's refusal and downloads nothing; a datasource closed to exports never asks", async () => {
+    const fetchMock = mock(
+      async () => new Response(JSON.stringify({ error: 'Exports are not allowed for you on "pg"' }), { status: 403 }),
     );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    connMgrOverride = { activeConnection: pgConn };
+    tabMgrOverride = {
+      currentTab: {
+        id: "tab-1",
+        name: "Users",
+        query: "SELECT 1",
+        result: testResult,
+        isExecuting: false,
+        type: "sql",
+      },
+    };
+    render(<Studio />);
+    await act(async () => {
+      (capturedBottomPanelProps.onExportResults as (format: string) => void)("json");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(mockCreateObjectURL).not.toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Export failed" }));
+    cleanup();
+    fetchMock.mockClear();
+    mockToast.mockClear();
+    connMgrOverride = { activeConnection: { ...pgConn, canExport: false } };
+    render(<Studio />);
+    act(() => (capturedBottomPanelProps.onExportResults as (format: string) => void)("json"));
+    expect(fetchMock.mock.calls.some((c) => String((c as unknown[])[0]).includes("/api/db/export"))).toBe(false);
+    expect(mockCreateObjectURL).not.toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Export not allowed" }));
+    expect(capturedBottomPanelProps.exportAllowed).toBe(false);
   });
 
   // The table name is GUESSED from the tab title, so it is never quoted — quoting

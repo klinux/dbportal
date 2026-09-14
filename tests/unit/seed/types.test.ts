@@ -391,6 +391,15 @@ describe("SeedConnectionSchema: write approval", () => {
   });
 
   // docs/CONTEXT.md §4.18: a flag, off unless declared.
+  // docs/CONTEXT.md §4.22: the export rule is a principal list like the others.
+  it("accepts exportRoles in the principal vocabulary", () => {
+    expect(SeedConnectionSchema.parse({ ...base, exportRoles: ["group:analysts", "role:oncall"] }).exportRoles).toEqual(
+      ["group:analysts", "role:oncall"],
+    );
+    expect(SeedConnectionSchema.parse({ ...base, exportRoles: [] }).exportRoles).toEqual([]);
+    expect(SeedConnectionSchema.safeParse({ ...base, exportRoles: ["nobody"] }).success).toBe(false);
+  });
+
   it("accepts requireTicket and rejects anything but a boolean", () => {
     expect(SeedConnectionSchema.parse({ ...base, requireTicket: true }).requireTicket).toBe(true);
     expect(SeedConnectionSchema.safeParse({ ...base, requireTicket: "yes" }).success).toBe(false);

@@ -116,6 +116,7 @@ interface StoreRow {
   sshProfile?: string;
   limits?: DatasourceLimits;
   requireTicket?: boolean;
+  exportRoles?: string[];
   ssl?: DatabaseConnection["ssl"];
   serviceName?: string;
   instanceName?: string;
@@ -144,6 +145,7 @@ interface ConfigRow {
   sshProfile?: string;
   limits?: DatasourceLimits;
   requireTicket?: boolean;
+  exportRoles?: string[];
 }
 
 type Row = StoreRow | ConfigRow;
@@ -181,6 +183,7 @@ export function toDatasourcePayload(
   writeApproval = false,
   limits: DatasourceLimits = {},
   requireTicket = false,
+  exportRoles: string[] | undefined = undefined,
 ) {
   // The editor's own timeout field is the datasource's timeout limit (§4.16).
   const merged: DatasourceLimits = {
@@ -211,7 +214,31 @@ export function toDatasourcePayload(
     ...(writeApproval ? { writeApproval: true } : {}),
     ...(Object.keys(merged).length > 0 ? { limits: merged } : {}),
     ...(requireTicket ? { requireTicket: true } : {}),
+    ...(exportRoles !== undefined ? { exportRoles } : {}),
   };
+}
+
+/**
+ * The export rule as typed (docs/CONTEXT.md §4.22): blank is the environment's default
+ * (absent), `nobody` is `[]`, otherwise principals separated by commas.
+ */
+export function parseExportRoles(text: string): string[] | undefined {
+  const trimmed = text.trim();
+  if (trimmed === "") return undefined;
+  if (trimmed.toLowerCase() === "nobody") return [];
+  return [
+    ...new Set(
+      trimmed
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+export function exportRolesText(exportRoles: string[] | undefined): string {
+  if (exportRoles === undefined) return "";
+  return exportRoles.length === 0 ? "nobody" : exportRoles.join(", ");
 }
 
 /** The two typed limits as the API's shape; blank or not a positive whole number means no cap. */
@@ -302,6 +329,7 @@ export function DatasourcesTab() {
   const [writeMode, setWriteMode] = useState<WriteMode>("open");
   const [writeApproval, setWriteApproval] = useState(false);
   const [requireTicket, setRequireTicket] = useState(false);
+  const [exportRolesInput, setExportRolesInput] = useState("");
   const [maxRows, setMaxRows] = useState("");
   const [maxConcurrent, setMaxConcurrent] = useState("");
   const [pendingDelete, setPendingDelete] = useState<StoreRow | null>(null);
@@ -364,6 +392,7 @@ export function DatasourcesTab() {
     setWriteMode("open");
     setWriteApproval(false);
     setRequireTicket(false);
+    setExportRolesInput("");
     setMaxRows("");
     setMaxConcurrent("");
     setModalOpen(true);
@@ -376,6 +405,7 @@ export function DatasourcesTab() {
     setWriteMode(writeModeOf(row.writeRoles));
     setWriteApproval(row.writeApproval === true);
     setRequireTicket(row.requireTicket === true);
+    setExportRolesInput(exportRolesText(row.exportRoles));
     setMaxRows(row.limits?.maxRows?.toString() ?? "");
     setMaxConcurrent(row.limits?.maxConcurrent?.toString() ?? "");
     setModalOpen(true);
@@ -421,6 +451,7 @@ export function DatasourcesTab() {
       writeApproval,
       limitsOf(maxRows, maxConcurrent),
       requireTicket,
+      parseExportRoles(exportRolesInput),
     );
     try {
       const res = await appFetch(
@@ -527,6 +558,20 @@ export function DatasourcesTab() {
         />
         Writes need a ticket: a writing statement is refused unless the tab names a ticket or incident reference
       </Label>
+      {/* docs/CONTEXT.md §4.22: who may take a result out as a file. */}
+      <div className="space-y-1">
+        <Label htmlFor="export-roles" className="text-xs text-fg-tertiary">
+          Who may export results (principals, comma-separated; blank: everyone who can open, nobody on production;
+          &quot;nobody&quot;: no one)
+        </Label>
+        <Input
+          id="export-roles"
+          value={exportRolesInput}
+          onChange={(e) => setExportRolesInput(e.target.value)}
+          placeholder="role:oncall, group:analysts"
+          className="h-8 text-xs font-mono bg-panel border-hairline-strong"
+        />
+      </div>
       {/* docs/CONTEXT.md §4.16: what one statement may return and how many a person may run at once. */}
       <div className="grid grid-cols-2 gap-3" data-testid="datasource-limits">
         <div className="space-y-1">

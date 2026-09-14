@@ -38,6 +38,7 @@ export function auditRoleDenial(opts: {
     | "approval_required"
     | "guardrail"
     | "freeze_window"
+    | "export_not_allowed"
     | "ticket_required";
 }): void {
   const notice = consumeRateLimit("anon", opts.user);

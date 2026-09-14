@@ -59,6 +59,7 @@ describe("POST /api/audit/export", () => {
       user: "ana",
       connectionName: "Orders",
       details: "42 rows",
+      rows: 42,
       result: "success",
     });
   });

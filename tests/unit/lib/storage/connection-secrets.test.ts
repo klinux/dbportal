@@ -122,6 +122,8 @@ describe("the classification is exhaustive by construction", () => {
         "sshProfile",
         // The ticket rule (docs/CONTEXT.md §4.18): a policy flag, nothing secret.
         "requireTicket",
+        "exportRoles",
+        "canExport",
         "sshTunnel",
         "type",
         "user",

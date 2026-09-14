@@ -38,6 +38,7 @@ export async function POST(request: Request) {
       result: "success",
       connectionName: connection.name,
       details: `${rows} rows`,
+      rows,
       ip: clientAddress(request),
     });
     return NextResponse.json({ ok: true });

@@ -39,7 +39,7 @@ import {
   resultExportFileName,
   type ResultExportFormat,
 } from "@/lib/export/result-export";
-import { downloadText } from "@/lib/export/download";
+import { downloadBlob, downloadText } from "@/lib/export/download";
 import { newLocalId } from "@/lib/ids";
 import { resolveAgentRunConnectionId } from "@/hooks/use-connection-payload";
 import { isMobileViewport, useIsMobile } from "@/hooks/use-mobile";
@@ -429,6 +429,50 @@ export default function Studio() {
   ) => {
     const source = hydrated?.result ?? tabMgr.currentTab.result;
     if (!source) return;
+    // The rule (docs/CONTEXT.md §4.22), as the server reported it for this session; the server
+    // enforces it again on the export route regardless.
+    if (conn.activeConnection?.canExport === false) {
+      toast({
+        title: "Export not allowed",
+        description: `Exports are not allowed for you on "${conn.activeConnection.name}".`,
+        variant: "destructive",
+      });
+      return;
+    }
+    // The tab's own result is built on the server (§4.22): the statement runs again there, the
+    // rows leave masked as the grid gets them, and the trail records the file. A run's artifact
+    // has no statement of its own to run, so its rows are written here and told to the server.
+    if (hydrated === null && conn.activeConnection) {
+      const connection = conn.activeConnection;
+      void appFetch("/api/db/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connectionId: connection.id,
+          sql: tabMgr.currentTab.query,
+          format,
+          ...(csvDelimiter ? { csvDelimiter } : {}),
+          ...(effectiveMasking ? {} : { reveal: true }),
+          tabName: tabMgr.currentTab.name,
+        }),
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            const body = (await res.json().catch(() => ({}))) as { error?: string };
+            throw new Error(body.error ?? `The server refused the export (${res.status})`);
+          }
+          const extension = res.headers.get("X-Export-Extension") ?? "txt";
+          downloadBlob(await res.blob(), resultExportFileName(extension));
+        })
+        .catch((err: unknown) => {
+          toast({
+            title: "Export failed",
+            description: err instanceof Error ? err.message : "The export could not be built",
+            variant: "destructive",
+          });
+        });
+      return;
+    }
     // The columns the engine declared for THIS result. The writers read every row by
     // these names rather than by whatever keys row 0 happens to carry, so a row with
     // a different key order — or a document store's row missing a field entirely —
@@ -822,6 +866,7 @@ export default function Studio() {
                         }
                         isLoadingMore={tabMgr.currentTab.isLoadingMore}
                         onExportResults={exportResults}
+                        exportAllowed={conn.activeConnection?.canExport !== false}
                         agentArtifact={agentArtifact.artifact}
                         onDismissAgentArtifact={agentArtifact.dismiss}
                       />

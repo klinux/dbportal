@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   canApprove,
+  canExport,
   canWrite,
   isReadStatement,
   matchesAccess,
@@ -48,6 +49,21 @@ describe("normalizeGroups", () => {
     expect(normalizeGroups(undefined)).toEqual([]);
     expect(normalizeGroups(Array.from({ length: 80 }, (_, i) => `g${i}`)).length).toBe(50);
     expect(normalizeGroups(["x".repeat(100)])[0].length).toBe(64);
+  });
+});
+
+// docs/CONTEXT.md §4.22: exports follow the datasource's own list when it has one, and
+// otherwise are open everywhere but production.
+describe("canExport", () => {
+  test("declared roles decide; absent means open outside production and closed on it", () => {
+    const sre = { role: "user", groups: ["sre"] };
+    expect(canExport({ environment: "staging" }, sre)).toBe(true);
+    expect(canExport({}, sre)).toBe(true);
+    expect(canExport({ environment: "production" }, sre)).toBe(false);
+    expect(canExport({ environment: "production" }, { role: "admin" })).toBe(false);
+    expect(canExport({ environment: "production", exportRoles: ["group:sre"] }, sre)).toBe(true);
+    expect(canExport({ environment: "staging", exportRoles: [] }, { role: "admin" })).toBe(false);
+    expect(canExport({ exportRoles: ["role:analyst"] }, { ...sre, namedRoles: ["analyst"] })).toBe(true);
   });
 });
 

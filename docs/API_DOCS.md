@@ -1253,6 +1253,14 @@ Admin: `GET /api/admin/service-tokens`, `POST /api/admin/service-tokens` — bod
 `{ name, role?, groups?, datasources?, requireApproval? }`, `201 { token, secret }` (the secret
 is returned once); `DELETE /api/admin/service-tokens/[id]` revokes. Audited as `service_token`.
 
+`POST /api/db/export` (docs/CONTEXT.md §4.22) — body `{ connectionId, sql, format, params?, csvDelimiter?,
+reveal?, tabName? }` with `format` one of `csv`, `json`, `sql-insert`, `sql-ddl`. The datasource's export
+rule first (`403`, audited `export_not_allowed`), then only a statement that reads (`400`); the statement
+runs again on a read-only pool, bounded by the datasource's `limits.maxRows` or 100 000 rows, the rows are
+masked, and the answer is the file (`Content-Disposition: attachment`, `X-Export-Rows`, `X-Export-Extension`)
+with a `query_execution` (`action: export`) and a `data_export` audit line. `POST /api/audit/export`
+records a browser-built export of an agent run's rows (`{ connectionId, format, rows }`).
+
 Every execution route takes at most 1 048 576 characters of statement text per request and
 answers `413` above that; a `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `RELEASE` or `END` sent
 to `/api/db/query` or anywhere in a `/api/db/multi-query` script is refused with `400`, because
@@ -1350,6 +1358,8 @@ interface DatabaseConnection {
   sshTunnel?: SSHTunnelConfig; // Bastion hop before the database host
   sshProfile?: string;     // A bastion declared once (docs/SEED_CONNECTIONS.md "SSH profiles"); the server builds sshTunnel from it
   requireTicket?: boolean; // Writes need a ticket or incident reference (docs/CONTEXT.md §4.18)
+  exportRoles?: string[];  // Who may export a result as a file (docs/CONTEXT.md §4.22); absent means the environment's default
+  canExport?: boolean;     // Decided per session by the server, like readOnly: whether this session may export (§4.22)
   serviceName?: string;    // Oracle: service name (e.g. ORCL, XEPDB1)
   instanceName?: string;   // MSSQL: named instance (e.g. SQLEXPRESS)
   localDataCenter?: string; // Cassandra only, and REQUIRED there: the driver refuses to connect without it (`datacenter1` on a stock single node)

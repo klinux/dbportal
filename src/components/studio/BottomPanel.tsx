@@ -171,6 +171,8 @@ interface BottomPanelProps {
    * hands only the text over), and then the Runbooks tab is not offered.
    */
   onRunRunbook?: (prepared: PreparedRunbook) => void;
+  /** Whether this session may export the open datasource's results (docs/CONTEXT.md §4.22); the button says so when not. */
+  exportAllowed?: boolean;
   onLoadMore: (() => void) | undefined;
   isLoadingMore: boolean | undefined;
   // The writer's own type, so a format added there cannot silently fail to reach this
@@ -214,6 +216,7 @@ export function BottomPanel({
   onDiscardChanges,
   onLoadQuery,
   onRunRunbook,
+  exportAllowed = true,
   onLoadMore,
   isLoadingMore,
   onExportResults,
@@ -382,6 +385,9 @@ export function BottomPanel({
                   variant="ghost"
                   size="sm"
                   className="h-7 text-xs font-medium text-fg-muted hover:text-fg-bright gap-2"
+                  disabled={!exportAllowed}
+                  title={exportAllowed ? undefined : "Exports are not allowed for you on this datasource"}
+                  data-testid="export-button"
                 >
                   {/*
                     The count belongs ON the button because it is what the button

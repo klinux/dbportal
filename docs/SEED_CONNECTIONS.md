@@ -158,6 +158,7 @@ connections:
 | `connections[].password` | No | — | Password (use `${ENV_VAR}` syntax) |
 | `connections[].connectionString` | No | — | Full connection string (use `${ENV_VAR}`). Druid and Trino have no URI form this build parses — those connections need `host` and are addressed by host and port only |
 | `connections[].roles` | Yes | — | Who may open: `*`, `admin`, `user`, `group:<name>`, `role:<id>` |
+| `connections[].exportRoles` | No | — | Who may export a result as a file (docs/CONTEXT.md §4.22); absent: everyone outside production, nobody on production |
 | `connections[].managed` | No | from defaults | `true` = read-only, `false` = editable copy |
 | `connections[].environment` | No | from defaults | Environment badge |
 | `connections[].group` | No | — | Group label |
@@ -211,6 +212,22 @@ and the bot API takes `ticket` - and the audit line carries it as `ticket`:
     type: postgres
     host: orders.internal
     requireTicket: true
+```
+
+### Export by rule
+
+Who may take a result out as a file (docs/CONTEXT.md §4.22). `exportRoles` uses the
+principal vocabulary of `roles`; absent means everyone who can open the datasource may
+export - except on production, where nothing leaves as a file until the list names who may;
+`[]` is nobody. The file is built by the server, masked, bounded by `limits.maxRows` (or
+100 000 rows), and every export is a `data_export` audit event.
+
+```yaml
+  - id: "prod-orders"
+    type: postgres
+    host: orders.internal
+    environment: production
+    exportRoles: ["group:analysts", "role:oncall"]
 ```
 
 ### Limits
