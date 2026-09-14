@@ -375,7 +375,17 @@ built. Each lands as its own section when done.
   audited as `guardrail`. The bot queue applies the same rule. A datasource opts out with
   `guardrails: false`. Not done: the automatic `EXPLAIN` before a write - a reviewer sees
   the text, not the plan.
-- **4.16 Limits per datasource** — maximum rows, statement timeout, concurrency per person.
+- **4.16 Limits per datasource — done.** `limits: { maxRows, queryTimeoutMs, maxConcurrent }`
+  on the datasource (seed file, or the editor: the timeout it already had, plus two
+  fields), applied on the server ([`src/lib/limits.ts`](../src/lib/limits.ts)) before the
+  provider is asked: a client may ask for fewer rows, never more, and "unlimited" is
+  bounded by the cap; the timeout becomes the connection's `queryTimeout`, the field the
+  provider factory reads; the concurrency gate counts a person's running statements per
+  datasource in the process and answers 429 (`CONCURRENCY_LIMIT`) to the one over the
+  limit rather than queueing it - a person can cancel their own earlier statements, and a
+  queue that grows quietly is what the limit exists to prevent. Applied on the query,
+  multi-query (the script counts as one) and transaction routes and on the bot's run. The
+  gate is per instance: two instances behind a balancer bound twice the number.
 - **4.17 Freeze windows** — no writes on a datasource (or anywhere) between two instants,
   declared once; a write inside the window is refused with the window's reason.
 - **4.18 Ticket on every execution** — a `reason`/ticket field that travels into the audit
@@ -391,6 +401,11 @@ built. Each lands as its own section when done.
   datasource's `queryTimeout` (60 s by default). To decide: raise the bot limit, stream a
   script statement by statement with one audit line each, and what a reviewer sees of a
   script that does not fit on a screen.
+- **4.22 Result export by rule** — downloading a result (CSV, JSON, the clipboard copy of
+  a grid) is a way data leaves the portal without the masking and the audit that a query
+  gets; make it a permission - per datasource, by role or group, off by default on
+  production - with every export audited (who, which datasource, how many rows), and the
+  server, not the browser, producing the file so the masking rules apply to it.
 - **later** — Slack buttons on the approval message (a signed interactivity endpoint), the
   signed HTTP callback for bots outside Slack, shorter sessions with renewal.
 

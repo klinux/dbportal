@@ -25,6 +25,7 @@ import {
   LLMStreamError,
 } from "@/lib/llm/types";
 import { RateLimitError } from "@/lib/api/rate-limit";
+import { ConcurrencyLimitError } from "@/lib/limits";
 import { SeedConnectionError } from "@/lib/seed/resolve-connection";
 import { ApprovalRequiredError } from "@/lib/approvals/errors";
 import { MaskingError } from "@/lib/masking/errors";
@@ -232,6 +233,15 @@ export function createErrorResponse(error: unknown, context?: { route?: string }
     const status = error.statusCode ?? 500;
     logger.error("LLM error", error, { route, provider: error.provider });
     return NextResponse.json({ error: error.message, code: ApiErrorCode.LLM_ERROR, statusCode: status }, { status });
+  }
+
+  // --- Per-datasource concurrency (docs/CONTEXT.md §4.16): the datasource's own words ---
+  if (error instanceof ConcurrencyLimitError) {
+    logger.info("Concurrency limit reached", { route, datasource: error.datasourceName, max: error.max });
+    return NextResponse.json(
+      { error: error.message, code: ApiErrorCode.CONCURRENCY_LIMIT, statusCode: 429, retryable: true },
+      { status: 429 },
+    );
   }
 
   // --- Application rate limit ---

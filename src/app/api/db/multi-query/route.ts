@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { QueryPrepareOptions } from "@/lib/db/types";
+import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
 import { splitStatements } from "@/lib/sql/statement-splitter";
@@ -67,7 +69,7 @@ async function runStatement(
   index: number,
   isLast: boolean,
   dialect: DatabaseType,
-  options: Record<string, unknown>,
+  options: QueryPrepareOptions,
   audit: Omit<ExecutionAuditContext, "statement">,
   masking: MaskingContext,
 ): Promise<StatementResult> {
@@ -173,23 +175,28 @@ export async function POST(req: NextRequest) {
       ...access,
     };
 
-    for (let i = 0; i < statements.length; i++) {
-      const outcome = await runStatement(
-        provider,
-        statements[i],
-        i,
-        i === statements.length - 1,
-        connection.type,
-        options,
-        audit,
-        masking,
-      );
-      totalExecutionTime += outcome.executionTime;
-      results.push(outcome);
+    // The whole script is one of the person's running statements on the datasource
+    // (§4.16), and the row cap holds the last SELECT the way it holds a single query.
+    const capped = capPrepareOptions(options, connection.limits);
+    await withConcurrency(connection, guard.session.username, async () => {
+      for (let i = 0; i < statements.length; i++) {
+        const outcome = await runStatement(
+          provider,
+          statements[i],
+          i,
+          i === statements.length - 1,
+          connection.type,
+          capped,
+          audit,
+          masking,
+        );
+        totalExecutionTime += outcome.executionTime;
+        results.push(outcome);
 
-      // Stop execution on error
-      if (outcome.status === "error") break;
-    }
+        // Stop execution on error
+        if (outcome.status === "error") break;
+      }
+    });
 
     // Return the last successful result with rows as the main result (for ResultsGrid)
     const lastResultWithRows = [...results]

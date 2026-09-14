@@ -1230,6 +1230,10 @@ Admin: `GET /api/admin/service-tokens`, `POST /api/admin/service-tokens` — bod
 `{ name, role?, groups?, datasources?, requireApproval? }`, `201 { token, secret }` (the secret
 is returned once); `DELETE /api/admin/service-tokens/[id]` revokes. Audited as `service_token`.
 
+A statement over a datasource's `limits.maxConcurrent` is refused with `429` and code
+`CONCURRENCY_LIMIT` (docs/CONTEXT.md §4.16); `options.limit` above `limits.maxRows` is cut to
+the cap, and `options.unlimited` is bounded by it.
+
 An approval record may carry `guardrail` (docs/CONTEXT.md §4.15): `delete_without_where`,
 `update_without_where`, `drop` or `truncate` - the reason the statement waits even on a
 datasource without `writeApproval`. The 403 `APPROVAL_REQUIRED` answer carries the same field.

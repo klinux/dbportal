@@ -320,6 +320,20 @@ describe("SeedConnectionSchema: write approval", () => {
     expect(SeedConnectionSchema.safeParse({ ...base, approverRoles: ["dba"] }).success).toBe(false);
   });
 
+  // docs/CONTEXT.md §4.16: three optional whole numbers, each with a floor and a ceiling.
+  it("accepts limits within their bounds and rejects a zero, a fraction, or a stranger", () => {
+    const parsed = SeedConnectionSchema.parse({
+      ...base,
+      limits: { maxRows: 1000, queryTimeoutMs: 30000, maxConcurrent: 2 },
+    });
+    expect(parsed.limits).toEqual({ maxRows: 1000, queryTimeoutMs: 30000, maxConcurrent: 2 });
+    expect(SeedConnectionSchema.parse({ ...base, limits: {} }).limits).toEqual({});
+    expect(SeedConnectionSchema.safeParse({ ...base, limits: { maxRows: 0 } }).success).toBe(false);
+    expect(SeedConnectionSchema.safeParse({ ...base, limits: { maxConcurrent: 1.5 } }).success).toBe(false);
+    expect(SeedConnectionSchema.safeParse({ ...base, limits: { maxConcurrent: 101 } }).success).toBe(false);
+    expect(SeedConnectionSchema.safeParse({ ...base, limits: "many" }).success).toBe(false);
+  });
+
   // docs/CONTEXT.md §4.15: on unless declared off.
   it("accepts guardrails: false as the opt-out and nothing else in that field", () => {
     expect(SeedConnectionSchema.parse({ ...base, guardrails: false }).guardrails).toBe(false);

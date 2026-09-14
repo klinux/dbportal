@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { canWrite, isReadStatement } from "@/lib/access";
 import { dangerOf } from "@/lib/guardrails";
+import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import { auditExecution } from "@/lib/audit-execution";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
@@ -84,18 +85,20 @@ export async function runExecution(record: ApprovalRequest, identity: ServiceIde
       applicationName: applicationNameFor(identity.session.username),
       ...providerAccessOptions(connection, identity.session),
     });
-    const prepared = provider.prepareQuery(record.statement, {});
-    const result = await auditExecution(
-      {
-        route: ROUTE,
-        action: "query",
-        user: identity.session.username,
-        connectionName: connection.name,
-        statement: prepared.query,
-        ...(record.reviewer ? { approvalId: record.id, reviewer: record.reviewer } : {}),
-        subject: record.subject,
-      },
-      () => provider.query(prepared.query),
+    const prepared = provider.prepareQuery(record.statement, capPrepareOptions({}, connection.limits));
+    const result = await withConcurrency(connection, identity.session.username, () =>
+      auditExecution(
+        {
+          route: ROUTE,
+          action: "query",
+          user: identity.session.username,
+          connectionName: connection.name,
+          statement: prepared.query,
+          ...(record.reviewer ? { approvalId: record.id, reviewer: record.reviewer } : {}),
+          subject: record.subject,
+        },
+        () => provider.query(prepared.query),
+      ),
     );
     const masked = await maskResult(result, {
       session: identity.session,

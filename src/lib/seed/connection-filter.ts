@@ -53,6 +53,10 @@ export function filterByRoles(connections: SeedConnection[], userRoles: string[]
       ...(conn.writeRoles !== undefined ? { writeRoles: conn.writeRoles } : {}),
       ...(conn.writeApproval !== undefined ? { writeApproval: conn.writeApproval } : {}),
       ...(conn.guardrails !== undefined ? { guardrails: conn.guardrails } : {}),
+      // The datasource's limits (§4.16); its timeout is also the connection's, which is the
+      // field the provider factory reads.
+      ...(conn.limits !== undefined ? { limits: conn.limits } : {}),
+      ...(conn.limits?.queryTimeoutMs !== undefined ? { queryTimeout: conn.limits.queryTimeoutMs } : {}),
       ...(conn.approverRoles !== undefined ? { approverRoles: conn.approverRoles } : {}),
       ...(conn.sshProfile !== undefined ? { sshProfile: conn.sshProfile } : {}),
       seedId: conn.id,

@@ -198,6 +198,21 @@ where that is unwanted - a scratch database - opts out:
     guardrails: false
 ```
 
+### Limits
+
+What one statement may return, how long it may run, and how many a person may have
+running at once on the datasource (docs/CONTEXT.md §4.16). Each is optional:
+
+```yaml
+  - id: "prod-orders"
+    type: postgres
+    host: orders.internal
+    limits:
+      maxRows: 1000          # a client may ask for fewer, never more; "unlimited" is capped here
+      queryTimeoutMs: 30000  # the statement timeout the provider applies
+      maxConcurrent: 2       # running statements per person; the next one is refused with 429
+```
+
 ### SSH profiles
 
 A bastion is declared once and referenced by name (docs/CONTEXT.md §4.9); the server builds

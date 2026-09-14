@@ -62,8 +62,12 @@ const query = mock(async () => {
   if (queryFails) throw queryFails;
   return queryResult;
 });
+let lastPrepareOptions: unknown = null;
 const getOrCreateProvider = mock(async () => ({
-  prepareQuery: (sql: string) => ({ query: `${sql} /* prepared */`, limit: 1000, offset: 0, wasLimited: false }),
+  prepareQuery: (sql: string, options: unknown) => {
+    lastPrepareOptions = options;
+    return { query: `${sql} /* prepared */`, limit: 1000, offset: 0, wasLimited: false };
+  },
   query,
 }));
 mock.module("@/lib/db", () => ({ getOrCreateProvider }));
@@ -228,6 +232,19 @@ describe("executions store", () => {
     } finally {
       delete datasources.plain.guardrails;
     }
+  });
+
+  // docs/CONTEXT.md §4.16: the datasource's row cap holds the bot's statement too.
+  test("a datasource's row cap reaches the provider; without one the options are empty", async () => {
+    datasources.plain.limits = { maxRows: 3 };
+    try {
+      await ask({});
+      expect(lastPrepareOptions).toEqual({ limit: 3, unlimited: false });
+    } finally {
+      delete datasources.plain.limits;
+    }
+    await ask({});
+    expect(lastPrepareOptions).toEqual({});
   });
 
   test("a failed run stores a closed reason, never the driver's words, and still answers the thread", async () => {

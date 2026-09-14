@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
 import { createErrorResponse } from "@/lib/api/errors";
@@ -114,12 +115,10 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: bound.message }, { status: 400 });
         }
 
-        // Apply limit for SELECT queries within transaction
-        const prepared = provider.prepareQuery(sql, options);
-        const result = await audited(
-          "transaction:query",
-          () => provider.queryInTransaction(prepared.query, bound.params),
-          prepared.query,
+        // Apply limit for SELECT queries within transaction, within the datasource's cap (§4.16).
+        const prepared = provider.prepareQuery(sql, capPrepareOptions(options, connection.limits));
+        const result = await withConcurrency(connection, guard.session.username, () =>
+          audited("transaction:query", () => provider.queryInTransaction(prepared.query, bound.params), prepared.query),
         );
 
         const hasMore = result.rows.length === prepared.limit;

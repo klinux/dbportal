@@ -1,6 +1,7 @@
 "use client";
 
 import { appFetch } from "@/lib/config/base-path";
+import type { DatasourceLimits } from "@/lib/limits";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -113,6 +114,7 @@ interface StoreRow {
   writeRoles?: string[];
   writeApproval?: boolean;
   sshProfile?: string;
+  limits?: DatasourceLimits;
   ssl?: DatabaseConnection["ssl"];
   serviceName?: string;
   instanceName?: string;
@@ -139,6 +141,7 @@ interface ConfigRow {
   writeRoles?: string[];
   writeApproval?: boolean;
   sshProfile?: string;
+  limits?: DatasourceLimits;
 }
 
 type Row = StoreRow | ConfigRow;
@@ -174,7 +177,13 @@ export function toDatasourcePayload(
   roles: string[],
   writeRoles: string[] | undefined,
   writeApproval = false,
+  limits: DatasourceLimits = {},
 ) {
+  // The editor's own timeout field is the datasource's timeout limit (§4.16).
+  const merged: DatasourceLimits = {
+    ...limits,
+    ...(conn.queryTimeout !== undefined ? { queryTimeoutMs: conn.queryTimeout } : {}),
+  };
   return {
     id,
     name: conn.name,
@@ -197,6 +206,21 @@ export function toDatasourcePayload(
     roles,
     ...(writeRoles !== undefined ? { writeRoles } : {}),
     ...(writeApproval ? { writeApproval: true } : {}),
+    ...(Object.keys(merged).length > 0 ? { limits: merged } : {}),
+  };
+}
+
+/** The two typed limits as the API's shape; blank or not a positive whole number means no cap. */
+export function limitsOf(maxRows: string, maxConcurrent: string): DatasourceLimits {
+  const positive = (text: string) => {
+    const n = Number(text.trim());
+    return text.trim() !== "" && Number.isInteger(n) && n > 0 ? n : undefined;
+  };
+  const rows = positive(maxRows);
+  const concurrent = positive(maxConcurrent);
+  return {
+    ...(rows !== undefined ? { maxRows: rows } : {}),
+    ...(concurrent !== undefined ? { maxConcurrent: concurrent } : {}),
   };
 }
 
@@ -225,6 +249,7 @@ function toEditConnection(row: StoreRow): DatabaseConnection {
     color: row.color,
     group: row.group,
     sshProfile: row.sshProfile,
+    queryTimeout: row.limits?.queryTimeoutMs,
     ssl: row.ssl,
     serviceName: row.serviceName,
     instanceName: row.instanceName,
@@ -272,6 +297,8 @@ export function DatasourcesTab() {
   const [groupsInput, setGroupsInput] = useState("");
   const [writeMode, setWriteMode] = useState<WriteMode>("open");
   const [writeApproval, setWriteApproval] = useState(false);
+  const [maxRows, setMaxRows] = useState("");
+  const [maxConcurrent, setMaxConcurrent] = useState("");
   const [pendingDelete, setPendingDelete] = useState<StoreRow | null>(null);
   const [sshProfiles, setSshProfiles] = useState<SshProfileOption[]>([]);
 
@@ -331,6 +358,8 @@ export function DatasourcesTab() {
     setGroupsInput("");
     setWriteMode("open");
     setWriteApproval(false);
+    setMaxRows("");
+    setMaxConcurrent("");
     setModalOpen(true);
   };
 
@@ -340,6 +369,8 @@ export function DatasourcesTab() {
     setGroupsInput(groupNamesOf(row.roles).join(", "));
     setWriteMode(writeModeOf(row.writeRoles));
     setWriteApproval(row.writeApproval === true);
+    setMaxRows(row.limits?.maxRows?.toString() ?? "");
+    setMaxConcurrent(row.limits?.maxConcurrent?.toString() ?? "");
     setModalOpen(true);
   };
 
@@ -375,7 +406,7 @@ export function DatasourcesTab() {
       toast.error("The name must contain at least one letter or digit.");
       return;
     }
-    const payload = toDatasourcePayload(conn, id, openRule, writeRule, writeApproval);
+    const payload = toDatasourcePayload(conn, id, openRule, writeRule, writeApproval, limitsOf(maxRows, maxConcurrent));
     try {
       const res = await appFetch(
         editing ? `/api/admin/datasources/${encodeURIComponent(id)}` : "/api/admin/datasources",
@@ -472,6 +503,35 @@ export function DatasourcesTab() {
         Writes need approval: a writing statement runs only inside a window a reviewer opened (administrators review
         unless the seed file names approvers)
       </Label>
+      {/* docs/CONTEXT.md §4.16: what one statement may return and how many a person may run at once. */}
+      <div className="grid grid-cols-2 gap-3" data-testid="datasource-limits">
+        <div className="space-y-1">
+          <Label htmlFor="limit-max-rows" className="text-xs text-fg-tertiary">
+            Rows per statement, at most
+          </Label>
+          <Input
+            id="limit-max-rows"
+            inputMode="numeric"
+            value={maxRows}
+            onChange={(e) => setMaxRows(e.target.value)}
+            placeholder="no cap"
+            className="h-8 text-xs font-mono bg-panel border-hairline-strong"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="limit-max-concurrent" className="text-xs text-fg-tertiary">
+            Running statements per person, at most
+          </Label>
+          <Input
+            id="limit-max-concurrent"
+            inputMode="numeric"
+            value={maxConcurrent}
+            onChange={(e) => setMaxConcurrent(e.target.value)}
+            placeholder="no cap"
+            className="h-8 text-xs font-mono bg-panel border-hairline-strong"
+          />
+        </div>
+      </div>
       <p className="text-xs text-fg-muted leading-relaxed" data-testid="datasource-secret-note">
         {secretNote}
       </p>

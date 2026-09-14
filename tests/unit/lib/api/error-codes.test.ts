@@ -29,7 +29,8 @@ const GROUPS = {
     "DATABASE_ERROR",
   ],
   llm: ["LLM_SAFETY", "LLM_AUTH", "LLM_RATE_LIMIT", "LLM_CONFIG", "LLM_UNCONFIGURED", "LLM_STREAM", "LLM_ERROR"],
-  rateLimit: ["RATE_LIMITED"],
+  // docs/CONTEXT.md §4.16: a datasource's own concurrency limit, a 429 like the app's rate limit.
+  rateLimit: ["RATE_LIMITED", "CONCURRENCY_LIMIT"],
   // docs/CONTEXT.md §4.6: a decision the client renders as a state, not a failure.
   access: ["APPROVAL_REQUIRED"],
   generic: ["INTERNAL_ERROR", "NETWORK_ERROR"],

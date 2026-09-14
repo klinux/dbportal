@@ -20,6 +20,8 @@ export const ApiErrorCode = {
   LLM_SAFETY: "LLM_SAFETY",
   LLM_AUTH: "LLM_AUTH",
   LLM_RATE_LIMIT: "LLM_RATE_LIMIT",
+  /** A person's statements on a datasource are at its `maxConcurrent` (docs/CONTEXT.md §4.16). */
+  CONCURRENCY_LIMIT: "CONCURRENCY_LIMIT",
   LLM_CONFIG: "LLM_CONFIG",
   LLM_UNCONFIGURED: "LLM_UNCONFIGURED",
   LLM_STREAM: "LLM_STREAM",

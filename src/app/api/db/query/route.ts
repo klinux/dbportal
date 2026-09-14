@@ -10,6 +10,7 @@ import { auditExecution } from "@/lib/audit-execution";
 import { assertWriteAllowed, providerAccessOptions } from "@/lib/api/write-gate";
 import { maskResult } from "@/lib/masking/store";
 import { clientAddress } from "@/lib/api/client-address";
+import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import type { ExplainFormat } from "@/lib/db/types";
 
 /**
@@ -121,30 +122,35 @@ export async function POST(req: NextRequest) {
       explainFormat = strategy.format;
     }
 
-    const prepared = provider.prepareQuery(statement, options);
+    // The datasource's row cap (§4.16) holds whatever the client asked for.
+    const prepared = provider.prepareQuery(statement, capPrepareOptions(options, connection.limits));
 
     // Pass queryId to provider for cancellation tracking. Every execution is recorded
     // (docs/CONTEXT.md §4.2) with the statement that really ran - the built EXPLAIN when
     // one was asked for - under the operator's AUDIT_INCLUDE_SQL choice.
     const supportsCancel = "cancelQuery" in provider;
-    const result = await auditExecution(
-      {
-        route: "POST /api/db/query",
-        action: explain.explain ? "explain" : "query",
-        user: guard.session.username,
-        connectionName: connection.name,
-        statement: prepared.query,
-        ip: clientAddress(req),
-        ...access,
-      },
-      () =>
-        supportsCancel && queryId
-          ? (
-              provider as unknown as {
-                query(sql: string, params?: unknown[], queryId?: string): ReturnType<typeof provider.query>;
-              }
-            ).query(prepared.query, bound.params, queryId)
-          : provider.query(prepared.query, bound.params),
+    // One of the person's running statements on this datasource (§4.16): over the limit,
+    // a 429 before anything reaches the engine.
+    const result = await withConcurrency(connection, guard.session.username, () =>
+      auditExecution(
+        {
+          route: "POST /api/db/query",
+          action: explain.explain ? "explain" : "query",
+          user: guard.session.username,
+          connectionName: connection.name,
+          statement: prepared.query,
+          ip: clientAddress(req),
+          ...access,
+        },
+        () =>
+          supportsCancel && queryId
+            ? (
+                provider as unknown as {
+                  query(sql: string, params?: unknown[], queryId?: string): ReturnType<typeof provider.query>;
+                }
+              ).query(prepared.query, bound.params, queryId)
+            : provider.query(prepared.query, bound.params),
+      ),
     );
 
     const hasMore = result.rows.length === prepared.limit;

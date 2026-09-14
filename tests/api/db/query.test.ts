@@ -809,4 +809,49 @@ describe("POST /api/db/query with an explain request", () => {
     expect(mockProvider.query).toHaveBeenCalledWith("SELECT * FROM users LIMIT 50", undefined);
     expect("explainFormat" in data).toBe(false);
   });
+
+  // docs/CONTEXT.md §4.16: the datasource's limits hold what the client asked for, and
+  // the statement over the person's concurrency limit is a 429 that names the datasource.
+  describe("limits per datasource", () => {
+    const limited = { ...validConnection, limits: { maxRows: 10, maxConcurrent: 1 } };
+    const post = (body: Record<string, unknown>) =>
+      POST(createMockRequest("/api/db/query", { method: "POST", body }) as never);
+
+    test("the row cap holds the client's limit and bounds unlimited", async () => {
+      await post({ connection: limited, sql: "SELECT * FROM users", options: { limit: 100 } });
+      expect(mockProvider.prepareQuery).toHaveBeenLastCalledWith("SELECT * FROM users", {
+        limit: 10,
+        unlimited: false,
+      });
+      await post({ connection: limited, sql: "SELECT * FROM users", options: { unlimited: true } });
+      expect(mockProvider.prepareQuery).toHaveBeenLastCalledWith("SELECT * FROM users", {
+        limit: 10,
+        unlimited: false,
+      });
+      await post({ connection: validConnection, sql: "SELECT * FROM users", options: { limit: 100 } });
+      expect(mockProvider.prepareQuery).toHaveBeenLastCalledWith("SELECT * FROM users", { limit: 100 });
+    });
+
+    test("a second statement while one runs is refused with 429 and CONCURRENCY_LIMIT, and the slot is freed after", async () => {
+      let release: () => void = () => {};
+      (
+        mockProvider.query as unknown as { mockImplementationOnce: (fn: () => Promise<unknown>) => void }
+      ).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ rows: [], fields: [], rowCount: 0, executionTime: 1 });
+          }),
+      );
+      const first = post({ connection: limited, sql: "SELECT 1" });
+      await new Promise((r) => setTimeout(r, 5));
+      const second = await post({ connection: limited, sql: "SELECT 2" });
+      expect(second.status).toBe(429);
+      const body = await parseResponseJSON(second);
+      expect(body).toMatchObject({ code: "CONCURRENCY_LIMIT", retryable: true });
+      expect((body as { error: string }).error).toContain('"Test DB" allows 1 running statement per person');
+      release();
+      expect((await first).status).toBe(200);
+      expect((await post({ connection: limited, sql: "SELECT 3" })).status).toBe(200);
+    });
+  });
 });

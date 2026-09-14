@@ -52,6 +52,19 @@ describe("filterByRoles: the no-scan choice", () => {
     expect(managed.skipObjectScan).toBe(true);
   });
 
+  // docs/CONTEXT.md §4.16: the limits travel, and the timeout limit is also the
+  // connection's queryTimeout - the field the provider factory reads.
+  it("carries the limits through, and makes the timeout limit the connection's queryTimeout", () => {
+    const [managed] = filterByRoles([{ ...baseConn, limits: { maxRows: 5, queryTimeoutMs: 1234 } }], ["admin"]);
+    expect(managed.limits).toEqual({ maxRows: 5, queryTimeoutMs: 1234 });
+    expect(managed.queryTimeout).toBe(1234);
+    const [plain] = filterByRoles([{ ...baseConn }], ["admin"]);
+    expect(plain.limits).toBeUndefined();
+    expect(plain.queryTimeout).toBeUndefined();
+    const [rowsOnly] = filterByRoles([{ ...baseConn, limits: { maxRows: 5 } }], ["admin"]);
+    expect(rowsOnly.queryTimeout).toBeUndefined();
+  });
+
   it("leaves it absent for a seed that does not ask for it", () => {
     const [managed] = filterByRoles([{ ...baseConn }], ["admin"]);
     expect(managed.skipObjectScan).toBeUndefined();

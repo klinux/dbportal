@@ -663,4 +663,19 @@ describe("POST /api/db/multi-query", () => {
     expect(res.status).toBe(408);
     expect(data.error).toContain("timed out");
   });
+
+  // docs/CONTEXT.md §4.16: the last SELECT of a script is capped like a single query.
+  test("the datasource's row cap holds the last SELECT's limit", async () => {
+    await POST(
+      createMockRequest("/api/db/multi-query", {
+        method: "POST",
+        body: {
+          connection: { ...validConnection, limits: { maxRows: 7 } },
+          sql: "SELECT 1; SELECT * FROM users",
+          options: { limit: 500 },
+        },
+      }) as never,
+    );
+    expect(mockProvider.prepareQuery).toHaveBeenLastCalledWith("SELECT * FROM users", { limit: 7, unlimited: false });
+  });
 });

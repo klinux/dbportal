@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { DatasourceLimits } from "@/lib/limits";
 import type { DatabaseConnection } from "@/lib/types";
 
 // SSLMode matches the union in src/lib/types.ts — NO 'prefer'. Kept in step BY HAND: a zod
@@ -75,6 +76,12 @@ export const SeedDefaultsSchema = z.object({
   ssl: SSLConfigSchema,
 });
 
+export const LimitsSchema = z.object({
+  maxRows: z.number().int().min(1).max(1_000_000).optional(),
+  queryTimeoutMs: z.number().int().min(1).max(2_147_483_647).optional(),
+  maxConcurrent: z.number().int().min(1).max(100).optional(),
+});
+
 export const SeedConnectionSchema = z.object({
   id: z
     .string()
@@ -105,6 +112,8 @@ export const SeedConnectionSchema = z.object({
   approverRoles: z.array(AllowedRoleSchema).optional(),
   /** Whether DELETE/UPDATE without WHERE, DROP and TRUNCATE need a reviewer even from a writer (§4.15). On unless `false`. */
   guardrails: z.boolean().optional(),
+  /** Rows, milliseconds and running statements per person a datasource allows (§4.16). */
+  limits: LimitsSchema.optional(),
   /** The SSH profile (a bastion declared once) this datasource is reached through (§4.9). */
   sshProfile: z.string().optional(),
   managed: z.boolean().optional(),
@@ -155,6 +164,7 @@ export interface ManagedConnection extends DatabaseConnection {
   writeApproval?: boolean;
   approverRoles?: string[];
   guardrails?: boolean;
+  limits?: DatasourceLimits;
   sshProfile?: string;
   seedId: string;
 }

@@ -33,8 +33,15 @@ mock.module("@/components/ConnectionModal", () => ({
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { render, waitFor, act, cleanup, fireEvent, within } from "@testing-library/react";
 
-const { DatasourcesTab, slugifyDatasourceId, toDatasourcePayload, writeModeOf, groupNamesOf, parseGroupNames } =
-  await import("@/components/admin/tabs/DatasourcesTab");
+const {
+  DatasourcesTab,
+  slugifyDatasourceId,
+  toDatasourcePayload,
+  writeModeOf,
+  groupNamesOf,
+  parseGroupNames,
+  limitsOf,
+} = await import("@/components/admin/tabs/DatasourcesTab");
 
 const storeRow = {
   source: "store",
@@ -163,6 +170,35 @@ describe("DatasourcesTab", () => {
     expect(getByRole("status").textContent).toContain("STORAGE_PROVIDER");
     expect((getByText("New datasource").closest("button") as HTMLButtonElement).disabled).toBe(true);
     expect(getByText("Dev shared")).not.toBeNull();
+  });
+
+  // docs/CONTEXT.md §4.16: the two limit fields travel with the save, and an edit shows what is set.
+  test("the limit fields are posted with the datasource and read back when editing", async () => {
+    const fetchMock = mockGlobalFetch({
+      "/api/admin/datasources": listing({
+        datasources: [{ ...storeRow, limits: { maxRows: 50, queryTimeoutMs: 9000, maxConcurrent: 1 } }],
+      }),
+    });
+    const { getByText, getByLabelText } = await renderLoaded();
+    fireEvent.click(getByText("New datasource"));
+    fireEvent.change(getByLabelText("Rows per statement, at most"), { target: { value: "250" } });
+    fireEvent.change(getByLabelText("Running statements per person, at most"), { target: { value: "2" } });
+    await act(async () => {
+      await (capturedModalProps.onConnect as (c: DatabaseConnection) => Promise<void>)({
+        ...built,
+        queryTimeout: 1500,
+      });
+    });
+    const post = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "POST")!;
+    expect(JSON.parse((post[1] as RequestInit).body as string).limits).toEqual({
+      maxRows: 250,
+      maxConcurrent: 2,
+      queryTimeoutMs: 1500,
+    });
+    fireEvent.click(getByLabelText("Edit Orders"));
+    expect((getByLabelText("Rows per statement, at most") as HTMLInputElement).value).toBe("50");
+    expect((getByLabelText("Running statements per person, at most") as HTMLInputElement).value).toBe("1");
+    expect((capturedModalProps.editConnection as DatabaseConnection).queryTimeout).toBe(9000);
   });
 
   // docs/CONTEXT.md §4.9: the editor's tunnel select is fed from the profiles page; a row
@@ -487,6 +523,20 @@ describe("datasource helpers", () => {
     expect(payload).not.toHaveProperty("writeRoles");
     // docs/CONTEXT.md §4.4: a write rule travels only when the editor set one.
     expect(toDatasourcePayload(built, "id-2", ["*", "group:sre"], []).writeRoles).toEqual([]);
+    // docs/CONTEXT.md §4.16: the limits travel only when set; the modal's timeout is one of them.
+    expect(payload).not.toHaveProperty("limits");
+    expect(toDatasourcePayload({ ...built, queryTimeout: 5000 }, "id-4", ["*"], undefined).limits).toEqual({
+      queryTimeoutMs: 5000,
+    });
+    expect(
+      toDatasourcePayload(built, "id-5", ["*"], undefined, false, { maxRows: 10, maxConcurrent: 2 }).limits,
+    ).toEqual({
+      maxRows: 10,
+      maxConcurrent: 2,
+    });
+    expect(limitsOf(" 100 ", "")).toEqual({ maxRows: 100 });
+    expect(limitsOf("0", "abc")).toEqual({});
+    expect(limitsOf("", "3")).toEqual({ maxConcurrent: 3 });
   });
 
   // docs/CONTEXT.md §4.4: the three shapes the editor offers, the shape it only preserves,
