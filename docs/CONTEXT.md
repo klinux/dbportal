@@ -566,19 +566,27 @@ built. Each lands as its own section when done.
   delivery the receiver refused is an `alert delivery_failed` line. An administrator sees
   every alert; everyone else their own. Not built: alerts on a value across runs (rate of
   change), quiet hours, per-channel severity - each a small addition to the record.
-- **4.30 An MCP surface for troubleshooting agents, run apart** (asked 2026-09-14) — an
-  MCP server that lets an agent list the datasources a service token may open, describe a
-  schema and run read-only statements, with the same gates as the bot API (§4.10: token,
-  datasource list, guardrails, limits, audit with the agent as `subject`). The point that
-  matters: **today everything runs in one process** - the studio, the routes, the pools to
-  every datasource - so a compromise of the instance is a compromise of every credential
-  it holds. The agent surface must run **apart**: a second deployment of the same image in
-  an `agent` role (`DBPORTAL_ROLE=agent`) that serves only the MCP and bot routes, holds only
-  the datasources its tokens name (never an admin credential, never the store's write
-  path), opens read-only pools, and sits in its own network policy; the studio instance
-  keeps the rest. A compromised agent runtime then reaches what its tokens reach, and no
-  more. Same idea applies to the seed and backup jobs (§4.14, §4.23): candidates for the
-  same worker role later.
+- **4.30 An MCP surface for troubleshooting agents, run apart — done (asked 2026-09-14).**
+  `POST /api/mcp` ([`src/lib/mcp/server.ts`](../src/lib/mcp/server.ts)): JSON-RPC 2.0 over
+  one POST per message - the Streamable HTTP transport without sessions or streams, so
+  nothing is held between two calls - with a service token (§4.10) as the Bearer. Three
+  tools: `list_datasources` (the ones the token may open), `describe_schema` (containers,
+  then the objects of a kind with columns, indexes and foreign keys, through the object
+  model of #789) and `run_query`, which runs a statement that READS through the bot's own
+  path - the token's datasource list, the access rule, guardrails, limits, masking, a
+  bounded result, the `query_execution` line with the token as actor and the person named
+  in `onBehalfOf` (the token itself otherwise); a write is refused whatever the token's
+  role, and a token with `requireApproval` sees its read queued. **Run apart**:
+  `DBPORTAL_ROLE=agent` ([`src/lib/config/role.ts`](../src/lib/config/role.ts), chart value
+  `role: agent`) turns the same image into a deployment that answers only `/api/v1/*`,
+  `/api/mcp`, the probes and the metrics scrape - every page, session route and admin route
+  is a 404 in the proxy, before any other branch; it seeds no sample, prints no banner and
+  runs no alert scheduler. It reads the same storage backend (tokens, datasources, the
+  approval queue) but nothing a browser would use reaches it, so a compromise of the agent
+  runtime reaches what its tokens reach and no more. Run it as its own release, in its own
+  network policy. Not built: read-only database credentials of its own for the agent role
+  (today the datasource's credential is the same in both roles; the pool is opened read-only
+  where the rule says so), and the seed and backup jobs as a worker role.
 - **4.31 Seed mode 2** — a masked sample of another datasource copied to staging, and
   parent/child ratios per table (§4.23).
 - **4.32 Alerts on the trail** — Slack or e-mail when a guardrail fires, a large export

@@ -20,6 +20,7 @@ const ENV_KEYS = [
   "ADMIN_PASSWORD",
   "AUTH_BOOTSTRAP",
   "DBPORTAL_NO_BANNER",
+  "DBPORTAL_ROLE",
 ] as const;
 
 /** The sqlite sample seeds fire-and-forget; poll for its observable effects. */
@@ -78,6 +79,16 @@ describe("instrumentation register()", () => {
     } finally {
       setAuditPersistence(null);
     }
+  });
+
+  // docs/CONTEXT.md §4.30: the agent role registers the audit sink and stops there - no sample, no banner.
+  test("the agent role seeds no sample", async () => {
+    process.env.NEXT_RUNTIME = "nodejs";
+    process.env.DBPORTAL_ROLE = "agent";
+    process.env.SQLITE_EMBEDDED_SAMPLE = "true";
+    process.env.DBPORTAL_EMBEDDED_SAMPLE = "true";
+    await register();
+    expect(getSqliteSampleSeedState()).toBe("idle");
   });
 
   test("does nothing outside the nodejs runtime", async () => {

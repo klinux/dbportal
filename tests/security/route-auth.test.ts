@@ -234,6 +234,7 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists and creates service tokens in the app's own storage backend (STORAGE_PROVIDER); never opens a user database (GET/POST). Admin-gated by requireAdmin like admin/datasources; tests/api/admin/service-tokens.test.ts proves the 403",
   "admin/service-tokens/[id]":
     "revokes one service token in the same storage backend; never opens a user database (DELETE, no POST export). Same admin gate",
+  mcp: "the MCP endpoint (POST): one JSON-RPC message per request from an agent that holds a service token. It reaches a provider through @/lib/mcp/server, but only behind guardServiceRoute, the Bearer-token twin of guardRoute; tests/api/mcp.test.ts proves the 401",
   "v1/executions":
     "queues, or runs at once, a statement a service token submits (POST). It reaches a provider through @/lib/executions/store, but only behind guardServiceRoute, the Bearer-token twin of guardRoute; tests/api/v1/executions.test.ts proves the 401",
   "v1/executions/[id]":
@@ -501,6 +502,7 @@ describe("routes that reach a provider require a session", () => {
       "the Bearer-token guard of the v1 routes: resolves a token in the app's own storage backend and meters it; opens no user database",
     "@/lib/service-tokens/store":
       "service tokens in the app's own storage backend: hashes, roles, revocation; opens no user database",
+    "@/lib/mcp/server": `the MCP tools (docs/CONTEXT.md §4.30): the token's datasource list, a schema read and a statement that reads, and it ${PROVIDER_NAMING_HELPER} (@/lib/db) for the schema read and through @/lib/executions/store for the statement - but only for a request that passed guardServiceRoute`,
     "@/lib/executions/store": `the execution queue (docs/CONTEXT.md §4.10), and it ${PROVIDER_NAMING_HELPER} (@/lib/db) to run an approved statement - but only for a request that passed guardServiceRoute or a reviewer's session on approvals/[id]; the routes that import it are session- or token-gated above`,
     "@/lib/ssh-profiles/store":
       "the shared SSH profiles in the app's own storage backend and the seed file, and which datasources name them; opens no user database",

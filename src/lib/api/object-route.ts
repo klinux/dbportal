@@ -88,7 +88,7 @@ interface ObjectRequestBody {
  * `requireMethod` to name it with: a guard for a state the type cannot express is an unreachable
  * throw, which is a covered line nothing executes.
  */
-class ObjectRouteError extends Error {
+export class ObjectRouteError extends Error {
   constructor(
     message: string,
     public readonly status: number,

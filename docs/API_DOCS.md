@@ -1240,6 +1240,20 @@ seed-file one; `POST /api/admin/channels/[id]/test` → `{ delivered }`. Audited
 fired, resolved, delivery_failed) and `notification_channel` (saved, deleted, tested); each run is a
 `query_execution` with action `alert` under the alert's owner.
 
+### MCP endpoint (service tokens)
+
+For troubleshooting agents (docs/CONTEXT.md §4.30). `POST /api/mcp` with `Authorization: Bearer dbp_…`
+and one JSON-RPC 2.0 message per request (MCP Streamable HTTP, protocol `2025-06-18`, no sessions, no
+event stream - `GET` is a `405`). Methods: `initialize`, `ping`, `tools/list`, `tools/call`;
+notifications get an empty `202`. Tools: `list_datasources` → `[{ id, name, engine, environment }]`
+the token may open; `describe_schema` `{ datasourceId, container?, kind? }` → the containers, or the
+objects of `kind` (default `table`) in `container` with columns, indexes and foreign keys (at most 200);
+`run_query` `{ datasourceId, statement, onBehalfOf?, ticket? }` → `{ status: "done", rowCount, fields,
+rows, truncated?, durationMs }`, or `{ status: "pending", requestId }` when the token or the datasource
+requires approval (poll `GET /api/v1/executions/[id]`), or `{ status: "failed", error }`. A statement
+that writes is refused with `isError`. A deployment with `DBPORTAL_ROLE=agent` serves only this endpoint,
+`/api/v1/*`, the probes and `/api/metrics`; everything else answers `404`.
+
 Runbooks (docs/CONTEXT.md §4.20). Admin: `GET /api/admin/runbooks` → `{ runbooks: [{ id, name,
 description?, datasource, sql, params?, source }] }`; `POST /api/admin/runbooks` — body
 `{ id, name, description?, datasource, sql, params?: [{ name, type, label?, required?, default? }] }`,

@@ -31,6 +31,14 @@ export async function register(): Promise<void> {
   const { startAlertScheduler } = await import("@/lib/alerts/scheduler");
   startAlertScheduler();
 
+  // The agent role (docs/CONTEXT.md §4.30) holds no sample and prints no studio banner: it
+  // serves the datasources its tokens name, and nothing a browser would open.
+  const { isAgentRole } = await import("@/lib/config/role");
+  if (isAgentRole()) {
+    logger.info("Agent role: serving the service API and the MCP endpoint only", { route: "instrumentation" });
+    return;
+  }
+
   // LibreDB sample: programmatic and fast — seeded synchronously as before.
   const { isSampleEnabled, resolveSamplePath, seedSampleFile } = await import("@/lib/seed/libredb-sample");
   if (isSampleEnabled()) {

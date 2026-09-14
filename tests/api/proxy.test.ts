@@ -291,6 +291,52 @@ describe("proxy", () => {
     });
   });
 
+  // docs/CONTEXT.md §4.30: the MCP endpoint is admitted like the service API, on the shape of a
+  // service token; and in the agent role the proxy answers nothing but the program surfaces.
+  describe("MCP path and the agent role", () => {
+    test("the MCP endpoint reaches its route with a service-shaped Bearer, and is a 401 without one", async () => {
+      const through = await proxy(
+        new NextRequest("http://localhost:3000/api/mcp", { headers: { authorization: "Bearer dbp_anything" } }),
+      );
+      expect(through.status).toBe(200);
+      const bare = await proxy(new NextRequest("http://localhost:3000/api/mcp"));
+      expect(bare.status).toBe(401);
+      expect(isRedirect(bare)).toBe(false);
+    });
+
+    test("in the agent role every page, session route and admin route is a 404, and the program surfaces stay", async () => {
+      const saved = process.env.DBPORTAL_ROLE;
+      process.env.DBPORTAL_ROLE = "agent";
+      try {
+        for (const path of [
+          "/",
+          "/login",
+          "/admin/datasources",
+          "/api/auth/login",
+          "/api/db/query",
+          "/api/admin/datasources",
+        ]) {
+          const res = await proxy(createNextRequest(path, "not-a-service-token"));
+          expect(res.status).toBe(404);
+          expect(isRedirect(res)).toBe(false);
+          expect(await res.json()).toEqual({ error: "This deployment serves the agent surface only", statusCode: 404 });
+        }
+        expect((await proxy(new NextRequest("http://localhost:3000/api/health/live"))).status).toBe(200);
+        expect((await proxy(new NextRequest("http://localhost:3000/api/v1/executions"))).status).toBe(401);
+        expect(
+          (
+            await proxy(
+              new NextRequest("http://localhost:3000/api/mcp", { headers: { authorization: "Bearer dbp_x" } }),
+            )
+          ).status,
+        ).toBe(200);
+      } finally {
+        if (saved === undefined) delete process.env.DBPORTAL_ROLE;
+        else process.env.DBPORTAL_ROLE = saved;
+      }
+    });
+  });
+
   // docs/CONTEXT.md §4.11: the scrape is admitted on the shape of a credential, verified by the route.
   describe("metrics path", () => {
     test("a Bearer reaches the route; without one the scrape is a 401, not a redirect", async () => {

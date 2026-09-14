@@ -285,6 +285,13 @@ spec:
                    Written before extraEnv, so an operator can still move it. */}}
             - name: WORKFLOW_LOCAL_DATA_DIR
               value: /app/data/workflow
+            {{- /* The deployment's role (docs/CONTEXT.md §4.30). Written only for the agent
+                   role, so a studio render stays byte-for-byte what it was; before extraEnv
+                   so an operator can still override it. */}}
+            {{- if eq .Values.role "agent" }}
+            - name: DBPORTAL_ROLE
+              value: agent
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

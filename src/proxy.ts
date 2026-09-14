@@ -17,6 +17,7 @@ import {
   shouldRenew,
 } from "@/lib/config/session";
 import { withSecurityHeaders } from "@/lib/security/config";
+import { agentRoleAdmits, isAgentRole, MCP_PATH, SERVICE_API_PREFIX } from "@/lib/config/role";
 
 // Lazy-initialized to prevent module-level crash if JWT_SECRET is misconfigured.
 // A module-level throw would block ALL requests (including health check).
@@ -39,7 +40,6 @@ const ORIGIN_MISMATCH_BODY = {
   retryable: false,
 };
 
-const SERVICE_API_PREFIX = "/api/v1/";
 const METRICS_PATH = "/api/metrics";
 const SERVICE_BEARER_PREFIX = "Bearer dbp_";
 /** Slack's interactivity endpoint (docs/CONTEXT.md §4.24): its credential is the request signature. */
@@ -51,6 +51,15 @@ export async function proxy(request: NextRequest) {
   // prefixes config.matcher at build time. Keep authorization checks app-relative.
   const { pathname } = request.nextUrl;
   const isStaticAsset = /\.[a-z0-9]+$/i.test(pathname);
+
+  // The agent role (docs/CONTEXT.md §4.30) serves programs and probes, nothing else: no page,
+  // no session route, no admin API. A 404 rather than a redirect, since no browser is meant
+  // to be here, and before every other branch so that nothing below can widen it.
+  if (isAgentRole() && !agentRoleAdmits(pathname)) {
+    return withSecurityHeaders(
+      NextResponse.json({ error: "This deployment serves the agent surface only", statusCode: 404 }, { status: 404 }),
+    );
+  }
 
   // Slack posts a form from its own servers, with no Origin and no cookie; the signature it
   // carries is the credential, and the route verifies it against the signing secret. A
@@ -139,7 +148,7 @@ export async function proxy(request: NextRequest) {
   // service-token shape, and the route's own guard (src/lib/api/service-auth.ts) is what
   // verifies it against the store - this runtime has no store to ask. Without one, a bot
   // gets the 401 an API client can act on, never the login redirect meant for a browser.
-  if (pathname.startsWith(SERVICE_API_PREFIX)) {
+  if (pathname.startsWith(SERVICE_API_PREFIX) || pathname === MCP_PATH) {
     const authorization = request.headers.get("authorization") ?? "";
     if (authorization.startsWith(SERVICE_BEARER_PREFIX)) return withSecurityHeaders(NextResponse.next());
     return withSecurityHeaders(NextResponse.json({ error: "A valid service token is required" }, { status: 401 }));

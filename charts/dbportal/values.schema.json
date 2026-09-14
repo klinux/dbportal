@@ -198,6 +198,11 @@
         }
       }
     },
+    "role": {
+      "type": "string",
+      "enum": ["studio", "agent"],
+      "description": "studio (the portal) or agent (only the service API, the MCP endpoint, the probes and the scrape)"
+    },
     "agent": {
       "type": "object",
       "properties": {
