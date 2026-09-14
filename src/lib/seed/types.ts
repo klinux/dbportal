@@ -39,6 +39,47 @@ const RoleMemberSchema = z
     "Must be admin, user, group:<name> or user:<username>",
   );
 
+/** One value a runbook asks for (docs/CONTEXT.md §4.20); the statement names it as `{{name}}`. */
+export const RunbookParamSchema = z.object({
+  name: z.string().regex(/^[a-z][a-z0-9_]{0,31}$/, "Must be a lowercase identifier"),
+  label: z.string().min(1).max(64).optional(),
+  type: z.enum(["string", "number", "boolean"]),
+  /** Absent means required. */
+  required: z.boolean().optional(),
+  default: z.union([z.string(), z.number(), z.boolean()]).optional(),
+});
+
+export type RunbookParam = z.infer<typeof RunbookParamSchema>;
+
+export const RUNBOOK_PLACEHOLDER = /\{\{\s*([a-z][a-z0-9_]{0,31})\s*\}\}/g;
+
+/**
+ * A runbook (docs/CONTEXT.md §4.20): one statement, declared once for one datasource, with
+ * the values it asks for named as `{{name}}` and bound by the driver, never written in.
+ */
+export const RunbookSchema = z
+  .object({
+    id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    name: z.string().min(1).max(64),
+    description: z.string().max(200).optional(),
+    datasource: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    sql: z.string().min(1).max(20_000),
+    params: z.array(RunbookParamSchema).max(20).optional(),
+  })
+  .refine((r) => new Set((r.params ?? []).map((p) => p.name)).size === (r.params ?? []).length, {
+    message: "Parameter names must be unique",
+    path: ["params"],
+  })
+  .refine(
+    (r) => {
+      const declared = new Set((r.params ?? []).map((p) => p.name));
+      return [...r.sql.matchAll(RUNBOOK_PLACEHOLDER)].every((m) => declared.has(m[1]));
+    },
+    { message: "Every {{placeholder}} in sql must be a declared parameter", path: ["sql"] },
+  );
+
+export type Runbook = z.infer<typeof RunbookSchema>;
+
 /** A named role (docs/CONTEXT.md §4.19): an id datasources refer to as `role:<id>`, and who is in it. */
 export const NamedRoleSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
@@ -187,6 +228,8 @@ export const SeedConfigSchema = z
     freezeWindows: z.array(FreezeWindowSchema).optional(),
     /** Named roles declared once (§4.19); read-only on the admin page. */
     namedRoles: z.array(NamedRoleSchema).optional(),
+    /** Runbooks declared once (§4.20); read-only on the admin page. */
+    runbooks: z.array(RunbookSchema).optional(),
   })
   .refine((cfg) => new Set(cfg.connections.map((c) => c.id)).size === cfg.connections.length, {
     message: "Connection IDs must be unique",
@@ -196,6 +239,9 @@ export const SeedConfigSchema = z
   })
   .refine((cfg) => new Set((cfg.namedRoles ?? []).map((r) => r.id)).size === (cfg.namedRoles ?? []).length, {
     message: "Named role IDs must be unique",
+  })
+  .refine((cfg) => new Set((cfg.runbooks ?? []).map((r) => r.id)).size === (cfg.runbooks ?? []).length, {
+    message: "Runbook IDs must be unique",
   });
 
 export type SeedConnection = z.infer<typeof SeedConnectionSchema>;

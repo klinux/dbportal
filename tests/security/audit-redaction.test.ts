@@ -30,6 +30,7 @@ const ALLOWED_KEYS = new Set([
   "reviewer",
   "subject",
   "ticket",
+  "runbook",
   "statement",
 ]);
 
@@ -697,6 +698,25 @@ describe("approval fields on the line", () => {
 
   // docs/CONTEXT.md §4.10: a service token's execution names the person it acted for, so the
   // line has two names to attribute by - the token as actor, the person as subject.
+  // docs/CONTEXT.md §4.20: the runbook a statement came from, by id, and absent otherwise.
+  test("runbook is written when set and absent otherwise", () => {
+    const line = captureLine(() =>
+      emitAuditEvent({
+        type: "query_execution",
+        action: "query",
+        target: "t",
+        user: "ana",
+        result: "success",
+        runbook: "customer-orders",
+      }),
+    );
+    expect(line.runbook).toBe("customer-orders");
+    const without = captureLine(() =>
+      emitAuditEvent({ type: "query_execution", action: "query", target: "t", user: "ana", result: "success" }),
+    );
+    expect(without).not.toHaveProperty("runbook");
+  });
+
   // docs/CONTEXT.md §4.18: the change that asked, on the line, bounded like every field.
   test("ticket is written when set and absent otherwise", () => {
     const line = captureLine(() =>

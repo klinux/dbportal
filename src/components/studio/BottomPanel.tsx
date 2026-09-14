@@ -13,6 +13,7 @@ import { ResultsGrid } from "@/components/ResultsGrid";
 import { ApprovalState } from "@/components/studio/ApprovalState";
 import { QueryHistory } from "@/components/QueryHistory";
 import { SavedQueries } from "@/components/SavedQueries";
+import { Runbooks, type PreparedRunbook } from "@/components/Runbooks";
 import { ChunkBoundary, ViewLoading } from "@/components/LazyView";
 import { lazyRetry } from "@/lib/lazy";
 import { describeExportScope } from "@/lib/export/scope";
@@ -30,6 +31,7 @@ import {
   GitCompare,
   LayoutDashboard,
   LayoutGrid,
+  ListChecks,
   Terminal,
   X,
   Zap,
@@ -49,6 +51,7 @@ export type BottomPanelMode =
   | "explain"
   | "history"
   | "saved"
+  | "runbooks"
   | "charts"
   | "pivot"
   | "docs"
@@ -162,6 +165,12 @@ interface BottomPanelProps {
   onDiscardChanges: () => void;
   // Actions
   onLoadQuery: (query: string) => void;
+  /**
+   * A runbook prepared for its values (docs/CONTEXT.md §4.20): load it and run it with the
+   * values bound. Absent where the host runs statements itself (the embeddable workspace
+   * hands only the text over), and then the Runbooks tab is not offered.
+   */
+  onRunRunbook?: (prepared: PreparedRunbook) => void;
   onLoadMore: (() => void) | undefined;
   isLoadingMore: boolean | undefined;
   // The writer's own type, so a format added there cannot silently fail to reach this
@@ -204,6 +213,7 @@ export function BottomPanel({
   onApplyChanges,
   onDiscardChanges,
   onLoadQuery,
+  onRunRunbook,
   onLoadMore,
   isLoadingMore,
   onExportResults,
@@ -282,6 +292,12 @@ export function BottomPanel({
       activeClass: "text-hue-purple border-hue-purple-tint bg-fill",
     },
     {
+      key: "runbooks",
+      label: "Runbooks",
+      icon: <ListChecks strokeWidth={1.5} className="w-3 h-3" />,
+      activeClass: "text-hue-green border-hue-green-tint bg-fill",
+    },
+    {
       key: "charts",
       label: "Charts",
       icon: <ChartColumn strokeWidth={1.5} className="w-3 h-3" />,
@@ -313,7 +329,10 @@ export function BottomPanel({
     },
   ];
 
-  const visibleTabs = metadata?.capabilities.explainFormat ? tabs : tabs.filter((tab) => tab.key !== "explain");
+  const visibleTabs = tabs.filter(
+    (tab) =>
+      (tab.key !== "explain" || metadata?.capabilities.explainFormat) && (tab.key !== "runbooks" || onRunRunbook),
+  );
 
   return (
     /*
@@ -499,6 +518,14 @@ export function BottomPanel({
                 connectionType={activeConnection?.type}
                 onSelectQuery={(q) => {
                   onLoadQuery(q);
+                  onSetMode("results");
+                }}
+              />
+            ) : mode === "runbooks" && onRunRunbook ? (
+              <Runbooks
+                datasourceId={activeConnection?.seedId}
+                onRun={(prepared) => {
+                  onRunRunbook(prepared);
                   onSetMode("results");
                 }}
               />

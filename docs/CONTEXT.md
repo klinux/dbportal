@@ -413,7 +413,18 @@ built. Each lands as its own section when done.
   cannot be read grants nothing and is logged. A reviewer who does not administer reaches
   the requests at `/approvals`, the admin's Approvals section in the studio's shell, linked
   from the user menu for everyone; the server lists only what the session may review.
-- **4.20 Runbooks** — shared, parameterised saved queries per datasource.
+- **4.20 Runbooks — done.** One statement declared once for one datasource - `runbooks:`
+  in the seed file, or the Operations page's Runbooks panel, stored under `shared:runbooks`
+  - with the values it asks for named as `{{name}}` and typed (`string`, `number`,
+  `boolean`, optional, default). The studio's Runbooks tab lists those of the open
+  datasource; a form asks for the values; `POST /api/runbooks/[id]/prepare` binds them
+  into the engine's own positional placeholders ([`src/lib/runbooks/store.ts`](../src/lib/runbooks/store.ts),
+  over `positionalPlaceholder`), and the statement runs through the ordinary query route
+  with the values in `params` - never as statement text - and `runbook` on the audit line.
+  A runbook grants nothing: whoever runs it needs the same rights as by hand, and the
+  write gate, guardrails, limits and freeze windows apply as to any statement. An engine
+  without bound parameters refuses a runbook that has any. The embeddable workspace, which
+  hands only statement text to its host, does not offer the tab.
 - **4.21 Large and elaborate scripts** — verify, with a real `UPDATE … WHERE id IN (…)` of
   two thousand ids and a multi-statement script, what the portal does: known today, the
   approval record keeps the first 4000 characters of a statement for display (the editor's

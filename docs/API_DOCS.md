@@ -1212,6 +1212,16 @@ Admin only (docs/CONTEXT.md §4.19). `GET /api/admin/roles` → `{ roles: [{ id,
 `POST /api/admin/roles` — body `{ id, name, members }` (members: `admin`, `user`, `group:<name>`,
 `user:<username>`), `201`, `409` when the id exists or the seed file declares it;
 `DELETE /api/admin/roles/[id]`. Audited as `named_role`. Every datasource list accepts `role:<id>`.
+
+Runbooks (docs/CONTEXT.md §4.20). Admin: `GET /api/admin/runbooks` → `{ runbooks: [{ id, name,
+description?, datasource, sql, params?, source }] }`; `POST /api/admin/runbooks` — body
+`{ id, name, description?, datasource, sql, params?: [{ name, type, label?, required?, default? }] }`,
+`201`, `409` when the id exists or the seed file declares it; `DELETE /api/admin/runbooks/[id]`;
+audited as `runbook`. Any session: `GET /api/runbooks` → those on the datasources it may open;
+`POST /api/runbooks/[id]/prepare` — body `{ values: { <name>: value } }` → `{ runbook, datasource,
+sql, params }` with the engine's positional placeholders and the values to bind (`400` naming the
+value at fault; a runbook on a datasource the session may not open is refused as the datasource itself would be). The statement then runs through `/api/db/query`
+with `params` and `runbook` (the id, written to the audit line as `runbook`).
 A write inside a window is refused with `403` whose message names the window's end and reason;
 the bot API answers the same. Audited as `freeze_window` / `created` · `deleted`.
 

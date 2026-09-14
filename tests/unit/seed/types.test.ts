@@ -165,6 +165,22 @@ describe("SeedConfigSchema: freeze windows", () => {
       SeedConfigSchema.safeParse({ version: "1", connections: [conn], namedRoles: [{ ...role, members: ["role:x"] }] })
         .success,
     ).toBe(false);
+    // docs/CONTEXT.md §4.20: runbooks declared once; a placeholder without a parameter is refused.
+    const runbook = {
+      id: "customer-orders",
+      name: "Orders",
+      datasource: "orders",
+      sql: "SELECT {{id}}",
+      params: [{ name: "id", type: "number" }],
+    };
+    expect(SeedConfigSchema.safeParse({ version: "1", connections: [conn], runbooks: [runbook] }).success).toBe(true);
+    expect(
+      SeedConfigSchema.safeParse({ version: "1", connections: [conn], runbooks: [runbook, runbook] }).success,
+    ).toBe(false);
+    expect(
+      SeedConfigSchema.safeParse({ version: "1", connections: [conn], runbooks: [{ ...runbook, sql: "SELECT {{x}}" }] })
+        .success,
+    ).toBe(false);
     const ok = SeedConfigSchema.safeParse({ version: "1", connections: [conn], freezeWindows: [window] });
     expect(ok.success).toBe(true);
     const backwards = SeedConfigSchema.safeParse({

@@ -826,6 +826,29 @@ describe("POST /api/db/query with an explain request", () => {
     ).toBe(200);
   });
 
+  // docs/CONTEXT.md §4.20: a run from a runbook names it on the audit line; anything not an id is dropped.
+  test("names the runbook on the audit line when the request carries an id, and never otherwise", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      for (const runbook of ["customer-orders", "Not An Id", 42]) {
+        await POST(
+          createMockRequest("/api/db/query", {
+            method: "POST",
+            body: { connection: validConnection, sql: "SELECT 1", runbook },
+          }) as never,
+        );
+      }
+      const lines = logSpy.mock.calls
+        .map((c: unknown[]) => c[0])
+        .filter((v): v is string => typeof v === "string" && v.startsWith("{"))
+        .map((v) => JSON.parse(v) as Record<string, unknown>)
+        .filter((l) => l.event === "query_execution");
+      expect(lines.map((l) => l.runbook)).toEqual(["customer-orders", undefined, undefined]);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   describe("limits per datasource", () => {
     const limited = { ...validConnection, limits: { maxRows: 10, maxConcurrent: 1 } };
     const post = (body: Record<string, unknown>) =>

@@ -7,6 +7,7 @@ import type { Guardrail } from "../guardrails";
 import type { ServiceTokenRecord } from "../service-tokens/types";
 import type { FreezeWindowRecord } from "../freezes/store";
 import type { NamedRoleRecord } from "../roles/store";
+import type { RunbookRecord } from "../runbooks/store";
 
 /**
  * All persistable collections and their data types. Maps 1:1 with localStorage keys (minus
@@ -36,6 +37,8 @@ export interface StorageData {
   freeze_windows: FreezeWindowRecord[];
   /** Named roles (docs/CONTEXT.md §4.19), under the reserved owner `shared:roles`. */
   named_roles: NamedRoleRecord[];
+  /** Runbooks (docs/CONTEXT.md §4.20), under the reserved owner `shared:runbooks`. */
+  runbooks: RunbookRecord[];
 }
 
 /** Collection names that can be synced to server storage */

@@ -12,6 +12,7 @@ import { maskResult } from "@/lib/masking/store";
 import { clientAddress } from "@/lib/api/client-address";
 import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import { readTicket } from "@/lib/api/ticket";
+import { readRunbookId } from "@/lib/api/runbooks";
 import type { ExplainFormat } from "@/lib/db/types";
 
 /**
@@ -58,6 +59,7 @@ export async function POST(req: NextRequest) {
     const { sql, options = {}, queryId } = body;
     const reveal = body.reveal === true;
     const ticket = readTicket(body.ticket);
+    const runbook = readRunbookId(body.runbook);
 
     const connection = await resolveConnection(body, guard.session);
 
@@ -144,6 +146,7 @@ export async function POST(req: NextRequest) {
           statement: prepared.query,
           ip: clientAddress(req),
           ...(ticket ? { ticket } : {}),
+          ...(runbook ? { runbook } : {}),
           ...access,
         },
         () =>

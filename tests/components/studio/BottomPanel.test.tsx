@@ -66,6 +66,17 @@ mock.module("@/components/QueryHistory", () => ({
   },
 }));
 
+// docs/CONTEXT.md §4.20: the runbooks view is its own component with its own test.
+let capturedRunbooksProps: Record<string, unknown> = {};
+mock.module("@/components/Runbooks", () => ({
+  Runbooks: (props: Record<string, unknown>) => {
+    capturedRunbooksProps = props;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const React = require("react");
+    return React.createElement("div", { "data-testid": "runbooks-stub" });
+  },
+}));
+
 mock.module("@/components/SavedQueries", () => ({
   SavedQueries: ({ onSelectQuery }: Record<string, unknown>) => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -208,6 +219,7 @@ function createDefaultProps(overrides: Partial<Record<string, unknown>> = {}) {
     onApplyChanges: mock(() => {}),
     onDiscardChanges: mock(() => {}),
     onLoadQuery: mock(() => {}),
+    onRunRunbook: mock(() => {}),
     onLoadMore: undefined,
     isLoadingMore: false,
     onExportResults: mock(() => {}),
@@ -363,6 +375,34 @@ describe("BottomPanel", () => {
 
     expect(onSetMode).toHaveBeenCalledTimes(1);
     expect(onSetMode).toHaveBeenCalledWith("history");
+  });
+
+  // docs/CONTEXT.md §4.20: the Runbooks tab is offered only where the panel can run a prepared
+  // statement; the view gets the open datasource and hands a run up, then shows the results.
+  test("the Runbooks tab and view exist with a runner, and are absent without one", () => {
+    const onRunRunbook = mock(() => {});
+    const onSetMode = mock(() => {});
+    const props = createDefaultProps({
+      mode: "runbooks",
+      onRunRunbook,
+      onSetMode,
+      activeConnection: { id: "seed:orders", seedId: "orders", name: "Orders", type: "postgres" },
+    });
+    const { getByText, getByTestId } = render(<BottomPanel {...(props as React.ComponentProps<typeof BottomPanel>)} />);
+    expect(getByText("Runbooks").closest("button")).not.toBeNull();
+    expect(getByTestId("runbooks-stub")).not.toBeNull();
+    expect(capturedRunbooksProps.datasourceId).toBe("orders");
+    const prepared = { sql: "SELECT $1", params: [1], runbook: "r" };
+    (capturedRunbooksProps.onRun as (p: unknown) => void)(prepared);
+    expect(onRunRunbook).toHaveBeenCalledWith(prepared);
+    expect(onSetMode).toHaveBeenCalledWith("results");
+    cleanup();
+    const without = createDefaultProps({ mode: "runbooks", onRunRunbook: undefined });
+    const { queryByText, queryByTestId } = render(
+      <BottomPanel {...(without as React.ComponentProps<typeof BottomPanel>)} />,
+    );
+    expect(queryByText("Runbooks")).toBeNull();
+    expect(queryByTestId("runbooks-stub")).toBeNull();
   });
 
   test('ResultsGrid renders when mode="results" and result exists', () => {

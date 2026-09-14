@@ -1401,6 +1401,26 @@ describe("useQueryExecution", () => {
     expect(mockToastError).not.toHaveBeenCalled();
   });
 
+  // docs/CONTEXT.md §4.20: the runbook and its values travel with that one run.
+  test("sends the runbook id and its bound values with the run they were given for", async () => {
+    const fetchMock = mockGlobalFetch({ "/api/db/query": { ok: true, json: mockQueryResult } });
+    const { result } = renderHook(() => useQueryExecution(createDefaultParams()));
+    await act(async () => {
+      await result.current.executeQuery("SELECT $1", undefined, false, {
+        params: [42],
+        runbook: "customer-orders",
+        skipSafety: true,
+      });
+    });
+    const body = JSON.parse(((fetchMock.mock.calls[0] as unknown[])[1] as RequestInit).body as string);
+    expect(body).toMatchObject({ sql: "SELECT $1", params: [42], runbook: "customer-orders" });
+    await act(async () => {
+      await result.current.executeQuery("SELECT 1");
+    });
+    const plain = JSON.parse(((fetchMock.mock.calls.at(-1) as unknown[])[1] as RequestInit).body as string);
+    expect(plain).not.toHaveProperty("runbook");
+  });
+
   // docs/CONTEXT.md §4.7: a reveal is asked of the server in the request, never applied locally.
   test("sends reveal in the body when asked, and never for an explain", async () => {
     const fetchMock = mockGlobalFetch({ "/api/db/query": { ok: true, json: mockQueryResult } });

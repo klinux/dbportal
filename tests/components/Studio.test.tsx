@@ -1526,6 +1526,20 @@ describe("Studio", () => {
     expect(mockSaveMaskingConfig).toHaveBeenCalledTimes(1);
   });
 
+  // docs/CONTEXT.md §4.20: the prepared statement lands in the tab and runs with its values bound,
+  // past the client's safety prompt - the server's gates still apply.
+  test("BottomPanel onRunRunbook loads the statement and runs it bound, naming the runbook", () => {
+    render(<Studio />);
+    const fn = capturedBottomPanelProps.onRunRunbook as (p: unknown) => void;
+    act(() => fn({ sql: "SELECT $1", params: [42], runbook: "customer-orders" }));
+    expect(mockUpdateCurrentTab).toHaveBeenCalledWith({ query: "SELECT $1" });
+    expect(mockExecuteQuery).toHaveBeenCalledWith("SELECT $1", undefined, false, {
+      params: [42],
+      runbook: "customer-orders",
+      skipSafety: true,
+    });
+  });
+
   test("BottomPanel onLoadQuery updates current tab query", () => {
     render(<Studio />);
     const fn = capturedBottomPanelProps.onLoadQuery as (q: string) => void;

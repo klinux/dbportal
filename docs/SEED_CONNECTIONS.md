@@ -145,6 +145,7 @@ connections:
 | `defaults.environment` | No | — | Default environment label |
 | `defaults.ssl` | No | — | Default SSL config |
 | `namedRoles` | No | — | Named roles (docs/CONTEXT.md §4.19): `{ id, name, members }`, referred to as `role:<id>` |
+| `runbooks` | No | — | Runbooks (docs/CONTEXT.md §4.20): `{ id, name, description?, datasource, sql, params? }` |
 | `connections` | Yes | — | Array of connection definitions (min 1) |
 | `connections[].id` | Yes | — | Unique slug: `[a-z0-9-]+`, max 64 chars |
 | `connections[].name` | Yes | — | Display name, max 128 chars |
@@ -463,6 +464,33 @@ seed-file role is read-only there and shadows a stored one with the same id). A 
 roles are resolved on every request from a list cached five seconds, never written into
 the token: a change applies at once. Reviewers who do not administer find the requests on
 `/approvals`, in the studio's user menu.
+
+### Runbooks
+
+A statement declared once for one datasource (docs/CONTEXT.md §4.20), with the values it
+asks for named as `{{name}}`: the incident lookup, the routine fix, the report. Anyone who
+may open the datasource finds it on the studio's Runbooks tab, fills in the form and runs
+it; the values are bound by the driver, never written into the statement, and the audit
+line names the runbook. A runbook grants no right its runner lacks by hand.
+
+```yaml
+runbooks:
+  - id: "customer-orders"
+    name: "Open orders of a customer"
+    description: "What a customer is waiting for"
+    datasource: "prod-orders"
+    sql: "SELECT * FROM orders WHERE customer_id = {{customer_id}} AND status = {{status}} LIMIT {{limit}}"
+    params:
+      - { name: customer_id, type: number, label: "Customer id" }
+      - { name: status, type: string, default: "open" }
+      - { name: limit, type: number, required: false }
+```
+
+`type` is `string`, `number` or `boolean`; a parameter is required unless `required: false`
+or it has a `default`. Every `{{placeholder}}` must be a declared parameter. Administrators
+declare more on the Operations page (server storage needed; a seed-file runbook is
+read-only there). Engines without bound parameters (Redis, MongoDB, the search engines,
+Cassandra) refuse a runbook that has parameters.
 
 ## Every Connection Is Managed
 

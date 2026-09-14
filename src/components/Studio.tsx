@@ -801,6 +801,13 @@ export default function Studio() {
                         onApplyChanges={editing.handleApplyChanges}
                         onDiscardChanges={editing.handleDiscardChanges}
                         onLoadQuery={(q) => tabMgr.updateCurrentTab({ query: q })}
+                        // docs/CONTEXT.md §4.20: the prepared statement into the tab, run with its
+                        // values bound. The client safety prompt is for hand-typed statements; a
+                        // runbook was declared by an administrator, and the server's gates still hold.
+                        onRunRunbook={({ sql, params, runbook }) => {
+                          tabMgr.updateCurrentTab({ query: sql });
+                          void queryExec.executeQuery(sql, undefined, false, { params, runbook, skipSafety: true });
+                        }}
                         onLoadMore={
                           tabMgr.currentTab.result?.pagination?.hasMore ? queryExec.handleLoadMore : undefined
                         }

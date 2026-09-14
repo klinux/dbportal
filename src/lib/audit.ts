@@ -38,6 +38,8 @@ export type AuditEventType =
   | "freeze_window"
   /** A named role declared or deleted by an administrator (docs/CONTEXT.md §4.19). */
   | "named_role"
+  /** A runbook declared or deleted by an administrator (docs/CONTEXT.md §4.20). */
+  | "runbook"
   /** A reviewer's decision on a write approval request (docs/CONTEXT.md §4.6). */
   | "approval_decision"
   /** A permitted reveal of masked columns; the columns are named, never their values (§4.7). */
@@ -175,6 +177,8 @@ export interface AuditEvent {
   subject?: string;
   /** The ticket or incident the execution was for (docs/CONTEXT.md §4.18), as the caller named it. */
   ticket?: string;
+  /** The runbook the statement came from (docs/CONTEXT.md §4.20), by id. */
+  runbook?: string;
 }
 
 const MAX_EVENTS = 1000;
@@ -478,6 +482,7 @@ export interface AuditLogLine {
   reviewer?: string;
   subject?: string;
   ticket?: string;
+  runbook?: string;
   statement?: string;
 }
 
@@ -510,6 +515,7 @@ export function toAuditLine(event: AuditEvent): AuditLogLine {
     ...(event.reviewer ? { reviewer: event.reviewer } : {}),
     ...(event.subject ? { subject: event.subject } : {}),
     ...(event.ticket ? { ticket: event.ticket } : {}),
+    ...(event.runbook ? { runbook: event.runbook } : {}),
     // Number.isFinite excludes NaN and +/-Infinity: JSON.stringify(NaN) silently produces `null`,
     // which would flip duration_ms from a number to null for that one line in a contract parsers
     // depend on. Omitting it entirely keeps the field's type stable instead.

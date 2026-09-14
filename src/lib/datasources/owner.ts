@@ -21,6 +21,8 @@ export const SHARED_SERVICE_TOKENS_OWNER = "shared:service-tokens";
 export const SHARED_FREEZES_OWNER = "shared:freezes";
 /** Named roles (docs/CONTEXT.md §4.19). */
 export const SHARED_ROLES_OWNER = "shared:roles";
+/** Runbooks (docs/CONTEXT.md §4.20). */
+export const SHARED_RUNBOOKS_OWNER = "shared:runbooks";
 
 /** Every owner id no account may ever be. */
 export const RESERVED_OWNERS: readonly string[] = [
@@ -30,4 +32,5 @@ export const RESERVED_OWNERS: readonly string[] = [
   SHARED_SERVICE_TOKENS_OWNER,
   SHARED_FREEZES_OWNER,
   SHARED_ROLES_OWNER,
+  SHARED_RUNBOOKS_OWNER,
 ];

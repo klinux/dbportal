@@ -4,6 +4,7 @@ import React, { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
 import { BackupsPanel } from "@/components/admin/BackupsPanel";
+import { RunbooksPanel } from "@/components/admin/RunbooksPanel";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -410,6 +411,14 @@ export function OperationsTab() {
           where it is not production. The panel asks the server what it may offer. */}
       {selectedConnection && (
         <BackupsPanel
+          datasourceId={selectedConnection.seedId ?? selectedConnection.id}
+          datasourceName={selectedConnection.name}
+        />
+      )}
+
+      {/* Runbooks (docs/CONTEXT.md §4.20): the statements declared once for this datasource. */}
+      {selectedConnection && (
+        <RunbooksPanel
           datasourceId={selectedConnection.seedId ?? selectedConnection.id}
           datasourceName={selectedConnection.name}
         />

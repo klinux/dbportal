@@ -106,6 +106,15 @@ mock.module("@/components/admin/BackupsPanel", () => ({
   },
 }));
 
+// docs/CONTEXT.md §4.20: the runbooks panel likewise (tests/components/admin/RunbooksPanel.test.tsx).
+let runbooksPanelProps: Record<string, unknown> | null = null;
+mock.module("@/components/admin/RunbooksPanel", () => ({
+  RunbooksPanel: (props: Record<string, unknown>) => {
+    runbooksPanelProps = props;
+    return React.createElement("div", { "data-testid": "runbooks-panel-stub" });
+  },
+}));
+
 mock.module("@/lib/db-ui-config", () => ({
   getDBIcon: () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1889,5 +1898,6 @@ describe("OperationsTab", () => {
     expect(backupsPanelProps).not.toBeNull();
     expect(typeof backupsPanelProps!.datasourceId).toBe("string");
     expect(typeof backupsPanelProps!.datasourceName).toBe("string");
+    expect(runbooksPanelProps).toEqual(backupsPanelProps);
   });
 });

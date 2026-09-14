@@ -47,6 +47,8 @@ export interface ExecutionAuditContext {
   subject?: string;
   /** The ticket or incident the execution was for (§4.18). */
   ticket?: string;
+  /** The runbook the statement came from (§4.20). */
+  runbook?: string;
 }
 
 /**
@@ -85,6 +87,7 @@ function record(
       ...(context.approvalId ? { approvalId: context.approvalId, reviewer: context.reviewer } : {}),
       ...(context.subject ? { subject: context.subject } : {}),
       ...(context.ticket ? { ticket: context.ticket } : {}),
+      ...(context.runbook ? { runbook: context.runbook } : {}),
       ...(context.ip ? { ip: context.ip } : {}),
       ...(context.statement !== undefined && isStatementAuditEnabled() ? { details: context.statement } : {}),
     });

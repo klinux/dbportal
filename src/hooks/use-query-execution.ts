@@ -31,6 +31,8 @@ export interface QueryExecutionOptions {
    * #290) carries its values here so that no value can be read as statement text.
    */
   params?: unknown[];
+  /** The runbook this run came from (docs/CONTEXT.md §4.20), named on the audit line of this run only. */
+  runbook?: string;
   /**
    * Ask the server for the values its masking rules would hide (docs/CONTEXT.md §4.7).
    * Granted to the roles the configuration names, audited, refused with a 403 otherwise.
@@ -199,7 +201,7 @@ export function useQueryExecution({
   } | null>(null);
   const [historyKey, setHistoryKey] = useState(0);
   const [bottomPanelMode, setBottomPanelMode] = useState<
-    "results" | "explain" | "history" | "saved" | "charts" | "pivot" | "docs" | "schemadiff" | "dashboard"
+    "results" | "explain" | "history" | "saved" | "runbooks" | "charts" | "pivot" | "docs" | "schemadiff" | "dashboard"
   >("results");
 
   // Capability honesty: if the active provider has no explainFormat (e.g. the
@@ -265,6 +267,7 @@ export function useQueryExecution({
         offset = 0,
         unlimited = false,
         params,
+        runbook,
         reveal = false,
       } = executionOptions || {};
 
@@ -399,6 +402,7 @@ export function useQueryExecution({
             // statement takes, and only when the caller supplied one: a request
             // without values must stay a request without a `params` key (#290).
             ...(params && { params }),
+            ...(runbook && { runbook }),
             ...(reveal && !isExplain && { reveal: true }),
             // The tab's ticket (docs/CONTEXT.md §4.18), so the audit line joins the change.
             ...(currentTab.ticket && { ticket: currentTab.ticket }),
