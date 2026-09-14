@@ -632,8 +632,16 @@ built. Each lands as its own section when done.
   72-hour acknowledgement, the latest release only) and the verification recipe: the
   `cosign verify` identity pinned to this repository's `docker.yml` on `main` or a `v*` tag,
   and `imagetools inspect` for the SBOM and the provenance.
-- **4.34 Integration tests per engine in CI** for the export, runbook and seed routes
-  against a real PostgreSQL, today verified live only locally.
+- **4.34 Integration tests on a real PostgreSQL in CI — done.**
+  [`tests/integration/routes/postgres-routes.test.ts`](../tests/integration/routes/postgres-routes.test.ts)
+  drives the route handlers themselves - the seed plan, a generated seed, a masked copy
+  with a ratio (§4.23, §4.31), a runbook prepared and run (§4.20), an export (§4.22) -
+  against a PostgreSQL service container (`integration-postgres` job in `ci.yml`,
+  `bun run test:integration:postgres`, `DBPORTAL_IT_PG_URL`), with two databases it
+  creates itself and a seed file it writes itself; without the URL the file skips, so a
+  local core run needs no database. Other engines stay verified by their provider tests
+  over a mocked driver; a service container per engine is the same recipe when one is
+  worth its minutes.
 - **4.36 Environments as a list — done (asked 2026-09-14).** The five environments were
   words in code; they are a list now: the built-ins, the seed file's `environments:`, and
   what an administrator declares under Security → Environments, merged by id (a later
