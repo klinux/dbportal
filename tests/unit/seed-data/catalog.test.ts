@@ -133,7 +133,10 @@ const runner = {
 
 describe("seed-data catalog", () => {
   test("folds the four reads into one spec per table, every read bound to the schema", async () => {
+    // The portal's own store tables are never part of a plan, whatever schema they sit in.
+    rows.columns.push({ ...rows.columns[0], table_name: "user_storage", column_name: "owner_id" });
     const tables = await readCatalog(runner, "public");
+    rows.columns.pop();
     for (const call of runner.query.mock.calls) expect((call as unknown[])[1]).toEqual(["public"]);
     expect(tables.map((t) => t.name)).toEqual(["customers", "orders"]);
     const [customers, orders] = tables;

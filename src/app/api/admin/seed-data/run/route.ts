@@ -6,7 +6,8 @@ import { answerSeedDataError } from "@/lib/api/seed-data";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
 import { readCatalog, readSchemaName } from "@/lib/seed-data/catalog";
-import { buildPlan, readCounts } from "@/lib/seed-data/plan";
+import { buildPlan, readCounts, readRatios } from "@/lib/seed-data/plan";
+import { SeedDataError } from "@/lib/seed-data/errors";
 import { assertSeedable, startSeedRun } from "@/lib/seed-data/run";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 
@@ -35,13 +36,36 @@ export async function POST(request: Request) {
       applicationName: applicationNameFor(gate.session.username),
     });
     const tables = await readCatalog(provider, schema);
-    const counts = readCounts(body.counts, buildPlan(tables));
+    const plan = buildPlan(tables);
+    const counts = readCounts(body.counts, plan);
+    const ratios = readRatios(body.ratios, plan);
+    // Copy mode (docs/CONTEXT.md §4.31): the source is any PostgreSQL datasource this session may open, read-only.
+    const mode = body.mode === "copy" ? "copy" : "generate";
+    let source: { runner: typeof provider; name: string } | undefined;
+    if (mode === "copy") {
+      const sourceId = typeof body.sourceDatasourceId === "string" ? body.sourceDatasourceId.trim() : "";
+      if (!sourceId) throw new SeedDataError("sourceDatasourceId is required to copy a sample", 400);
+      if (sourceId === datasourceId) throw new SeedDataError("The sample must come from another datasource", 400);
+      const sourceConnection = await resolveConnection({ connectionId: `seed:${sourceId}` }, gate.session);
+      if (sourceConnection.type !== "postgres")
+        throw new SeedDataError("A sample is copied from a PostgreSQL datasource only", 403);
+      source = {
+        runner: await getOrCreateProvider(sourceConnection, {
+          applicationName: applicationNameFor(gate.session.username),
+          readOnly: true,
+        }),
+        name: sourceConnection.name,
+      };
+    }
     const run = startSeedRun({
       connection,
       runner: provider,
       schema,
       tables,
       counts,
+      ratios,
+      mode,
+      source,
       truncate: body.truncate === true,
       actor: gate.session.username,
     });

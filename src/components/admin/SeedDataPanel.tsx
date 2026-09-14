@@ -18,6 +18,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Database, Play, RefreshCw, Sprout } from "lucide-react";
+import { useAllConnections } from "@/hooks/use-all-connections";
 import { toast } from "sonner";
 import type { PlanTable } from "@/lib/seed-data/plan";
 import type { SeedRun } from "@/lib/seed-data/run";
@@ -25,8 +26,10 @@ import type { SeedRun } from "@/lib/seed-data/run";
 /**
  * Seeding a non-production datasource from its schema (docs/CONTEXT.md §4.23): read the
  * schema into a plan - the tables in the order they are filled, with what each depends on
- * and a row count to edit - then run it and watch each table fill. The server refuses what
- * it will not do (production, another engine, a freeze window); this panel shows its words.
+ * and a row count to edit - then run it and watch each table fill. Two modes (§4.31):
+ * generated rows, or a masked sample copied from another PostgreSQL datasource; a child
+ * table may take rows per parent row instead of a count. The server refuses what it will
+ * not do (production, another engine, a freeze window); this panel shows its words.
  */
 export const POLL_MS = 1500;
 
@@ -34,6 +37,11 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
   const [schema, setSchema] = useState("public");
   const [plan, setPlan] = useState<PlanTable[] | null>(null);
   const [counts, setCounts] = useState<Record<string, string>>({});
+  const [ratios, setRatios] = useState<Record<string, string>>({});
+  const [mode, setMode] = useState<"generate" | "copy">("generate");
+  const [sourceId, setSourceId] = useState("");
+  const { connections } = useAllConnections();
+  const sources = connections.filter((c) => c.type === "postgres" && c.seedId && c.seedId !== datasourceId);
   const [truncate, setTruncate] = useState(false);
   const [reading, setReading] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -62,6 +70,7 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
       if (!res.ok || !body.tables) throw new Error(body.error ?? `The schema could not be read (${res.status})`);
       setPlan(body.tables);
       setCounts(Object.fromEntries(body.tables.map((t) => [t.name, String(t.rows)])));
+      setRatios({});
       setRun(null);
     } catch (err) {
       setPlan(null);
@@ -89,6 +98,10 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
   const start = async () => {
     setConfirming(false);
     setError(null);
+    if (mode === "copy" && !sourceId) {
+      setError("Pick the datasource the sample comes from.");
+      return;
+    }
     try {
       const res = await appFetch("/api/admin/seed-data/run", {
         method: "POST",
@@ -97,6 +110,13 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
           datasourceId,
           schema,
           counts: Object.fromEntries(Object.entries(counts).map(([name, value]) => [name, Number(value)])),
+          ratios: Object.fromEntries(
+            Object.entries(ratios)
+              .filter(([, value]) => value.trim() !== "")
+              .map(([name, value]) => [name, Number(value)]),
+          ),
+          mode,
+          ...(mode === "copy" ? { sourceDatasourceId: sourceId } : {}),
           truncate,
         }),
       });
@@ -109,7 +129,12 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
     }
   };
 
-  const total = plan ? plan.reduce((sum, t) => sum + (Number(counts[t.name]) || 0), 0) : 0;
+  // A table with a ratio is counted by its ratio, not its count: the parent decides at run time.
+  const total = plan
+    ? plan.reduce((sum, t) => sum + ((ratios[t.name] ?? "").trim() !== "" ? 0 : Number(counts[t.name]) || 0), 0)
+    : 0;
+  const ratioed = plan ? plan.filter((t) => (ratios[t.name] ?? "").trim() !== "").length : 0;
+  const sourceName = sources.find((c) => c.seedId === sourceId)?.name ?? "";
 
   return (
     <div className="rounded-xl border border-hairline bg-panel p-4 space-y-3" data-testid="seed-data-panel">
@@ -136,9 +161,46 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
         </div>
       </div>
       <p className="text-xs text-fg-muted">
-        Generated rows, typed as the columns are, in the order the foreign keys need, so a staging datasource can carry
-        the shape of production without its data. Never on production.
+        Generated rows, typed as the columns are, or a masked sample copied from another datasource, in the order the
+        foreign keys need, so a staging datasource can carry the shape of production without its data. Never on
+        production.
       </p>
+      <div className="flex items-center gap-3 flex-wrap">
+        <Label htmlFor="seed-mode" className="text-xs text-fg-tertiary">
+          Rows
+        </Label>
+        <select
+          id="seed-mode"
+          value={mode}
+          onChange={(e) => setMode(e.target.value as "generate" | "copy")}
+          disabled={run?.status === "running"}
+          className="h-8 rounded-md border border-hairline-strong bg-panel px-2 text-xs"
+        >
+          <option value="generate">generated from the schema</option>
+          <option value="copy">a masked sample copied from another datasource</option>
+        </select>
+        {mode === "copy" && (
+          <>
+            <Label htmlFor="seed-source" className="text-xs text-fg-tertiary">
+              From
+            </Label>
+            <select
+              id="seed-source"
+              value={sourceId}
+              onChange={(e) => setSourceId(e.target.value)}
+              disabled={run?.status === "running"}
+              className="h-8 rounded-md border border-hairline-strong bg-panel px-2 text-xs"
+            >
+              <option value="">Select a PostgreSQL datasource</option>
+              {sources.map((c) => (
+                <option key={c.id} value={c.seedId}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+      </div>
       {error && (
         <p className="text-xs text-status-danger" data-testid="seed-data-error">
           {error}
@@ -153,6 +215,7 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
                   <th className="text-left px-3 py-2 font-medium">Table</th>
                   <th className="text-left px-3 py-2 font-medium">After</th>
                   <th className="text-right px-3 py-2 font-medium">Rows</th>
+                  <th className="text-right px-3 py-2 font-medium">Per parent</th>
                   <th className="text-right px-3 py-2 font-medium">Inserted</th>
                 </tr>
               </thead>
@@ -174,9 +237,24 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
                           inputMode="numeric"
                           value={counts[table.name] ?? ""}
                           onChange={(e) => setCounts({ ...counts, [table.name]: e.target.value })}
-                          disabled={run?.status === "running"}
+                          disabled={run?.status === "running" || (ratios[table.name] ?? "").trim() !== ""}
                           className="h-7 w-24 ml-auto text-right text-xs font-mono bg-panel border-hairline-strong"
                         />
+                      </td>
+                      <td className="px-3 py-1.5 text-right">
+                        {table.dependsOn.length > 0 ? (
+                          <Input
+                            aria-label={`Rows per parent for ${table.name}`}
+                            inputMode="numeric"
+                            placeholder="—"
+                            value={ratios[table.name] ?? ""}
+                            onChange={(e) => setRatios({ ...ratios, [table.name]: e.target.value })}
+                            disabled={run?.status === "running"}
+                            className="h-7 w-20 ml-auto text-right text-xs font-mono bg-panel border-hairline-strong"
+                          />
+                        ) : (
+                          <span className="text-fg-muted">—</span>
+                        )}
                       </td>
                       <td className="px-3 py-1.5 text-right font-mono text-[11px]">
                         {progress ? (
@@ -235,10 +313,11 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
                 size="sm"
                 className="h-8 text-xs gap-2"
                 onClick={() => setConfirming(true)}
-                disabled={run?.status === "running" || total === 0}
+                disabled={run?.status === "running" || (total === 0 && ratioed === 0)}
               >
                 <Play className="h-3.5 w-3.5" strokeWidth={1.75} />
-                Seed {total.toLocaleString()} rows
+                {mode === "copy" ? "Copy" : "Seed"} {total.toLocaleString()} rows
+                {ratioed > 0 ? ` + ${ratioed} by ratio` : ""}
               </Button>
             </div>
           </div>
@@ -250,8 +329,9 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
           <AlertDialogHeader>
             <AlertDialogTitle>Seed {datasourceName}?</AlertDialogTitle>
             <AlertDialogDescription>
-              {total.toLocaleString()} generated rows go into {plan?.length ?? 0} tables of schema &ldquo;{schema}
-              &rdquo;
+              {mode === "copy"
+                ? `A masked sample of ${sourceName || "the source"} - ${total.toLocaleString()} rows${ratioed > 0 ? ` and ${ratioed} tables by ratio` : ""} - goes into ${plan?.length ?? 0} tables of schema "${schema}"`
+                : `${total.toLocaleString()} generated rows${ratioed > 0 ? ` and ${ratioed} tables by ratio` : ""} go into ${plan?.length ?? 0} tables of schema "${schema}"`}
               {truncate ? ", after every one of them is emptied" : ""}. This is written to the audit trail.
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -1,6 +1,14 @@
 import { describe, test, expect } from "bun:test";
 import type { ColumnSpec, TableSpec } from "@/lib/seed-data/catalog";
-import { buildPlan, orderTables, readCounts, DEFAULT_ROWS, MAX_ROWS_PER_TABLE } from "@/lib/seed-data/plan";
+import {
+  buildPlan,
+  orderTables,
+  readCounts,
+  readRatios,
+  DEFAULT_ROWS,
+  MAX_RATIO,
+  MAX_ROWS_PER_TABLE,
+} from "@/lib/seed-data/plan";
 
 /**
  * The plan (docs/CONTEXT.md §4.23): parents before children, a reference to the table itself
@@ -75,5 +83,20 @@ describe("seed-data plan", () => {
     expect(() => readCounts({ a: 1.5 }, plan)).toThrow('rows for "a"');
     expect(() => readCounts({ a: MAX_ROWS_PER_TABLE + 1 }, plan)).toThrow('rows for "a"');
     expect([...readCounts([1, 2], plan).values()]).toEqual([DEFAULT_ROWS, DEFAULT_ROWS]);
+  });
+
+  // docs/CONTEXT.md §4.31: rows per parent row, for tables that have a parent.
+  test("readRatios takes a whole number per child table and refuses one on a table without a parent", () => {
+    const plan = buildPlan([
+      table("orders", [col("customer_id", { references: { table: "customers", column: "id" } })]),
+      table("customers", [col("id")]),
+    ]);
+    expect(readRatios(undefined, plan)).toEqual(new Map());
+    expect(readRatios({ orders: 5, customers: "" }, plan)).toEqual(new Map([["orders", 5]]));
+    expect(readRatios({ orders: "3" }, plan)).toEqual(new Map([["orders", 3]]));
+    expect(() => readRatios({ orders: 0 }, plan)).toThrow("between 1 and");
+    expect(() => readRatios({ orders: MAX_RATIO + 1 }, plan)).toThrow("between 1 and");
+    expect(() => readRatios({ orders: 1.5 }, plan)).toThrow("between 1 and");
+    expect(() => readRatios({ customers: 2 }, plan)).toThrow("no parent table");
   });
 });

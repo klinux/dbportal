@@ -86,6 +86,14 @@ export function readSchemaName(value: unknown): string {
 const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number(v));
 
+/**
+ * The portal's own store tables (src/lib/storage/providers): never part of a seed plan. A
+ * datasource may point at the database that hosts the store - a local install does - and a
+ * plan that listed them would fill them with generated rows or, with `truncate`, empty
+ * them (measured 2026-09-14 on a local install: the store went with the tables).
+ */
+export const PORTAL_TABLES: ReadonlySet<string> = new Set(["user_storage", "audit_events", "approval_requests"]);
+
 /** Every table of `schema` with what the seed needs, or a refusal when there is none. */
 export async function readCatalog(runner: Runner, schema: string): Promise<TableSpec[]> {
   const [columns, keys, fks, enums] = await Promise.all([
@@ -116,6 +124,7 @@ export async function readCatalog(runner: Runner, schema: string): Promise<Table
   const tables = new Map<string, TableSpec>();
   for (const row of columns.rows) {
     const table = str(row.table_name);
+    if (PORTAL_TABLES.has(table)) continue;
     const name = str(row.column_name);
     const key = `${table}.${name}`;
     const udt = str(row.udt_name);

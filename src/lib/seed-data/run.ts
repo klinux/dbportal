@@ -7,8 +7,9 @@ import { quoteIdentifier } from "@/lib/sql/identifier";
 import type { QueryResult } from "@/lib/db/types";
 import type { ColumnSpec, TableSpec } from "./catalog";
 import { SeedDataError } from "./errors";
+import { copyTable, type CopySource } from "./copy";
 import { valueFor, type Pools } from "./generators";
-import { orderTables } from "./plan";
+import { MAX_ROWS_PER_TABLE, orderTables } from "./plan";
 
 /**
  * The seed job (docs/CONTEXT.md §4.23): the tables in dependency order, each filled in
@@ -24,11 +25,16 @@ export interface SeedTableProgress {
   error?: string;
 }
 
+export type SeedMode = "generate" | "copy";
+
 export interface SeedRun {
   id: string;
   datasourceId: string;
   datasourceName: string;
   schema: string;
+  mode: SeedMode;
+  /** The datasource the sample came from, in copy mode. */
+  sourceName?: string;
   truncated: boolean;
   status: "running" | "done" | "failed";
   startedBy: string;
@@ -79,6 +85,12 @@ class PoolMap implements Pools {
   private readonly values = new Map<string, unknown[]>();
   get(table: string, column: string) {
     return this.values.get(`${table}.${column}`);
+  }
+  /** How many rows a parent table put in its pools: the count a child's ratio multiplies. */
+  size(table: string): number {
+    let most = 0;
+    for (const [key, values] of this.values) if (key.startsWith(`${table}.`)) most = Math.max(most, values.length);
+    return most;
   }
   add(table: string, column: string, value: unknown) {
     const key = `${table}.${column}`;
@@ -158,6 +170,11 @@ export interface StartSeedInput {
   runner: Runner;
   schema: string;
   tables: TableSpec[];
+  /** `generate` (the default) or `copy` a masked sample from `source` (docs/CONTEXT.md §4.31). */
+  mode?: SeedMode;
+  source?: CopySource;
+  /** Rows per parent row for a child table, in place of its count. */
+  ratios?: Map<string, number>;
   counts: Map<string, number>;
   truncate: boolean;
   actor: string;
@@ -177,6 +194,8 @@ export function startSeedRun(input: StartSeedInput): SeedRun {
     datasourceId,
     datasourceName: input.connection.name,
     schema: input.schema,
+    mode: input.mode ?? "generate",
+    ...(input.source ? { sourceName: input.source.name } : {}),
     truncated: input.truncate,
     status: "running",
     startedBy: input.actor,
@@ -198,7 +217,7 @@ export function startSeedRun(input: StartSeedInput): SeedRun {
     user: input.actor,
     result: "success",
     connectionName: input.connection.name,
-    details: `${run.tables.length} tables, ${[...input.counts.values()].reduce((a, b) => a + b, 0)} rows${input.truncate ? ", tables emptied first" : ""}`,
+    details: `${input.source ? `copied from ${input.source.name}, ` : ""}${run.tables.length} tables, ${[...input.counts.values()].reduce((a, b) => a + b, 0)} rows${input.ratios?.size ? `, ${input.ratios.size} by ratio` : ""}${input.truncate ? ", tables emptied first" : ""}`,
   });
   void execute(run, input, order, softened);
   return run;
@@ -218,17 +237,39 @@ async function execute(run: SeedRun, input: StartSeedInput, order: TableSpec[], 
     for (const table of order) {
       const progress = run.tables.find((t) => t.name === table.name)!;
       try {
-        await fillTable(
-          input.runner,
-          input.schema,
-          table,
-          progress.target,
-          offset,
-          pools,
-          wanted.get(table.name) ?? new Set(),
-          softened,
-          progress,
-        );
+        // A ratio: the parent's rows, as they landed in the pools, times it.
+        const ratio = input.ratios?.get(table.name);
+        if (ratio !== undefined) {
+          const parent = table.columns.find((c) => c.references && !softened.has(`${table.name}.${c.name}`))?.references
+            ?.table;
+          progress.target = Math.min(MAX_ROWS_PER_TABLE, (parent ? pools.size(parent) : 0) * ratio);
+        }
+        if (input.mode === "copy" && input.source) {
+          progress.inserted += await copyTable(
+            input.source,
+            input.runner,
+            input.schema,
+            table,
+            progress.target,
+            pools,
+            wanted.get(table.name) ?? new Set(),
+            softened,
+            run.startedBy,
+            Math.max(1, Math.min(MAX_BATCH_ROWS, Math.floor(MAX_PARAMS / Math.max(1, table.columns.length)))),
+          );
+        } else {
+          await fillTable(
+            input.runner,
+            input.schema,
+            table,
+            progress.target,
+            offset,
+            pools,
+            wanted.get(table.name) ?? new Set(),
+            softened,
+            progress,
+          );
+        }
       } catch (error) {
         failed = true;
         progress.error = error instanceof Error ? error.message : "The table could not be filled";

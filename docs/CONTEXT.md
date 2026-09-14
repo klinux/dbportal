@@ -481,9 +481,8 @@ built. Each lands as its own section when done.
   (email, name, city, phone, status …), unique where the column is, null now and then where
   allowed; `truncate: true` empties the tables first. Progress per table by id
   (`GET /api/admin/seed-data/[id]`); a table that fails keeps its error and the rest go on.
-  Audited as `data_seed` (started, finished or failed, with the row count). Not yet: the
-  second mode, a masked sample of another datasource copied across, and ratios between
-  parents and children (every table takes its own count).
+  Audited as `data_seed` (started, finished or failed, with the row count). The second mode
+  and the ratios are §4.31.
 - **4.24 Slack buttons — done.** With `SLACK_SIGNING_SECRET` set, the announcement of a
   pending execution carries Approve and Reject. Slack posts the press to
   `POST /api/slack/interactions`, whose credential is the request signature (`v0=` HMAC over
@@ -594,8 +593,25 @@ built. Each lands as its own section when done.
   network policy. Not built: read-only database credentials of its own for the agent role
   (today the datasource's credential is the same in both roles; the pool is opened read-only
   where the rule says so), and the seed and backup jobs as a worker role.
-- **4.31 Seed mode 2** — a masked sample of another datasource copied to staging, and
-  parent/child ratios per table (§4.23).
+- **4.31 Seed mode 2 — done (asked 2026-09-14).** The seed panel's second mode
+  ([`src/lib/seed-data/copy.ts`](../src/lib/seed-data/copy.ts)): a masked sample of another
+  PostgreSQL datasource - production included, that is the point - copied into the
+  non-production target, `mode: "copy"` with `sourceDatasourceId` on `POST
+  /api/admin/seed-data/run`. The source is opened read-only as the session (its access rule
+  applies); each table is sampled at random, bounded by its count, and where it points at a
+  table already sampled, only rows that point at the sampled rows, so every foreign key finds
+  its parent; the rows are masked by the server's masking rules whatever the role - a copy
+  into staging is exactly what masking is for - and inserted with the source's own keys
+  (`OVERRIDING SYSTEM VALUE` for an identity), the sequences moved past them; a reference
+  cut to order the tables is left null. Every sample read is a `query_execution` line on the
+  source (action `seed_copy`, with the row count). **Ratios**: a child table may take rows
+  per parent row (`ratios: { table: n }`, 1..1000) instead of its count, in either mode -
+  the parent's rows as they landed in the pools, times n, capped like a count. A masked
+  value that no longer fits its column (a masked number) fails that table, which keeps its
+  error like any other. The portal's own store tables (`user_storage`,
+  `audit_events`, `approval_requests`) are never part of a plan, in either mode: a datasource
+  may point at the database that hosts the store, and a plan that listed them would fill or
+  empty the store itself (measured on a local install while checking this mode).
 - **4.32 Alerts on the trail — done (asked 2026-09-14).** The first consumer of §4.29's
   channels: an observer on the audit channel ([`src/lib/trail-alerts/observer.ts`](../src/lib/trail-alerts/observer.ts),
   registered at boot like persistence and held on globalThis for the same reason) passes

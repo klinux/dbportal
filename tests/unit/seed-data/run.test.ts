@@ -12,6 +12,20 @@ const auditedAt = (i: number) => (audit.mock.calls as unknown[][])[i]?.[0] as Re
 mock.module("@/lib/audit", () => ({ emitAuditEvent: audit }));
 let frozen: { reason: string; until: string } | null = null;
 mock.module("@/lib/freezes/store", () => ({ activeFreeze: async () => frozen }));
+const copyTable = mock(
+  async (
+    _s: unknown,
+    _t: unknown,
+    _schema: string,
+    table: { name: string },
+    count: number,
+    pools: { add(t: string, c: string, v: unknown): void },
+  ) => {
+    for (let i = 1; i <= count; i++) pools.add(table.name, "id", i);
+    return count;
+  },
+);
+mock.module("@/lib/seed-data/copy", () => ({ copyTable }));
 
 const { MAX_BATCH_ROWS, assertSeedable, getSeedRun, resetSeedRuns, seedAllowed, startSeedRun } = await import(
   "@/lib/seed-data/run"
@@ -234,5 +248,74 @@ describe("seed-data run", () => {
     });
     await settle();
     expect(getSeedRun(failed.id)!.tables[0].error).toBe("The run stopped before this table");
+  });
+
+  // docs/CONTEXT.md §4.31: the copy mode hands each table to the copier with the source; a ratio takes the parent's rows times it.
+  test("copy mode copies each table from the source in order; a ratio sizes a child by the parent's rows, in either mode", async () => {
+    copyTable.mockClear();
+    const source = { name: "Prod", runner };
+    const run = startSeedRun({
+      connection,
+      runner,
+      schema: "public",
+      tables: [orders, customers],
+      counts: new Map([
+        ["customers", 3],
+        ["orders", 99],
+      ]),
+      ratios: new Map([["orders", 4]]),
+      mode: "copy",
+      source,
+      truncate: false,
+      actor: "root",
+    });
+    expect(run.mode).toBe("copy");
+    expect(run.sourceName).toBe("Prod");
+    expect(auditedAt(0)).toMatchObject({ details: "copied from Prod, 2 tables, 102 rows, 1 by ratio" });
+    await settle();
+    const done = getSeedRun(run.id)!;
+    expect(done.status).toBe("done");
+    expect(done.tables).toEqual([
+      { name: "customers", target: 3, inserted: 3 },
+      { name: "orders", target: 12, inserted: 12 },
+    ]);
+    expect(copyTable.mock.calls[0][0]).toBe(source);
+    expect((copyTable.mock.calls[1][3] as { name: string }).name).toBe("orders");
+    expect(copyTable.mock.calls[1][4]).toBe(12);
+    // A copier that refuses keeps the failure on its table.
+    copyTable.mockImplementationOnce(async () => {
+      throw new Error("permission denied for table customers");
+    });
+    const failed = startSeedRun({
+      connection,
+      runner,
+      schema: "public",
+      tables: [customers],
+      counts: new Map([["customers", 1]]),
+      mode: "copy",
+      source,
+      truncate: false,
+      actor: "root",
+    });
+    await settle();
+    expect(getSeedRun(failed.id)!.tables[0].error).toBe("permission denied for table customers");
+    // In generate mode a ratio applies too, from the keys the engine returned.
+    calls.length = 0;
+    nextId = 0;
+    const generated = startSeedRun({
+      connection,
+      runner,
+      schema: "public",
+      tables: [customers, orders],
+      counts: new Map([
+        ["customers", 2],
+        ["orders", 0],
+      ]),
+      ratios: new Map([["orders", 3]]),
+      truncate: false,
+      actor: "root",
+    });
+    await settle();
+    expect(getSeedRun(generated.id)!.tables[1]).toEqual({ name: "orders", target: 6, inserted: 6 });
   });
 });

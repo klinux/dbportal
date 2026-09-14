@@ -27,6 +27,8 @@ mock.module("@/lib/seed/resolve-connection", () => ({
       return { id: "seed:stage", seedId: "stage", name: "Stage", type: "postgres", environment: "staging" };
     if (body.connectionId === "seed:prod")
       return { id: "seed:prod", seedId: "prod", name: "Prod", type: "postgres", environment: "production" };
+    if (body.connectionId === "seed:mysql")
+      return { id: "seed:mysql", seedId: "mysql", name: "My", type: "mysql", environment: "staging" };
     throw new SeedConnectionError("not found", 404);
   },
 }));
@@ -139,5 +141,25 @@ describe("/api/admin/seed-data", () => {
       throw new Error("state lost");
     });
     expect((await status(new Request(url), params("run-1"))).status).toBe(500);
+  });
+
+  // docs/CONTEXT.md §4.31: the copy mode names a source this session may open, PostgreSQL, not the target itself.
+  test("run in copy mode opens the source read-only and hands it on; refuses no source, the target itself, another engine, and a bad ratio", async () => {
+    const res = await run(json({ datasourceId: "stage", mode: "copy", sourceDatasourceId: "prod", ratios: {} }));
+    expect(res.status).toBe(202);
+    const input = (startSeedRun.mock.calls[0] as unknown[])[0] as {
+      mode: string;
+      source?: { name: string; runner: unknown };
+      ratios: Map<string, number>;
+    };
+    expect(input.mode).toBe("copy");
+    expect(input.source?.name).toBe("Prod");
+    expect(input.source?.runner).toBe(provider);
+    expect(input.ratios).toEqual(new Map());
+    expect((await run(json({ datasourceId: "stage", mode: "copy" }))).status).toBe(400);
+    expect((await run(json({ datasourceId: "stage", mode: "copy", sourceDatasourceId: "stage" }))).status).toBe(400);
+    expect((await run(json({ datasourceId: "stage", mode: "copy", sourceDatasourceId: "mysql" }))).status).toBe(403);
+    expect((await run(json({ datasourceId: "stage", mode: "copy", sourceDatasourceId: "ghost" }))).status).toBe(404);
+    expect((await run(json({ datasourceId: "stage", ratios: { customers: 2 } }))).status).toBe(400);
   });
 });

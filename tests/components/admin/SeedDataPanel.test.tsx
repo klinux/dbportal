@@ -1,7 +1,7 @@
 import "../../setup-dom";
 import { mockToastSuccess, mockToastError } from "../../helpers/mock-sonner";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { render, fireEvent, cleanup, act } from "@testing-library/react";
+import { render, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import { mockGlobalFetch, restoreGlobalFetch } from "../../helpers/mock-fetch";
 import { POLL_MS, SeedDataPanel } from "@/components/admin/SeedDataPanel";
 
@@ -117,6 +117,8 @@ describe("SeedDataPanel", () => {
       datasourceId: "stage",
       schema: "public",
       counts: { customers: 100, orders: 300 },
+      ratios: {},
+      mode: "generate",
       truncate: true,
     });
     expect(view.getByTestId("seed-status").textContent).toBe("running");
@@ -174,5 +176,72 @@ describe("SeedDataPanel", () => {
       fireEvent.click(again.getByRole("button", { name: "Seed" }));
     });
     expect((await again.findByTestId("seed-data-error")).textContent).toContain("already running");
+  });
+
+  // docs/CONTEXT.md §4.31: the copy mode names a source among the other PostgreSQL datasources; a child may take rows per parent.
+  test("copy mode posts the source and the ratios; a source must be picked first; a ratio replaces the count in the total", async () => {
+    const fetchMock = mockGlobalFetch({
+      "/api/connections/managed": {
+        ok: true,
+        json: {
+          connections: [
+            {
+              id: "seed:stage",
+              seedId: "stage",
+              name: "Stage",
+              type: "postgres",
+              createdAt: "2026-09-14T00:00:00.000Z",
+            },
+            { id: "seed:prod", seedId: "prod", name: "Prod", type: "postgres", createdAt: "2026-09-14T00:00:00.000Z" },
+            { id: "seed:my", seedId: "my", name: "My", type: "mysql", createdAt: "2026-09-14T00:00:00.000Z" },
+          ],
+        },
+      },
+      "/api/admin/seed-data/plan": { ok: true, json: plan },
+      "/api/admin/seed-data/run": (req) =>
+        req.method === "POST"
+          ? { ok: true, status: 202, json: { run: { ...running, mode: "copy", sourceName: "Prod" } } }
+          : { ok: true, json: { run: { ...running, status: "done" } } },
+    });
+    const view = render(<SeedDataPanel datasourceId="stage" datasourceName="Stage" />);
+    await act(async () => {
+      fireEvent.click(view.getByText("Read schema"));
+    });
+    await view.findByTestId("seed-table-orders");
+    fireEvent.change(view.getByLabelText("Rows"), { target: { value: "copy" } });
+    await waitFor(() => {
+      if (!(view.getByLabelText("From") as HTMLSelectElement).querySelector('option[value="prod"]'))
+        throw new Error("sources not yet");
+    });
+    // Only other PostgreSQL datasources are offered: not the target itself, not the MySQL one.
+    const options = [...(view.getByLabelText("From") as HTMLSelectElement).options].map((o) => o.value);
+    expect(options).toEqual(["", "prod"]);
+    // Orders takes 5 rows per customer: its own count stops counting.
+    fireEvent.change(view.getByLabelText("Rows per parent for orders"), { target: { value: "5" } });
+    expect((view.getByLabelText("Rows for orders") as HTMLInputElement).disabled).toBe(true);
+    expect(view.getByText("Copy 100 rows + 1 by ratio")).not.toBeNull();
+    // Customers has no parent, so no ratio box.
+    expect(view.queryByLabelText("Rows per parent for customers")).toBeNull();
+    fireEvent.click(view.getByText("Copy 100 rows + 1 by ratio"));
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Seed" }));
+    });
+    expect(view.getByTestId("seed-data-error").textContent).toBe("Pick the datasource the sample comes from.");
+    fireEvent.change(view.getByLabelText("From"), { target: { value: "prod" } });
+    fireEvent.click(view.getByText("Copy 100 rows + 1 by ratio"));
+    expect(view.getByText(/A masked sample of Prod/)).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Seed" }));
+    });
+    const started = calls(fetchMock, "POST").find((c) => String(c[0]).endsWith("/api/admin/seed-data/run"))!;
+    expect(JSON.parse((started[1] as RequestInit).body as string)).toEqual({
+      datasourceId: "stage",
+      schema: "public",
+      counts: { customers: 100, orders: 100 },
+      ratios: { orders: 5 },
+      mode: "copy",
+      sourceDatasourceId: "prod",
+      truncate: false,
+    });
   });
 });

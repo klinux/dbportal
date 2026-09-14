@@ -106,3 +106,29 @@ export function readCounts(value: unknown, plan: PlanTable[]): Map<string, numbe
   }
   return counts;
 }
+
+export const MAX_RATIO = 1_000;
+
+/**
+ * Rows per parent row (docs/CONTEXT.md §4.31), for the tables that have a parent: a child
+ * with a ratio takes `parent rows × ratio` rows once the parent is filled, in place of its
+ * own count. A table without a parent cannot have one.
+ */
+export function readRatios(value: unknown, plan: PlanTable[]): Map<string, number> {
+  const ratios = new Map<string, number>();
+  const given =
+    value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  for (const table of plan) {
+    const raw = given[table.name];
+    if (raw === undefined || raw === null || raw === "") continue;
+    const n = typeof raw === "number" ? raw : Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > MAX_RATIO) {
+      throw new SeedDataError(`rows per parent for "${table.name}" must be an integer between 1 and ${MAX_RATIO}`, 400);
+    }
+    if (table.dependsOn.length === 0) {
+      throw new SeedDataError(`"${table.name}" has no parent table to take a ratio from`, 400);
+    }
+    ratios.set(table.name, n);
+  }
+  return ratios;
+}

@@ -1319,7 +1319,11 @@ every other case is answered to the presser alone through `response_url`.
 Seed from the schema (docs/CONTEXT.md §4.23), admin only, PostgreSQL, never production.
 `POST /api/admin/seed-data/plan` — body `{ datasourceId, schema? }` → `{ schema, tables: [{ name, columns,
 dependsOn, rows }] }` in the order they are filled; `POST /api/admin/seed-data/run` — body `{ datasourceId,
-schema?, counts?: { <table>: n }, truncate?: boolean }` → `202 { run }`, `409` while one runs on the datasource;
+schema?, counts?: { <table>: n }, ratios?: { <child table>: rows per parent row }, mode?: "generate" | "copy",
+sourceDatasourceId?, truncate?: boolean }` → `202 { run }` (`run.mode`, `run.sourceName`), `409` while one runs on
+the datasource; in copy mode (docs/CONTEXT.md §4.31) the source must be another PostgreSQL datasource the session
+may open (`400` without one or for the target itself, `403` for another engine, `404` unknown) and the sample is
+masked by the server's rules;
 `GET /api/admin/seed-data/[id]` → `{ run: { id, status, tables: [{ name, target, inserted, error? }] } }`.
 Audited as `data_seed`.
 
