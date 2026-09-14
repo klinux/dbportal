@@ -509,7 +509,17 @@ built. Each lands as its own section when done.
   submission with the reason. Three attempts (at once, 2 s, 10 s) on a network failure or a
   5xx, none after a 4xx, ten seconds each, one warning when all fail; nothing here fails
   the request, and the Slack thread is told as before.
-- **later** — shorter sessions with renewal.
+- **4.26 Short sessions, renewed in use — done.** A session lives `SESSION_TTL_MINUTES`
+  (120 by default, 5 to 1440) without being used, not a day: the token's `exp` and the
+  cookie's `Max-Age` are that. The proxy, which verifies the token on every request, renews
+  one in the second half of its life - a fresh token with the same identity and the same
+  `auth_time`, the instant of the login, set as a cookie on the response with the same
+  attributes `login()` uses ([`src/lib/config/session.ts`](../src/lib/config/session.ts))
+  - up to `SESSION_MAX_HOURS` (12 by default, 1 to 168) after that login; past the bound
+  it runs out and the person signs in again. A stolen token is therefore good for two
+  hours of silence, not a day, and never past the bound. Not done: revocation before
+  expiry (a denylist would need the store on every request); the short lifetime is the
+  answer for now.
 
 ## 5. Decisions already taken
 

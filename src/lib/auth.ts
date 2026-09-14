@@ -1,6 +1,13 @@
 import { getBasePath } from "@/lib/config/base-path";
 import { RESERVED_OWNERS } from "@/lib/datasources/owner";
 import { withNamedRoles } from "@/lib/roles/store";
+import {
+  cookieSecureFor,
+  parseCookieSecureOverride,
+  renewalClaims,
+  sessionCookieAttributes,
+  sessionTtlSeconds,
+} from "@/lib/config/session";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies, headers } from "next/headers";
 import { logger } from "@/lib/logger";
@@ -30,14 +37,17 @@ export interface UserPayload {
    * by `getSession` on every read from the declared list, so a change applies at once.
    */
   namedRoles?: string[];
+  /** When the person authenticated (docs/CONTEXT.md §4.26); kept across renewals. */
+  auth_time?: number;
 }
 
 export async function signJWT(payload: UserPayload) {
   const { namedRoles: _resolvedPerRequest, ...claims } = payload;
-  return await new SignJWT({ ...claims })
+  const now = Math.floor(Date.now() / 1000);
+  return await new SignJWT({ ...renewalClaims(claims), auth_time: claims.auth_time ?? now })
     .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("24h")
+    .setIssuedAt(now)
+    .setExpirationTime(now + sessionTtlSeconds())
     .sign(getJwtSecret());
 }
 
@@ -64,12 +74,6 @@ export async function getSession(): Promise<UserPayload | null> {
   const session = await verifyJWT(token);
   return session ? withNamedRoles(session) : null;
 }
-
-/** Hosts whose traffic never leaves the machine (port is stripped before the check). */
-const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-
-const COOKIE_SECURE_OFF = new Set(["off", "false", "0"]);
-const COOKIE_SECURE_ON = new Set(["on", "true", "1"]);
 
 // Hoisted to module scope on one line: bun's line coverage under-counts the
 // continuation lines of a wrapped string, which then reads as uncovered code.
@@ -99,24 +103,14 @@ function warnOnce(message: string): void {
  */
 function readCookieSecureOverride(): boolean | undefined {
   const raw = process.env.AUTH_COOKIE_SECURE;
-  const normalized = raw?.trim().toLowerCase();
-  if (!normalized) return undefined;
-  if (COOKIE_SECURE_OFF.has(normalized)) return false;
-  if (COOKIE_SECURE_ON.has(normalized)) return true;
-  // Single-line message: bun's line coverage under-counts the continuation
-  // lines of a wrapped call, which then reads as uncovered new code.
-  warnOnce(`Unrecognized AUTH_COOKIE_SECURE value "${raw}"; keeping the default (use "false" for plain HTTP)`);
-  return undefined;
-}
-
-function isLoopbackHost(host: string | null): boolean {
-  if (!host) return false;
-  // Strip the port, then the brackets of an IPv6 literal ("[::1]:3000" -> "::1").
-  const hostname = host
-    .replace(/:\d+$/, "")
-    .replace(/^\[|\]$/g, "")
-    .toLowerCase();
-  return LOOPBACK_HOSTNAMES.has(hostname);
+  const parsed = parseCookieSecureOverride(raw);
+  if (parsed === "invalid") {
+    // Single-line message: bun's line coverage under-counts the continuation
+    // lines of a wrapped call, which then reads as uncovered new code.
+    warnOnce(`Unrecognized AUTH_COOKIE_SECURE value "${raw}"; keeping the default (use "false" for plain HTTP)`);
+    return undefined;
+  }
+  return parsed;
 }
 
 /**
@@ -145,12 +139,16 @@ export async function shouldMarkCookieSecure(): Promise<boolean> {
     warnOnce(COOKIE_SECURE_DISABLED_MESSAGE);
   }
   if (override !== undefined) return override;
-  if (process.env.NODE_ENV !== "production") return false;
+  const production = process.env.NODE_ENV === "production";
+  if (!production) return false;
   try {
     const headerStore = await headers();
-    if (!isLoopbackHost(headerStore.get("host"))) return true;
-    const forwardedProto = headerStore.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
-    return forwardedProto === "https";
+    return cookieSecureFor({
+      override,
+      production,
+      host: headerStore.get("host"),
+      forwardedProto: headerStore.get("x-forwarded-proto"),
+    });
   } catch {
     // No request scope (headers() throws): keep the stricter default.
     return true;
@@ -167,17 +165,7 @@ export async function login(role: Role, username?: string, groups: string[] = []
   }
   const token = await signJWT({ role, username: subject, ...(groups.length > 0 ? { groups } : {}) });
   const cookieStore = await cookies();
-  cookieStore.set("auth-token", token, {
-    httpOnly: true,
-    secure: await shouldMarkCookieSecure(),
-    // Must stay "lax" and must NOT be tightened to "strict": the OIDC callback depends on lax's
-    // top-level-GET exception to return the oidc-state cookie. The cases lax does not cover -
-    // notably a cross-site POST /api/auth/login, where there is no pre-existing cookie to withhold
-    // - are covered by the Origin check in src/proxy.ts (src/lib/api/origin-check.ts).
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24, // 1 day
-    path: getBasePath() || "/",
-  });
+  cookieStore.set("auth-token", token, sessionCookieAttributes(await shouldMarkCookieSecure(), getBasePath() || "/"));
 }
 
 export async function logout() {

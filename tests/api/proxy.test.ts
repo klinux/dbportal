@@ -2,7 +2,7 @@ import { withBasePathEnv } from "../helpers/base-path";
 import { describe, test, expect, spyOn } from "bun:test";
 import { readFileSync } from "node:fs";
 import { NextRequest } from "next/server";
-import { SignJWT } from "jose";
+import { SignJWT, jwtVerify } from "jose";
 import { config, proxy } from "@/proxy";
 import { AGENT_DRIVE_HEADER, AGENT_DRIVE_PATH, mintAgentDriveToken } from "@/lib/agent/drive-token";
 import { clearRateLimitState } from "@/lib/api/rate-limit";
@@ -301,6 +301,43 @@ describe("proxy", () => {
       const without = await proxy(new NextRequest("http://localhost:3000/api/metrics"));
       expect(without.status).toBe(401);
       expect(isRedirect(without)).toBe(false);
+    });
+  });
+
+  // docs/CONTEXT.md §4.26: a session in the second half of its life is renewed on the way through,
+  // with the login instant kept; a fresh one is left alone; one past the absolute bound is not renewed.
+  describe("session renewal", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const sign = (claims: Record<string, unknown>, exp: number) =>
+      new SignJWT(claims)
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuedAt(now - 60)
+        .setExpirationTime(exp)
+        .sign(JWT_SECRET);
+    const renewedCookie = (res: Response) => {
+      const header = res.headers.get("set-cookie") ?? "";
+      const match = header.match(/auth-token=([^;]+)/);
+      return match ? match[1] : null;
+    };
+
+    test("a token with less than half its life left comes back renewed, the login instant kept", async () => {
+      const token = await sign({ role: "user", username: "ana", auth_time: now - 3600 }, now + 600);
+      const res = await proxy(createNextRequest("/", token));
+      expect(res.status).toBe(200);
+      const renewed = renewedCookie(res);
+      expect(renewed).not.toBeNull();
+      const { payload } = await jwtVerify(renewed!, JWT_SECRET);
+      expect(payload.username).toBe("ana");
+      expect(payload.auth_time).toBe(now - 3600);
+      expect((payload.exp as number) - now).toBeGreaterThan(7000);
+      expect((res.headers.get("set-cookie") ?? "").toLowerCase()).toContain("httponly");
+    });
+
+    test("a fresh token, and one past the absolute bound, are not renewed", async () => {
+      const fresh = await sign({ role: "user", username: "ana", auth_time: now - 60 }, now + 7000);
+      expect(renewedCookie(await proxy(createNextRequest("/", fresh)))).toBeNull();
+      const old = await sign({ role: "user", username: "ana", auth_time: now - 13 * 3600 }, now + 600);
+      expect(renewedCookie(await proxy(createNextRequest("/", old)))).toBeNull();
     });
   });
 

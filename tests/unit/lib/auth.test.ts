@@ -140,6 +140,24 @@ describe("auth", () => {
       expect(session).toBeNull();
     });
 
+    // docs/CONTEXT.md §4.26: two hours by default, the login instant on the token and kept when re-signed.
+    test("a token lives the configured session lifetime and carries the login instant", async () => {
+      const before = Math.floor(Date.now() / 1000);
+      const claims = (await verifyJWT(await signJWT({ role: "user", username: "ana" }))) as unknown as {
+        exp: number;
+        iat: number;
+        auth_time: number;
+      };
+      expect(claims.exp - claims.iat).toBe(120 * 60);
+      expect(claims.auth_time).toBeGreaterThanOrEqual(before);
+      const kept = (await verifyJWT(
+        await signJWT({ role: "user", username: "ana", auth_time: 1_700_000_000 }),
+      )) as unknown as {
+        auth_time: number;
+      };
+      expect(kept.auth_time).toBe(1_700_000_000);
+    });
+
     // docs/CONTEXT.md §4.19: named roles are resolved on every read, never carried in the token.
     test("resolves the session's named roles on every read, and signing never puts them in the token", async () => {
       const token = await signJWT({ role: "user", username: "ana", namedRoles: ["stale"] });
@@ -155,6 +173,15 @@ describe("auth", () => {
   // --------------------------------------------------------------------------
 
   describe("login()", () => {
+    // docs/CONTEXT.md §4.26: the cookie lasts as long as the token, not a day.
+    test("the session cookie's Max-Age is the session lifetime", async () => {
+      await login("user", "ana");
+      const opts = mockSetCalls.at(-1)?.opts as { maxAge: number; sameSite: string; httpOnly: boolean };
+      expect(opts.maxAge).toBe(120 * 60);
+      expect(opts.sameSite).toBe("lax");
+      expect(opts.httpOnly).toBe(true);
+    });
+
     test("sets auth-token cookie with admin role", async () => {
       await login("admin", "admin");
       expect(mockSetCalls.length).toBeGreaterThan(0);

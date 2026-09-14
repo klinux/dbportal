@@ -1,6 +1,6 @@
-import { withBasePath } from "@/lib/config/base-path";
+import { getBasePath, withBasePath } from "@/lib/config/base-path";
 import { NextRequest, NextResponse } from "next/server";
-import { jwtVerify } from "jose";
+import { SignJWT, jwtVerify } from "jose";
 import { AGENT_DRIVE_HEADER, AGENT_DRIVE_PATH, verifyAgentDriveToken } from "@/lib/agent/drive-token";
 import { clientAddress } from "@/lib/api/client-address";
 import { checkOrigin } from "@/lib/api/origin-check";
@@ -8,6 +8,14 @@ import { consumeRateLimit } from "@/lib/api/rate-limit";
 import { emitAuditEvent, MAX_AUDIT_FIELD_LENGTH } from "@/lib/audit";
 import { logger } from "@/lib/logger";
 import { getJwtSecret } from "@/lib/config/auth-env";
+import {
+  cookieSecureFor,
+  parseCookieSecureOverride,
+  renewalClaims,
+  sessionCookieAttributes,
+  sessionTtlSeconds,
+  shouldRenew,
+} from "@/lib/config/session";
 import { withSecurityHeaders } from "@/lib/security/config";
 
 // Lazy-initialized to prevent module-level crash if JWT_SECRET is misconfigured.
@@ -200,7 +208,33 @@ export async function proxy(request: NextRequest) {
       return withSecurityHeaders(NextResponse.redirect(new URL(withBasePath("/"), request.url)));
     }
 
-    return withSecurityHeaders(NextResponse.next());
+    const response = NextResponse.next();
+    // A session in use is renewed in the second half of its life, up to the absolute bound
+    // from the login (docs/CONTEXT.md §4.26); one that lapses, or reaches the bound, ends.
+    const now = Math.floor(Date.now() / 1000);
+    if (shouldRenew(payload, now)) {
+      const override = parseCookieSecureOverride(process.env.AUTH_COOKIE_SECURE);
+      const renewed = await new SignJWT(renewalClaims(payload))
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuedAt(now)
+        .setExpirationTime(now + sessionTtlSeconds())
+        .sign(jwtSecret());
+      response.cookies.set(
+        "auth-token",
+        renewed,
+        sessionCookieAttributes(
+          cookieSecureFor({
+            override: override === "invalid" ? undefined : override,
+            production: process.env.NODE_ENV === "production",
+            host: request.headers.get("host"),
+            forwardedProto: request.headers.get("x-forwarded-proto"),
+          }),
+          // The same path login() sets, or the browser keeps two cookies.
+          getBasePath() || "/",
+        ),
+      );
+    }
+    return withSecurityHeaders(response);
   } catch {
     logger.warn("JWT verification failed, redirecting to login", { route: "proxy" });
     return withSecurityHeaders(NextResponse.redirect(new URL(withBasePath("/login"), request.url)));
