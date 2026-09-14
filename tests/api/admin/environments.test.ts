@@ -80,6 +80,15 @@ describe("environments routes", () => {
       (await POST(new Request(url, { method: "POST", body: "[]", headers: { "Content-Type": "application/json" } })))
         .status,
     ).toBe(400);
+    store.save.mockImplementationOnce(async () => {
+      throw new EnvironmentError("Invalid environment: color", 400);
+    });
+    expect((await POST(json({ ...qa, color: "red" }))).status).toBe(400);
+    // The session route's own failure path.
+    store.list.mockImplementationOnce(async () => {
+      throw new Error("disk");
+    });
+    expect((await list(new Request("http://localhost/api/environments"))).status).toBe(500);
   });
 
   test("a delete asks the store with whether a datasource uses the id, audits, and keeps the store's refusal", async () => {
