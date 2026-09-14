@@ -64,12 +64,13 @@ describe("/api/v1/executions", () => {
     expect(submit).not.toHaveBeenCalled();
   });
 
-  test("POST hands the four fields and the identity to the store; 202 while pending, 200 once it ran", async () => {
+  test("POST hands the request's fields and the identity to the store; 202 while pending, 200 once it ran", async () => {
     const res = await post({
       datasourceId: "orders",
       statement: "SELECT 1",
       onBehalfOf: "U01",
       reply: { channel: "C1" },
+      callback: { url: "https://bot.example.test/hook" },
       extra: 1,
     });
     expect(res.status).toBe(202);
@@ -80,6 +81,8 @@ describe("/api/v1/executions", () => {
       statement: "SELECT 1",
       onBehalfOf: "U01",
       reply: { channel: "C1" },
+      // docs/CONTEXT.md §4.25: the callback travels to the store, which validates it.
+      callback: { url: "https://bot.example.test/hook" },
     });
     expect((who as { session: { username: string } }).session.username).toBe("svc:bot");
     submit.mockImplementation(async () => ({ ...record, status: "approved", execution: { status: "done" } as never }));

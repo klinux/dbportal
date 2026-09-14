@@ -93,6 +93,8 @@ export interface ApprovalRequest {
   subject?: string;
   /** Where the outcome is announced, when the request named a chat thread. */
   reply?: ExecutionReply;
+  /** The signed callback the requester named (§4.25). */
+  callback?: ExecutionCallback;
   /** The outcome of an `execution` request once it ran. */
   execution?: ExecutionOutcome;
   /** The guardrail the statement tripped (§4.15), when that is why the request exists. */
@@ -104,6 +106,11 @@ export interface ApprovalRequest {
 export interface ExecutionReply {
   channel: string;
   threadTs?: string;
+}
+
+/** Where a bot outside Slack is told the outcome (docs/CONTEXT.md §4.25): an HTTPS URL on an allowed host. */
+export interface ExecutionCallback {
+  url: string;
 }
 
 export interface ExecutionOutcome {

@@ -25,6 +25,7 @@ export async function POST(request: Request) {
         onBehalfOf: body.onBehalfOf,
         reply: body.reply,
         ticket: body.ticket,
+        callback: body.callback,
       },
       guard.identity,
     );

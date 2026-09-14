@@ -497,8 +497,19 @@ built. Each lands as its own section when done.
   four-eyes rule and the `approval_decision` line are the same; the execution is settled
   and the announcement rewritten without its buttons through Slack's `response_url` (only
   Slack's own hooks host). Anything but the two buttons is acknowledged and ignored.
-- **later** — the signed HTTP callback for bots outside Slack, shorter sessions with
-  renewal.
+- **4.25 Signed callback — done.** A bot outside Slack names `callback: { url }` with its
+  request and is told the outcome instead of polling: when the request is decided or has
+  run, the record's outcome (what `GET /api/v1/executions/[id]` shows, never the statement
+  or the URL) is POSTed there as JSON with `X-Dbportal-Signature` (`v1=` HMAC-SHA256 of
+  `<timestamp>.<body>` under `CALLBACK_SIGNING_SECRET`), `X-Dbportal-Timestamp`,
+  `X-Dbportal-Event` (`execution.done|failed|rejected`) and `X-Dbportal-Delivery`
+  (`<id>:<attempt>`) ([`src/lib/notify/callback.ts`](../src/lib/notify/callback.ts)). A URL
+  is a request this server makes on the token's word, so it must be HTTPS, bare of
+  credentials, and on a host in `CALLBACK_ALLOWED_HOSTS`; no list, no callbacks, refused at
+  submission with the reason. Three attempts (at once, 2 s, 10 s) on a network failure or a
+  5xx, none after a 4xx, ten seconds each, one warning when all fail; nothing here fails
+  the request, and the Slack thread is told as before.
+- **later** — shorter sessions with renewal.
 
 ## 5. Decisions already taken
 

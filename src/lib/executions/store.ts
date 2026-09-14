@@ -13,6 +13,7 @@ import { ApprovalError } from "@/lib/approvals/errors";
 import { NOTE_MAX_CHARS, STATEMENT_MAX_CHARS } from "@/lib/approvals/store";
 import { logger } from "@/lib/logger";
 import { maskResult } from "@/lib/masking/store";
+import { notifyCallback, readCallbackUrl } from "@/lib/notify/callback";
 import { notifyExecutionOutcome, notifyReviewers } from "@/lib/notify/slack";
 import { resolveConnection, SeedConnectionError } from "@/lib/seed/resolve-connection";
 import { getStorageProvider } from "@/lib/storage/factory";
@@ -51,6 +52,7 @@ export interface ExecutionRequestInput {
   onBehalfOf?: unknown;
   reply?: unknown;
   ticket?: unknown;
+  callback?: unknown;
 }
 
 function readReply(value: unknown): ExecutionReply | undefined {
@@ -62,6 +64,20 @@ function readReply(value: unknown): ExecutionReply | undefined {
   if (threadTs !== undefined && (typeof threadTs !== "string" || threadTs.length > REPLY_FIELD_MAX))
     throw new ApprovalError("reply.threadTs must be a string", 400);
   return { channel, ...(typeof threadTs === "string" ? { threadTs } : {}) };
+}
+
+function readCallback(value: unknown): { url: string } | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object") throw new ApprovalError("callback must be { url }", 400);
+  const read = readCallbackUrl((value as Record<string, unknown>).url);
+  if ("error" in read) throw new ApprovalError(read.error, 400);
+  return { url: read.url };
+}
+
+/** Both ways a bot hears the outcome (§4.10, §4.25); each is best effort on its own. */
+function announceOutcome(record: ApprovalRequest): void {
+  void notifyExecutionOutcome(record);
+  void notifyCallback(record);
 }
 
 async function requireStore() {
@@ -153,7 +169,7 @@ export async function runExecution(record: ApprovalRequest, identity: ServiceIde
   }
   const finished: ApprovalRequest = { ...record, execution: outcome };
   await store.putApproval(finished);
-  void notifyExecutionOutcome(finished);
+  announceOutcome(finished);
   return finished;
 }
 
@@ -174,6 +190,7 @@ export async function submitExecution(
   const subject = typeof input.onBehalfOf === "string" ? input.onBehalfOf.trim().slice(0, SUBJECT_MAX) : "";
   if (!subject) throw new ApprovalError("onBehalfOf is required: the person the request is for", 400);
   const reply = readReply(input.reply);
+  const callback = readCallback(input.callback);
   const { token } = identity;
   if (token.datasources && token.datasources.length > 0 && !token.datasources.includes(datasourceId)) {
     throw new ApprovalError(`This token may not use datasource "${datasourceId}"`, 403);
@@ -211,6 +228,7 @@ export async function submitExecution(
     status: "pending",
     requestedAt: new Date().toISOString(),
     ...(reply ? { reply } : {}),
+    ...(callback ? { callback } : {}),
   };
   const needsReview = token.requireApproval || guardrail !== null || (writes && connection.writeApproval === true);
   if (needsReview) {
@@ -239,7 +257,7 @@ export async function submitExecution(
 export async function settleDecision(decided: ApprovalRequest): Promise<ApprovalRequest> {
   if (decided.kind !== "execution") return decided;
   if (decided.status === "rejected") {
-    void notifyExecutionOutcome(decided);
+    announceOutcome(decided);
     return decided;
   }
   const found = await findServiceTokenByActor(decided.requester);
@@ -252,7 +270,7 @@ export async function settleDecision(decided: ApprovalRequest): Promise<Approval
       execution: { status: "failed", startedAt: now, finishedAt: now, durationMs: 0, error: "token_revoked" },
     };
     await store.putApproval(failed);
-    void notifyExecutionOutcome(failed);
+    announceOutcome(failed);
     return failed;
   }
   return runExecution(decided, identity);

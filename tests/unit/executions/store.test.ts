@@ -81,6 +81,14 @@ mock.module("@/lib/masking/store", () => ({ maskResult }));
 const notifyReviewers = mock(async () => true);
 const notifyExecutionOutcome = mock(async () => true);
 mock.module("@/lib/notify/slack", () => ({ notifyReviewers, notifyExecutionOutcome }));
+// docs/CONTEXT.md §4.25: the callback module is proven in tests/unit/notify/callback.test.ts; here it is
+// a validator with one allowed URL and a delivery that is counted.
+const notifyCallback = mock(async () => true);
+mock.module("@/lib/notify/callback", () => ({
+  notifyCallback,
+  readCallbackUrl: (value: unknown) =>
+    value === "https://bot.example.test/hook" ? { url: value } : { error: "callback.url host is not allowed" },
+}));
 const audit = mock(() => ({}));
 mock.module("@/lib/audit", () => ({ emitAuditEvent: audit, isStatementAuditEnabled: () => false }));
 let frozenWindow: { id: string; reason: string; from: string; until: string } | null = null;
@@ -286,6 +294,23 @@ describe("executions store", () => {
     } finally {
       delete datasources.plain.requireTicket;
     }
+  });
+
+  // docs/CONTEXT.md §4.25: the callback the bot named is kept on the record, validated at
+  // submission, and told every outcome beside the Slack thread.
+  test("a callback is validated, stored, and told the outcome of a run, a rejection and a failure", async () => {
+    notifyCallback.mockClear();
+    const refused = await ask({ callback: { url: "https://elsewhere.test/hook" } }).catch((e) => e);
+    expect(refused.statusCode).toBe(400);
+    expect(refused.message).toContain("not allowed");
+    expect((await ask({ callback: "nope" }).catch((e) => e)).statusCode).toBe(400);
+    const ran = await ask({ callback: { url: "https://bot.example.test/hook" } });
+    expect(ran.callback).toEqual({ url: "https://bot.example.test/hook" });
+    expect(notifyCallback).toHaveBeenCalledTimes(1);
+    expect((notifyCallback.mock.calls[0] as unknown[])[0]).toMatchObject({ id: ran.id, execution: { status: "done" } });
+    await settleDecision({ ...ran, status: "rejected", reviewer: "root" });
+    expect(notifyCallback).toHaveBeenCalledTimes(2);
+    expect((notifyCallback.mock.calls[1] as unknown[])[0]).toMatchObject({ status: "rejected" });
   });
 
   test("a failed run stores a closed reason, never the driver's words, and still answers the thread", async () => {

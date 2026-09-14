@@ -1241,7 +1241,12 @@ For bots (docs/CONTEXT.md §4.10). Authenticate with `Authorization: Bearer dbp_
 an administrator created under Security → Service tokens. Rate limited like a person's
 queries, under the token's own name.
 
-- `POST /api/v1/executions` — body `{ datasourceId, statement, onBehalfOf, reply?: { channel, threadTs? } }`.
+- `POST /api/v1/executions` — body `{ datasourceId, statement, onBehalfOf, reply?: { channel, threadTs? }, callback?: { url } }`.
+  `callback.url` (docs/CONTEXT.md §4.25): an HTTPS URL on a host in `CALLBACK_ALLOWED_HOSTS`; the outcome is
+  POSTed there as the JSON of the record (as `GET /api/v1/executions/[id]` shows it) with
+  `X-Dbportal-Signature: v1=<HMAC-SHA256 of "<X-Dbportal-Timestamp>.<body>" under CALLBACK_SIGNING_SECRET>`,
+  `X-Dbportal-Event: execution.done|failed|rejected` and `X-Dbportal-Delivery: <id>:<attempt>`; three
+  attempts on a network failure or a 5xx. `400` for a URL that is not allowed.
   `200 { execution }` when policy let it run at once (the outcome is inside); `202 { execution }`
   when a reviewer must decide (`status: "pending"`); `400` invalid; `403` the token may not
   use the datasource, or the statement writes on a read-only one; `404` unknown datasource.
