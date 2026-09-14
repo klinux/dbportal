@@ -4,6 +4,7 @@ import { createErrorResponse } from "@/lib/api/errors";
 import { auditRoleDenial } from "@/lib/api/role-denial";
 import { answerApprovalError, readDecision } from "@/lib/api/approvals";
 import { canReview, decideApproval, getApproval } from "@/lib/approvals/store";
+import { settleDecision } from "@/lib/executions/store";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -46,7 +47,8 @@ export async function POST(request: Request, { params }: Params) {
       windowMinutes: decision.windowMinutes,
       note: decision.note,
     });
-    return NextResponse.json({ approval: decided });
+    // An execution request (§4.10) runs, or is answered, as part of the decision.
+    return NextResponse.json({ approval: await settleDecision(decided) });
   } catch (error) {
     return answerApprovalError(error, route) ?? createErrorResponse(error, { route });
   }

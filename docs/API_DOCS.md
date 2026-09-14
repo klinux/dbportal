@@ -1192,6 +1192,24 @@ Admin only (docs/CONTEXT.md §4.9). Secrets are never returned: a view carries `
 
 Audited as `ssh_profile` / `created` · `updated` · `deleted`.
 
+### Executions API (service tokens)
+
+For bots (docs/CONTEXT.md §4.10). Authenticate with `Authorization: Bearer dbp_…`, a token
+an administrator created under Security → Service tokens. Rate limited like a person's
+queries, under the token's own name.
+
+- `POST /api/v1/executions` — body `{ datasourceId, statement, onBehalfOf, reply?: { channel, threadTs? } }`.
+  `200 { execution }` when policy let it run at once (the outcome is inside); `202 { execution }`
+  when a reviewer must decide (`status: "pending"`); `400` invalid; `403` the token may not
+  use the datasource, or the statement writes on a read-only one; `404` unknown datasource.
+- `GET /api/v1/executions/[id]` — the record the token queued: `status` (`pending`, `approved`,
+  `rejected`) and, once run, `execution: { status: "done" | "failed", rowCount, fields, rows, truncated?, durationMs, error? }`.
+  Rows are masked by the server's rules and bounded (200 rows, 256 KB). `404` for another token's request.
+
+Admin: `GET /api/admin/service-tokens`, `POST /api/admin/service-tokens` — body
+`{ name, role?, groups?, datasources?, requireApproval? }`, `201 { token, secret }` (the secret
+is returned once); `DELETE /api/admin/service-tokens/[id]` revokes. Audited as `service_token`.
+
 ### Approvals API
 
 Write approval (docs/CONTEXT.md §4.6). A write on a datasource declared `writeApproval: true`

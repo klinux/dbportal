@@ -49,6 +49,9 @@ mock.module("@/lib/approvals/store", () => ({
   decideApproval: mockDecide,
 }));
 
+const mockSettle = mock(async (decided: ApprovalRequest) => decided);
+mock.module("@/lib/executions/store", () => ({ settleDecision: mockSettle }));
+
 const { GET: list } = await import("@/app/api/approvals/route");
 const { GET: getOne, POST: decide } = await import("@/app/api/approvals/[id]/route");
 const { ApprovalError } = await import("@/lib/approvals/errors");
@@ -60,6 +63,25 @@ describe("approvals API", () => {
     clearRateLimitState();
     mockGetSession.mockImplementation(async () => ({ role: "admin", username: "root" }));
     mockDecide.mockClear();
+    mockSettle.mockClear();
+    mockSettle.mockImplementation(async (decided: ApprovalRequest) => decided);
+  });
+
+  // docs/CONTEXT.md §4.10: the decision route hands every decided record to the execution
+  // queue, which runs or answers an execution request and returns a window request as is.
+  test("a decision is settled by the execution queue, and the settled record is what the reviewer gets", async () => {
+    mockSettle.mockImplementation(async (decided: ApprovalRequest) => ({
+      ...decided,
+      execution: { status: "done", startedAt: "x", finishedAt: "y", durationMs: 1, rowCount: 0 },
+    }));
+    const res = await decide(
+      createMockRequest("/api/approvals/req-1", { method: "POST", body: { decision: "approve" } }),
+      params("req-1"),
+    );
+    expect(res.status).toBe(200);
+    const body = (await parseResponseJSON(res)) as { approval: ApprovalRequest };
+    expect(body.approval.execution?.status).toBe("done");
+    expect(mockSettle).toHaveBeenCalledTimes(1);
   });
 
   test("every route requires a session", async () => {

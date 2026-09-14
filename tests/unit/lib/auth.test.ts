@@ -160,6 +160,8 @@ describe("auth", () => {
       await expect(login("admin", "shared:masking")).rejects.toThrow("reserved");
       // docs/CONTEXT.md §4.9: and the SSH profiles' owner, whose rows hold bastion keys.
       await expect(login("admin", "shared:ssh-profiles")).rejects.toThrow("reserved");
+      // docs/CONTEXT.md §4.10: and the service tokens' owner, whose rows hold the hashes.
+      await expect(login("admin", "shared:service-tokens")).rejects.toThrow("reserved");
       expect(mockSetCalls.length).toBe(0);
     });
 

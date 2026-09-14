@@ -29,6 +29,8 @@ export type AuditEventType =
    * names the issued user - to the person the portal issued it for.
    */
   | "credential_issued"
+  /** A service token created or revoked by an administrator (docs/CONTEXT.md §4.10). */
+  | "service_token"
   /** A reviewer's decision on a write approval request (docs/CONTEXT.md §4.6). */
   | "approval_decision"
   /** A permitted reveal of masked columns; the columns are named, never their values (§4.7). */
@@ -152,6 +154,12 @@ export interface AuditEvent {
    */
   approvalId?: string;
   reviewer?: string;
+  /**
+   * Whom a service token acted for (docs/CONTEXT.md §4.10): the person who asked in chat,
+   * as the token's caller named them. The actor stays the token; this is the second name
+   * a reader needs to attribute the execution.
+   */
+  subject?: string;
 }
 
 const MAX_EVENTS = 1000;
@@ -453,6 +461,7 @@ interface AuditLogLine {
   correlation_id?: string;
   approval_id?: string;
   reviewer?: string;
+  subject?: string;
   statement?: string;
 }
 
@@ -483,6 +492,7 @@ function toAuditLine(event: AuditEvent): AuditLogLine {
     ...(event.correlationId ? { correlation_id: event.correlationId } : {}),
     ...(event.approvalId ? { approval_id: event.approvalId } : {}),
     ...(event.reviewer ? { reviewer: event.reviewer } : {}),
+    ...(event.subject ? { subject: event.subject } : {}),
     // Number.isFinite excludes NaN and +/-Infinity: JSON.stringify(NaN) silently produces `null`,
     // which would flip duration_ms from a number to null for that one line in a contract parsers
     // depend on. Omitting it entirely keeps the field's type stable instead.

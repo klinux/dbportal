@@ -1,7 +1,7 @@
 import "../../setup-dom";
 import { mockToastSuccess, mockToastError } from "../../helpers/mock-sonner";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { render, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
+import { render, fireEvent, cleanup, waitFor, act, within } from "@testing-library/react";
 import { mockGlobalFetch, restoreGlobalFetch } from "../../helpers/mock-fetch";
 import { ApprovalsTab } from "@/components/admin/tabs/ApprovalsTab";
 
@@ -165,5 +165,61 @@ describe("ApprovalsTab", () => {
       fireEvent.click(getByLabelText("Reject request from ana"));
     });
     expect(mockToastError).toHaveBeenCalledWith("offline");
+  });
+
+  // docs/CONTEXT.md §4.10: a bot's request shows the person it is for, runs once on approval
+  // (no window to size), and once decided says what the run did.
+  test("an execution request names the person, offers Run now instead of windows, and reports its outcome", async () => {
+    const queued = {
+      ...pending,
+      id: "exec-1",
+      kind: "execution",
+      requester: "svc:slack-bot",
+      subject: "U0123",
+      route: "POST /api/v1/executions",
+    };
+    const ran = {
+      ...queued,
+      id: "exec-0",
+      status: "approved",
+      reviewer: "root",
+      reviewedAt: pending.requestedAt,
+      execution: { status: "done", startedAt: "x", finishedAt: "y", durationMs: 12, rowCount: 3 },
+    };
+    const failed = {
+      ...ran,
+      id: "exec-2",
+      execution: { status: "failed", startedAt: "x", finishedAt: "y", durationMs: 1, error: "query_error" },
+    };
+    const notRun = { ...ran, id: "exec-3", execution: undefined };
+    let decided = false;
+    const fetchMock = mockGlobalFetch({
+      "/api/approvals/exec-1": (req) => {
+        decided = req.method === "POST";
+        return { ok: true, json: { approval: ran } };
+      },
+      "/api/approvals": () => ({
+        ok: true,
+        json: { approvals: decided ? [ran, failed, notRun] : [queued, ran, failed, notRun] },
+      }),
+    });
+    const { getByTestId, getByLabelText, queryByLabelText, queryByTestId } = await renderLoaded();
+    const row = within(getByTestId("approval-exec-1"));
+    expect(row.getByText("U0123")).not.toBeNull();
+    expect(row.getByText("via svc:slack-bot")).not.toBeNull();
+    expect(queryByLabelText("Approve svc:slack-bot for 15 minutes")).toBeNull();
+    expect(within(getByTestId("approval-exec-0")).getByText("3 rows in 12 ms")).not.toBeNull();
+    expect(within(getByTestId("approval-exec-2")).getByText("failed: query_error")).not.toBeNull();
+    expect(within(getByTestId("approval-exec-3")).getByText("not run")).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.click(getByLabelText("Run request from U0123"));
+    });
+    const post = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "POST")!;
+    expect(JSON.parse((post[1] as RequestInit).body as string)).toEqual({ decision: "approve" });
+    await waitFor(() => {
+      if (queryByTestId("approval-exec-1")) throw new Error("still pending");
+    });
+    expect(mockToastSuccess).toHaveBeenCalledWith('Ran on "Orders" for U0123');
   });
 });

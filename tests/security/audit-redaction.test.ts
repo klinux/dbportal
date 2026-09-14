@@ -28,6 +28,7 @@ const ALLOWED_KEYS = new Set([
   "correlation_id",
   "approval_id",
   "reviewer",
+  "subject",
   "statement",
 ]);
 
@@ -691,5 +692,29 @@ describe("approval fields on the line", () => {
     );
     expect(without).not.toHaveProperty("approval_id");
     expect(without).not.toHaveProperty("reviewer");
+  });
+
+  // docs/CONTEXT.md §4.10: a service token's execution names the person it acted for, so the
+  // line has two names to attribute by - the token as actor, the person as subject.
+  test("subject is written when set, bounded like every field, and absent otherwise", () => {
+    const line = captureLine(() =>
+      emitAuditEvent({
+        type: "query_execution",
+        action: "query",
+        target: "POST /api/v1/executions",
+        user: "svc:slack-bot",
+        result: "success",
+        subject: "U0123",
+      }),
+    );
+    expect(line.actor).toBe("svc:slack-bot");
+    expect(line.subject).toBe("U0123");
+    for (const key of Object.keys(line)) {
+      expect({ key, allowed: ALLOWED_KEYS.has(key) }).toEqual({ key, allowed: true });
+    }
+    const without = captureLine(() =>
+      emitAuditEvent({ type: "query_execution", action: "query", target: "t", user: "ana", result: "success" }),
+    );
+    expect(without).not.toHaveProperty("subject");
   });
 });

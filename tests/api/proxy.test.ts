@@ -262,6 +262,35 @@ describe("proxy", () => {
   // turn the credential into an exemption.
   // ───────────────────────────────────────────────────────────────────────────
 
+  // docs/CONTEXT.md §4.10: the service API is let through on the SHAPE of a credential, and
+  // the route verifies it; without one an API client gets a 401 it can act on, not a redirect.
+  describe("service API path", () => {
+    test("a request with a service-shaped Bearer reaches its route; the credential is the route's to verify", async () => {
+      // A GET: the Origin check that guards every mutating request is a separate concern,
+      // proven elsewhere in this file, and a bot's POST carries no browser Origin anyway.
+      const req = new NextRequest("http://localhost:3000/api/v1/executions/x", {
+        headers: { authorization: "Bearer dbp_anything" },
+      });
+      const res = await proxy(req);
+      expect(isRedirect(res)).toBe(false);
+      expect(res.status).toBe(200);
+    });
+
+    test("without a Bearer, or with one of another shape, the answer is a 401 and never the login redirect", async () => {
+      for (const headers of [{}, { authorization: "Basic abc" }, { authorization: "Bearer other" }] as HeadersInit[]) {
+        const res = await proxy(new NextRequest("http://localhost:3000/api/v1/executions/x", { headers }));
+        expect(res.status).toBe(401);
+        expect(isRedirect(res)).toBe(false);
+        expect(await res.json()).toEqual({ error: "A valid service token is required" });
+      }
+    });
+
+    test("a session cookie alone does not turn the service API into a browser route", async () => {
+      const res = await proxy(createNextRequest("/api/v1/executions", "not-a-service-token"));
+      expect(res.status).toBe(401);
+    });
+  });
+
   describe("agent drive path", () => {
     test("the public-path list is exactly the five it has always been", () => {
       const source = readFileSync(new URL("../../src/proxy.ts", import.meta.url), "utf8");

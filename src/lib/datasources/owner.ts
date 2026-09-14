@@ -15,10 +15,13 @@ export const SHARED_MASKING_OWNER = "shared:masking";
 
 /** The owner the shared SSH profiles live under (docs/CONTEXT.md §4.9). */
 export const SHARED_SSH_PROFILES_OWNER = "shared:ssh-profiles";
+/** Service tokens (docs/CONTEXT.md §4.10): hashes only, never a secret. */
+export const SHARED_SERVICE_TOKENS_OWNER = "shared:service-tokens";
 
 /** Every owner id no account may ever be. */
 export const RESERVED_OWNERS: readonly string[] = [
   SHARED_DATASOURCES_OWNER,
   SHARED_MASKING_OWNER,
   SHARED_SSH_PROFILES_OWNER,
+  SHARED_SERVICE_TOKENS_OWNER,
 ];

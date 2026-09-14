@@ -28,10 +28,34 @@ function ago(iso: string, now: number): string {
   return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
 }
 
+/** What a decided row says after the badge: the window a person got, or what a queued execution did. */
+export function outcomeLabel(record: ApprovalRequest, now: number): string {
+  if (record.kind === "execution") {
+    const outcome = record.execution;
+    if (record.status !== "approved") return "";
+    if (!outcome) return "not run";
+    if (outcome.status === "failed") return `failed: ${outcome.error ?? "execution_failed"}`;
+    const rows = outcome.rowCount ?? outcome.rows?.length ?? 0;
+    return `${rows} row${rows === 1 ? "" : "s"} in ${outcome.durationMs} ms`;
+  }
+  return windowLabel(record, now);
+}
+
 function windowLabel(record: ApprovalRequest, now: number): string {
   if (record.status !== "approved" || !record.windowUntil) return "";
   const left = Date.parse(record.windowUntil) - now;
   return left > 0 ? `open for ${Math.ceil(left / 60_000)} min` : "window closed";
+}
+
+/** The requester, and for a bot's request the person it acted for (§4.10). */
+function Who({ record }: { record: ApprovalRequest }) {
+  if (record.kind !== "execution") return <>{record.requester}</>;
+  return (
+    <span>
+      {record.subject ?? record.requester}
+      <span className="block font-mono text-[10px] text-fg-muted">via {record.requester}</span>
+    </span>
+  );
 }
 
 async function fetchApprovals(): Promise<ApprovalRequest[]> {
@@ -78,9 +102,11 @@ export function ApprovalsTab() {
       const body = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(body.error ?? `The decision was refused (${res.status})`);
       toast.success(
-        decision === "approve"
-          ? `${record.requester} may write on "${record.datasourceName}" for ${windowMinutes} min`
-          : `Request from ${record.requester} rejected`,
+        decision === "reject"
+          ? `Request from ${record.requester} rejected`
+          : record.kind === "execution"
+            ? `Ran on "${record.datasourceName}" for ${record.subject ?? record.requester}`
+            : `${record.requester} may write on "${record.datasourceName}" for ${windowMinutes} min`,
       );
       await load();
     } catch (err) {
@@ -152,7 +178,9 @@ export function ApprovalsTab() {
                   <TableBody>
                     {pending.map((record) => (
                       <TableRow key={record.id} data-testid={`approval-${record.id}`}>
-                        <TableCell className="text-xs text-fg-secondary">{record.requester}</TableCell>
+                        <TableCell className="text-xs text-fg-secondary">
+                          <Who record={record} />
+                        </TableCell>
                         <TableCell className="text-xs text-fg-secondary">{record.datasourceName}</TableCell>
                         <TableCell className="text-xs">
                           <pre className="font-mono text-[11px] whitespace-pre-wrap break-all max-w-xl text-fg-secondary">
@@ -164,19 +192,33 @@ export function ApprovalsTab() {
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap">
                           <div className="inline-flex items-center gap-1">
-                            {WINDOW_CHOICES.map((minutes) => (
+                            {/* docs/CONTEXT.md §4.10: a queued execution runs once, now; there is no window to size. */}
+                            {record.kind === "execution" && (
                               <Button
-                                key={minutes}
                                 size="sm"
                                 variant="outline"
                                 className="h-7 text-[11px] px-2"
                                 disabled={busy === record.id}
-                                onClick={() => decide(record, "approve", minutes)}
-                                aria-label={`Approve ${record.requester} for ${minutes} minutes`}
+                                onClick={() => decide(record, "approve")}
+                                aria-label={`Run request from ${record.subject ?? record.requester}`}
                               >
-                                {minutes} min
+                                Run now
                               </Button>
-                            ))}
+                            )}
+                            {record.kind !== "execution" &&
+                              WINDOW_CHOICES.map((minutes) => (
+                                <Button
+                                  key={minutes}
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-[11px] px-2"
+                                  disabled={busy === record.id}
+                                  onClick={() => decide(record, "approve", minutes)}
+                                  aria-label={`Approve ${record.requester} for ${minutes} minutes`}
+                                >
+                                  {minutes} min
+                                </Button>
+                              ))}
                             <Button
                               size="sm"
                               variant="ghost"
@@ -214,7 +256,9 @@ export function ApprovalsTab() {
                   <TableBody>
                     {decided.map((record) => (
                       <TableRow key={record.id} data-testid={`approval-${record.id}`}>
-                        <TableCell className="text-xs text-fg-secondary">{record.requester}</TableCell>
+                        <TableCell className="text-xs text-fg-secondary">
+                          <Who record={record} />
+                        </TableCell>
                         <TableCell className="text-xs text-fg-secondary">{record.datasourceName}</TableCell>
                         <TableCell className="text-xs">
                           <Badge
@@ -224,7 +268,7 @@ export function ApprovalsTab() {
                             {record.status}
                           </Badge>
                           {record.status === "approved" && (
-                            <span className="ml-2 text-[11px] text-fg-tertiary">{windowLabel(record, now)}</span>
+                            <span className="ml-2 text-[11px] text-fg-tertiary">{outcomeLabel(record, now)}</span>
                           )}
                         </TableCell>
                         <TableCell className="text-xs text-fg-secondary">{record.reviewer}</TableCell>

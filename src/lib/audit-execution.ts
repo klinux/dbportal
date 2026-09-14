@@ -42,6 +42,8 @@ export interface ExecutionAuditContext {
   /** The write window this ran under, when the datasource requires approval (§4.6). */
   approvalId?: string;
   reviewer?: string;
+  /** The person a service token ran this for (§4.10). */
+  subject?: string;
 }
 
 /**
@@ -76,6 +78,7 @@ function record(
       duration,
       ...(outcome.result === "failure" ? { reason: outcome.reason } : {}),
       ...(context.approvalId ? { approvalId: context.approvalId, reviewer: context.reviewer } : {}),
+      ...(context.subject ? { subject: context.subject } : {}),
       ...(context.ip ? { ip: context.ip } : {}),
       ...(context.statement !== undefined && isStatementAuditEnabled() ? { details: context.statement } : {}),
     });

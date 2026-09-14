@@ -224,6 +224,14 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists and creates SSH profiles in the app's own storage backend (STORAGE_PROVIDER); never opens a user database (GET/POST). Admin-gated by requireAdmin like admin/datasources; tests/api/admin/ssh-profiles.test.ts proves the 403",
   "admin/ssh-profiles/[id]":
     "updates and deletes one SSH profile in the same storage backend; never opens a user database (PUT/DELETE, no POST export). Same admin gate",
+  "admin/service-tokens":
+    "lists and creates service tokens in the app's own storage backend (STORAGE_PROVIDER); never opens a user database (GET/POST). Admin-gated by requireAdmin like admin/datasources; tests/api/admin/service-tokens.test.ts proves the 403",
+  "admin/service-tokens/[id]":
+    "revokes one service token in the same storage backend; never opens a user database (DELETE, no POST export). Same admin gate",
+  "v1/executions":
+    "queues, or runs at once, a statement a service token submits (POST). It reaches a provider through @/lib/executions/store, but only behind guardServiceRoute, the Bearer-token twin of guardRoute; tests/api/v1/executions.test.ts proves the 401",
+  "v1/executions/[id]":
+    "reads one execution request the calling token queued, from the app's own storage backend; never opens a user database (GET, no POST export). Same Bearer gate",
   "admin/masking":
     "reads and replaces the one shared masking configuration in the app's own storage backend; never opens a user database (GET/PUT, no POST export). Admin-gated by requireAdmin like admin/datasources; tests/api/masking/routes.test.ts proves the 403",
   masking:
@@ -402,6 +410,12 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/access": `pure functions over the token and a datasource's access rule, and it ${PROVIDER_NAMING_HELPER} (@/lib/db/utils/query-limiter) only to classify a statement's text; opens nothing`,
     "@/lib/api/approvals": "the approvals routes' error answer and decision-body reader; reaches no provider",
     "@/lib/api/ssh-profiles": "the SSH profile routes' error answer; reaches no provider",
+    "@/lib/api/service-tokens": "the service token routes' error answer; reaches no provider",
+    "@/lib/api/service-auth":
+      "the Bearer-token guard of the v1 routes: resolves a token in the app's own storage backend and meters it; opens no user database",
+    "@/lib/service-tokens/store":
+      "service tokens in the app's own storage backend: hashes, roles, revocation; opens no user database",
+    "@/lib/executions/store": `the execution queue (docs/CONTEXT.md §4.10), and it ${PROVIDER_NAMING_HELPER} (@/lib/db) to run an approved statement - but only for a request that passed guardServiceRoute or a reviewer's session on approvals/[id]; the routes that import it are session- or token-gated above`,
     "@/lib/ssh-profiles/store":
       "the shared SSH profiles in the app's own storage backend and the seed file, and which datasources name them; opens no user database",
     "@/lib/masking/store":

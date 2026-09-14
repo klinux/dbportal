@@ -12,6 +12,10 @@ mock.module("@/components/admin/tabs/SshProfilesTab", () => ({
   SshProfilesTab: () => <div data-testid="ssh-profiles-tab">SshProfilesTab</div>,
 }));
 
+mock.module("@/components/admin/tabs/ServiceTokensTab", () => ({
+  ServiceTokensTab: () => <div data-testid="service-tokens-tab">ServiceTokensTab</div>,
+}));
+
 mock.module("@/components/MaskingSettings", () => ({
   MaskingSettings: () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -67,6 +71,9 @@ describe("SecurityTab", () => {
     expect(queryByTestId("ssh-profiles-tab")).toBeNull();
     clickRadixTab(getByText("SSH profiles"));
     expect(getByTestId("ssh-profiles-tab")).not.toBeNull();
+    // docs/CONTEXT.md §4.10: the tokens bots call the API with sit next to the bastions.
+    clickRadixTab(getByText("Service tokens"));
+    expect(getByTestId("service-tokens-tab")).not.toBeNull();
   });
 
   test("renders 3 tabs (Data Masking, Access, Thresholds)", async () => {

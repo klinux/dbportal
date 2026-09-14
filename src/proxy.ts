@@ -31,6 +31,9 @@ const ORIGIN_MISMATCH_BODY = {
   retryable: false,
 };
 
+const SERVICE_API_PREFIX = "/api/v1/";
+const SERVICE_BEARER_PREFIX = "Bearer dbp_";
+
 export async function proxy(request: NextRequest) {
   // NextURL removes the configured basePath before exposing pathname; Next also
   // prefixes config.matcher at build time. Keep authorization checks app-relative.
@@ -110,6 +113,17 @@ export async function proxy(request: NextRequest) {
   // not the authorization boundary (see src/lib/api/require-session.ts).
   if (pathname === AGENT_DRIVE_PATH && (await verifyAgentDriveToken(request.headers.get(AGENT_DRIVE_HEADER)))) {
     return withSecurityHeaders(NextResponse.next());
+  }
+
+  // The service API (docs/CONTEXT.md §4.10). Like the drive callback above, not a path
+  // exemption: a request is let through to the route only when it presents a Bearer in the
+  // service-token shape, and the route's own guard (src/lib/api/service-auth.ts) is what
+  // verifies it against the store - this runtime has no store to ask. Without one, a bot
+  // gets the 401 an API client can act on, never the login redirect meant for a browser.
+  if (pathname.startsWith(SERVICE_API_PREFIX)) {
+    const authorization = request.headers.get("authorization") ?? "";
+    if (authorization.startsWith(SERVICE_BEARER_PREFIX)) return withSecurityHeaders(NextResponse.next());
+    return withSecurityHeaders(NextResponse.json({ error: "A valid service token is required" }, { status: 401 }));
   }
 
   // Allow public routes

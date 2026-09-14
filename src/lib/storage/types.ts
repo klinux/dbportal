@@ -3,6 +3,7 @@ import type { AuditEvent } from "../audit";
 import type { MaskingConfig } from "../data-masking";
 import type { ThresholdConfig } from "../monitoring-thresholds";
 import type { SshProfileRecord } from "../ssh-profiles/types";
+import type { ServiceTokenRecord } from "../service-tokens/types";
 
 /**
  * All persistable collections and their data types. Maps 1:1 with localStorage keys (minus
@@ -26,6 +27,8 @@ export interface StorageData {
    * per-user storage routes refuse the name and no browser ever writes one.
    */
   ssh_profiles: SshProfileRecord[];
+  /** Service tokens (docs/CONTEXT.md §4.10): hashes and metadata under `shared:service-tokens`; not a per-user collection. */
+  service_tokens: ServiceTokenRecord[];
 }
 
 /** Collection names that can be synced to server storage */
@@ -70,6 +73,37 @@ export interface ApprovalRequest {
   reviewedAt?: string;
   windowUntil?: string;
   note?: string;
+  /**
+   * `window` (the default, §4.6): a person present in the editor is granted minutes to run
+   * again. `execution` (§4.10): a request a service token queued; approval runs THIS
+   * statement on the server and stores the outcome here, the requester being absent.
+   */
+  kind?: "window" | "execution";
+  /** Whom the service token acted for (a chat user id, an email): the person, not the bot. */
+  subject?: string;
+  /** Where the outcome is announced, when the request named a chat thread. */
+  reply?: ExecutionReply;
+  /** The outcome of an `execution` request once it ran. */
+  execution?: ExecutionOutcome;
+}
+
+export interface ExecutionReply {
+  channel: string;
+  threadTs?: string;
+}
+
+export interface ExecutionOutcome {
+  status: "done" | "failed";
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  rowCount?: number;
+  /** The first rows, already masked, bounded in count and size; the rest is not kept. */
+  fields?: string[];
+  rows?: Record<string, unknown>[];
+  truncated?: boolean;
+  /** A closed reason, never the driver's message. */
+  error?: string;
 }
 
 export interface ApprovalQuery {

@@ -67,6 +67,34 @@ async function status(promise: Promise<unknown>): Promise<number> {
 }
 
 describe("approvals store", () => {
+  // docs/CONTEXT.md §4.10: a queued execution has nobody present to run again, so its
+  // approval carries no window - the decision runs the stored statement (elsewhere).
+  it("approving an execution request records the reviewer and no window, and ignores windowMinutes", async () => {
+    const queued: ApprovalRequest = {
+      id: "exec-1",
+      kind: "execution",
+      datasourceId: "orders",
+      datasourceName: "Orders",
+      requester: "svc:bot",
+      subject: "U01",
+      statement: "SELECT 1",
+      route: "POST /api/v1/executions",
+      status: "pending",
+      requestedAt: new Date().toISOString(),
+    };
+    rows.set(queued.id, queued);
+    const decided = await decideApproval({
+      id: "exec-1",
+      reviewer: "root",
+      decision: "approve",
+      windowMinutes: "garbage",
+    });
+    expect(decided.status).toBe("approved");
+    expect(decided.reviewer).toBe("root");
+    expect(decided.windowUntil).toBeUndefined();
+    expect(decided.kind).toBe("execution");
+  });
+
   beforeEach(() => {
     rows = new Map();
     enabled = true;

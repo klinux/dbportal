@@ -172,7 +172,9 @@ export async function decideApproval(input: {
     throw new ApprovalError(`Approval request "${input.id}" is already ${record.status}`, 409);
   if (record.requester === input.reviewer) throw new ApprovalError("You cannot review your own request", 403);
   if (input.note !== undefined && typeof input.note !== "string") throw new ApprovalError("note must be a string", 400);
-  const minutes = input.decision === "approve" ? boundedWindowMinutes(input.windowMinutes) : undefined;
+  // An execution request (§4.10) has no window: approving it runs the stored statement once.
+  const isExecution = record.kind === "execution";
+  const minutes = input.decision === "approve" && !isExecution ? boundedWindowMinutes(input.windowMinutes) : undefined;
   const reviewedAt = new Date();
   const decided: ApprovalRequest = {
     ...record,
