@@ -345,26 +345,15 @@ describe("MonitoringDashboard", () => {
     mockAllConnections = previous;
   });
 
-  test("back button remains named when its responsive text is hidden", async () => {
-    mockRouterPush.mockClear();
-    let view: ReturnType<typeof render>;
-    await act(async () => {
-      view = render(<MonitoringDashboard />);
-    });
-    // Model the small-screen CSS state in the DOM test environment.
-    view!.getByText("Back").style.display = "none";
-    fireEvent.click(view!.getByRole("button", { name: "Back" }));
-    expect(mockRouterPush).toHaveBeenCalledWith("/");
-  });
-
-  test("isEmbedded=true hides back button", async () => {
+  // The way back lives on the standalone page's shell now (tests/components/MonitoringPage.test.tsx):
+  // the dashboard renders the same section layout wherever it is mounted.
+  test("renders the section header and no back button of its own", async () => {
     let renderResult: ReturnType<typeof render>;
     await act(async () => {
-      renderResult = render(<MonitoringDashboard isEmbedded={true} />);
+      renderResult = render(<MonitoringDashboard />);
     });
-    const { queryByText } = renderResult!;
-
-    // When embedded, the Back button should not be present
+    const { queryByText, getByRole } = renderResult!;
+    expect(getByRole("heading", { level: 2 }).textContent).toBe("Monitoring");
     expect(queryByText("Back")).toBeNull();
   });
 

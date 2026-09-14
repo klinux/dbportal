@@ -10,7 +10,6 @@ import {
   Table2,
   HardDrive,
   RefreshCw,
-  ArrowLeft,
   Play,
   Pause,
   Database,
@@ -33,11 +32,7 @@ import { TablesTab } from "./tabs/TablesTab";
 import { StorageTab } from "./tabs/StorageTab";
 import { PoolTab } from "./tabs/PoolTab";
 
-interface MonitoringDashboardProps {
-  isEmbedded?: boolean;
-}
-
-export function MonitoringDashboard({ isEmbedded = false }: MonitoringDashboardProps) {
+export function MonitoringDashboard() {
   const router = useRouter();
   // The stored active connection is read once, at mount: it seeds the default
   // selection and nothing re-reads it afterwards. `readString` answers null
@@ -101,9 +96,9 @@ export function MonitoringDashboard({ isEmbedded = false }: MonitoringDashboardP
     return date.toLocaleTimeString();
   };
 
-  // The tabs' own padding lives here, not in each tab: embedded, the admin page already
-  // provides the gutter, so the content only keeps its vertical rhythm.
-  const tabContentClass = isEmbedded ? "m-0 p-0" : "h-full m-0 p-3 sm:p-6";
+  // The tabs carry no padding of their own: the page provides the gutter, so the content
+  // only keeps its vertical rhythm.
+  const tabContentClass = "m-0 p-0";
 
   const refreshControls = (
     <div className="flex items-center gap-1 sm:gap-2">
@@ -173,9 +168,10 @@ export function MonitoringDashboard({ isEmbedded = false }: MonitoringDashboardP
     </Select>
   );
 
-  // Inside the admin shell the section opens with the same header as every other section
-  // and inherits the page's gutter; on its own route it keeps a top bar with a way back.
-  const header = isEmbedded ? (
+  // One layout wherever the dashboard is mounted: the section header every admin section
+  // opens with, then the datasource, then the tabs. The page around it provides the gutter
+  // (the admin shell, or src/app/monitoring/page.tsx's own shell on the standalone route).
+  const header = (
     <>
       <AdminSectionHeader
         icon={Activity}
@@ -185,35 +181,10 @@ export function MonitoringDashboard({ isEmbedded = false }: MonitoringDashboardP
       />
       {connectionSelect}
     </>
-  ) : (
-    <header className="border-b border-hairline bg-surface">
-      <div className="flex items-center justify-between px-3 py-2 sm:px-4 sm:py-3">
-        <div className="flex items-center gap-2 sm:gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => router.push("/")}
-            aria-label="Back"
-            className="h-8 w-8 sm:h-9 sm:w-auto sm:px-3"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            <span className="hidden sm:inline ml-2">Back</span>
-          </Button>
-          <div className="flex items-center gap-2">
-            <Activity strokeWidth={1.5} className="h-4 w-4 sm:h-5 sm:w-5 text-brand" />
-            <h1 className="text-xs sm:text-lg font-medium">
-              <span className="hidden sm:inline">Database </span>Monitoring
-            </h1>
-          </div>
-        </div>
-        {refreshControls}
-      </div>
-      <div className="px-3 pb-2 sm:px-4 sm:pb-3">{connectionSelect}</div>
-    </header>
   );
 
   return (
-    <div className={isEmbedded ? "space-y-6" : "flex flex-col h-full bg-canvas"}>
+    <div className="space-y-6">
       {header}
 
       {/* Main Content */}
@@ -236,12 +207,8 @@ export function MonitoringDashboard({ isEmbedded = false }: MonitoringDashboardP
           </Button>
         </div>
       ) : (
-        <div className={isEmbedded ? "" : "flex-1 overflow-hidden"}>
-          <Tabs
-            value={activeTab}
-            onValueChange={setActiveTab}
-            className={isEmbedded ? "gap-4" : "flex flex-col h-full gap-0"}
-          >
+        <div>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">
             {/* Tab Bar - Icon only on mobile, Icon + Text on desktop */}
             <div>
               <TabsList className={ADMIN_SUBTAB_LIST_CLASS}>
@@ -276,7 +243,7 @@ export function MonitoringDashboard({ isEmbedded = false }: MonitoringDashboardP
               </TabsList>
             </div>
 
-            <div className={isEmbedded ? "" : "flex-1 overflow-auto"}>
+            <div>
               <TabsContent value="overview" className={tabContentClass}>
                 <OverviewTab data={data} loading={loading} history={history} />
               </TabsContent>

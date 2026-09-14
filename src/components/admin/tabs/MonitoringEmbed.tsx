@@ -6,7 +6,7 @@ import { MonitoringDashboard } from "@/components/monitoring/MonitoringDashboard
 export function MonitoringEmbed() {
   return (
     <div data-testid="monitoring-embed-root">
-      <MonitoringDashboard isEmbedded />
+      <MonitoringDashboard />
     </div>
   );
 }

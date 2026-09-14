@@ -43,17 +43,10 @@ describe("MonitoringEmbed", () => {
     expect(wrapper.className).not.toMatch(/\bp-\d/);
   });
 
-  test("passes isEmbedded=true to MonitoringDashboard", () => {
+  test("passes no props: the dashboard has one layout wherever it is mounted", () => {
     render(<MonitoringEmbed />);
     expect(capturedProps).not.toBeNull();
-    expect(capturedProps!.isEmbedded).toBe(true);
-  });
-
-  test("does not pass any other props to MonitoringDashboard", () => {
-    render(<MonitoringEmbed />);
-    expect(capturedProps).not.toBeNull();
-    const keys = Object.keys(capturedProps!);
-    expect(keys).toEqual(["isEmbedded"]);
+    expect(Object.keys(capturedProps!)).toEqual([]);
   });
 
   test("renders MonitoringDashboard text content", () => {
