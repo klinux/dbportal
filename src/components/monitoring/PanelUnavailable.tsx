@@ -32,7 +32,7 @@ export function PanelUnavailable({ message }: PanelUnavailableProps) {
   const Icon = isEngineLimit ? Info : TriangleAlert;
 
   return (
-    <div className="text-center py-8 text-muted-foreground" data-testid="panel-unavailable">
+    <div className="text-center py-8 text-fg-muted" data-testid="panel-unavailable">
       <Icon strokeWidth={1.5} className="h-8 w-8 mx-auto mb-2 opacity-50" />
       <p className="text-xs">
         {isEngineLimit ? "This engine does not publish this." : "This database could not answer this panel."}

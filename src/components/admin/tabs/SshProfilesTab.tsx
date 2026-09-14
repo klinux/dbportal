@@ -4,6 +4,8 @@ import { appFetch } from "@/lib/config/base-path";
 import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -198,34 +200,31 @@ export function SshProfilesTab() {
 
   return (
     <div className="space-y-4" data-testid="ssh-profiles">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-base font-medium text-fg-primary flex items-center gap-2">
-            <Terminal className="h-4 w-4 text-brand" strokeWidth={1.75} />
-            SSH profiles
-          </h2>
-          <p className="text-xs text-fg-tertiary mt-1 max-w-2xl leading-relaxed">
-            A bastion declared once. Datasources reference it by name and the server builds the tunnel when they open;
-            the key never leaves the server.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 text-xs gap-2"
-            onClick={() => load()}
-            disabled={!profiles && !error}
-          >
-            <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />
-            Refresh
-          </Button>
-          <Button size="sm" className="h-8 text-xs gap-2" onClick={openCreate}>
-            <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
-            New profile
-          </Button>
-        </div>
-      </div>
+      <AdminSectionHeader
+        icon={Terminal}
+        title="SSH profiles"
+        description="A bastion declared once. Datasources reference it by name and the server builds the tunnel when they open; the key never leaves the server."
+        actions={
+          <>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs gap-2"
+                onClick={() => load()}
+                disabled={!profiles && !error}
+              >
+                <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Refresh
+              </Button>
+              <Button size="sm" className="h-8 text-xs gap-2" onClick={openCreate}>
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
+                New profile
+              </Button>
+            </div>
+          </>
+        }
+      />
 
       {error && (
         <output className="flex items-center gap-2 text-xs text-status-danger" data-testid="ssh-profiles-error">

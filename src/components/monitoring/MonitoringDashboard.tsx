@@ -16,6 +16,8 @@ import {
   Database,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ADMIN_SUBTAB_LIST_CLASS, ADMIN_SUBTAB_TRIGGER_CLASS } from "@/lib/ui/admin-tabs";
+import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMonitoringData } from "@/hooks/use-monitoring-data";
@@ -99,115 +101,124 @@ export function MonitoringDashboard({ isEmbedded = false }: MonitoringDashboardP
     return date.toLocaleTimeString();
   };
 
-  return (
-    <div className="flex flex-col h-full bg-background">
-      {/* Header - Mobile Responsive */}
-      <header className="border-b bg-card">
-        {/* Top row: Back button, title, refresh controls */}
-        <div className="flex items-center justify-between px-3 py-2 sm:px-4 sm:py-3">
-          <div className="flex items-center gap-2 sm:gap-4">
-            {!isEmbedded && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => router.push("/")}
-                aria-label="Back"
-                className="h-8 w-8 sm:h-9 sm:w-auto sm:px-3"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                <span className="hidden sm:inline ml-2">Back</span>
-              </Button>
-            )}
+  // The tabs' own padding lives here, not in each tab: embedded, the admin page already
+  // provides the gutter, so the content only keeps its vertical rhythm.
+  const tabContentClass = isEmbedded ? "m-0 p-0" : "h-full m-0 p-3 sm:p-6";
+
+  const refreshControls = (
+    <div className="flex items-center gap-1 sm:gap-2">
+      <div className="hidden sm:flex items-center gap-2 text-xs text-fg-muted mr-2">
+        <div className={`h-2 w-2 rounded-full ${autoRefresh ? "bg-hue-green-tint animate-pulse" : "bg-muted"}`} />
+        <span className="hidden md:inline">{autoRefresh ? "Auto" : "Manual"}</span>
+        <span className="hidden lg:inline text-xs">Last: {formatLastUpdated(lastUpdated)}</span>
+      </div>
+
+      {/* Interval selector */}
+      <Select value={String(refreshInterval)} onValueChange={(v) => setRefreshInterval(Number(v))}>
+        <SelectTrigger className="h-8 w-[80px] text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="5000">5s</SelectItem>
+          <SelectItem value="10000">10s</SelectItem>
+          <SelectItem value="15000">15s</SelectItem>
+          <SelectItem value="30000">30s</SelectItem>
+          <SelectItem value="60000">60s</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        onClick={() => setAutoRefresh(!autoRefresh)}
+        title={autoRefresh ? "Pause auto-refresh" : "Start auto-refresh"}
+      >
+        {autoRefresh ? <Pause className="h-4 w-4" /> : <Play strokeWidth={1.5} className="h-4 w-4" />}
+      </Button>
+
+      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={refresh} disabled={loading} title="Refresh now">
+        <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+      </Button>
+    </div>
+  );
+
+  const connectionSelect = (
+    <Select value={selectedConnection?.id || ""} onValueChange={handleConnectionChange}>
+      <SelectTrigger className="w-full sm:w-[280px] bg-panel border-hairline-strong text-fg-secondary">
+        <SelectValue placeholder="Select connection">
+          {selectedConnection ? (
             <div className="flex items-center gap-2">
-              <Activity strokeWidth={1.5} className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
-              <h1 className="text-xs sm:text-lg font-medium hidden xs:block">
-                <span className="hidden sm:inline">Database </span>Monitoring
-              </h1>
+              <Database strokeWidth={1.5} className="h-4 w-4 flex-shrink-0" />
+              <span className="truncate">{selectedConnection.name}</span>
+              <span className="text-xs text-fg-muted hidden sm:inline">({selectedConnection.type})</span>
             </div>
-          </div>
-
-          {/* Refresh Controls */}
-          <div className="flex items-center gap-1 sm:gap-2">
-            <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground mr-2">
-              <div className={`h-2 w-2 rounded-full ${autoRefresh ? "bg-hue-green-tint animate-pulse" : "bg-muted"}`} />
-              <span className="hidden md:inline">{autoRefresh ? "Auto" : "Manual"}</span>
-              <span className="hidden lg:inline text-xs">Last: {formatLastUpdated(lastUpdated)}</span>
+          ) : (
+            "Select connection"
+          )}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {allConns.map((conn) => (
+          <SelectItem key={conn.id} value={conn.id}>
+            <div className="flex items-center gap-2">
+              <Database strokeWidth={1.5} className="h-4 w-4" />
+              <span>{conn.name}</span>
+              <span className="text-xs text-fg-muted">({conn.type})</span>
             </div>
+          </SelectItem>
+        ))}
+        {allConns.length === 0 && <div className="px-2 py-1 text-xs text-fg-muted">No connections available</div>}
+      </SelectContent>
+    </Select>
+  );
 
-            {/* Interval selector */}
-            <Select value={String(refreshInterval)} onValueChange={(v) => setRefreshInterval(Number(v))}>
-              <SelectTrigger className="h-8 w-[80px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="5000">5s</SelectItem>
-                <SelectItem value="10000">10s</SelectItem>
-                <SelectItem value="15000">15s</SelectItem>
-                <SelectItem value="30000">30s</SelectItem>
-                <SelectItem value="60000">60s</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              title={autoRefresh ? "Pause auto-refresh" : "Start auto-refresh"}
-            >
-              {autoRefresh ? <Pause className="h-4 w-4" /> : <Play strokeWidth={1.5} className="h-4 w-4" />}
-            </Button>
-
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={refresh}
-              disabled={loading}
-              title="Refresh now"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            </Button>
+  // Inside the admin shell the section opens with the same header as every other section
+  // and inherits the page's gutter; on its own route it keeps a top bar with a way back.
+  const header = isEmbedded ? (
+    <>
+      <AdminSectionHeader
+        icon={Activity}
+        title="Monitoring"
+        description="Live metrics, queries, sessions, storage and the pool of one datasource, refreshed on the interval you pick."
+        actions={refreshControls}
+      />
+      {connectionSelect}
+    </>
+  ) : (
+    <header className="border-b border-hairline bg-surface">
+      <div className="flex items-center justify-between px-3 py-2 sm:px-4 sm:py-3">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.push("/")}
+            aria-label="Back"
+            className="h-8 w-8 sm:h-9 sm:w-auto sm:px-3"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span className="hidden sm:inline ml-2">Back</span>
+          </Button>
+          <div className="flex items-center gap-2">
+            <Activity strokeWidth={1.5} className="h-4 w-4 sm:h-5 sm:w-5 text-brand" />
+            <h1 className="text-xs sm:text-lg font-medium">
+              <span className="hidden sm:inline">Database </span>Monitoring
+            </h1>
           </div>
         </div>
+        {refreshControls}
+      </div>
+      <div className="px-3 pb-2 sm:px-4 sm:pb-3">{connectionSelect}</div>
+    </header>
+  );
 
-        {/* Bottom row: Connection selector (mobile-friendly) */}
-        <div className="px-3 pb-2 sm:px-4 sm:pb-3">
-          <Select value={selectedConnection?.id || ""} onValueChange={handleConnectionChange}>
-            <SelectTrigger className="w-full sm:w-[280px]">
-              <SelectValue placeholder="Select connection">
-                {selectedConnection ? (
-                  <div className="flex items-center gap-2">
-                    <Database strokeWidth={1.5} className="h-4 w-4 flex-shrink-0" />
-                    <span className="truncate">{selectedConnection.name}</span>
-                    <span className="text-xs text-muted-foreground hidden sm:inline">({selectedConnection.type})</span>
-                  </div>
-                ) : (
-                  "Select connection"
-                )}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {allConns.map((conn) => (
-                <SelectItem key={conn.id} value={conn.id}>
-                  <div className="flex items-center gap-2">
-                    <Database strokeWidth={1.5} className="h-4 w-4" />
-                    <span>{conn.name}</span>
-                    <span className="text-xs text-muted-foreground">({conn.type})</span>
-                  </div>
-                </SelectItem>
-              ))}
-              {allConns.length === 0 && (
-                <div className="px-2 py-1 text-xs text-muted-foreground">No connections available</div>
-              )}
-            </SelectContent>
-          </Select>
-        </div>
-      </header>
+  return (
+    <div className={isEmbedded ? "space-y-6" : "flex flex-col h-full bg-canvas"}>
+      {header}
 
       {/* Main Content */}
       {!selectedConnection ? (
-        <div className="flex flex-col items-center justify-center flex-1 gap-4 text-muted-foreground">
+        <div className="flex flex-col items-center justify-center flex-1 gap-4 text-fg-muted">
           <Database strokeWidth={1.5} className="h-12 w-12" />
           <h2 className="text-lg font-medium">No Connection Selected</h2>
           <p className="text-xs">Select a database connection to view monitoring data.</p>
@@ -225,84 +236,60 @@ export function MonitoringDashboard({ isEmbedded = false }: MonitoringDashboardP
           </Button>
         </div>
       ) : (
-        <div className="flex-1 overflow-hidden">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
+        <div className={isEmbedded ? "" : "flex-1 overflow-hidden"}>
+          <Tabs
+            value={activeTab}
+            onValueChange={setActiveTab}
+            className={isEmbedded ? "gap-4" : "flex flex-col h-full gap-0"}
+          >
             {/* Tab Bar - Icon only on mobile, Icon + Text on desktop */}
-            <div className="border-b bg-muted/30">
-              <TabsList className="h-12 w-full justify-between sm:justify-start rounded-none bg-transparent p-0">
-                <TabsTrigger
-                  value="overview"
-                  className="flex-1 sm:flex-initial gap-2 px-2 sm:px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent text-xs sm:text-xs"
-                  title="Overview"
-                >
+            <div>
+              <TabsList className={ADMIN_SUBTAB_LIST_CLASS}>
+                <TabsTrigger value="overview" className={ADMIN_SUBTAB_TRIGGER_CLASS} title="Overview">
                   <LayoutDashboard strokeWidth={1.5} className="h-4 w-4 sm:h-4 sm:w-4" />
-                  <span className="hidden sm:inline">Overview</span>
+                  <span>Overview</span>
                 </TabsTrigger>
-                <TabsTrigger
-                  value="performance"
-                  className="flex-1 sm:flex-initial gap-2 px-2 sm:px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent text-xs sm:text-xs"
-                  title="Performance"
-                >
+                <TabsTrigger value="performance" className={ADMIN_SUBTAB_TRIGGER_CLASS} title="Performance">
                   <Activity strokeWidth={1.5} className="h-4 w-4 sm:h-4 sm:w-4" />
-                  <span className="hidden sm:inline">Performance</span>
+                  <span>Performance</span>
                 </TabsTrigger>
-                <TabsTrigger
-                  value="queries"
-                  className="flex-1 sm:flex-initial gap-2 px-2 sm:px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent text-xs sm:text-xs"
-                  title="Queries"
-                >
+                <TabsTrigger value="queries" className={ADMIN_SUBTAB_TRIGGER_CLASS} title="Queries">
                   <Clock strokeWidth={1.5} className="h-4 w-4 sm:h-4 sm:w-4" />
-                  <span className="hidden sm:inline">Queries</span>
+                  <span>Queries</span>
                 </TabsTrigger>
-                <TabsTrigger
-                  value="sessions"
-                  className="flex-1 sm:flex-initial gap-2 px-2 sm:px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent text-xs sm:text-xs"
-                  title="Sessions"
-                >
+                <TabsTrigger value="sessions" className={ADMIN_SUBTAB_TRIGGER_CLASS} title="Sessions">
                   <Users strokeWidth={1.5} className="h-4 w-4 sm:h-4 sm:w-4" />
-                  <span className="hidden sm:inline">Sessions</span>
+                  <span>Sessions</span>
                 </TabsTrigger>
-                <TabsTrigger
-                  value="tables"
-                  className="flex-1 sm:flex-initial gap-2 px-2 sm:px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent text-xs sm:text-xs"
-                  title="Tables"
-                >
+                <TabsTrigger value="tables" className={ADMIN_SUBTAB_TRIGGER_CLASS} title="Tables">
                   <Table2 strokeWidth={1.5} className="h-4 w-4 sm:h-4 sm:w-4" />
-                  <span className="hidden sm:inline">Tables</span>
+                  <span>Tables</span>
                 </TabsTrigger>
-                <TabsTrigger
-                  value="storage"
-                  className="flex-1 sm:flex-initial gap-2 px-2 sm:px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent text-xs sm:text-xs"
-                  title="Storage"
-                >
+                <TabsTrigger value="storage" className={ADMIN_SUBTAB_TRIGGER_CLASS} title="Storage">
                   <HardDrive strokeWidth={1.5} className="h-4 w-4 sm:h-4 sm:w-4" />
-                  <span className="hidden sm:inline">Storage</span>
+                  <span>Storage</span>
                 </TabsTrigger>
-                <TabsTrigger
-                  value="pool"
-                  className="flex-1 sm:flex-initial gap-2 px-2 sm:px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent text-xs sm:text-xs"
-                  title="Pool"
-                >
+                <TabsTrigger value="pool" className={ADMIN_SUBTAB_TRIGGER_CLASS} title="Pool">
                   <Database strokeWidth={1.5} className="h-4 w-4 sm:h-4 sm:w-4" />
-                  <span className="hidden sm:inline">Pool</span>
+                  <span>Pool</span>
                 </TabsTrigger>
               </TabsList>
             </div>
 
-            <div className="flex-1 overflow-auto">
-              <TabsContent value="overview" className="h-full m-0 p-0">
+            <div className={isEmbedded ? "" : "flex-1 overflow-auto"}>
+              <TabsContent value="overview" className={tabContentClass}>
                 <OverviewTab data={data} loading={loading} history={history} />
               </TabsContent>
-              <TabsContent value="performance" className="h-full m-0 p-0">
+              <TabsContent value="performance" className={tabContentClass}>
                 <PerformanceTab data={data} loading={loading} history={history} />
               </TabsContent>
-              <TabsContent value="queries" className="h-full m-0 p-0">
+              <TabsContent value="queries" className={tabContentClass}>
                 <QueriesTab data={data} loading={loading} labels={metadata?.labels} />
               </TabsContent>
-              <TabsContent value="sessions" className="h-full m-0 p-0">
+              <TabsContent value="sessions" className={tabContentClass}>
                 <SessionsTab data={data} loading={loading} onKillSession={killSession} labels={metadata?.labels} />
               </TabsContent>
-              <TabsContent value="tables" className="h-full m-0 p-0">
+              <TabsContent value="tables" className={tabContentClass}>
                 <TablesTab
                   data={data}
                   loading={loading}
@@ -310,10 +297,10 @@ export function MonitoringDashboard({ isEmbedded = false }: MonitoringDashboardP
                   capabilities={metadata?.capabilities}
                 />
               </TabsContent>
-              <TabsContent value="storage" className="h-full m-0 p-0">
+              <TabsContent value="storage" className={tabContentClass}>
                 <StorageTab data={data} loading={loading} />
               </TabsContent>
-              <TabsContent value="pool" className="h-full m-0 p-0">
+              <TabsContent value="pool" className={tabContentClass}>
                 <PoolTab connection={selectedConnection} />
               </TabsContent>
             </div>

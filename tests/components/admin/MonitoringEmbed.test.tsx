@@ -32,13 +32,15 @@ describe("MonitoringEmbed", () => {
     capturedProps = null;
   });
 
-  test("renders MonitoringDashboard inside a full-height container", () => {
+  // The admin page provides the gutter and the dashboard its own section header, so the
+  // embed is a plain wrapper: no fixed height, no padding of its own to double the page's.
+  test("renders MonitoringDashboard in a plain wrapper that adds no height or padding", () => {
     const { queryByTestId, container } = render(<MonitoringEmbed />);
     expect(queryByTestId("monitoring-dashboard")).not.toBeNull();
-    // Wrapper div has h-full class
     const wrapper = container.firstElementChild as HTMLElement;
-    expect(wrapper).not.toBeNull();
-    expect(wrapper.className).toContain("h-full");
+    expect(wrapper.getAttribute("data-testid")).toBe("monitoring-embed-root");
+    expect(wrapper.className).not.toContain("h-full");
+    expect(wrapper.className).not.toMatch(/\bp-\d/);
   });
 
   test("passes isEmbedded=true to MonitoringDashboard", () => {

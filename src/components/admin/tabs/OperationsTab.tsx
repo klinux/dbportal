@@ -2,6 +2,8 @@
 
 import React, { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
+import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
+
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -353,45 +355,51 @@ export function OperationsTab() {
 
   return (
     <div className="space-y-6">
-      {/* Connection Selector */}
-      <div className="flex items-center justify-between">
-        <Select value={selectedConnection?.id || ""} onValueChange={handleConnectionChange}>
-          <SelectTrigger className="w-full sm:w-[280px] bg-panel border-hairline-strong text-fg-secondary">
-            <SelectValue placeholder="Select connection">
-              {selectedConnection ? (
-                <div className="flex items-center gap-2">
-                  <Database className="h-4 w-4 flex-shrink-0" />
-                  <span className="truncate">{selectedConnection.name}</span>
-                  <span className="text-xs text-fg-muted hidden sm:inline">({selectedConnection.type})</span>
-                </div>
-              ) : (
-                "Select connection"
-              )}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {connections.map((conn) => (
-              <SelectItem key={conn.id} value={conn.id}>
-                <div className="flex items-center gap-2">
-                  <Database className="h-4 w-4" />
-                  <span>{conn.name}</span>
-                  <span className="text-xs text-muted-foreground">({conn.type})</span>
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 text-fg-muted hover:text-fg-secondary"
-          onClick={refresh}
-          disabled={loading}
-        >
-          <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
-      </div>
+      <AdminSectionHeader
+        icon={Wrench}
+        title="Operations"
+        description="Maintenance on one datasource at a time: statistics, vacuum and reindex for the whole database, and per-table work, sessions and locks below."
+        actions={
+          <>
+            <Select value={selectedConnection?.id || ""} onValueChange={handleConnectionChange}>
+              <SelectTrigger className="w-full sm:w-[280px] bg-panel border-hairline-strong text-fg-secondary">
+                <SelectValue placeholder="Select connection">
+                  {selectedConnection ? (
+                    <div className="flex items-center gap-2">
+                      <Database className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{selectedConnection.name}</span>
+                      <span className="text-xs text-fg-muted hidden sm:inline">({selectedConnection.type})</span>
+                    </div>
+                  ) : (
+                    "Select connection"
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {connections.map((conn) => (
+                  <SelectItem key={conn.id} value={conn.id}>
+                    <div className="flex items-center gap-2">
+                      <Database className="h-4 w-4" />
+                      <span>{conn.name}</span>
+                      <span className="text-xs text-muted-foreground">({conn.type})</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-fg-muted hover:text-fg-secondary"
+              onClick={refresh}
+              disabled={loading}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </>
+        }
+      />
 
       {error && !data && (
         <div className="rounded-xl border border-danger-tint/20 bg-danger-tint/5 p-4 text-danger text-sm">{error}</div>

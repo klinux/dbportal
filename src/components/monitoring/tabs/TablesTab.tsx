@@ -87,7 +87,7 @@ function formatVacuumDate(date: Date | undefined, vacuumSupported: boolean): str
  * unknown case must not borrow the green of a healthy reading.
  */
 function vacuumIconClass(stateKnown: boolean, needingVacuum: number): string {
-  if (!stateKnown) return "text-muted-foreground";
+  if (!stateKnown) return "text-fg-muted";
   if (needingVacuum > 0) return "text-hue-yellow";
   return "text-hue-green";
 }
@@ -103,10 +103,10 @@ function VacuumNote({
   unsupported: boolean;
 }>) {
   if (stateKnown) {
-    return <p className="text-xs sm:text-xs text-muted-foreground mt-1">{needingVacuum > 0 ? "Need" : "OK"}</p>;
+    return <p className="text-xs sm:text-xs text-fg-muted mt-1">{needingVacuum > 0 ? "Need" : "OK"}</p>;
   }
   if (unsupported) {
-    return <p className="text-xs sm:text-xs text-muted-foreground mt-1">Not supported</p>;
+    return <p className="text-xs sm:text-xs text-fg-muted mt-1">Not supported</p>;
   }
   return null;
 }
@@ -140,7 +140,7 @@ function VacuumNote({
 function MaintenanceUnattachableNote({ actions, refused }: Readonly<{ actions: string[]; refused: boolean }>) {
   const cause = refused ? "no table statistics could be read" : "this database published no table statistics";
   return (
-    <p className="text-xs text-muted-foreground text-center px-4 pb-6" data-testid="tables-maintenance-unattachable">
+    <p className="text-xs text-fg-muted text-center px-4 pb-6" data-testid="tables-maintenance-unattachable">
       {`Per-table maintenance (${actions.join(", ")}) is run from a row of this list, and ${cause} - so there is no row to run it on.`}
     </p>
   );
@@ -253,40 +253,38 @@ export function TablesTab({ data, loading, onRunMaintenance, isAdmin = true, cap
   const maintenanceUnattachable = isAdmin && availableActions.length > 0 && statsAbsent;
 
   return (
-    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <Card className="p-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Tables</CardTitle>
-            <Table2 strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Tables</CardTitle>
+            <Table2 strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-fg-muted" />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
             <div className="text-lg sm:text-2xl font-medium" data-testid="tables-stat-count">
               {statsAbsent ? "N/A" : tables.length}
             </div>
-            {!statsAbsent && (
-              <p className="text-xs sm:text-xs text-muted-foreground mt-1">{formatNumber(totalRows)} rows</p>
-            )}
+            {!statsAbsent && <p className="text-xs sm:text-xs text-fg-muted mt-1">{formatNumber(totalRows)} rows</p>}
           </CardContent>
         </Card>
 
         <Card className="p-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Size</CardTitle>
-            <Search strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Size</CardTitle>
+            <Search strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-fg-muted" />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
             <div className="text-lg sm:text-2xl font-medium" data-testid="tables-stat-size">
               {sizeAbsent ? "N/A" : formatBytes(totalSize)}
             </div>
-            {!sizeAbsent && <p className="text-xs sm:text-xs text-muted-foreground mt-1">Total</p>}
+            {!sizeAbsent && <p className="text-xs sm:text-xs text-fg-muted mt-1">Total</p>}
           </CardContent>
         </Card>
 
         <Card className="p-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Vacuum</CardTitle>
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Vacuum</CardTitle>
             <TriangleAlert
               className={`h-3 w-3 sm:h-4 sm:w-4 ${vacuumIconClass(vacuumStateKnown, tablesNeedingVacuum)}`}
             />
@@ -322,7 +320,7 @@ export function TablesTab({ data, loading, onRunMaintenance, isAdmin = true, cap
           {tablesUnavailable ? (
             <PanelUnavailable message={tablesUnavailable} />
           ) : filteredTables.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="text-center py-8 text-fg-muted">
               <Table2 strokeWidth={1.5} className="h-8 w-8 mx-auto mb-2 opacity-50" />
               <p className="text-xs">{statsAbsent ? "No table statistics available." : "No tables found."}</p>
             </div>
@@ -348,15 +346,13 @@ export function TablesTab({ data, loading, onRunMaintenance, isAdmin = true, cap
                           <span className="font-medium text-xs sm:text-xs truncate max-w-[100px] sm:max-w-[200px]">
                             {table.tableName}
                           </span>
-                          <span className="text-xs sm:text-xs text-muted-foreground">{table.schemaName}</span>
+                          <span className="text-xs sm:text-xs text-fg-muted">{table.schemaName}</span>
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs py-2">
                         {formatNumber(table.rowCount)}
                         {table.deadRowCount ? (
-                          <span className="text-xs text-muted-foreground block">
-                            {formatNumber(table.deadRowCount)} dead
-                          </span>
+                          <span className="text-xs text-fg-muted block">{formatNumber(table.deadRowCount)} dead</span>
                         ) : null}
                       </TableCell>
                       <TableCell className="text-right text-xs py-2" data-testid="table-row-size">
@@ -369,14 +365,14 @@ export function TablesTab({ data, loading, onRunMaintenance, isAdmin = true, cap
                         {table.bloatRatio === undefined ? (
                           // No bloat figure published: a "0.0%" badge in the healthy
                           // variant would report a measurement the engine never made.
-                          <span className="text-xs text-muted-foreground">-</span>
+                          <span className="text-xs text-fg-muted">-</span>
                         ) : (
                           <Badge variant={bloatBadgeVariant(table.bloatRatio)} className="text-xs sm:text-xs">
                             {table.bloatRatio.toFixed(1)}%
                           </Badge>
                         )}
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground hidden lg:table-cell py-2">
+                      <TableCell className="text-xs text-fg-muted hidden lg:table-cell py-2">
                         {formatVacuumDate(table.lastVacuum, vacuumSupported)}
                       </TableCell>
                       <TableCell className="text-right py-2">
@@ -401,7 +397,7 @@ export function TablesTab({ data, loading, onRunMaintenance, isAdmin = true, cap
                             ))}
                           </div>
                         ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
+                          <span className="text-xs text-fg-muted">-</span>
                         )}
                       </TableCell>
                     </TableRow>
@@ -424,7 +420,7 @@ export function TablesTab({ data, loading, onRunMaintenance, isAdmin = true, cap
 
 function TablesSkeleton() {
   return (
-    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
         {[...Array(3)].map((_, i) => (
           <Card key={i} className="p-0">

@@ -56,15 +56,13 @@ interface StatCard {
 const STAT_CARDS: readonly StatCard[] = [
   {
     title: "Avg of listed queries",
-    icon: () => <Clock strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />,
+    icon: () => <Clock strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-fg-muted" />,
     value: ({ statsKnown, avgTime }) => (statsKnown ? formatTime(avgTime) : "N/A"),
   },
   {
     title: "Listed queries over 1s",
     icon: ({ overOneSecond }) => (
-      <TriangleAlert
-        className={`h-3 w-3 sm:h-4 sm:w-4 ${overOneSecond > 0 ? "text-hue-yellow" : "text-muted-foreground"}`}
-      />
+      <TriangleAlert className={`h-3 w-3 sm:h-4 sm:w-4 ${overOneSecond > 0 ? "text-hue-yellow" : "text-fg-muted"}`} />
     ),
     value: ({ statsKnown, overOneSecond }) => (statsKnown ? String(overOneSecond) : "N/A"),
   },
@@ -155,13 +153,13 @@ export function QueriesTab({ data, loading, labels }: QueriesTabProps) {
   const stats: QueryStats = { statsKnown, avgTime, overOneSecond };
 
   return (
-    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Stats Cards */}
       <div className={STAT_GRID_CLASS}>
         {STAT_CARDS.map((card) => (
           <Card key={card.title} className="p-0">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-              <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">{card.title}</CardTitle>
+              <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">{card.title}</CardTitle>
               {card.icon(stats)}
             </CardHeader>
             <CardContent className="p-2 sm:p-4 pt-0">
@@ -197,7 +195,7 @@ export function QueriesTab({ data, loading, labels }: QueriesTabProps) {
           {slowQueriesUnavailable ? (
             <PanelUnavailable message={slowQueriesUnavailable} />
           ) : slowQueries.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="text-center py-8 text-fg-muted">
               <Search strokeWidth={1.5} className="h-8 w-8 mx-auto mb-2 opacity-50" />
               <p className="text-xs">No query statistics available.</p>
               <p className="text-xs mt-1">
@@ -305,7 +303,7 @@ export function QueriesTab({ data, loading, labels }: QueriesTabProps) {
 
 function QueriesSkeleton() {
   return (
-    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className={STAT_GRID_CLASS}>
         {STAT_CARDS.map((card) => (
           <Card key={card.title} className="p-0">

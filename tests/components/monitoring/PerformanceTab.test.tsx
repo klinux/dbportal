@@ -141,7 +141,7 @@ describe("PerformanceTab", () => {
       expect(card.textContent).not.toContain(rating);
     }
     // Absence is not a fault: no danger icon, no danger or warning border, no advice.
-    expect(card.querySelector("svg")?.getAttribute("class")).toContain("text-muted-foreground");
+    expect(card.querySelector("svg")?.getAttribute("class")).toContain("text-fg-muted");
     expect(card.className).not.toContain("danger");
     expect(card.className).not.toContain("warning");
     expect(queryByText("Low Cache Hit")).toBeNull();
@@ -212,7 +212,7 @@ describe("PerformanceTab", () => {
       expect(card.textContent).not.toContain(rating);
     }
     // Absence is not a fault: no danger icon, no danger or warning border.
-    expect(card.querySelector("svg")?.getAttribute("class")).toContain("text-muted-foreground");
+    expect(card.querySelector("svg")?.getAttribute("class")).toContain("text-fg-muted");
     expect(card.className).not.toContain("danger");
     expect(card.className).not.toContain("warning");
   });
@@ -229,7 +229,7 @@ describe("PerformanceTab", () => {
     expect(card.textContent).not.toContain("Healthy");
     expect(card.textContent).not.toContain("Attention");
     // A success-coloured icon is a verdict too.
-    expect(card.querySelector("svg")?.getAttribute("class")).toContain("text-muted-foreground");
+    expect(card.querySelector("svg")?.getAttribute("class")).toContain("text-fg-muted");
     expect(card.className).not.toContain("danger");
     expect(card.className).not.toContain("warning");
   });

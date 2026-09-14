@@ -4,6 +4,8 @@ import { appFetch } from "@/lib/config/base-path";
 import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
+
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ClipboardCheck, RefreshCw, TriangleAlert } from "lucide-react";
@@ -93,28 +95,25 @@ export function ApprovalsTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-base font-medium text-fg-primary flex items-center gap-2">
-            <ClipboardCheck className="h-4 w-4 text-brand" strokeWidth={1.75} />
-            Write approvals
-          </h2>
-          <p className="text-xs text-fg-tertiary mt-1 max-w-2xl leading-relaxed">
-            A write on a datasource that requires approval does not run until a reviewer opens a write window for the
-            person who asked. Approve for a bounded number of minutes; the person runs the statement again.
-          </p>
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 text-xs gap-2"
-          onClick={() => load()}
-          disabled={!approvals && !error}
-        >
-          <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />
-          Refresh
-        </Button>
-      </div>
+      <AdminSectionHeader
+        icon={ClipboardCheck}
+        title="Write approvals"
+        description="A write on a datasource that requires approval does not run until a reviewer opens a write window for the person who asked. Approve for a bounded number of minutes; the person runs the statement again."
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs gap-2"
+              onClick={() => load()}
+              disabled={!approvals && !error}
+            >
+              <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Refresh
+            </Button>
+          </>
+        }
+      />
 
       {error && (
         <output className="flex items-center gap-2 text-xs text-status-danger" data-testid="approvals-error">

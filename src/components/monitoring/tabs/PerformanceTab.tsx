@@ -46,7 +46,7 @@ function metricSeries(
  * the green of an engine that looked and found none.
  */
 function deadlockIconClass(deadlocks: number | undefined): string {
-  if (deadlocks === undefined) return "text-muted-foreground";
+  if (deadlocks === undefined) return "text-fg-muted";
   if (deadlocks > 0) return "text-danger";
   return "text-hue-green";
 }
@@ -74,11 +74,11 @@ function MetricTrendCard({
   return (
     <Card className="p-0">
       <CardHeader className="p-2 sm:p-3 pb-0">
-        <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">{heading}</CardTitle>
+        <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">{heading}</CardTitle>
       </CardHeader>
       <CardContent className="p-2 sm:p-3 pt-0">
         {data.length === 0 ? (
-          <p className="text-xs sm:text-xs text-muted-foreground">Not measured</p>
+          <p className="text-xs sm:text-xs text-fg-muted">Not measured</p>
         ) : (
           <MetricChart data={data} color={color} title={title} unit={unit} />
         )}
@@ -161,40 +161,35 @@ export function PerformanceTab({ data, loading, history = [] }: PerformanceTabPr
   const deadlockHistory = metricSeries(history, (p) => p?.deadlocks);
 
   return (
-    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Key Metrics */}
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
         {/* Cache Hit Ratio */}
         <Card className={`p-0 border-2 transition-colors ${getThresholdColor(cacheThreshold)}`}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Cache Hit</CardTitle>
-            <Activity
-              strokeWidth={1.5}
-              className={`h-3 w-3 sm:h-4 sm:w-4 ${cacheStatus?.color ?? "text-muted-foreground"}`}
-            />
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Cache Hit</CardTitle>
+            <Activity strokeWidth={1.5} className={`h-3 w-3 sm:h-4 sm:w-4 ${cacheStatus?.color ?? "text-fg-muted"}`} />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
             {cacheStatus === undefined ? (
               <>
                 <div className="flex items-end gap-1">
-                  <span className="text-lg sm:text-3xl font-medium text-muted-foreground">
-                    {CACHE_HIT_RATIO_UNAVAILABLE}
-                  </span>
+                  <span className="text-lg sm:text-3xl font-medium text-fg-muted">{CACHE_HIT_RATIO_UNAVAILABLE}</span>
                 </div>
-                <p className="text-xs sm:text-xs text-muted-foreground mt-1 sm:mt-3">Not measured</p>
+                <p className="text-xs sm:text-xs text-fg-muted mt-1 sm:mt-3">Not measured</p>
               </>
             ) : (
               <>
                 <div className="flex items-end gap-1">
                   <span className="text-lg sm:text-3xl font-medium">{cacheStatus.ratio.toFixed(1)}</span>
-                  <span className="text-xs sm:text-xl text-muted-foreground">%</span>
+                  <span className="text-xs sm:text-xl text-fg-muted">%</span>
                 </div>
                 <Progress value={cacheStatus.ratio} className="h-1 sm:h-2 mt-1 sm:mt-3" />
                 <div className="flex items-center justify-between mt-1 sm:mt-2">
                   <Badge variant="outline" className={`${cacheStatus.color} text-xs sm:text-xs`}>
                     {cacheStatus.label}
                   </Badge>
-                  <span className="text-xs sm:text-xs text-muted-foreground hidden sm:inline">95%+</span>
+                  <span className="text-xs sm:text-xs text-fg-muted hidden sm:inline">95%+</span>
                 </div>
               </>
             )}
@@ -204,29 +199,29 @@ export function PerformanceTab({ data, loading, history = [] }: PerformanceTabPr
         {/* Buffer Pool Usage */}
         <Card className={`p-0 border-2 transition-colors ${getThresholdColor(bufferThreshold)}`}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Buffer</CardTitle>
-            <Gauge className={`h-3 w-3 sm:h-4 sm:w-4 ${bufferStatus?.color ?? "text-muted-foreground"}`} />
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Buffer</CardTitle>
+            <Gauge className={`h-3 w-3 sm:h-4 sm:w-4 ${bufferStatus?.color ?? "text-fg-muted"}`} />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
             {bufferStatus === undefined ? (
               <>
                 <div className="flex items-end gap-1">
-                  <span className="text-lg sm:text-3xl font-medium text-muted-foreground">{METRIC_UNAVAILABLE}</span>
+                  <span className="text-lg sm:text-3xl font-medium text-fg-muted">{METRIC_UNAVAILABLE}</span>
                 </div>
-                <p className="text-xs sm:text-xs text-muted-foreground mt-1 sm:mt-3">Not measured</p>
+                <p className="text-xs sm:text-xs text-fg-muted mt-1 sm:mt-3">Not measured</p>
               </>
             ) : (
               <>
                 <div className="flex items-end gap-1">
                   <span className="text-lg sm:text-3xl font-medium">{bufferStatus.usage.toFixed(0)}</span>
-                  <span className="text-xs sm:text-xl text-muted-foreground">%</span>
+                  <span className="text-xs sm:text-xl text-fg-muted">%</span>
                 </div>
                 <Progress value={bufferStatus.usage} className="h-1 sm:h-2 mt-1 sm:mt-3" />
                 <div className="flex items-center justify-between mt-1 sm:mt-2">
                   <Badge variant="outline" className={`${bufferStatus.color} text-xs sm:text-xs`}>
                     {bufferStatus.label}
                   </Badge>
-                  <span className="text-xs sm:text-xs text-muted-foreground hidden sm:inline">Cache</span>
+                  <span className="text-xs sm:text-xs text-fg-muted hidden sm:inline">Cache</span>
                 </div>
               </>
             )}
@@ -236,23 +231,23 @@ export function PerformanceTab({ data, loading, history = [] }: PerformanceTabPr
         {/* Deadlocks */}
         <Card className={`p-0 border-2 transition-colors ${getThresholdColor(deadlockThreshold)}`}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Deadlocks</CardTitle>
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Deadlocks</CardTitle>
             <TriangleAlert className={`h-3 w-3 sm:h-4 sm:w-4 ${deadlockIconClass(deadlocks)}`} />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
             {deadlocks === undefined ? (
               <>
                 <div className="flex items-end gap-1">
-                  <span className="text-lg sm:text-3xl font-medium text-muted-foreground">{METRIC_UNAVAILABLE}</span>
+                  <span className="text-lg sm:text-3xl font-medium text-fg-muted">{METRIC_UNAVAILABLE}</span>
                 </div>
-                <p className="text-xs sm:text-xs text-muted-foreground mt-1 sm:mt-3">Not measured</p>
+                <p className="text-xs sm:text-xs text-fg-muted mt-1 sm:mt-3">Not measured</p>
               </>
             ) : (
               <>
                 <div className="flex items-end gap-1">
                   <span className="text-lg sm:text-3xl font-medium">{deadlocks}</span>
                 </div>
-                <p className="text-xs sm:text-xs text-muted-foreground mt-1 sm:mt-3 hidden sm:block">
+                <p className="text-xs sm:text-xs text-fg-muted mt-1 sm:mt-3 hidden sm:block">
                   {deadlocks ? "Review queries" : "None detected"}
                 </p>
                 <Badge variant={deadlocks ? "destructive" : "secondary"} className="mt-1 sm:mt-2 text-xs sm:text-xs">
@@ -291,10 +286,10 @@ export function PerformanceTab({ data, loading, history = [] }: PerformanceTabPr
           </CardHeader>
           <CardContent className="p-3 sm:p-4 pt-0 space-y-2 sm:space-y-4">
             <div className="p-2 sm:p-4 bg-muted/30 rounded-lg">
-              <p className="text-xs sm:text-xs text-muted-foreground">Write & Sync</p>
+              <p className="text-xs sm:text-xs text-fg-muted">Write & Sync</p>
               <p className="text-xs sm:text-lg font-mono mt-1 truncate">{performance?.checkpointWriteTime || "N/A"}</p>
             </div>
-            <p className="text-xs sm:text-xs text-muted-foreground hidden sm:block">
+            <p className="text-xs sm:text-xs text-fg-muted hidden sm:block">
               Checkpoint write time affects database performance during heavy writes.
             </p>
           </CardContent>
@@ -319,7 +314,7 @@ export function PerformanceTab({ data, loading, history = [] }: PerformanceTabPr
                 />
                 <div>
                   <p className="text-xs sm:text-xs font-medium">Low Cache Hit</p>
-                  <p className="text-xs sm:text-xs text-muted-foreground hidden sm:block">Increase shared_buffers</p>
+                  <p className="text-xs sm:text-xs text-fg-muted hidden sm:block">Increase shared_buffers</p>
                 </div>
               </div>
             )}
@@ -328,7 +323,7 @@ export function PerformanceTab({ data, loading, history = [] }: PerformanceTabPr
                 <TriangleAlert strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-danger mt-0.5 flex-shrink-0" />
                 <div>
                   <p className="text-xs sm:text-xs font-medium">Deadlocks</p>
-                  <p className="text-xs sm:text-xs text-muted-foreground hidden sm:block">Review lock ordering</p>
+                  <p className="text-xs sm:text-xs text-fg-muted hidden sm:block">Review lock ordering</p>
                 </div>
               </div>
             )}
@@ -347,7 +342,7 @@ export function PerformanceTab({ data, loading, history = [] }: PerformanceTabPr
 
 function PerformanceSkeleton() {
   return (
-    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
         {[...Array(3)].map((_, i) => (
           <Card key={i} className="p-0">

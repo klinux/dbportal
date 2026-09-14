@@ -74,7 +74,7 @@ export function PoolTab({ connection }: PoolTabProps) {
 
   if (!connection) {
     return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
+      <div className="flex items-center justify-center h-full text-fg-muted">
         Select a connection to view pool statistics
       </div>
     );
@@ -82,7 +82,7 @@ export function PoolTab({ connection }: PoolTabProps) {
 
   if (loading && !stats) {
     return (
-      <div className="flex items-center justify-center h-full gap-2 text-muted-foreground">
+      <div className="flex items-center justify-center h-full gap-2 text-fg-muted">
         <LoaderCircle strokeWidth={1.5} className="h-4 w-4 animate-spin" />
         Loading pool statistics...
       </div>
@@ -115,11 +115,11 @@ export function PoolTab({ connection }: PoolTabProps) {
     measured !== null && measured.total > 0 ? Math.round((measured.active / measured.total) * 100) : 0;
 
   return (
-    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Server strokeWidth={1.5} className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+          <Server strokeWidth={1.5} className="h-4 w-4 sm:h-5 sm:w-5 text-brand" />
           <h2 className="text-xs sm:text-base font-medium">Connection Pool</h2>
         </div>
         <Button
@@ -135,7 +135,7 @@ export function PoolTab({ connection }: PoolTabProps) {
       </div>
 
       {measured === null && (
-        <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
+        <div className="text-xs text-fg-muted bg-muted/30 rounded-lg p-3">
           {stats?.message ?? "No connection pool information available."}
         </div>
       )}
@@ -156,18 +156,18 @@ function PoolStatsGrid({ measured, usagePercent }: Readonly<{ measured: PoolStat
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
       <Card className="p-0">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 sm:p-4 pb-1 sm:pb-2">
-          <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Total</CardTitle>
+          <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Total</CardTitle>
           <Server strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-hue-blue" />
         </CardHeader>
         <CardContent className="p-3 sm:p-4 pt-0">
           <div className="text-lg sm:text-2xl font-medium">{measured !== null ? measured.total : "N/A"}</div>
-          {measured !== null && <p className="text-xs sm:text-xs text-muted-foreground mt-1">Max pool size</p>}
+          {measured !== null && <p className="text-xs sm:text-xs text-fg-muted mt-1">Max pool size</p>}
         </CardContent>
       </Card>
 
       <Card className="p-0">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 sm:p-4 pb-1 sm:pb-2">
-          <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Active</CardTitle>
+          <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Active</CardTitle>
           <Activity strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-hue-green" />
         </CardHeader>
         <CardContent className="p-3 sm:p-4 pt-0">
@@ -175,7 +175,7 @@ function PoolStatsGrid({ measured, usagePercent }: Readonly<{ measured: PoolStat
           {measured !== null && (
             <>
               <Progress value={usagePercent} className="h-1 mt-1 sm:mt-2" />
-              <p className="text-xs sm:text-xs text-muted-foreground mt-1">{usagePercent}% utilized</p>
+              <p className="text-xs sm:text-xs text-fg-muted mt-1">{usagePercent}% utilized</p>
             </>
           )}
         </CardContent>
@@ -183,18 +183,18 @@ function PoolStatsGrid({ measured, usagePercent }: Readonly<{ measured: PoolStat
 
       <Card className="p-0">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 sm:p-4 pb-1 sm:pb-2">
-          <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Idle</CardTitle>
+          <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Idle</CardTitle>
           <Clock strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-hue-yellow" />
         </CardHeader>
         <CardContent className="p-3 sm:p-4 pt-0">
           <div className="text-lg sm:text-2xl font-medium">{measured !== null ? measured.idle : "N/A"}</div>
-          {measured !== null && <p className="text-xs sm:text-xs text-muted-foreground mt-1">Available</p>}
+          {measured !== null && <p className="text-xs sm:text-xs text-fg-muted mt-1">Available</p>}
         </CardContent>
       </Card>
 
       <Card className="p-0">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 sm:p-4 pb-1 sm:pb-2">
-          <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Waiting</CardTitle>
+          <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Waiting</CardTitle>
           {measured !== null && (
             <Badge variant={measured.waiting ? "destructive" : "secondary"} className="text-xs">
               {measured.waiting}
@@ -204,9 +204,7 @@ function PoolStatsGrid({ measured, usagePercent }: Readonly<{ measured: PoolStat
         <CardContent className="p-3 sm:p-4 pt-0">
           <div className="text-lg sm:text-2xl font-medium">{measured !== null ? measured.waiting : "N/A"}</div>
           {measured !== null && (
-            <p className="text-xs sm:text-xs text-muted-foreground mt-1">
-              {measured.waiting ? "Queued requests" : "No queue"}
-            </p>
+            <p className="text-xs sm:text-xs text-fg-muted mt-1">{measured.waiting ? "Queued requests" : "No queue"}</p>
           )}
         </CardContent>
       </Card>

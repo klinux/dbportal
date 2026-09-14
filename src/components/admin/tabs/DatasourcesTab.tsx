@@ -9,6 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ADMIN_SUBTAB_LIST_CLASS, ADMIN_SUBTAB_TRIGGER_CLASS } from "@/lib/ui/admin-tabs";
+import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
+
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   AlertDialog,
@@ -477,30 +480,26 @@ export function DatasourcesTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-bold text-fg-secondary flex items-center gap-2">
-            <Database className="h-4 w-4 text-brand" />
-            Shared datasources
-          </h2>
-          <p className="text-xs text-fg-muted mt-1">
-            Declared once, opened by everyone the roles name. One tab per environment.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="ghost" size="sm" className="h-8 text-xs gap-2" onClick={refresh} disabled={loading}>
-            <RefreshCw className="h-3 w-3" /> Refresh
-          </Button>
-          <Button
-            size="sm"
-            className="h-8 text-xs gap-2 bg-brand-solid hover:bg-brand-solid-hover text-white"
-            onClick={openCreate}
-            disabled={!available}
-          >
-            <Plus className="h-3 w-3" /> New datasource
-          </Button>
-        </div>
-      </div>
+      <AdminSectionHeader
+        icon={Database}
+        title="Shared datasources"
+        description="Declared once, opened by everyone the roles name. One tab per environment."
+        actions={
+          <>
+            <Button variant="ghost" size="sm" className="h-8 text-xs gap-2" onClick={refresh} disabled={loading}>
+              <RefreshCw className="h-3 w-3" /> Refresh
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs gap-2 bg-brand-solid hover:bg-brand-solid-hover text-white"
+              onClick={openCreate}
+              disabled={!available}
+            >
+              <Plus className="h-3 w-3" /> New datasource
+            </Button>
+          </>
+        }
+      />
 
       {!available && (
         <output className="flex items-start gap-3 rounded-xl border border-warning-tint/20 bg-warning-tint/5 p-4 text-xs text-warning">
@@ -528,13 +527,13 @@ export function DatasourcesTab() {
           value={activeEnvironment}
           onValueChange={(value) => setSelectedEnvironment(value as ConnectionEnvironment)}
         >
-          <TabsList className="bg-transparent border-b border-hairline rounded-none p-0 h-10 w-full justify-start">
+          <TabsList className={ADMIN_SUBTAB_LIST_CLASS}>
             {groups.map((group) => (
               <TabsTrigger
                 key={group.environment}
                 value={group.environment}
                 data-testid={`env-tab-${group.environment}`}
-                className="flex-none gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-brand text-fg-muted text-xs px-4"
+                className={ADMIN_SUBTAB_TRIGGER_CLASS}
               >
                 <EnvironmentDot environment={group.environment} />
                 {ENVIRONMENT_TITLES[group.environment]}

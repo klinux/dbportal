@@ -18,7 +18,7 @@ export function MetricChart({ data, color, title, unit = "" }: MetricChartProps)
 
   if (data.length < 2) {
     return (
-      <div className="h-[120px] flex items-center justify-center text-xs text-muted-foreground">
+      <div className="h-[120px] flex items-center justify-center text-xs text-fg-muted">
         Collecting data for {title}...
       </div>
     );

@@ -92,12 +92,12 @@ export function SessionsTab({ data, loading, onKillSession, isAdmin = true, labe
   };
 
   return (
-    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-4 gap-2 sm:gap-4">
         <Card className="p-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Active</CardTitle>
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Active</CardTitle>
             <Activity strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-hue-green" />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
@@ -109,8 +109,8 @@ export function SessionsTab({ data, loading, onKillSession, isAdmin = true, labe
 
         <Card className="p-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Idle</CardTitle>
-            <Clock strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Idle</CardTitle>
+            <Clock strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-fg-muted" />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
             <div className="text-lg sm:text-2xl font-medium" data-testid="session-stat-idle">
@@ -121,9 +121,9 @@ export function SessionsTab({ data, loading, onKillSession, isAdmin = true, labe
 
         <Card className="p-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">In TX</CardTitle>
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">In TX</CardTitle>
             <Clock
-              className={`h-3 w-3 sm:h-4 sm:w-4 ${idleInTxCount !== "0" && !sessionsUnavailable ? "text-hue-yellow" : "text-muted-foreground"}`}
+              className={`h-3 w-3 sm:h-4 sm:w-4 ${idleInTxCount !== "0" && !sessionsUnavailable ? "text-hue-yellow" : "text-fg-muted"}`}
             />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
@@ -135,9 +135,9 @@ export function SessionsTab({ data, loading, onKillSession, isAdmin = true, labe
 
         <Card className="p-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Wait</CardTitle>
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Wait</CardTitle>
             <Users
-              className={`h-3 w-3 sm:h-4 sm:w-4 ${waitingCount !== "0" && !sessionsUnavailable ? "text-hue-orange" : "text-muted-foreground"}`}
+              className={`h-3 w-3 sm:h-4 sm:w-4 ${waitingCount !== "0" && !sessionsUnavailable ? "text-hue-orange" : "text-fg-muted"}`}
             />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
@@ -160,7 +160,7 @@ export function SessionsTab({ data, loading, onKillSession, isAdmin = true, labe
           {sessionsUnavailable ? (
             <PanelUnavailable message={sessionsUnavailable} />
           ) : sessions.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="text-center py-8 text-fg-muted">
               <Users strokeWidth={1.5} className="h-8 w-8 mx-auto mb-2 opacity-50" />
               {/* An engine that publishes no session list says so in its own words
                   (#518). The default reads as "nothing is running right now", which is
@@ -192,7 +192,7 @@ export function SessionsTab({ data, loading, onKillSession, isAdmin = true, labe
                             {session.user}
                           </span>
                           {session.applicationName && (
-                            <span className="text-xs text-muted-foreground truncate max-w-[60px] sm:max-w-[100px] hidden sm:block">
+                            <span className="text-xs text-fg-muted truncate max-w-[60px] sm:max-w-[100px] hidden sm:block">
                               {session.applicationName}
                             </span>
                           )}
@@ -227,7 +227,7 @@ export function SessionsTab({ data, loading, onKillSession, isAdmin = true, labe
                           {session.duration}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground hidden lg:table-cell py-2">
+                      <TableCell className="text-xs text-fg-muted hidden lg:table-cell py-2">
                         {session.waitEventType ? `${session.waitEventType}` : "-"}
                       </TableCell>
                       <TableCell className="text-right py-2">
@@ -247,7 +247,7 @@ export function SessionsTab({ data, loading, onKillSession, isAdmin = true, labe
                             )}
                           </Button>
                         ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
+                          <span className="text-xs text-fg-muted">-</span>
                         )}
                       </TableCell>
                     </TableRow>

@@ -3,6 +3,8 @@
 import { appFetch } from "@/lib/config/base-path";
 import { useEffect, useMemo, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ADMIN_SUBTAB_LIST_CLASS, ADMIN_SUBTAB_TRIGGER_CLASS } from "@/lib/ui/admin-tabs";
+import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +28,7 @@ import {
   Clock,
   Activity,
   Download,
+  FileText,
 } from "lucide-react";
 import type { AuditEvent } from "@/lib/audit";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
@@ -60,26 +63,22 @@ function AuditExport({ disabled, onExport }: AuditExportProps) {
 export function AuditTab() {
   return (
     <div className="space-y-6">
+      <AdminSectionHeader
+        icon={FileText}
+        title="Audit"
+        description="Every execution and every maintenance operation, who ran it and how it ended. The stdout log is the record; this is the view."
+      />
       <Tabs defaultValue="operations">
-        <TabsList className="bg-transparent border-b border-hairline rounded-none p-0 h-10 w-full justify-start">
-          <TabsTrigger
-            value="operations"
-            className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-brand text-fg-muted text-xs px-4"
-          >
+        <TabsList className={ADMIN_SUBTAB_LIST_CLASS}>
+          <TabsTrigger value="operations" className={ADMIN_SUBTAB_TRIGGER_CLASS}>
             <Wrench className="h-3.5 w-3.5" />
             Operations
           </TabsTrigger>
-          <TabsTrigger
-            value="queries"
-            className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-brand text-fg-muted text-xs px-4"
-          >
+          <TabsTrigger value="queries" className={ADMIN_SUBTAB_TRIGGER_CLASS}>
             <SearchIcon className="h-3.5 w-3.5" />
             Queries
           </TabsTrigger>
-          <TabsTrigger
-            value="stats"
-            className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-brand text-fg-muted text-xs px-4"
-          >
+          <TabsTrigger value="stats" className={ADMIN_SUBTAB_TRIGGER_CLASS}>
             <ChartColumn className="h-3.5 w-3.5" />
             Stats
           </TabsTrigger>

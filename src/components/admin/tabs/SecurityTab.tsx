@@ -2,11 +2,14 @@
 
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ADMIN_SUBTAB_LIST_CLASS, ADMIN_SUBTAB_TRIGGER_CLASS } from "@/lib/ui/admin-tabs";
+import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
-import { EyeOff, Lock, Activity, KeyRound, Save, RotateCcw, Terminal } from "lucide-react";
+import { EyeOff, Lock, Activity, KeyRound, Save, RotateCcw, Shield, Terminal } from "lucide-react";
 import { MaskingSettings } from "@/components/MaskingSettings";
 import { SshProfilesTab } from "@/components/admin/tabs/SshProfilesTab";
 import { DEFAULT_THRESHOLDS, type ThresholdConfig } from "@/lib/monitoring-thresholds";
@@ -29,33 +32,26 @@ const SAVE_LABEL = "Save Config";
 export function SecurityTab() {
   return (
     <div className="space-y-6">
+      <AdminSectionHeader
+        icon={Shield}
+        title="Security"
+        description="What leaves the server and who may see it: masking rules, the access model, alert thresholds and the bastions datasources are reached through."
+      />
       <Tabs defaultValue="masking">
-        <TabsList className="bg-transparent border-b border-hairline rounded-none p-0 h-10 w-full justify-start">
-          <TabsTrigger
-            value="masking"
-            className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-brand text-fg-muted text-xs px-4"
-          >
+        <TabsList className={ADMIN_SUBTAB_LIST_CLASS}>
+          <TabsTrigger value="masking" className={ADMIN_SUBTAB_TRIGGER_CLASS}>
             <EyeOff className="h-3.5 w-3.5" />
             {MASKING_TAB_LABEL}
           </TabsTrigger>
-          <TabsTrigger
-            value="access"
-            className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-brand text-fg-muted text-xs px-4"
-          >
+          <TabsTrigger value="access" className={ADMIN_SUBTAB_TRIGGER_CLASS}>
             <Lock className="h-3.5 w-3.5" />
             {ACCESS_TAB_LABEL}
           </TabsTrigger>
-          <TabsTrigger
-            value="thresholds"
-            className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-brand text-fg-muted text-xs px-4"
-          >
+          <TabsTrigger value="thresholds" className={ADMIN_SUBTAB_TRIGGER_CLASS}>
             <Activity className="h-3.5 w-3.5" />
             {THRESHOLDS_TAB_LABEL}
           </TabsTrigger>
-          <TabsTrigger
-            value="ssh"
-            className="gap-2 rounded-none border-b-2 border-transparent data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-brand text-fg-muted text-xs px-4"
-          >
+          <TabsTrigger value="ssh" className={ADMIN_SUBTAB_TRIGGER_CLASS}>
             <Terminal className="h-3.5 w-3.5" />
             {SSH_TAB_LABEL}
           </TabsTrigger>

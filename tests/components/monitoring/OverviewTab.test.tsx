@@ -157,7 +157,7 @@ describe("OverviewTab", () => {
     // assertion and its twin below can.
     const figure = card.querySelector('[data-slot="card-content"] > div')!;
     expect(figure.textContent).toBe("N/A");
-    expect(figure.className).toContain("text-muted-foreground");
+    expect(figure.className).toContain("text-fg-muted");
     // Absence is not a fault: nothing red or yellow on the card.
     expect(card.className).not.toContain("red");
     expect(card.className).not.toContain("yellow");
@@ -183,7 +183,7 @@ describe("OverviewTab", () => {
     // silence.
     const figure = card.querySelector('[data-slot="card-content"] > div')!;
     expect(figure.textContent).toBe("0/100");
-    expect(figure.className).not.toContain("text-muted-foreground");
+    expect(figure.className).not.toContain("text-fg-muted");
   });
 
   // Same rule as the cache/buffer/deadlock trends in PerformanceTab: a missing

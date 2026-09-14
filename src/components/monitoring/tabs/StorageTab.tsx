@@ -120,12 +120,12 @@ export function StorageTab({ data, loading }: StorageTabProps) {
   const remainderKnown = breakdownKnown && otherBytes >= 0;
 
   return (
-    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
         <Card className="p-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">DB Size</CardTitle>
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">DB Size</CardTitle>
             <Database strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-hue-blue" />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
@@ -135,7 +135,7 @@ export function StorageTab({ data, loading }: StorageTabProps) {
 
         <Card className="p-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Tables</CardTitle>
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Tables</CardTitle>
             <HardDrive strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-hue-green" />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
@@ -151,14 +151,14 @@ export function StorageTab({ data, loading }: StorageTabProps) {
               {sizeKnown && tableSizeKnown ? formatBytes(totalTableSize) : "N/A"}
             </div>
             {totalSize > 0 && tableSizeKnown && (
-              <p className="text-xs sm:text-xs text-muted-foreground mt-1">{tablePercent.toFixed(1)}%</p>
+              <p className="text-xs sm:text-xs text-fg-muted mt-1">{tablePercent.toFixed(1)}%</p>
             )}
           </CardContent>
         </Card>
 
         <Card className="p-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">Indexes</CardTitle>
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">Indexes</CardTitle>
             <Archive strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-hue-purple" />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
@@ -166,14 +166,14 @@ export function StorageTab({ data, loading }: StorageTabProps) {
               {sizeKnown && indexSizeKnown ? formatBytes(totalIndexSize) : "N/A"}
             </div>
             {totalSize > 0 && indexSizeKnown && (
-              <p className="text-xs sm:text-xs text-muted-foreground mt-1">{indexPercent.toFixed(1)}%</p>
+              <p className="text-xs sm:text-xs text-fg-muted mt-1">{indexPercent.toFixed(1)}%</p>
             )}
           </CardContent>
         </Card>
 
         <Card className="p-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 sm:p-4 pb-1 sm:pb-2">
-            <CardTitle className="text-xs sm:text-xs font-medium text-muted-foreground">WAL</CardTitle>
+            <CardTitle className="text-xs sm:text-xs font-medium text-fg-muted">WAL</CardTitle>
             <FolderOpen strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-hue-orange" />
           </CardHeader>
           <CardContent className="p-2 sm:p-4 pt-0">
@@ -256,7 +256,7 @@ export function StorageTab({ data, loading }: StorageTabProps) {
             // The engine answered and published no byte figure - Apache Cassandra is the case
             // (#424) - which is a different fact from the refusal above and gets this tab's own
             // copy rather than a sentence there is none of.
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="text-center py-8 text-fg-muted">
               <HardDrive strokeWidth={1.5} className="h-8 w-8 mx-auto mb-2 opacity-50" />
               <p className="text-xs">No storage size information available.</p>
             </div>
@@ -276,7 +276,7 @@ export function StorageTab({ data, loading }: StorageTabProps) {
           {storageUnavailable ? (
             <PanelUnavailable message={storageUnavailable} />
           ) : storage.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="text-center py-8 text-fg-muted">
               <FolderOpen strokeWidth={1.5} className="h-8 w-8 mx-auto mb-2 opacity-50" />
               <p className="text-xs">No tablespace information available.</p>
             </div>
@@ -296,10 +296,7 @@ export function StorageTab({ data, loading }: StorageTabProps) {
                     <TableRow key={ts.name}>
                       <TableCell className="py-2">
                         <div className="flex items-center gap-1 sm:gap-2">
-                          <FolderOpen
-                            strokeWidth={1.5}
-                            className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground flex-shrink-0"
-                          />
+                          <FolderOpen strokeWidth={1.5} className="h-3 w-3 sm:h-4 sm:w-4 text-fg-muted flex-shrink-0" />
                           <span className="font-medium text-xs sm:text-xs truncate max-w-[80px] sm:max-w-none">
                             {ts.name}
                           </span>
@@ -315,7 +312,7 @@ export function StorageTab({ data, loading }: StorageTabProps) {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="font-mono text-xs sm:text-xs text-muted-foreground hidden md:table-cell py-2">
+                      <TableCell className="font-mono text-xs sm:text-xs text-fg-muted hidden md:table-cell py-2">
                         {ts.location || "default"}
                       </TableCell>
                       <TableCell className="text-right text-xs py-2">{ts.size}</TableCell>
@@ -350,7 +347,7 @@ export function StorageTab({ data, loading }: StorageTabProps) {
           {tablesUnavailable ? (
             <PanelUnavailable message={tablesUnavailable} />
           ) : tables.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="text-center py-8 text-fg-muted">
               <Database strokeWidth={1.5} className="h-8 w-8 mx-auto mb-2 opacity-50" />
               <p className="text-xs">No table information available.</p>
             </div>
@@ -392,7 +389,7 @@ export function StorageTab({ data, loading }: StorageTabProps) {
                               <span className="font-medium text-xs sm:text-xs truncate max-w-[100px] sm:max-w-[200px]">
                                 {table.tableName}
                               </span>
-                              <span className="text-xs sm:text-xs text-muted-foreground">{table.schemaName}</span>
+                              <span className="text-xs sm:text-xs text-fg-muted">{table.schemaName}</span>
                             </div>
                           </TableCell>
                           <TableCell className="text-right text-xs py-2">{table.totalSize}</TableCell>
@@ -421,7 +418,7 @@ export function StorageTab({ data, loading }: StorageTabProps) {
 
 function StorageSkeleton() {
   return (
-    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
         {[...Array(4)].map((_, i) => (
           <Card key={i} className="p-0">
