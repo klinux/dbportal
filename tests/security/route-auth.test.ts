@@ -224,6 +224,8 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists and creates SSH profiles in the app's own storage backend (STORAGE_PROVIDER); never opens a user database (GET/POST). Admin-gated by requireAdmin like admin/datasources; tests/api/admin/ssh-profiles.test.ts proves the 403",
   "admin/ssh-profiles/[id]":
     "updates and deletes one SSH profile in the same storage backend; never opens a user database (PUT/DELETE, no POST export). Same admin gate",
+  metrics:
+    "the portal's own Prometheus exposition (GET, no POST export). It reads the in-process registry and the approval queue in the app's own storage backend; never opens a user database. Gated by METRICS_TOKEN as a Bearer, and tests/api/metrics.test.ts proves the 401 and the 404 without a token",
   "admin/service-tokens":
     "lists and creates service tokens in the app's own storage backend (STORAGE_PROVIDER); never opens a user database (GET/POST). Admin-gated by requireAdmin like admin/datasources; tests/api/admin/service-tokens.test.ts proves the 403",
   "admin/service-tokens/[id]":
@@ -411,6 +413,7 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/api/approvals": "the approvals routes' error answer and decision-body reader; reaches no provider",
     "@/lib/api/ssh-profiles": "the SSH profile routes' error answer; reaches no provider",
     "@/lib/api/service-tokens": "the service token routes' error answer; reaches no provider",
+    "@/lib/metrics/registry": "in-process counters, gauges and a histogram rendered as Prometheus text; opens nothing",
     "@/lib/api/service-auth":
       "the Bearer-token guard of the v1 routes: resolves a token in the app's own storage backend and meters it; opens no user database",
     "@/lib/service-tokens/store":

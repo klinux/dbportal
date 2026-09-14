@@ -291,6 +291,19 @@ describe("proxy", () => {
     });
   });
 
+  // docs/CONTEXT.md §4.11: the scrape is admitted on the shape of a credential, verified by the route.
+  describe("metrics path", () => {
+    test("a Bearer reaches the route; without one the scrape is a 401, not a redirect", async () => {
+      const withBearer = await proxy(
+        new NextRequest("http://localhost:3000/api/metrics", { headers: { authorization: "Bearer anything" } }),
+      );
+      expect(withBearer.status).toBe(200);
+      const without = await proxy(new NextRequest("http://localhost:3000/api/metrics"));
+      expect(without.status).toBe(401);
+      expect(isRedirect(without)).toBe(false);
+    });
+  });
+
   describe("agent drive path", () => {
     test("the public-path list is exactly the five it has always been", () => {
       const source = readFileSync(new URL("../../src/proxy.ts", import.meta.url), "utf8");

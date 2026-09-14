@@ -10,6 +10,7 @@ import {
   type ProviderOptions,
   type ProviderExecutionContext,
 } from "./types";
+import { registerGauge } from "@/lib/metrics/registry";
 import { DatabaseConfigError, ExecutionProfileError } from "./errors";
 import { createSSHTunnel, closeSSHTunnel, hasTunnel } from "@/lib/ssh/tunnel";
 import { readSecret } from "@/lib/storage/encryption";
@@ -260,6 +261,10 @@ interface CachedProvider {
 }
 
 const providerCache = new Map<string, CachedProvider>();
+
+// The cache's size as a metric (docs/CONTEXT.md §4.11), read at scrape time from wherever
+// the scrape is served: the registry lives on globalThis, this Map does not.
+registerGauge("dbportal_providers_cached", "Database providers held open in this process.", () => providerCache.size);
 
 // ============================================================================
 // Single-writer file reuse (#498)

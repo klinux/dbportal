@@ -440,3 +440,12 @@ The short version:
 - dbportal's `Content-Security-Policy` is enforced, not report-only. If an upgrade breaks a resource
   served from a non-default origin, set `CSP_REPORT_ONLY=true` (also via `extraEnv`) to downgrade
   it without rebuilding the image while you identify the violated directive.
+
+## Metrics
+
+Set `METRICS_TOKEN` in the chart's secret and point Prometheus at `GET /api/metrics` with
+`authorization: Bearer <token>` (a `bearer_token_file` in the scrape config, or a
+ServiceMonitor with `authorization.credentials`). `podAnnotations` in `values.yaml` takes
+the usual `prometheus.io/scrape: "true"`, `prometheus.io/path: /api/metrics` and
+`prometheus.io/port` when the cluster discovers targets by annotation. Series and labels:
+[docs/API_DOCS.md](API_DOCS.md#metrics).

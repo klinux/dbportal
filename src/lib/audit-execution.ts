@@ -7,6 +7,7 @@ import {
   TimeoutError,
 } from "@/lib/db/errors";
 import { logger } from "@/lib/logger";
+import { observeExecution } from "@/lib/metrics/registry";
 
 /**
  * The audit line for a HUMAN execution (docs/CONTEXT.md §4.2): every statement the editor
@@ -65,6 +66,8 @@ function record(
   outcome: { result: "success" } | { result: "failure"; reason: AuditReason },
   duration: number,
 ) {
+  // The latency series (docs/CONTEXT.md §4.11), whatever the outcome; in-process, cannot throw.
+  observeExecution(context.route, context.connectionName, duration);
   // Isolated so a broken audit sink cannot turn an execution that already finished into an
   // unrelated 500 - the same rule guardRoute applies to its own emits.
   try {

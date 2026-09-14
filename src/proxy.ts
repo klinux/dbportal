@@ -32,6 +32,7 @@ const ORIGIN_MISMATCH_BODY = {
 };
 
 const SERVICE_API_PREFIX = "/api/v1/";
+const METRICS_PATH = "/api/metrics";
 const SERVICE_BEARER_PREFIX = "Bearer dbp_";
 
 export async function proxy(request: NextRequest) {
@@ -124,6 +125,14 @@ export async function proxy(request: NextRequest) {
     const authorization = request.headers.get("authorization") ?? "";
     if (authorization.startsWith(SERVICE_BEARER_PREFIX)) return withSecurityHeaders(NextResponse.next());
     return withSecurityHeaders(NextResponse.json({ error: "A valid service token is required" }, { status: 401 }));
+  }
+
+  // The metrics scrape (docs/CONTEXT.md §4.11): the same shape as the service API - a
+  // Bearer lets the request reach the route, which compares it against METRICS_TOKEN.
+  if (pathname === METRICS_PATH) {
+    const authorization = request.headers.get("authorization") ?? "";
+    if (authorization.startsWith("Bearer ")) return withSecurityHeaders(NextResponse.next());
+    return withSecurityHeaders(NextResponse.json({ error: "A valid metrics token is required" }, { status: 401 }));
   }
 
   // Allow public routes

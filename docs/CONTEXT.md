@@ -321,6 +321,50 @@ the thread the request named, with ten rows at most; the full result stays behin
 Not done: a signed HTTP callback for bots outside Slack (they poll), Slack buttons on the
 announcement (they need a signed interactivity endpoint), and expiry of stored outcomes.
 
+### 4.11 → 4.20 The SRE/DevOps sequence (agreed 2026-09-14)
+
+What an SRE team asks of a tool that sits in front of production, in the order it will be
+built. Each lands as its own section when done.
+
+- **4.11 `/metrics` — done.** `GET /api/metrics` ([`src/lib/metrics/registry.ts`](../src/lib/metrics/registry.ts)):
+  a registry written by hand on `globalThis` (five series need no client library, and a
+  module-level Map would be one registry per Next.js entry), fed from the two places every
+  activity passes through - `emitAuditEvent` (`dbportal_audit_events_total` by event,
+  action, outcome) and `auditExecution` (`dbportal_execution_duration_seconds` by route
+  and datasource) - plus gauges computed at scrape time: pending approvals and the age of
+  the oldest, cached providers, build info, uptime. Behind `METRICS_TOKEN` as a Bearer,
+  which the middleware lets through on shape and the route verifies in constant time;
+  unset, the endpoint is a 404. Labels are closed values and datasource names, never a
+  person, a statement or an address.
+- **4.12 Audit export to a SIEM** — the audit line shipped off the machine, Elastic first
+  (bulk API, bearer or API key), with retention on `audit_events`.
+- **4.13 Readiness and liveness** — `/api/health/live` (the process answers) apart from
+  `/api/health/ready` (the store, and Vault when configured, answer), for rollouts.
+- **4.14 Backup and restore** — the portal's own store is managed (GCP) and backed up
+  there. This is about the *datasources*: in development, a person dumps and restores a
+  database from the portal; in production, an export to a bucket only, never a restore.
+- **4.15 Guardrails per statement** — `DELETE`/`UPDATE` without `WHERE`, `DROP`,
+  `TRUNCATE` need approval even from a writer; an automatic `EXPLAIN` before a write
+  where the engine has one.
+- **4.16 Limits per datasource** — maximum rows, statement timeout, concurrency per person.
+- **4.17 Freeze windows** — no writes on a datasource (or anywhere) between two instants,
+  declared once; a write inside the window is refused with the window's reason.
+- **4.18 Ticket on every execution** — a `reason`/ticket field that travels into the audit
+  line; required where the datasource says so.
+- **4.19 Named roles** — beyond `admin`/`user`: a reviewer who does not administer, an
+  on-call who writes only inside a window; groups from OIDC mapped to them.
+- **4.20 Runbooks** — shared, parameterised saved queries per datasource.
+- **4.21 Large and elaborate scripts** — verify, with a real `UPDATE … WHERE id IN (…)` of
+  two thousand ids and a multi-statement script, what the portal does: known today, the
+  approval record keeps the first 4000 characters of a statement for display (the editor's
+  own run is not cut), the bot API refuses a statement over 4000 characters, the
+  multi-query route splits statements per engine grammar, and every statement has the
+  datasource's `queryTimeout` (60 s by default). To decide: raise the bot limit, stream a
+  script statement by statement with one audit line each, and what a reviewer sees of a
+  script that does not fit on a screen.
+- **later** — Slack buttons on the approval message (a signed interactivity endpoint), the
+  signed HTTP callback for bots outside Slack, shorter sessions with renewal.
+
 ## 5. Decisions already taken
 
 - **TypeScript stays.** The 50k-line driver layer is the main asset; rewriting the backend

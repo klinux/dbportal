@@ -1,4 +1,5 @@
 import { storage } from "@/lib/storage";
+import { observeAuditEvent } from "@/lib/metrics/registry";
 import { logger } from "@/lib/logger";
 
 export type AuditEventType =
@@ -530,6 +531,9 @@ function toAuditLine(event: AuditEvent): AuditLogLine {
  */
 export function emitAuditEvent(event: Omit<AuditEvent, "id" | "timestamp">): AuditEvent {
   const stored = getServerAuditBuffer().push(sanitizeAuditInput(event));
+  // One counter per event type, action and outcome (docs/CONTEXT.md §4.11): the product's
+  // activity as Prometheus sees it, from the one place every event passes through.
+  observeAuditEvent(stored);
   // JSON.stringify escapes newlines and control characters, so an attacker-controlled actor
   // cannot forge a second log line. This is why the audit channel does not reuse logger.ts.
   console.log(JSON.stringify(toAuditLine(stored)));

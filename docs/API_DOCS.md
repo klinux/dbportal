@@ -1192,6 +1192,16 @@ Admin only (docs/CONTEXT.md §4.9). Secrets are never returned: a view carries `
 
 Audited as `ssh_profile` / `created` · `updated` · `deleted`.
 
+### Metrics
+
+`GET /api/metrics` (docs/CONTEXT.md §4.11) — the portal's own metrics in the Prometheus text
+format, behind `Authorization: Bearer <METRICS_TOKEN>`. Without `METRICS_TOKEN` the endpoint
+answers `404`. Series: `dbportal_audit_events_total{event,action,outcome}`,
+`dbportal_execution_duration_seconds{route,datasource}` (histogram),
+`dbportal_approvals_pending`, `dbportal_approval_oldest_pending_seconds`,
+`dbportal_providers_cached`, `dbportal_build_info{version}`, `dbportal_uptime_seconds`, and
+`dbportal_store_scrape_failed` when the store did not answer.
+
 ### Executions API (service tokens)
 
 For bots (docs/CONTEXT.md §4.10). Authenticate with `Authorization: Bearer dbp_…`, a token
