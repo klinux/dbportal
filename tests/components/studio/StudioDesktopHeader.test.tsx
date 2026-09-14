@@ -234,14 +234,16 @@ describe("StudioDesktopHeader", () => {
     ["anonymous", null, false],
     ["regular user", { role: "user" }, false],
     ["admin", { role: "admin" }, true],
-  ] as const)("%s sees settings only in an actionable admin menu item", (_name, user, isAdmin) => {
-    const { container } = render(<StudioDesktopHeader {...defaultProps} user={user} isAdmin={isAdmin} />);
-    const settingsIcons = container.querySelectorAll("svg.lucide-settings");
-    expect(settingsIcons.length).toBe(isAdmin ? 1 : 0);
-    for (const icon of settingsIcons) {
-      const action = icon.closest('[role="menuitem"]');
-      expect(action).not.toBeNull();
-      fireEvent.click(action!);
+  ] as const)("%s sees the administration gear only as an admin, beside the user button", (_name, user, isAdmin) => {
+    const { container, queryByLabelText } = render(
+      <StudioDesktopHeader {...defaultProps} user={user} isAdmin={isAdmin} />,
+    );
+    expect(container.querySelectorAll("svg.lucide-settings").length).toBe(isAdmin ? 1 : 0);
+    const gear = queryByLabelText("Administration");
+    expect(gear === null).toBe(!isAdmin);
+    if (gear) {
+      expect(gear.closest('[role="menuitem"]')).toBeNull();
+      fireEvent.click(gear);
       expect(mockRouterPush).toHaveBeenCalledWith("/admin");
     }
   });
@@ -257,14 +259,15 @@ describe("StudioDesktopHeader", () => {
       expect(container.querySelector('[data-testid="dropdown-menu"]')).toBeNull();
     });
 
-    test("shows Admin Dashboard menu item for admin users", () => {
-      const { getByText } = render(<StudioDesktopHeader {...defaultProps} isAdmin={true} />);
-      expect(getByText("Admin Dashboard")).toBeTruthy();
-    });
-
-    test("hides Admin Dashboard menu item for non-admin users", () => {
-      const { queryByText } = render(<StudioDesktopHeader {...defaultProps} isAdmin={false} />);
+    // Administration left the user menu for a gear beside it (requested 2026-09-14).
+    test("the user menu carries no Admin Dashboard item, admin or not", () => {
+      const admin = render(<StudioDesktopHeader {...defaultProps} isAdmin={true} />);
+      expect(admin.queryByText("Admin Dashboard")).toBeNull();
+      expect(admin.getByLabelText("Administration")).toBeTruthy();
+      cleanup();
+      const { queryByText, queryByLabelText } = render(<StudioDesktopHeader {...defaultProps} isAdmin={false} />);
       expect(queryByText("Admin Dashboard")).toBeNull();
+      expect(queryByLabelText("Administration")).toBeNull();
     });
 
     // docs/CONTEXT.md §4.19: a reviewer who does not administer reaches the requests from here.
@@ -272,12 +275,6 @@ describe("StudioDesktopHeader", () => {
       const { getByText } = render(<StudioDesktopHeader {...defaultProps} isAdmin={false} />);
       fireEvent.click(getByText("Approvals"));
       expect(mockRouterPush).toHaveBeenCalledWith("/approvals");
-    });
-
-    test("navigates to /admin when Admin Dashboard clicked", () => {
-      const { getByText } = render(<StudioDesktopHeader {...defaultProps} isAdmin={true} />);
-      fireEvent.click(getByText("Admin Dashboard"));
-      expect(mockRouterPush).toHaveBeenCalledWith("/admin");
     });
 
     test("shows Monitoring in dropdown menu", () => {
@@ -378,7 +375,7 @@ describe("StudioDesktopHeader", () => {
       expect(container.textContent).toContain("mysql");
       expect(container.textContent).toContain("production");
       expect(container.querySelector('[title="Connection: healthy"]')).toBeTruthy();
-      expect(getByText("Admin Dashboard")).toBeTruthy();
+      expect(container.querySelector('[aria-label="Administration"]')).toBeTruthy();
     });
 
     test("user with undefined role still renders dropdown", () => {

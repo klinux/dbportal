@@ -224,6 +224,18 @@ describe("StudioMobileHeader", () => {
     expect(queryByText("Explain Plan")).toBeNull();
   });
 
+  // Administration is a gear beside the user button, admins only (requested 2026-09-14).
+  test("an admin gets an Administration gear that opens /admin; a user gets none and no menu item", () => {
+    mockRouterPush.mockClear();
+    const admin = render(<StudioMobileHeader {...defaults} />);
+    expect(admin.queryByText("Admin Dashboard")).toBeNull();
+    fireEvent.click(admin.getByLabelText("Administration"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/admin");
+    cleanup();
+    const plain = render(<StudioMobileHeader {...defaults} user={{ role: "user" }} isAdmin={false} />);
+    expect(plain.queryByLabelText("Administration")).toBeNull();
+  });
+
   // docs/CONTEXT.md §4.19: the reviewer's page is in the menu for everyone, admin or not.
   test("Approvals in the user menu goes to /approvals, for a non-admin too", () => {
     mockRouterPush.mockClear();

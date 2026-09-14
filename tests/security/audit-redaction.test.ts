@@ -231,14 +231,26 @@ describe("emitAuditEvent", () => {
       expect(JSON.stringify(line)).not.toContain("hunter2");
     });
 
-    test("is written, bounded and redacted, under AUDIT_INCLUDE_SQL=true", () => {
+    // docs/CONTEXT.md §4.21: the statement has room for a whole script, 32 000 characters, unlike
+    // every other field's 254; it is still redacted.
+    test("is written, bounded to the statement's own limit and redacted, under AUDIT_INCLUDE_SQL=true", () => {
       process.env.AUDIT_INCLUDE_SQL = "true";
       const line = captureLine(() =>
-        emitAuditEvent({ ...execution, details: `SELECT 'postgres://u:p@db/app', '${"x".repeat(400)}'` }),
+        emitAuditEvent({ ...execution, details: `SELECT 'postgres://u:p@db/app', '${"x".repeat(40_000)}'` }),
       );
       expect(typeof line.statement).toBe("string");
       expect(line.statement as string).toContain("[REDACTED]@db");
-      expect((line.statement as string).length).toBeLessThanOrEqual(254);
+      expect((line.statement as string).length).toBe(32_000);
+      // Any other field keeps the 254 bound, and another event type's details too.
+      const other = captureLine(() =>
+        emitAuditEvent({
+          ...execution,
+          type: "maintenance",
+          connectionName: "c".repeat(400),
+          details: "x".repeat(400),
+        }),
+      );
+      expect((other.connection as string).length).toBe(254);
     });
 
     test("never carries another event type's details out, flag or not", () => {

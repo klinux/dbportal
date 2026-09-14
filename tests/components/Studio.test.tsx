@@ -1106,6 +1106,39 @@ describe("Studio", () => {
     expect(mockRevokeObjectURL).toHaveBeenCalled();
   });
 
+  // docs/CONTEXT.md §4.22: every export is told to the server, with the datasource, the form and the rows.
+  test("exportResults posts the export to the audit route when a datasource is open, and not otherwise", async () => {
+    const fetchMock = mock(async () => new Response("{}", { status: 200 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    tabMgrOverride = {
+      currentTab: {
+        id: "tab-1",
+        name: "Users",
+        query: "SELECT 1",
+        result: testResult,
+        isExecuting: false,
+        type: "sql",
+      },
+    };
+    connMgrOverride = { activeConnection: pgConn };
+    render(<Studio />);
+    const exportFn = capturedBottomPanelProps.onExportResults as (format: string) => void;
+    act(() => exportFn("csv"));
+    const audit = fetchMock.mock.calls.find((c) => String((c as unknown[])[0]).includes("/api/audit/export"));
+    expect(audit).toBeDefined();
+    expect(JSON.parse(((audit as unknown[])[1] as RequestInit).body as string)).toEqual({
+      connectionId: pgConn.id,
+      format: "csv",
+      rows: testResult.rows.length,
+    });
+    cleanup();
+    fetchMock.mockClear();
+    connMgrOverride = { activeConnection: null };
+    render(<Studio />);
+    act(() => (capturedBottomPanelProps.onExportResults as (format: string) => void)("json"));
+    expect(fetchMock.mock.calls.some((c) => String((c as unknown[])[0]).includes("/api/audit/export"))).toBe(false);
+  });
+
   test("exportResults JSON creates application/json blob", () => {
     tabMgrOverride = {
       currentTab: {

@@ -76,7 +76,9 @@ describe("auditExecution", () => {
     expect(typeof line.statement).toBe("string");
     expect(line.statement as string).toContain("SELECT");
     expect(line.statement as string).not.toContain("u:p@");
-    expect((line.statement as string).length).toBeLessThanOrEqual(254);
+    // docs/CONTEXT.md §4.21: the statement's own bound is 32 000 characters, not the 254 of every other field.
+    expect((line.statement as string).length).toBeGreaterThan(254);
+    expect((line.statement as string).length).toBeLessThanOrEqual(32_000);
   });
 
   test("an unrecognised flag value keeps the statement off the record", async () => {

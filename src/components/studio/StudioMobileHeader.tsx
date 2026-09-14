@@ -218,6 +218,17 @@ export function StudioMobileHeader({
               />
             </div>
           )}
+          {user && isAdmin && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 text-fg-muted hover:text-fg"
+              onClick={() => router.push("/admin")}
+              aria-label="Administration"
+            >
+              <Settings strokeWidth={1.5} className="w-3.5 h-3.5" />
+            </Button>
+          )}
           {user && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -226,11 +237,6 @@ export function StudioMobileHeader({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="bg-raised border-hairline-strong">
-                {isAdmin && (
-                  <DropdownMenuItem onClick={() => router.push("/admin")} className="cursor-pointer">
-                    <Settings strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Admin Dashboard
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuItem onClick={() => router.push("/monitoring")} className="cursor-pointer">
                   <Gauge strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Monitoring
                 </DropdownMenuItem>

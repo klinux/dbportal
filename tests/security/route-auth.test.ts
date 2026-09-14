@@ -250,6 +250,8 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists and declares runbooks in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/runbooks.test.ts proves the 403",
   "admin/runbooks/[id]":
     "deletes one runbook in the same storage backend; never opens a user database (DELETE, no POST export). Same admin gate",
+  "audit/export":
+    "records that a session exported a result - the datasource resolved like every route, the form, the row count - as one audit event (POST); opens no user database. Session-gated by guardRoute; tests/api/audit/export.test.ts proves the 401",
   runbooks:
     "lists the runbooks on the datasources the session may open (GET); reads the seed file and the app's own storage backend, never a user database. Session-gated by guardRoute; tests/api/runbooks.test.ts proves the 401",
   "runbooks/[id]/prepare":

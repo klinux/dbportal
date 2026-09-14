@@ -90,6 +90,19 @@ export function StudioDesktopHeader({
           <Gauge strokeWidth={1.5} className="w-3 h-3" /> Monitoring
         </Button>
 
+        {/* Administration is one press away for an administrator (requested 2026-09-14), and absent for everyone else. */}
+        {user && isAdmin && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0 hover:bg-fill text-fg-muted hover:text-fg"
+            onClick={() => router.push("/admin")}
+            aria-label="Administration"
+            title="Administration"
+          >
+            <Settings strokeWidth={1.5} className="w-3.5 h-3.5" />
+          </Button>
+        )}
         {user && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -98,11 +111,6 @@ export function StudioDesktopHeader({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 bg-raised border-hairline-strong text-fg-secondary">
-              {isAdmin && (
-                <DropdownMenuItem onClick={() => router.push("/admin")} className="cursor-pointer">
-                  <Settings strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Admin Dashboard
-                </DropdownMenuItem>
-              )}
               <DropdownMenuItem onClick={() => router.push("/monitoring")} className="cursor-pointer">
                 <Gauge strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" /> Monitoring
               </DropdownMenuItem>

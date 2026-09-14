@@ -451,6 +451,15 @@ export default function Studio() {
       csvDelimiter,
     });
     downloadText(file.content, file.mimeType, resultExportFileName(file.extension, hydrated?.runId));
+    // On the audit trail (docs/CONTEXT.md §4.22): the server records who exported how many rows
+    // of which datasource in which form. Fire and forget - the file is already the person's.
+    if (conn.activeConnection) {
+      void appFetch("/api/audit/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connectionId: conn.activeConnection.id, format, rows: rows.length }),
+      }).catch(() => {});
+    }
   };
 
   /** Open and run the statement for one object, addressed by its PATH (#789). */

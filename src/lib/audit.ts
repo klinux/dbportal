@@ -44,6 +44,8 @@ export type AuditEventType =
   | "approval_decision"
   /** A permitted reveal of masked columns; the columns are named, never their values (§4.7). */
   | "masking_reveal"
+  /** A result exported as a file by a person: the form and the row count, never the rows (§4.22). */
+  | "data_export"
   /** An SSH profile created, updated or deleted by an administrator (§4.9). */
   | "ssh_profile";
 
@@ -274,6 +276,12 @@ const AUDIT_SCHEMA = "dbportal.audit.v1";
  * two independent constants with the same value today are one unnoticed edit away from drifting.
  */
 export const MAX_AUDIT_FIELD_LENGTH = 254;
+/**
+ * The one field with more room: the statement of an execution (`details` of a
+ * `query_execution`, §4.21), so an administrator reading the trail sees the whole of a
+ * script the bot API or the approval record accepts (32 000 characters), not its first line.
+ */
+export const MAX_AUDIT_STATEMENT_LENGTH = 32_000;
 /** The address derivation's "no usable signal" placeholder; never recorded as if it were one. */
 const UNKNOWN_ADDRESS = "unknown";
 /** Redaction marker for a URI's userinfo segment. Never a value real credentials could equal. */
@@ -371,8 +379,8 @@ function redactUriCredentials(value: string): string {
  * any URI-shaped credential, then bound the length. Order matters — redacting first means a value
  * long enough to be truncated never has its credential cut in half and left partially exposed.
  */
-function sanitizeAuditField(value: string): string {
-  return redactUriCredentials(value).slice(0, MAX_AUDIT_FIELD_LENGTH);
+function sanitizeAuditField(value: string, limit = MAX_AUDIT_FIELD_LENGTH): string {
+  return redactUriCredentials(value).slice(0, limit);
 }
 
 /**
@@ -451,7 +459,8 @@ export function sanitizeAuditInput(event: Omit<AuditEvent, "id" | "timestamp">):
     if (DANGEROUS_KEYS.has(key)) continue;
     const value = mutable[key];
     if (typeof value === "string") {
-      mutable[key] = sanitizeAuditField(value);
+      const limit = key === "details" && event.type === "query_execution" ? MAX_AUDIT_STATEMENT_LENGTH : undefined;
+      mutable[key] = sanitizeAuditField(value, limit);
     } else if (value !== undefined && !(key === "duration" && typeof value === "number")) {
       mutable[key] = sanitizeAuditField(coerceToString(value));
     }

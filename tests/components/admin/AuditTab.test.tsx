@@ -286,6 +286,31 @@ describe("AuditTab", () => {
     expect(queryByText(/Statement text is not recorded/)).toBeNull();
   });
 
+  // Requested 2026-09-14: a long statement shows one line, and unfolds formatted on request.
+  test("a recorded statement shows an overview and unfolds, formatted, on click", async () => {
+    queryEvents = [
+      {
+        ...defaultExecutions()[0],
+        details: `SELECT id, name FROM orders WHERE status = 'open' AND customer_id IN (${Array.from({ length: 80 }, (_, i) => i).join(", ")})`,
+      },
+    ];
+    const user = userEvent.setup();
+    const view = render(<AuditTab />);
+    await user.click(view.getByRole("tab", { name: "Queries" }));
+    const toggle = await view.findByTestId("statement-toggle-q1");
+    expect(toggle.textContent?.endsWith("…")).toBe(true);
+    expect((toggle.textContent ?? "").length).toBeLessThan(160);
+    expect(view.queryByTestId("statement-full-q1")).toBeNull();
+    await user.click(toggle);
+    // The whole statement, to its last id; how it is formatted is tests/unit/lib/audit-view/statement.test.ts.
+    const full = view.getByTestId("statement-full-q1");
+    expect(full.textContent).toContain("SELECT");
+    expect(full.textContent).toMatch(/79\s*\)/);
+    expect(full.textContent?.endsWith("…")).toBe(false);
+    await user.click(toggle);
+    expect(view.queryByTestId("statement-full-q1")).toBeNull();
+  });
+
   test("the Queries tab's Refresh button re-reads the recorded executions", async () => {
     const user = userEvent.setup();
     const view = render(<AuditTab />);

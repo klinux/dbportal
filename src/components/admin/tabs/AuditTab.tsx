@@ -4,6 +4,7 @@ import { appFetch } from "@/lib/config/base-path";
 import { useEffect, useMemo, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ADMIN_SUBTAB_LIST_CLASS, ADMIN_SUBTAB_TRIGGER_CLASS } from "@/lib/ui/admin-tabs";
+import { formatStatement, statementOverview } from "@/lib/audit-view/statement";
 import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ import {
   Activity,
   Download,
   FileText,
+  ChevronRight,
 } from "lucide-react";
 import type { AuditEvent } from "@/lib/audit";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
@@ -249,6 +251,7 @@ function OperationsAudit() {
             <SelectItem value="service_token">Service Token</SelectItem>
             <SelectItem value="backup">Backup</SelectItem>
             <SelectItem value="freeze_window">Freeze Window</SelectItem>
+            <SelectItem value="data_export">Export</SelectItem>
           </SelectContent>
         </Select>
         <Input
@@ -394,6 +397,8 @@ function QueryAudit() {
   const { events, loading, refresh } = useExecutionEvents();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  // The one row whose statement is unfolded, formatted (requested 2026-09-14).
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const filteredEvents = useMemo(() => {
     let items = events;
@@ -544,12 +549,34 @@ function QueryAudit() {
                     </Badge>
                   </TableCell>
                   <TableCell className="py-2">
-                    <div
-                      className="font-mono text-xs text-fg-tertiary truncate max-w-[250px] lg:max-w-[400px]"
-                      title={event.reason ? `Failed: ${event.reason}` : undefined}
-                    >
-                      {statementOf(event) ?? <span className="text-fg-subtle">not recorded</span>}
-                    </div>
+                    {statementOf(event) === null ? (
+                      <span className="font-mono text-xs text-fg-subtle">not recorded</span>
+                    ) : (
+                      <div className="max-w-[250px] lg:max-w-[520px]">
+                        <button
+                          type="button"
+                          className="flex items-start gap-1.5 text-left w-full font-mono text-xs text-fg-tertiary hover:text-fg"
+                          onClick={() => setExpandedId((id) => (id === event.id ? null : event.id))}
+                          aria-expanded={expandedId === event.id}
+                          data-testid={`statement-toggle-${event.id}`}
+                          title={event.reason ? `Failed: ${event.reason}` : undefined}
+                        >
+                          <ChevronRight
+                            strokeWidth={1.5}
+                            className={`w-3 h-3 mt-0.5 shrink-0 transition-transform ${expandedId === event.id ? "rotate-90" : ""}`}
+                          />
+                          <span className="truncate">{statementOverview(statementOf(event) ?? "")}</span>
+                        </button>
+                        {expandedId === event.id && (
+                          <pre
+                            className="mt-2 rounded-lg border border-hairline bg-sunken p-3 font-mono text-[11px] leading-relaxed text-fg-secondary whitespace-pre-wrap break-words max-h-96 overflow-auto"
+                            data-testid={`statement-full-${event.id}`}
+                          >
+                            {formatStatement(statementOf(event) ?? "")}
+                          </pre>
+                        )}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="py-2 text-xs text-fg-muted hidden md:table-cell truncate max-w-[100px]">
                     {event.connectionName || "-"}

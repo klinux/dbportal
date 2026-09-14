@@ -123,7 +123,9 @@ Two steps. The first closes the hole; the second delivers the product.
 - The statement is recorded only under `AUDIT_INCLUDE_SQL=true`: the wrapper puts it in
   `details` under that flag alone, and `toAuditLine` copies `details` to a `statement` key
   only for `query_execution` events under the same flag — every other event's `details`
-  stays off the line. Bounded to 254 characters and URI-credential-redacted like any field.
+  stays off the line. URI-credential-redacted like any field and bounded to 32 000
+  characters (`MAX_AUDIT_STATEMENT_LENGTH`, §4.21) rather than the 254 of every other field,
+  so the trail holds the whole of a script the bot API accepts.
 - The admin Audit tab's Queries and Stats read `GET /api/admin/audit?type=query_execution`
   (the server's buffer), not the admin's own browser history; a list without statements
   says which flag turns them on.
@@ -444,10 +446,14 @@ built. Each lands as its own section when done.
   because each statement there takes its own pooled connection, so a BEGIN opened a
   transaction that the COMMIT on another connection never closed and the next person
   inherited. A script that must be one transaction uses the studio's transaction mode,
-  which keeps one connection. Known and kept: the audit line's statement is its first 254
-  characters, the datasource's `queryTimeout` (60 s by default) bounds each statement, and
+  which keeps one connection. Known and kept: the audit line's statement is bounded to
+  32 000 characters like the bot's, the datasource's `queryTimeout` (60 s by default) bounds each statement, and
   a script is not streamed - its results return together when the last statement ends.
-- **4.22 Result export by rule** — downloading a result (CSV, JSON, the clipboard copy of
+- **4.22 Result export by rule** — first half done 2026-09-14: every export from the studio
+  (CSV, JSON, the SQL forms) is a `data_export` audit event - who, which datasource, which
+  form, how many rows - written by `POST /api/audit/export`, which resolves the datasource
+  like every route; the admin Audit page filters on it. The rule and the server-built file
+  remain. Downloading a result (CSV, JSON, the clipboard copy of
   a grid) is a way data leaves the portal without the masking and the audit that a query
   gets; make it a permission - per datasource, by role or group, off by default on
   production - with every export audited (who, which datasource, how many rows), and the
