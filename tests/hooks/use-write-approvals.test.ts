@@ -139,6 +139,23 @@ describe("useWriteApprovals", () => {
     );
   });
 
+  // docs/CONTEXT.md §4.28: an expired request reaches the tab as such, with its own toast.
+  test("an expired request reaches the tab and a toast that says to ask again", async () => {
+    mockGlobalFetch({
+      "/api/approvals/req-1": { ok: true, json: { approval: { ...pending, status: "expired" } } },
+      "/api/approvals": { ok: true, json: { approvals: [] } },
+    });
+    let tabs = [tab(pending)];
+    const setTabs = mock((fn: unknown) => {
+      if (typeof fn === "function") tabs = fn(tabs);
+    });
+    renderHook(() => useWriteApprovals({ tabs, setTabs, pollMs: 15 }));
+    await waitFor(() => {
+      if (tabs[0].approval?.status !== "expired") throw new Error("not yet");
+    });
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Approval request expired" }));
+  });
+
   test("a window that closed stays for the grace period, then goes", async () => {
     const until = new Date(Date.now() - CLOSED_WINDOW_GRACE_MS + 500).toISOString();
     mockGlobalFetch({

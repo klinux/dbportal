@@ -439,6 +439,9 @@ response is a 403 with `code: "APPROVAL_REQUIRED"` and the request; the editor s
 waiting state and polls until a reviewer decides. Reviewers are the datasource's
 `approverRoles` (same vocabulary as `roles`) or administrators, on the admin page's
 Approvals section or through `GET/POST /api/approvals`. Nobody reviews their own request.
+`approvalsRequired: 2` (docs/CONTEXT.md §4.28) asks for two distinct reviewers before the write
+runs; the first approval is kept and the request waits for the second. A request nobody decides
+within `APPROVAL_TTL_HOURS` (24 by default) expires, and the person asks again by running again.
 With `SLACK_SIGNING_SECRET` set, the Slack announcement of a bot's request carries Approve and
 Reject (docs/CONTEXT.md §4.24); the presser reviews as `slack:<Slack user id>`, so name a role
 with `members: ["user:slack:U0123"]` and put `role:<id>` in `approverRoles`.

@@ -78,7 +78,8 @@ export type AuditEventFilter = Omit<AuditEventQuery, "limit" | "offset">;
  * A write awaiting, granted or refused approval (docs/CONTEXT.md §4.6). `windowUntil` is the
  * end of the write window an approval opened for `requester` on `datasourceId`.
  */
-export type ApprovalStatus = "pending" | "approved" | "rejected";
+/** `expired` (docs/CONTEXT.md §4.28): pending past APPROVAL_TTL_HOURS; the person asks again by running again. */
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
 export type ApprovalDecision = "approve" | "reject";
 export interface ApprovalRequest {
   id: string;
@@ -90,6 +91,10 @@ export interface ApprovalRequest {
   route: string;
   status: ApprovalStatus;
   requestedAt: string;
+  /** How many distinct approvals the datasource asked for (§4.28); absent is one. */
+  approvalsRequired?: number;
+  /** The approvals given so far when more than one is needed, in order. */
+  approvals?: { reviewer: string; at: string }[];
   reviewer?: string;
   reviewedAt?: string;
   windowUntil?: string;

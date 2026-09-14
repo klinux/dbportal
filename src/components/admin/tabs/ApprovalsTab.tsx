@@ -230,6 +230,15 @@ export function ApprovalsTab() {
                               ticket {record.ticket}
                             </div>
                           )}
+                          {/* docs/CONTEXT.md §4.28: two reviewers; who has approved so far. */}
+                          {(record.approvalsRequired ?? 1) > 1 && (
+                            <div className="text-[10px] text-fg-muted mt-1" data-testid={`approvals-${record.id}`}>
+                              {record.approvals?.length ?? 0} of {record.approvalsRequired} approvals
+                              {record.approvals && record.approvals.length > 0
+                                ? ` (${record.approvals.map((a) => a.reviewer).join(", ")})`
+                                : ""}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-xs text-fg-tertiary whitespace-nowrap">
                           {ago(record.requestedAt, now)}

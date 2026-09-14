@@ -197,6 +197,100 @@ describe("approvals store", () => {
   });
 
   // Four eyes: the person who asked is never the person who grants, whatever their role.
+  // docs/CONTEXT.md §4.28: two distinct reviewers; the first is kept, the same one cannot
+  // count twice, a rejection by either ends it, and the window opens on the second.
+  it("a request that needs two reviewers waits after the first approval and opens on the second, by someone else", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const two = await requestApproval({
+        datasourceId: "orders",
+        datasourceName: "Orders",
+        requester: "ana",
+        statement: "DELETE FROM orders WHERE id = 1",
+        route: "POST /api/db/query",
+        approvalsRequired: 2,
+      });
+      expect(two.approvalsRequired).toBe(2);
+      const first = await decideApproval({ id: two.id, reviewer: "root", decision: "approve" });
+      expect(first.status).toBe("pending");
+      expect(first.approvals?.map((a) => a.reviewer)).toEqual(["root"]);
+      expect(first).not.toHaveProperty("windowUntil");
+      expect(await status(decideApproval({ id: two.id, reviewer: "root", decision: "approve" }))).toBe(409);
+      const second = await decideApproval({ id: two.id, reviewer: "bob", decision: "approve" });
+      expect(second.status).toBe("approved");
+      expect(second.reviewer).toBe("bob");
+      expect(second.approvals?.map((a) => a.reviewer)).toEqual(["root", "bob"]);
+      expect(second.windowUntil).toBeDefined();
+      const lines = logSpy.mock.calls
+        .map((c: unknown[]) => c[0])
+        .filter((v): v is string => typeof v === "string" && v.startsWith("{"))
+        .map((v) => JSON.parse(v) as Record<string, unknown>)
+        .filter((l) => l.event === "approval_decision");
+      expect(lines.map((l) => l.action)).toEqual(["approve 1 of 2", "approve"]);
+      // A rejection by the first reviewer ends a fresh one at once.
+      const again = await requestApproval({
+        datasourceId: "plain",
+        datasourceName: "Plain",
+        requester: "ana",
+        statement: "DELETE FROM t",
+        route: "POST /api/db/query",
+        approvalsRequired: 2,
+      });
+      expect((await decideApproval({ id: again.id, reviewer: "root", decision: "reject" })).status).toBe("rejected");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  // docs/CONTEXT.md §4.28: a request nobody decided in time expires on the next read, is written
+  // back and audited, and the person asks again by asking again.
+  it("a pending request older than the TTL expires on read, cannot be decided, and does not stand in for a new one", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const old = await ask("cid", "plain");
+      rows.set(old.id, { ...old, requestedAt: new Date(Date.now() - 25 * 3_600_000).toISOString() });
+      const read = await getApproval(old.id);
+      expect(read?.status).toBe("expired");
+      expect(rows.get(old.id)?.status).toBe("expired");
+      expect((await listMine("cid")).map((r) => r.status)).toEqual(["expired"]);
+      expect(await status(decideApproval({ id: old.id, reviewer: "root", decision: "approve" }))).toBe(409);
+      const fresh = await ask("cid", "plain");
+      expect(fresh.id).not.toBe(old.id);
+      expect(fresh.status).toBe("pending");
+      const line = logSpy.mock.calls
+        .map((c: unknown[]) => c[0])
+        .filter((v): v is string => typeof v === "string" && v.startsWith("{"))
+        .map((v) => JSON.parse(v) as Record<string, unknown>)
+        .find((l) => l.event === "approval_decision" && l.action === "expired");
+      expect(line).toMatchObject({ actor: "system", outcome: "failure", approval_id: old.id });
+      // The bound reads the environment, bounded.
+      process.env.APPROVAL_TTL_HOURS = "1";
+      const short = await ask("dan", "plain");
+      rows.set(short.id, { ...short, requestedAt: new Date(Date.now() - 2 * 3_600_000).toISOString() });
+      expect((await getApproval(short.id))?.status).toBe("expired");
+      delete process.env.APPROVAL_TTL_HOURS;
+    } finally {
+      logSpy.mockRestore();
+      delete process.env.APPROVAL_TTL_HOURS;
+    }
+  });
+
+  it("a broken audit sink does not undo an expiry already stored", async () => {
+    const old = await ask("eve", "plain");
+    rows.set(old.id, { ...old, requestedAt: new Date(Date.now() - 25 * 3_600_000).toISOString() });
+    const logSpy = spyOn(console, "log").mockImplementation(() => {
+      throw new Error("sink down");
+    });
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await getApproval(old.id))?.status).toBe("expired");
+      expect(rows.get(old.id)?.status).toBe("expired");
+    } finally {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
   it("nobody reviews their own request, and a note must be a string", async () => {
     const pending = await ask("root");
     expect(await status(decideApproval({ id: pending.id, reviewer: "root", decision: "approve" }))).toBe(403);

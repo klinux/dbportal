@@ -60,6 +60,7 @@ export function filterByRoles(connections: SeedConnection[], userRoles: string[]
       ...(conn.requireTicket !== undefined ? { requireTicket: conn.requireTicket } : {}),
       ...(conn.exportRoles !== undefined ? { exportRoles: conn.exportRoles } : {}),
       ...(conn.approverRoles !== undefined ? { approverRoles: conn.approverRoles } : {}),
+      ...(conn.approvalsRequired !== undefined ? { approvalsRequired: conn.approvalsRequired } : {}),
       ...(conn.sshProfile !== undefined ? { sshProfile: conn.sshProfile } : {}),
       seedId: conn.id,
     }));

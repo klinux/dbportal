@@ -118,6 +118,17 @@ describe("POST /api/slack/interactions", () => {
     expect(told()[1].text).toContain("*Rejected*");
   });
 
+  // docs/CONTEXT.md §4.28: the first of two approvals is recorded and the presser told; the buttons stay.
+  test("the first of two approvals is told as such, and the execution is not run", async () => {
+    decide.mockImplementationOnce(
+      async () => ({ ...pending, approvalsRequired: 2, approvals: [{ reviewer: "slack:U_REV", at: "x" }] }) as never,
+    );
+    settle.mockImplementationOnce(async (d: ApprovalRequest) => d);
+    await POST(signed(click("approval_approve")));
+    expect(told()[0]).toMatchObject({ response_type: "ephemeral" });
+    expect(told()[0].text).toContain("1 of 2 approvals");
+  });
+
   test("the asker, a non-reviewer, a decided request and a missing one are told so, ephemerally, and nothing is decided", async () => {
     await POST(signed(click("approval_approve", { id: "U_ASKER" })));
     expect(told()[0]).toMatchObject({ response_type: "ephemeral" });

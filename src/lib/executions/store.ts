@@ -10,7 +10,7 @@ import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
 import { providerAccessOptions } from "@/lib/api/write-gate";
 import { ApprovalError } from "@/lib/approvals/errors";
-import { NOTE_MAX_CHARS, STATEMENT_MAX_CHARS } from "@/lib/approvals/store";
+import { NOTE_MAX_CHARS, STATEMENT_MAX_CHARS, getApproval } from "@/lib/approvals/store";
 import { logger } from "@/lib/logger";
 import { maskResult } from "@/lib/masking/store";
 import { notifyCallback, readCallbackUrl } from "@/lib/notify/callback";
@@ -219,6 +219,7 @@ export async function submitExecution(
     kind: "execution",
     ...(guardrail ? { guardrail } : {}),
     ...(ticket ? { ticket } : {}),
+    ...(connection.approvalsRequired === 2 ? { approvalsRequired: 2 } : {}),
     datasourceId,
     datasourceName: connection.name,
     requester: identity.session.username,
@@ -260,6 +261,8 @@ export async function settleDecision(decided: ApprovalRequest): Promise<Approval
     announceOutcome(decided);
     return decided;
   }
+  // The first of two approvals (§4.28): nothing runs yet.
+  if (decided.status !== "approved") return decided;
   const found = await findServiceTokenByActor(decided.requester);
   const identity = found ? { ...found, session: await withNamedRoles(found.session) } : null;
   if (!identity) {
@@ -278,8 +281,7 @@ export async function settleDecision(decided: ApprovalRequest): Promise<Approval
 
 /** One record, only if this token queued it: a token never reads another's requests. */
 export async function getExecutionForToken(id: string, identity: ServiceIdentity): Promise<ApprovalRequest | null> {
-  const store = await requireStore();
-  const record = await store.getApproval(id);
+  const record = await getApproval(id);
   if (!record || record.kind !== "execution" || record.requester !== identity.session.username) return null;
   return record;
 }

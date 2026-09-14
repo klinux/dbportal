@@ -391,6 +391,13 @@ describe("SeedConnectionSchema: write approval", () => {
   });
 
   // docs/CONTEXT.md §4.18: a flag, off unless declared.
+  // docs/CONTEXT.md §4.28: one or two reviewers, nothing else.
+  it("accepts approvalsRequired of 1 or 2 and rejects the rest", () => {
+    expect(SeedConnectionSchema.parse({ ...base, approvalsRequired: 2 }).approvalsRequired).toBe(2);
+    expect(SeedConnectionSchema.parse({ ...base, approvalsRequired: 1 }).approvalsRequired).toBe(1);
+    expect(SeedConnectionSchema.safeParse({ ...base, approvalsRequired: 3 }).success).toBe(false);
+  });
+
   // docs/CONTEXT.md §4.22: the export rule is a principal list like the others.
   it("accepts exportRoles in the principal vocabulary", () => {
     expect(SeedConnectionSchema.parse({ ...base, exportRoles: ["group:analysts", "role:oncall"] }).exportRoles).toEqual(

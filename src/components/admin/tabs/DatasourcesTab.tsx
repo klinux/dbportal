@@ -113,6 +113,7 @@ interface StoreRow {
   roles: string[];
   writeRoles?: string[];
   writeApproval?: boolean;
+  approvalsRequired?: number;
   sshProfile?: string;
   limits?: DatasourceLimits;
   requireTicket?: boolean;
@@ -142,6 +143,7 @@ interface ConfigRow {
   roles: string[];
   writeRoles?: string[];
   writeApproval?: boolean;
+  approvalsRequired?: number;
   sshProfile?: string;
   limits?: DatasourceLimits;
   requireTicket?: boolean;
@@ -184,6 +186,7 @@ export function toDatasourcePayload(
   limits: DatasourceLimits = {},
   requireTicket = false,
   exportRoles: string[] | undefined = undefined,
+  twoReviewers = false,
 ) {
   // The editor's own timeout field is the datasource's timeout limit (§4.16).
   const merged: DatasourceLimits = {
@@ -215,6 +218,7 @@ export function toDatasourcePayload(
     ...(Object.keys(merged).length > 0 ? { limits: merged } : {}),
     ...(requireTicket ? { requireTicket: true } : {}),
     ...(exportRoles !== undefined ? { exportRoles } : {}),
+    ...(writeApproval && twoReviewers ? { approvalsRequired: 2 } : {}),
   };
 }
 
@@ -328,6 +332,7 @@ export function DatasourcesTab() {
   const [groupsInput, setGroupsInput] = useState("");
   const [writeMode, setWriteMode] = useState<WriteMode>("open");
   const [writeApproval, setWriteApproval] = useState(false);
+  const [twoReviewers, setTwoReviewers] = useState(false);
   const [requireTicket, setRequireTicket] = useState(false);
   const [exportRolesInput, setExportRolesInput] = useState("");
   const [maxRows, setMaxRows] = useState("");
@@ -404,6 +409,7 @@ export function DatasourcesTab() {
     setGroupsInput(groupNamesOf(row.roles).join(", "));
     setWriteMode(writeModeOf(row.writeRoles));
     setWriteApproval(row.writeApproval === true);
+    setTwoReviewers(row.approvalsRequired === 2);
     setRequireTicket(row.requireTicket === true);
     setExportRolesInput(exportRolesText(row.exportRoles));
     setMaxRows(row.limits?.maxRows?.toString() ?? "");
@@ -452,6 +458,7 @@ export function DatasourcesTab() {
       limitsOf(maxRows, maxConcurrent),
       requireTicket,
       parseExportRoles(exportRolesInput),
+      twoReviewers,
     );
     try {
       const res = await appFetch(
@@ -549,6 +556,17 @@ export function DatasourcesTab() {
         Writes need approval: a writing statement runs only inside a window a reviewer opened (administrators review
         unless the seed file names approvers)
       </Label>
+      {/* docs/CONTEXT.md §4.28: production-grade changes want two distinct reviewers. */}
+      {writeApproval && (
+        <Label className="flex items-start gap-2 text-xs text-fg-tertiary cursor-pointer ml-6">
+          <Checkbox
+            checked={twoReviewers}
+            onCheckedChange={(checked) => setTwoReviewers(checked === true)}
+            aria-label="Two reviewers"
+          />
+          Two reviewers: a write runs only after two distinct reviewers approved it
+        </Label>
+      )}
       {/* docs/CONTEXT.md §4.18: the audit line of a write joins the change that asked for it. */}
       <Label className="flex items-start gap-2 text-xs text-fg-tertiary cursor-pointer">
         <Checkbox

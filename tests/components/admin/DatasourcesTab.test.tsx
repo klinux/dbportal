@@ -303,6 +303,8 @@ describe("DatasourcesTab", () => {
     fireEvent.click(getByText("New datasource"));
     // docs/CONTEXT.md §4.6: the approval rule is a checkbox, sent only when ticked.
     fireEvent.click(getByLabelText("Writes need approval"));
+    // docs/CONTEXT.md §4.28: the second checkbox appears once approval is on, and travels as approvalsRequired.
+    fireEvent.click(getByLabelText("Two reviewers"));
     fireEvent.change(getByLabelText(/Groups from the identity provider/), { target: { value: "sre, data-platform" } });
     fireEvent.change(getByLabelText("Who may write"), { target: { value: "none" } });
     await act(async () => {
@@ -313,6 +315,7 @@ describe("DatasourcesTab", () => {
     expect(posted.roles).toEqual(["admin", "user", "group:sre", "group:data-platform"]);
     expect(posted.writeRoles).toEqual([]);
     expect(posted.writeApproval).toBe(true);
+    expect(posted.approvalsRequired).toBe(2);
 
     fireEvent.click(getByLabelText("Edit DBA writes"));
     expect((getByLabelText(/Groups from the identity provider/) as HTMLInputElement).value).toBe("dba");
@@ -547,6 +550,13 @@ describe("datasource helpers", () => {
     // docs/CONTEXT.md §4.22: absent unless typed; "nobody" is the empty list; round-trips to the box.
     expect(payload).not.toHaveProperty("exportRoles");
     expect(toDatasourcePayload(built, "id-7", ["*"], undefined, false, {}, false, []).exportRoles).toEqual([]);
+    // docs/CONTEXT.md §4.28: two reviewers only with approval on; absent otherwise.
+    expect(
+      toDatasourcePayload(built, "id-8", ["*"], undefined, true, {}, false, undefined, true).approvalsRequired,
+    ).toBe(2);
+    expect(toDatasourcePayload(built, "id-9", ["*"], undefined, false, {}, false, undefined, true)).not.toHaveProperty(
+      "approvalsRequired",
+    );
     expect(parseExportRoles("  ")).toBeUndefined();
     expect(parseExportRoles("Nobody")).toEqual([]);
     expect(parseExportRoles("a, b,,a")).toEqual(["a", "b"]);

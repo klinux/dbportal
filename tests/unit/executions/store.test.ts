@@ -36,6 +36,15 @@ const datasources: Record<string, Record<string, unknown>> = {
   orders: { id: "orders", seedId: "orders", name: "Orders", type: "postgres", roles: ["*"], writeApproval: true },
   plain: { id: "plain", seedId: "plain", name: "Plain", type: "postgres", roles: ["*"] },
   locked: { id: "locked", seedId: "locked", name: "Locked", type: "postgres", roles: ["*"], writeRoles: ["admin"] },
+  two: {
+    id: "two",
+    seedId: "two",
+    name: "Two",
+    type: "postgres",
+    roles: ["*"],
+    writeApproval: true,
+    approvalsRequired: 2,
+  },
 };
 // Flipped by one test: the datasource refuses the token at run time (mock.module is
 // process-wide, so the mock is switched by a flag rather than re-registered).
@@ -328,6 +337,19 @@ describe("executions store", () => {
     denyAll = true;
     const settled = await settleDecision(missing);
     expect(settled.execution).toMatchObject({ status: "failed", error: "permission_denied" });
+  });
+
+  // docs/CONTEXT.md §4.28: the record carries the datasource's reviewer count; the first of two
+  // approvals runs nothing; a request nobody decided in time reads as expired for the bot.
+  test("two reviewers: the record says so and a still-pending decision runs nothing; an old request reads as expired", async () => {
+    const queued = await ask({ datasourceId: "two", statement: "DELETE FROM t WHERE id = 1" });
+    expect(queued.status).toBe("pending");
+    expect(queued.approvalsRequired).toBe(2);
+    const half = { ...queued, approvals: [{ reviewer: "root", at: "x" }] };
+    expect(await settleDecision(half)).toBe(half);
+    expect(query).not.toHaveBeenCalled();
+    rows.set(queued.id, { ...queued, requestedAt: new Date(Date.now() - 25 * 3_600_000).toISOString() });
+    expect((await getExecutionForToken(queued.id, bot()))?.status).toBe("expired");
   });
 
   test("settleDecision leaves a window request alone, answers a rejection, fails a revoked token's request, and runs an approved one as its token", async () => {

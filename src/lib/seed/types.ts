@@ -187,6 +187,8 @@ export const SeedConnectionSchema = z.object({
   writeApproval: z.boolean().optional(),
   /** Who may grant one; administrators when absent. */
   approverRoles: z.array(AllowedRoleSchema).optional(),
+  /** Two distinct reviewers before a gated write runs (§4.28); one when absent. */
+  approvalsRequired: z.union([z.literal(1), z.literal(2)]).optional(),
   /** Whether DELETE/UPDATE without WHERE, DROP and TRUNCATE need a reviewer even from a writer (§4.15). On unless `false`. */
   guardrails: z.boolean().optional(),
   /** Rows, milliseconds and running statements per person a datasource allows (§4.16). */
@@ -256,6 +258,7 @@ export interface ManagedConnection extends DatabaseConnection {
   writeRoles?: string[];
   writeApproval?: boolean;
   approverRoles?: string[];
+  approvalsRequired?: number;
   guardrails?: boolean;
   limits?: DatasourceLimits;
   requireTicket?: boolean;

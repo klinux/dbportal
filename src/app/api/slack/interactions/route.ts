@@ -113,6 +113,13 @@ export async function POST(request: Request) {
     const decided = await decideApproval({ id: record.id, reviewer, decision });
     const settled = await settleDecision(decided);
     const who = interaction.user?.username ?? interaction.user?.name ?? slackUser;
+    if (settled.status === "pending") {
+      // The first of two approvals (§4.28): recorded, the buttons stay for the second reviewer.
+      void tell(
+        `Recorded: ${settled.approvals?.length ?? 1} of ${settled.approvalsRequired ?? 2} approvals. A second reviewer must approve.`,
+      );
+      return NextResponse.json({});
+    }
     void tell(
       `*${settled.status === "approved" ? "Approved" : "Rejected"}* by @${who} on *${record.datasourceName}*: \`${record.statement.slice(0, 200)}\``,
       true,

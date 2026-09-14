@@ -34,6 +34,55 @@ export const STATEMENT_MAX_CHARS = 32_000;
 export const NOTE_MAX_CHARS = 500;
 const RECENT_LIMIT = 200;
 
+/** How long a request waits for a reviewer before it expires (docs/CONTEXT.md §4.28). */
+export function approvalTtlMs(): number {
+  const hours = Number(process.env.APPROVAL_TTL_HOURS);
+  const bounded = Number.isFinite(hours) && hours > 0 ? Math.min(720, Math.max(1, hours)) : 24;
+  return bounded * 3_600_000;
+}
+
+function expiredCopy(record: ApprovalRequest, now: number): ApprovalRequest | null {
+  if (record.status !== "pending") return null;
+  if (Date.parse(record.requestedAt) + approvalTtlMs() > now) return null;
+  return { ...record, status: "expired", reviewedAt: new Date(now).toISOString() };
+}
+
+/**
+ * The records as they are now: a pending one past its time is expired, written back and
+ * audited, so every reader - the page, the tab's poll, the bot, the gate - sees the same
+ * thing without a scheduler.
+ */
+async function settleExpiry(
+  store: { putApproval(record: ApprovalRequest): Promise<void> },
+  records: ApprovalRequest[],
+  now = Date.now(),
+): Promise<ApprovalRequest[]> {
+  const out: ApprovalRequest[] = [];
+  for (const record of records) {
+    const expired = expiredCopy(record, now);
+    if (!expired) {
+      out.push(record);
+      continue;
+    }
+    await store.putApproval(expired);
+    try {
+      emitAuditEvent({
+        type: "approval_decision",
+        action: "expired",
+        target: record.datasourceId,
+        connectionName: record.datasourceName,
+        user: "system",
+        result: "failure",
+        approvalId: record.id,
+      });
+    } catch (auditError) {
+      logger.error("Failed to record approval expiry audit event", auditError, { route: "approvals/store" });
+    }
+    out.push(expired);
+  }
+  return out;
+}
+
 const STORE_UNAVAILABLE = "Write approval needs server storage: set STORAGE_PROVIDER to sqlite or postgres";
 
 async function requireStore() {
@@ -67,15 +116,19 @@ export async function requestApproval(input: {
   route: string;
   guardrail?: Guardrail;
   ticket?: string;
+  approvalsRequired?: number;
 }): Promise<ApprovalRequest> {
   const store = await requireStore();
-  const [pending] = await store.listApprovals({
-    datasourceId: input.datasourceId,
-    requester: input.requester,
-    status: "pending",
-    limit: 1,
-  });
-  if (pending) return pending;
+  const [pending] = await settleExpiry(
+    store,
+    await store.listApprovals({
+      datasourceId: input.datasourceId,
+      requester: input.requester,
+      status: "pending",
+      limit: 1,
+    }),
+  );
+  if (pending?.status === "pending") return pending;
   const record: ApprovalRequest = {
     id: randomUUID(),
     datasourceId: input.datasourceId,
@@ -87,6 +140,7 @@ export async function requestApproval(input: {
     requestedAt: new Date().toISOString(),
     ...(input.guardrail ? { guardrail: input.guardrail } : {}),
     ...(input.ticket ? { ticket: input.ticket } : {}),
+    ...(input.approvalsRequired === 2 ? { approvalsRequired: 2 } : {}),
   };
   await store.putApproval(record);
   logger.info("Write approval requested", {
@@ -111,6 +165,7 @@ export async function requireWriteWindow(input: {
   route: string;
   guardrail?: Guardrail;
   ticket?: string;
+  approvalsRequired?: number;
 }): Promise<ApprovalRequest> {
   const open = await findOpenWindow(input.datasourceId, input.requester);
   if (open) return open;
@@ -125,13 +180,16 @@ export async function canReview(record: ApprovalRequest, session: AccessSession)
 
 export async function getApproval(id: string): Promise<ApprovalRequest | null> {
   const store = await requireStore();
-  return store.getApproval(id);
+  const record = await store.getApproval(id);
+  if (!record) return null;
+  const [settled] = await settleExpiry(store, [record]);
+  return settled;
 }
 
 /** What a reviewer sees: pending first, then recent decisions, on datasources they may review. */
 export async function listForReviewer(session: AccessSession): Promise<ApprovalRequest[]> {
   const store = await requireStore();
-  const recent = await store.listApprovals({ limit: RECENT_LIMIT });
+  const recent = await settleExpiry(store, await store.listApprovals({ limit: RECENT_LIMIT }));
   // One verdict per distinct datasource, shared by every record on it; the seed loader
   // caches the list, so this is one read per datasource, all in flight together.
   const verdicts = new Map<string, Promise<boolean>>();
@@ -152,7 +210,7 @@ export async function listForReviewer(session: AccessSession): Promise<ApprovalR
 
 export async function listMine(requester: string): Promise<ApprovalRequest[]> {
   const store = await requireStore();
-  return store.listApprovals({ requester, limit: 50 });
+  return settleExpiry(store, await store.listApprovals({ requester, limit: 50 }));
 }
 
 function boundedWindowMinutes(value: unknown): number {
@@ -178,8 +236,9 @@ export async function decideApproval(input: {
   note?: unknown;
 }): Promise<ApprovalRequest> {
   const store = await requireStore();
-  const record = await store.getApproval(input.id);
-  if (!record) throw new ApprovalError(`Approval request "${input.id}" not found`, 404);
+  const found = await store.getApproval(input.id);
+  if (!found) throw new ApprovalError(`Approval request "${input.id}" not found`, 404);
+  const [record] = await settleExpiry(store, [found]);
   if (record.status !== "pending")
     throw new ApprovalError(`Approval request "${input.id}" is already ${record.status}`, 409);
   if (record.requester === input.reviewer) throw new ApprovalError("You cannot review your own request", 403);
@@ -188,28 +247,53 @@ export async function decideApproval(input: {
   const isExecution = record.kind === "execution";
   const minutes = input.decision === "approve" && !isExecution ? boundedWindowMinutes(input.windowMinutes) : undefined;
   const reviewedAt = new Date();
+  const note =
+    typeof input.note === "string" && input.note.length > 0 ? { note: input.note.slice(0, NOTE_MAX_CHARS) } : {};
+  // Two reviewers (§4.28): the first approval is kept on the record and it stays pending
+  // for a second, distinct one; a rejection by either ends it.
+  const needed = record.approvalsRequired ?? 1;
+  const given = record.approvals ?? [];
+  if (input.decision === "approve" && needed > 1) {
+    if (given.some((a) => a.reviewer === input.reviewer)) {
+      throw new ApprovalError("You have already approved this request; a second reviewer must", 409);
+    }
+    const approvals = [...given, { reviewer: input.reviewer, at: reviewedAt.toISOString() }];
+    if (approvals.length < needed) {
+      const waiting: ApprovalRequest = { ...record, approvals, ...note };
+      await store.putApproval(waiting);
+      auditDecision(record, input.reviewer, `approve ${approvals.length} of ${needed}`);
+      return waiting;
+    }
+  }
   const decided: ApprovalRequest = {
     ...record,
     status: input.decision === "approve" ? "approved" : "rejected",
     reviewer: input.reviewer,
     reviewedAt: reviewedAt.toISOString(),
+    ...(needed > 1 && input.decision === "approve"
+      ? { approvals: [...given, { reviewer: input.reviewer, at: reviewedAt.toISOString() }] }
+      : {}),
     ...(minutes !== undefined ? { windowUntil: new Date(reviewedAt.getTime() + minutes * 60_000).toISOString() } : {}),
-    ...(typeof input.note === "string" && input.note.length > 0 ? { note: input.note.slice(0, NOTE_MAX_CHARS) } : {}),
+    ...note,
   };
   await store.putApproval(decided);
+  auditDecision(record, input.reviewer, input.decision);
+  return decided;
+}
+
+function auditDecision(record: ApprovalRequest, reviewer: string, action: string): void {
   try {
     emitAuditEvent({
       type: "approval_decision",
-      action: input.decision,
+      action,
       target: record.datasourceId,
       connectionName: record.datasourceName,
-      user: input.reviewer,
+      user: reviewer,
       result: "success",
       approvalId: record.id,
-      reviewer: input.reviewer,
+      reviewer,
     });
   } catch (auditError) {
     logger.error("Failed to record approval_decision audit event", auditError, { route: "approvals/store" });
   }
-  return decided;
 }

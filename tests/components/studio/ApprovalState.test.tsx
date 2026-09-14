@@ -44,5 +44,10 @@ describe("ApprovalState", () => {
     cleanup();
     const rejected = render(<ApprovalState approval={{ ...base, status: "rejected", reviewer: "root" }} />);
     expect(rejected.getByText("Write rejected")).not.toBeNull();
+    cleanup();
+    // docs/CONTEXT.md §4.28: nobody decided in time; running again asks again.
+    const expired = render(<ApprovalState approval={{ ...base, status: "expired" }} />);
+    expect(expired.getByTestId("approval-state-expired")).not.toBeNull();
+    expect(expired.getByText(/run the statement again to ask again/)).not.toBeNull();
   });
 });

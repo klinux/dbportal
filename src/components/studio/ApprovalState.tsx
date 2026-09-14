@@ -43,6 +43,21 @@ export function ApprovalState({ approval }: { approval: TabApproval }) {
       </div>
     );
   }
+  if (approval.status === "expired") {
+    return (
+      <div
+        className="h-full flex flex-col items-center justify-center text-center px-6 bg-surface"
+        data-testid="approval-state-expired"
+      >
+        <Clock className="w-10 h-10 mb-3 text-fg-muted" strokeWidth={1.5} />
+        <p className="text-sm font-medium text-fg-primary">Request expired</p>
+        <p className="text-xs text-fg-tertiary mt-1 max-w-md leading-relaxed">
+          Nobody reviewed the request on &ldquo;{approval.datasourceName}&rdquo; in time. Nothing ran; run the statement
+          again to ask again.
+        </p>
+      </div>
+    );
+  }
   return (
     <div
       className="h-full flex flex-col items-center justify-center text-center px-6 bg-surface"

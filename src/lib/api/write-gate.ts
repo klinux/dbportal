@@ -83,6 +83,7 @@ export async function assertWriteAllowed(opts: {
       route: opts.route,
       ...(guardrail ? { guardrail } : {}),
       ...(opts.ticket ? { ticket: opts.ticket } : {}),
+      ...(opts.connection.approvalsRequired === 2 ? { approvalsRequired: 2 } : {}),
     });
     return { approvalId: window.id, reviewer: window.reviewer };
   } catch (error) {

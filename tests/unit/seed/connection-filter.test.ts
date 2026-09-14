@@ -65,6 +65,12 @@ describe("filterByRoles: the no-scan choice", () => {
     expect(rowsOnly.queryTimeout).toBeUndefined();
   });
 
+  it("carries the reviewer count through (§4.28)", () => {
+    const [two] = filterByRoles([{ ...baseConn, approvalsRequired: 2 }], ["admin"]);
+    expect(two.approvalsRequired).toBe(2);
+    expect(filterByRoles([{ ...baseConn }], ["admin"])[0].approvalsRequired).toBeUndefined();
+  });
+
   it("carries the export rule through (§4.22)", () => {
     const [strict] = filterByRoles([{ ...baseConn, exportRoles: [] }], ["admin"]);
     expect(strict.exportRoles).toEqual([]);

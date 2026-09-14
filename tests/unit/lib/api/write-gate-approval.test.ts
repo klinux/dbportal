@@ -119,6 +119,18 @@ describe("assertWriteAllowed with write approval", () => {
     expect(gatedErr.approval.guardrail).toBe("drop");
   });
 
+  // docs/CONTEXT.md §4.28: the datasource's reviewer count travels onto the request.
+  test("a datasource that asks for two reviewers puts that on the request", async () => {
+    const err = await assertWriteAllowed({
+      route: "POST /api/db/query",
+      session,
+      connection: { ...gated, approvalsRequired: 2 },
+      statements: ["UPDATE t SET a = 1 WHERE id = 1"],
+      request,
+    }).catch((e) => e);
+    expect(err.approval.approvalsRequired).toBe(2);
+  });
+
   // docs/CONTEXT.md §4.18: the ticket travels onto the request the reviewer sees.
   test("the ticket named with a write that waits is on the request", async () => {
     const err = await assertWriteAllowed({

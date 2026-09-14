@@ -223,6 +223,24 @@ describe("ApprovalsTab", () => {
     expect(mockToastSuccess).toHaveBeenCalledWith('Ran on "Orders" for U0123');
   });
 
+  // docs/CONTEXT.md §4.28: a request waiting for its second reviewer says who approved so far; an expired one is labelled.
+  test("a two-reviewer request shows its approvals so far, and an expired request its status", async () => {
+    mockGlobalFetch({
+      "/api/approvals": {
+        ok: true,
+        json: {
+          approvals: [
+            { ...pending, approvalsRequired: 2, approvals: [{ reviewer: "root", at: pending.requestedAt }] },
+            { ...rejected, id: "req-9", status: "expired", reviewer: undefined },
+          ],
+        },
+      },
+    });
+    const { getByTestId } = await renderLoaded();
+    expect(getByTestId("approvals-req-1").textContent).toBe("1 of 2 approvals (root)");
+    expect(getByTestId("approval-req-9").textContent).toContain("expired");
+  });
+
   // docs/CONTEXT.md §4.21: a statement longer than the fold shows its head, and the rest on request.
   test("a long statement is folded with a toggle that shows all of it", async () => {
     const long = `UPDATE orders SET status = 'x' WHERE id IN (${Array.from({ length: 500 }, (_, i) => i).join(", ")})`;

@@ -36,6 +36,7 @@ export const CONNECTION_FIELDS: Record<keyof DatabaseConnection, FieldClass> = {
   // The NAME of a profile; its secrets live in the profile store, sealed there (§4.9).
   sshProfile: "public",
   requireTicket: "public",
+  approvalsRequired: "public",
   exportRoles: "public",
   canExport: "public",
   serviceName: "public",

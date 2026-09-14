@@ -117,6 +117,13 @@ export function useWriteApprovals({ tabs, setTabs, pollMs = APPROVAL_POLL_MS }: 
                 title: "Write approved",
                 description: `${approval.reviewer} opened a window on "${approval.datasourceName}" until ${fmtTime(approval.windowUntil!)}. Run the statement again.`,
               });
+            } else if (approval.status === "expired") {
+              // docs/CONTEXT.md §4.28: nobody decided in time; running again asks again.
+              toast({
+                title: "Approval request expired",
+                description: `Nobody reviewed the request on "${approval.datasourceName}" in time. Run the statement again to ask again.`,
+                variant: "destructive",
+              });
             } else {
               toast({
                 title: "Write rejected",

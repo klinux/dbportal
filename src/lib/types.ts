@@ -192,6 +192,8 @@ export interface DatabaseConnection {
   sshProfile?: string;
   /** Writes on this datasource must name a ticket or incident (docs/CONTEXT.md §4.18). */
   requireTicket?: boolean;
+  /** How many distinct reviewers a write needs when it needs approval (docs/CONTEXT.md §4.28): 1 or 2. */
+  approvalsRequired?: number;
   /** Who may export a result of this datasource as a file (docs/CONTEXT.md §4.22); absent means the environment's default. */
   exportRoles?: string[];
   /** Decided per session by the server, like `readOnly`: whether this session may export (§4.22). */
@@ -370,7 +372,7 @@ export interface QueryResult {
  */
 export interface TabApproval {
   id: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "expired";
   datasourceId: string;
   datasourceName: string;
   requestedAt: string;

@@ -1320,6 +1320,11 @@ Auth required. One request, for its requester or a reviewer of its datasource; `
 
 #### POST /api/approvals/[id]
 
+A request's `status` is `pending`, `approved`, `rejected` or `expired` (docs/CONTEXT.md §4.28: pending past
+`APPROVAL_TTL_HOURS`). On a datasource with `approvalsRequired: 2` the first approval leaves the request
+pending with `approvals: [{ reviewer, at }]`; the second, by a different reviewer, approves it; a reviewer
+who already approved gets `409`.
+
 Reviewer only (`403` otherwise, audited). Body `{ "decision": "approve" | "reject", "windowMinutes"?: 1–240 (default 15), "note"?: string }`.
 Answers the decided request with `reviewer`, `reviewedAt` and, for an approval, `windowUntil`.
 `404` unknown id, `409` already decided, `403` when the reviewer is the requester, `503` without server storage.
@@ -1380,6 +1385,7 @@ interface DatabaseConnection {
   sshTunnel?: SSHTunnelConfig; // Bastion hop before the database host
   sshProfile?: string;     // A bastion declared once (docs/SEED_CONNECTIONS.md "SSH profiles"); the server builds sshTunnel from it
   requireTicket?: boolean; // Writes need a ticket or incident reference (docs/CONTEXT.md §4.18)
+  approvalsRequired?: number; // How many distinct reviewers a gated write needs (docs/CONTEXT.md §4.28): 1 or 2
   exportRoles?: string[];  // Who may export a result as a file (docs/CONTEXT.md §4.22); absent means the environment's default
   canExport?: boolean;     // Decided per session by the server, like readOnly: whether this session may export (§4.22)
   serviceName?: string;    // Oracle: service name (e.g. ORCL, XEPDB1)

@@ -533,9 +533,16 @@ built. Each lands as its own section when done.
   Operations and Queries tabs carry the filters and a pager over the store's answer, so a
   week of a fleet is read a page at a time; the Stats tab keeps a bounded window of the
   newest executions.
-- **4.28 Two reviewers, and requests that expire** — a datasource may ask for two
-  approvals (`approvalsRequired: 2`) before a write on production runs; a pending request
-  expires after a bounded time (`APPROVAL_TTL_HOURS`) and is answered as such.
+- **4.28 Two reviewers, and requests that expire — done.** A datasource may ask for two
+  distinct reviewers (`approvalsRequired: 2`, seed file or the editor's "Two reviewers"):
+  the first approval is kept on the request (`approvals: [{ reviewer, at }]`, audited as
+  `approve 1 of 2`) and it stays pending for a second, different reviewer; a rejection by
+  either ends it; the same reviewer cannot approve twice. A bot's execution runs only on
+  the final approval, and a Slack press that is the first of two is told so while the
+  buttons stay. A pending request older than `APPROVAL_TTL_HOURS` (24 by default, 1 to
+  720) is `expired` - settled on every read (the page, the tab's poll, the bot, the gate),
+  written back and audited as `approval_decision` / `expired` by `system`, so nothing
+  schedules it; the studio says so and running again asks again.
 - **4.29 Alerts** (asked 2026-09-14) — an alerts area, in the shape of Redash's: a person
   writes a query on a datasource they may open, a schedule, and a condition on the value it
   returns (`> 100`, `== 0`, changed since last run); when the condition holds the alert
