@@ -336,8 +336,17 @@ built. Each lands as its own section when done.
   which the middleware lets through on shape and the route verifies in constant time;
   unset, the endpoint is a 404. Labels are closed values and datasource names, never a
   person, a statement or an address.
-- **4.12 Audit export to a SIEM** — the audit line shipped off the machine, Elastic first
-  (bulk API, bearer or API key), with retention on `audit_events`.
+- **4.12 Audit export to a SIEM — done.** [`src/lib/audit-export/elastic.ts`](../src/lib/audit-export/elastic.ts):
+  with `AUDIT_ELASTIC_URL` (and an `AUDIT_ELASTIC_API_KEY`), every audit line - the same
+  line stdout gets, `toAuditLine` - is queued and shipped to Elasticsearch through the
+  Bulk API as NDJSON, `create` with the event's own id so a retry cannot duplicate,
+  in batches of `AUDIT_ELASTIC_BATCH` or after `AUDIT_ELASTIC_FLUSH_MS`, retried three
+  times with backoff and then dropped with one warning and a counter
+  (`dbportal_audit_export_total{sink,outcome}`); the queue is bounded at ten thousand
+  lines. Never a blocked request: an index that is down must not take the portal down.
+  Retention: `AUDIT_RETENTION_DAYS` prunes `audit_events` in the server store, swept at
+  most once an hour after an append (`pruneAuditEvents` on both providers). Wired in
+  `src/lib/audit-persistence.ts`, one sink composed of the store and the exporter.
 - **4.13 Readiness and liveness** — `/api/health/live` (the process answers) apart from
   `/api/health/ready` (the store, and Vault when configured, answer), for rollouts.
 - **4.14 Backup and restore** — the portal's own store is managed (GCP) and backed up

@@ -122,6 +122,7 @@ export interface GaugeSample {
 const HELP: Record<string, string> = {
   dbportal_audit_events_total: "Audit events emitted, by event type, action and outcome.",
   dbportal_execution_duration_seconds: "Latency of statements run through the portal, by route and datasource.",
+  dbportal_audit_export_total: "Audit lines shipped to, rejected by, or dropped before a SIEM sink.",
 };
 
 function formatNumber(value: number): string {

@@ -193,6 +193,12 @@ export class PostgresStorageProvider implements ServerStorageProvider {
     return rows[0]?.n ?? 0;
   }
 
+  async pruneAuditEvents(before: string): Promise<number> {
+    this.ensurePool();
+    const result = await this.pool!.query("DELETE FROM audit_events WHERE ts < $1", [before]);
+    return result.rowCount ?? 0;
+  }
+
   async putApproval(record: ApprovalRequest): Promise<void> {
     this.ensurePool();
     await this.pool!.query(

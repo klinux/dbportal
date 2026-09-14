@@ -78,6 +78,9 @@ class CaptureProvider implements ServerStorageProvider {
   async countAuditEvents(): Promise<number> {
     return 0;
   }
+  async pruneAuditEvents(): Promise<number> {
+    return 0;
+  }
   readonly rows = new Map<string, unknown>();
 
   async initialize(): Promise<void> {}

@@ -210,6 +210,12 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
     return row?.n ?? 0;
   }
 
+  async pruneAuditEvents(before: string): Promise<number> {
+    this.ensureDb();
+    const result = this.db!.prepare("DELETE FROM audit_events WHERE ts < ?").run(before);
+    return Number(result.changes ?? 0);
+  }
+
   async putApproval(record: ApprovalRequest): Promise<void> {
     this.ensureDb();
     this.db!.prepare(

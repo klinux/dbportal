@@ -445,7 +445,7 @@ export function sanitizeAuditInput(event: Omit<AuditEvent, "id" | "timestamp">):
  * The stdout record. Built as an explicit allowlist, never as a spread of a wider object, so that
  * a field added to AuditEvent later cannot silently start being logged.
  */
-interface AuditLogLine {
+export interface AuditLogLine {
   schema: string;
   ts: string;
   id: string;
@@ -476,7 +476,7 @@ export function isStatementAuditEnabled(): boolean {
   return (process.env.AUDIT_INCLUDE_SQL ?? "").trim().toLowerCase() === "true";
 }
 
-function toAuditLine(event: AuditEvent): AuditLogLine {
+export function toAuditLine(event: AuditEvent): AuditLogLine {
   return {
     schema: AUDIT_SCHEMA,
     ts: event.timestamp,

@@ -194,6 +194,15 @@ describe("the warning", () => {
 
 // docs/CONTEXT.md §4.6: approval requests carry a statement and names, never a credential -
 // passed through the encrypting layer untouched, like the audit record.
+// docs/CONTEXT.md §4.12: the retention delete reaches the inner provider as it is.
+describe("audit retention passes through", () => {
+  test("pruneAuditEvents reaches the inner provider unchanged", async () => {
+    const inner = stubProvider({ pruneAuditEvents: mock(async () => 4) as never });
+    expect(await withCredentialEncryption(inner).pruneAuditEvents("2026-01-01T00:00:00.000Z")).toBe(4);
+    expect(inner.pruneAuditEvents).toHaveBeenCalledWith("2026-01-01T00:00:00.000Z");
+  });
+});
+
 describe("approval requests pass through", () => {
   test("put, get and list reach the inner provider as they are", async () => {
     const record = {

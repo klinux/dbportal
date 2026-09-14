@@ -407,10 +407,29 @@ describe("SQLiteStorageProvider", () => {
       expect(await provider.countAuditEvents()).toBe(0);
     });
 
+    // docs/CONTEXT.md §4.12: retention is the one delete the append-only table allows.
+    test("pruneAuditEvents deletes what is older than the instant and answers the driver's change count", async () => {
+      await provider.initialize();
+      const run = mock(() => ({ changes: 5 }));
+      mockPrepare.mockImplementationOnce(() => ({ get: mock(() => undefined), all: mock(() => []), run }));
+      expect(await provider.pruneAuditEvents("2026-06-01T00:00:00.000Z")).toBe(5);
+      expect(String((mockPrepare.mock.calls.at(-1) as unknown[])[0])).toContain(
+        "DELETE FROM audit_events WHERE ts < ?",
+      );
+      expect(run).toHaveBeenCalledWith("2026-06-01T00:00:00.000Z");
+      mockPrepare.mockImplementationOnce(() => ({
+        get: mock(() => undefined),
+        all: mock(() => []),
+        run: mock(() => ({})),
+      }));
+      expect(await provider.pruneAuditEvents("2026-06-01T00:00:00.000Z")).toBe(0);
+    });
+
     test("every audit method refuses before initialize()", async () => {
       await expect(provider.appendAuditEvent(event)).rejects.toThrow("not initialized");
       await expect(provider.listAuditEvents({ limit: 1 })).rejects.toThrow("not initialized");
       await expect(provider.countAuditEvents()).rejects.toThrow("not initialized");
+      await expect(provider.pruneAuditEvents("x")).rejects.toThrow("not initialized");
     });
   });
 

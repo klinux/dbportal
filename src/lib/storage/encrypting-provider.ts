@@ -72,6 +72,10 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
     return this.inner.listAuditEvents(query);
   }
 
+  pruneAuditEvents(before: string): Promise<number> {
+    return this.inner.pruneAuditEvents(before);
+  }
+
   countAuditEvents(): Promise<number> {
     return this.inner.countAuditEvents();
   }

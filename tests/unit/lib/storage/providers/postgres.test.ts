@@ -114,10 +114,23 @@ describe("PostgresStorageProvider", () => {
       expect(await provider.countAuditEvents()).toBe(0);
     });
 
+    // docs/CONTEXT.md §4.12: retention is the one delete the append-only table allows.
+    test("pruneAuditEvents deletes what is older than the instant and answers the count, 0 when the driver gives none", async () => {
+      await provider.initialize();
+      mockQuery.mockImplementation(async () => ({ rows: [], rowCount: 12 }));
+      expect(await provider.pruneAuditEvents("2026-06-01T00:00:00.000Z")).toBe(12);
+      const [sql, params] = mockQuery.mock.calls.at(-1) as [string, unknown[]];
+      expect(sql).toContain("DELETE FROM audit_events WHERE ts < $1");
+      expect(params).toEqual(["2026-06-01T00:00:00.000Z"]);
+      mockQuery.mockImplementation(async () => ({ rows: [] }));
+      expect(await provider.pruneAuditEvents("2026-06-01T00:00:00.000Z")).toBe(0);
+    });
+
     test("every audit method refuses before initialize()", async () => {
       await expect(provider.appendAuditEvent(event)).rejects.toThrow("not initialized");
       await expect(provider.listAuditEvents({ limit: 1 })).rejects.toThrow("not initialized");
       await expect(provider.countAuditEvents()).rejects.toThrow("not initialized");
+      await expect(provider.pruneAuditEvents("x")).rejects.toThrow("not initialized");
     });
   });
 

@@ -131,6 +131,8 @@ export interface ServerStorageProvider {
   listAuditEvents(query: AuditEventQuery): Promise<AuditEvent[]>;
   /** How many events the store holds. */
   countAuditEvents(): Promise<number>;
+  /** Delete audit events older than `before` (ISO instant); the number removed (§4.12 retention). */
+  pruneAuditEvents(before: string): Promise<number>;
   /** Write or replace one approval request by its id (§4.6). */
   putApproval(record: ApprovalRequest): Promise<void>;
   getApproval(id: string): Promise<ApprovalRequest | null>;
