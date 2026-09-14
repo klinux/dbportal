@@ -33,6 +33,8 @@ export async function assertWriteAllowed(opts: {
   connection: ManagedConnection;
   statements: readonly string[];
   request: Request;
+  /** The ticket or incident the caller named (§4.18), already read and bounded. */
+  ticket?: string;
 }): Promise<WriteAccess> {
   const offending = opts.statements.find((sql) => !isReadStatement(sql, opts.connection.type));
   if (offending === undefined) return {};
@@ -45,6 +47,20 @@ export async function assertWriteAllowed(opts: {
     });
     throw new SeedConnectionError(
       `This datasource is read-only for you: only statements that read may run on "${opts.connection.name}"`,
+      403,
+    );
+  }
+  // A datasource that requires a ticket (§4.18) refuses a write that names none: the audit
+  // line of a change to production has to join the change that asked for it.
+  if (opts.connection.requireTicket && !opts.ticket) {
+    auditRoleDenial({
+      route: opts.route,
+      user: opts.session.username,
+      request: opts.request,
+      reason: "ticket_required",
+    });
+    throw new SeedConnectionError(
+      `A ticket or incident reference is required to write on "${opts.connection.name}"; add one to the tab before running`,
       403,
     );
   }
@@ -66,6 +82,7 @@ export async function assertWriteAllowed(opts: {
       statement: offending,
       route: opts.route,
       ...(guardrail ? { guardrail } : {}),
+      ...(opts.ticket ? { ticket: opts.ticket } : {}),
     });
     return { approvalId: window.id, reviewer: window.reviewer };
   } catch (error) {

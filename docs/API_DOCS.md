@@ -1238,6 +1238,11 @@ Admin: `GET /api/admin/service-tokens`, `POST /api/admin/service-tokens` — bod
 `{ name, role?, groups?, datasources?, requireApproval? }`, `201 { token, secret }` (the secret
 is returned once); `DELETE /api/admin/service-tokens/[id]` revokes. Audited as `service_token`.
 
+Every execution route (`/api/db/query`, `/api/db/multi-query`, `/api/db/transaction`) and the
+bot's `POST /api/v1/executions` accept an optional `ticket` (a string, trimmed to 120
+characters) that is written to the `query_execution` audit line as `ticket`; a datasource
+with `requireTicket: true` answers `403` to a write without one (docs/CONTEXT.md §4.18).
+
 A statement over a datasource's `limits.maxConcurrent` is refused with `429` and code
 `CONCURRENCY_LIMIT` (docs/CONTEXT.md §4.16); `options.limit` above `limits.maxRows` is cut to
 the cap, and `options.unlimited` is bounded by it.
@@ -1323,6 +1328,7 @@ interface DatabaseConnection {
   ssl?: SSLConfig;         // TLS mode and optional certificates
   sshTunnel?: SSHTunnelConfig; // Bastion hop before the database host
   sshProfile?: string;     // A bastion declared once (docs/SEED_CONNECTIONS.md "SSH profiles"); the server builds sshTunnel from it
+  requireTicket?: boolean; // Writes need a ticket or incident reference (docs/CONTEXT.md §4.18)
   serviceName?: string;    // Oracle: service name (e.g. ORCL, XEPDB1)
   instanceName?: string;   // MSSQL: named instance (e.g. SQLEXPRESS)
   localDataCenter?: string; // Cassandra only, and REQUIRED there: the driver refuses to connect without it (`datacenter1` on a stock single node)

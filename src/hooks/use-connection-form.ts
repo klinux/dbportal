@@ -58,6 +58,8 @@ const FIELD_OWNERSHIP: Record<keyof DatabaseConnection, FieldOwnership> = {
   ssl: "edited",
   sshTunnel: "edited",
   sshProfile: "edited",
+  // The datasource's ticket rule (docs/CONTEXT.md §4.18) is the admin editor's field, not this form's.
+  requireTicket: "preserved",
   serviceName: "edited",
   instanceName: "edited",
   localDataCenter: "edited",

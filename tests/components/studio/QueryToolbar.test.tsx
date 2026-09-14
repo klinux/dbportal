@@ -469,4 +469,27 @@ describe("QueryToolbar write window chip", () => {
     const none = render(<QueryToolbar {...createDefaultProps({ writeWindow: null })} />);
     expect(none.queryByTestId("write-window-chip")).toBeNull();
   });
+
+  // docs/CONTEXT.md §4.18: the ticket box renders when the caller can store it, says when
+  // the datasource requires one, and hands every keystroke back.
+  test("the ticket box renders only with a handler, marks a missing required ticket, and reports edits", () => {
+    const { queryByTestId } = render(<QueryToolbar {...createDefaultProps()} />);
+    expect(queryByTestId("toolbar-ticket")).toBeNull();
+    cleanup();
+    const onTicketChange = mock(() => {});
+    const { getByTestId } = render(
+      <QueryToolbar {...createDefaultProps({ ticket: "", onTicketChange, ticketRequired: true })} />,
+    );
+    const box = getByTestId("toolbar-ticket") as HTMLInputElement;
+    expect(box.placeholder).toBe("Ticket (required to write)");
+    expect(box.className).toContain("border-status-danger");
+    fireEvent.change(box, { target: { value: "INC-42" } });
+    expect(onTicketChange).toHaveBeenCalledWith("INC-42");
+    cleanup();
+    const filled = render(<QueryToolbar {...createDefaultProps({ ticket: "INC-42", onTicketChange })} />);
+    const filledBox = filled.getByTestId("toolbar-ticket") as HTMLInputElement;
+    expect(filledBox.value).toBe("INC-42");
+    expect(filledBox.placeholder).toBe("Ticket / incident");
+    expect(filledBox.className).not.toContain("border-status-danger");
+  });
 });

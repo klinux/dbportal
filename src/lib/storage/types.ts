@@ -91,6 +91,8 @@ export interface ApprovalRequest {
   execution?: ExecutionOutcome;
   /** The guardrail the statement tripped (§4.15), when that is why the request exists. */
   guardrail?: Guardrail;
+  /** The ticket or incident the requester named (§4.18). */
+  ticket?: string;
 }
 
 export interface ExecutionReply {

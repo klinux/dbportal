@@ -223,6 +223,13 @@ describe("ApprovalsTab", () => {
     expect(mockToastSuccess).toHaveBeenCalledWith('Ran on "Orders" for U0123');
   });
 
+  // docs/CONTEXT.md §4.18: the reviewer sees the change the request is for.
+  test("a request that named a ticket shows it under the statement", async () => {
+    mockGlobalFetch({ "/api/approvals": { ok: true, json: { approvals: [{ ...pending, ticket: "INC-42" }] } } });
+    const { getByTestId } = await renderLoaded();
+    expect(getByTestId("ticket-req-1").textContent).toBe("ticket INC-42");
+  });
+
   // docs/CONTEXT.md §4.15: the reviewer sees why a statement waits when a guardrail held it.
   test("a request held by a guardrail is badged with the guardrail's name", async () => {
     mockGlobalFetch({

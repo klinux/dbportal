@@ -60,6 +60,33 @@ describe("assertWriteAllowed", () => {
     }
   });
 
+  // docs/CONTEXT.md §4.18: a datasource that requires a ticket refuses a write without one; a read needs none.
+  test("a datasource that requires a ticket refuses a write that names none, and takes one that does", async () => {
+    const strict = { ...base, requireTicket: true };
+    const err = await assertWriteAllowed({
+      route: "r",
+      session,
+      connection: strict,
+      statements: ["DELETE FROM t WHERE id = 1"],
+      request,
+    }).catch((e) => e);
+    expect(err.statusCode).toBe(403);
+    expect(err.message).toContain("ticket or incident reference is required");
+    expect(
+      await assertWriteAllowed({ route: "r", session, connection: strict, statements: ["SELECT 1"], request }),
+    ).toEqual({});
+    expect(
+      await assertWriteAllowed({
+        route: "r",
+        session,
+        connection: strict,
+        statements: ["DELETE FROM t WHERE id = 1"],
+        request,
+        ticket: "INC-42",
+      }),
+    ).toEqual({});
+  });
+
   test("lets everything through when the session may write", async () => {
     expect(
       await assertWriteAllowed({ route: "r", session, connection: base, statements: ["DROP TABLE t"], request }),

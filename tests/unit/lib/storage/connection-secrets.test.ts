@@ -120,6 +120,8 @@ describe("the classification is exhaustive by construction", () => {
         // The NAME of an SSH profile (docs/CONTEXT.md §4.9); the profile's own secrets are
         // sealed where the profile is stored, never on the datasource.
         "sshProfile",
+        // The ticket rule (docs/CONTEXT.md §4.18): a policy flag, nothing secret.
+        "requireTicket",
         "sshTunnel",
         "type",
         "user",

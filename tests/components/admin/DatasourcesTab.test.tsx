@@ -181,6 +181,7 @@ describe("DatasourcesTab", () => {
     });
     const { getByText, getByLabelText } = await renderLoaded();
     fireEvent.click(getByText("New datasource"));
+    fireEvent.click(getByLabelText("Writes need a ticket"));
     fireEvent.change(getByLabelText("Rows per statement, at most"), { target: { value: "250" } });
     fireEvent.change(getByLabelText("Running statements per person, at most"), { target: { value: "2" } });
     await act(async () => {
@@ -190,11 +191,10 @@ describe("DatasourcesTab", () => {
       });
     });
     const post = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "POST")!;
-    expect(JSON.parse((post[1] as RequestInit).body as string).limits).toEqual({
-      maxRows: 250,
-      maxConcurrent: 2,
-      queryTimeoutMs: 1500,
-    });
+    const posted = JSON.parse((post[1] as RequestInit).body as string);
+    expect(posted.limits).toEqual({ maxRows: 250, maxConcurrent: 2, queryTimeoutMs: 1500 });
+    // docs/CONTEXT.md §4.18: the ticket rule travels when ticked.
+    expect(posted.requireTicket).toBe(true);
     fireEvent.click(getByLabelText("Edit Orders"));
     expect((getByLabelText("Rows per statement, at most") as HTMLInputElement).value).toBe("50");
     expect((getByLabelText("Running statements per person, at most") as HTMLInputElement).value).toBe("1");
@@ -534,6 +534,9 @@ describe("datasource helpers", () => {
       maxRows: 10,
       maxConcurrent: 2,
     });
+    // docs/CONTEXT.md §4.18: the ticket rule travels only when ticked.
+    expect(payload).not.toHaveProperty("requireTicket");
+    expect(toDatasourcePayload(built, "id-6", ["*"], undefined, false, {}, true).requireTicket).toBe(true);
     expect(limitsOf(" 100 ", "")).toEqual({ maxRows: 100 });
     expect(limitsOf("0", "abc")).toEqual({});
     expect(limitsOf("", "3")).toEqual({ maxConcurrent: 3 });

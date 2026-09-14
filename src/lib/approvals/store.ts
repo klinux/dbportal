@@ -61,6 +61,7 @@ export async function requestApproval(input: {
   statement: string;
   route: string;
   guardrail?: Guardrail;
+  ticket?: string;
 }): Promise<ApprovalRequest> {
   const store = await requireStore();
   const [pending] = await store.listApprovals({
@@ -80,6 +81,7 @@ export async function requestApproval(input: {
     status: "pending",
     requestedAt: new Date().toISOString(),
     ...(input.guardrail ? { guardrail: input.guardrail } : {}),
+    ...(input.ticket ? { ticket: input.ticket } : {}),
   };
   await store.putApproval(record);
   logger.info("Write approval requested", {
@@ -103,6 +105,7 @@ export async function requireWriteWindow(input: {
   statement: string;
   route: string;
   guardrail?: Guardrail;
+  ticket?: string;
 }): Promise<ApprovalRequest> {
   const open = await findOpenWindow(input.datasourceId, input.requester);
   if (open) return open;

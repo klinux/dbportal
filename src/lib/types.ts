@@ -190,6 +190,8 @@ export interface DatabaseConnection {
   sshTunnel?: SSHTunnelConfig;
   /** The id of the SSH profile a managed datasource is reached through (docs/CONTEXT.md §4.9); the server builds `sshTunnel` from it. */
   sshProfile?: string;
+  /** Writes on this datasource must name a ticket or incident (docs/CONTEXT.md §4.18). */
+  requireTicket?: boolean;
   serviceName?: string; // Oracle: service name (e.g. ORCL, XEPDB1)
   instanceName?: string; // MSSQL: named instance (e.g. SQLEXPRESS)
   /**
@@ -381,6 +383,8 @@ export interface QueryTab {
   result: QueryResult | null;
   isExecuting: boolean;
   approval?: TabApproval;
+  /** The ticket or incident this tab's executions are for (docs/CONTEXT.md §4.18). */
+  ticket?: string;
   type: "sql" | "mongodb" | "redis" | "libredb";
   viewMode?: "results" | "explain" | "history" | "saved";
   explainPlan?: unknown;

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readTicket } from "@/lib/api/ticket";
 import type { QueryPrepareOptions } from "@/lib/db/types";
 import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import { getOrCreateProvider } from "@/lib/db";
@@ -127,6 +128,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { sql, options = {} } = body;
+    const ticket = readTicket(body.ticket);
 
     const connection = await resolveConnection(body, guard.session);
 
@@ -153,6 +155,7 @@ export async function POST(req: NextRequest) {
       connection,
       statements: statements.map((statement) => statement.sql),
       request: req,
+      ticket,
     });
 
     const provider = await getOrCreateProvider(connection, {
@@ -172,6 +175,7 @@ export async function POST(req: NextRequest) {
       user: guard.session.username,
       connectionName: connection.name,
       ip: clientAddress(req),
+      ...(ticket ? { ticket } : {}),
       ...access,
     };
 

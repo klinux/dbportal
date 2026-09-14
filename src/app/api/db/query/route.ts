@@ -11,6 +11,7 @@ import { assertWriteAllowed, providerAccessOptions } from "@/lib/api/write-gate"
 import { maskResult } from "@/lib/masking/store";
 import { clientAddress } from "@/lib/api/client-address";
 import { capPrepareOptions, withConcurrency } from "@/lib/limits";
+import { readTicket } from "@/lib/api/ticket";
 import type { ExplainFormat } from "@/lib/db/types";
 
 /**
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { sql, options = {}, queryId } = body;
     const reveal = body.reveal === true;
+    const ticket = readTicket(body.ticket);
 
     const connection = await resolveConnection(body, guard.session);
 
@@ -84,6 +86,7 @@ export async function POST(req: NextRequest) {
       connection,
       statements: [explain.explain ? `EXPLAIN ${sql}` : sql],
       request: req,
+      ticket,
     });
 
     const provider = await getOrCreateProvider(connection, {
@@ -140,6 +143,7 @@ export async function POST(req: NextRequest) {
           connectionName: connection.name,
           statement: prepared.query,
           ip: clientAddress(req),
+          ...(ticket ? { ticket } : {}),
           ...access,
         },
         () =>

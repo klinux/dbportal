@@ -112,6 +112,8 @@ export type AuditReason =
   | "guardrail"
   /** A write refused because a freeze window covers the datasource (docs/CONTEXT.md §4.17). */
   | "freeze_window"
+  /** A write refused because the datasource requires a ticket and none was named (docs/CONTEXT.md §4.18). */
+  | "ticket_required"
   /** The secrets manager did not answer, refused, or answered without a credential (§4.5). */
   | "credential_provider_failed"
   /** A write on an approval-gated datasource with no open window: it became a request (§4.6). */
@@ -169,6 +171,8 @@ export interface AuditEvent {
    * a reader needs to attribute the execution.
    */
   subject?: string;
+  /** The ticket or incident the execution was for (docs/CONTEXT.md §4.18), as the caller named it. */
+  ticket?: string;
 }
 
 const MAX_EVENTS = 1000;
@@ -471,6 +475,7 @@ export interface AuditLogLine {
   approval_id?: string;
   reviewer?: string;
   subject?: string;
+  ticket?: string;
   statement?: string;
 }
 
@@ -502,6 +507,7 @@ export function toAuditLine(event: AuditEvent): AuditLogLine {
     ...(event.approvalId ? { approval_id: event.approvalId } : {}),
     ...(event.reviewer ? { reviewer: event.reviewer } : {}),
     ...(event.subject ? { subject: event.subject } : {}),
+    ...(event.ticket ? { ticket: event.ticket } : {}),
     // Number.isFinite excludes NaN and +/-Infinity: JSON.stringify(NaN) silently produces `null`,
     // which would flip duration_ms from a number to null for that one line in a contract parsers
     // depend on. Omitting it entirely keeps the field's type stable instead.

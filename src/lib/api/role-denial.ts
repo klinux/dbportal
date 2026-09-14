@@ -32,7 +32,13 @@ export function auditRoleDenial(opts: {
   user: string;
   request?: Request;
   /** `insufficient_role` unless the denial is a datasource's own rule (docs/CONTEXT.md §4.4). */
-  reason?: "insufficient_role" | "read_only_datasource" | "approval_required" | "guardrail" | "freeze_window";
+  reason?:
+    | "insufficient_role"
+    | "read_only_datasource"
+    | "approval_required"
+    | "guardrail"
+    | "freeze_window"
+    | "ticket_required";
 }): void {
   const notice = consumeRateLimit("anon", opts.user);
   if (!notice.allowed && !notice.tripped) return;

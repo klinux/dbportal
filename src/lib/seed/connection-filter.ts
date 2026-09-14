@@ -57,6 +57,7 @@ export function filterByRoles(connections: SeedConnection[], userRoles: string[]
       // field the provider factory reads.
       ...(conn.limits !== undefined ? { limits: conn.limits } : {}),
       ...(conn.limits?.queryTimeoutMs !== undefined ? { queryTimeout: conn.limits.queryTimeoutMs } : {}),
+      ...(conn.requireTicket !== undefined ? { requireTicket: conn.requireTicket } : {}),
       ...(conn.approverRoles !== undefined ? { approverRoles: conn.approverRoles } : {}),
       ...(conn.sshProfile !== undefined ? { sshProfile: conn.sshProfile } : {}),
       seedId: conn.id,

@@ -198,6 +198,19 @@ where that is unwanted - a scratch database - opts out:
     guardrails: false
 ```
 
+### Ticket on every write
+
+With `requireTicket: true` a datasource refuses a statement that writes unless the request
+names a ticket or incident (docs/CONTEXT.md §4.18) - the studio's toolbar has a box for it,
+and the bot API takes `ticket` - and the audit line carries it as `ticket`:
+
+```yaml
+  - id: "prod-orders"
+    type: postgres
+    host: orders.internal
+    requireTicket: true
+```
+
 ### Limits
 
 What one statement may return, how long it may run, and how many a person may have

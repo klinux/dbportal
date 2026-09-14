@@ -195,6 +195,14 @@ export function ApprovalsTab() {
                           <pre className="font-mono text-[11px] whitespace-pre-wrap break-all max-w-xl text-fg-secondary">
                             {record.statement}
                           </pre>
+                          {record.ticket && (
+                            <div
+                              className="font-mono text-[10px] text-fg-muted mt-1"
+                              data-testid={`ticket-${record.id}`}
+                            >
+                              ticket {record.ticket}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-xs text-fg-tertiary whitespace-nowrap">
                           {ago(record.requestedAt, now)}

@@ -65,6 +65,13 @@ describe("filterByRoles: the no-scan choice", () => {
     expect(rowsOnly.queryTimeout).toBeUndefined();
   });
 
+  it("carries the ticket rule through (§4.18)", () => {
+    const [strict] = filterByRoles([{ ...baseConn, requireTicket: true }], ["admin"]);
+    expect(strict.requireTicket).toBe(true);
+    const [plain] = filterByRoles([{ ...baseConn }], ["admin"]);
+    expect(plain.requireTicket).toBeUndefined();
+  });
+
   it("leaves it absent for a seed that does not ask for it", () => {
     const [managed] = filterByRoles([{ ...baseConn }], ["admin"]);
     expect(managed.skipObjectScan).toBeUndefined();

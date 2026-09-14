@@ -268,6 +268,23 @@ describe("executions store", () => {
     expect(query).toHaveBeenCalledTimes(1);
   });
 
+  // docs/CONTEXT.md §4.18: the ticket is read, bounded, kept on the record and written to the audit line.
+  test("a ticket travels with the request into the audit line; a datasource that requires one refuses a write without it", async () => {
+    const withTicket = await ask({ ticket: `  ${"x".repeat(130)}  ` });
+    expect(withTicket.ticket).toBe("x".repeat(120));
+    expect(audited().at(-1)).toMatchObject({ ticket: "x".repeat(120) });
+    datasources.plain.requireTicket = true;
+    try {
+      const refused = await ask({ statement: "DELETE FROM t WHERE id = 1" }).catch((e) => e);
+      expect(refused.statusCode).toBe(403);
+      expect(refused.message).toContain("ticket or incident reference is required");
+      expect((await ask({ statement: "DELETE FROM t WHERE id = 1", ticket: "INC-1" })).ticket).toBe("INC-1");
+      expect((await ask({})).status).toBe("approved");
+    } finally {
+      delete datasources.plain.requireTicket;
+    }
+  });
+
   test("a failed run stores a closed reason, never the driver's words, and still answers the thread", async () => {
     queryFails = Object.assign(new Error('relation "secret_table" does not exist'), { name: "QueryError" });
     const record = await ask({});

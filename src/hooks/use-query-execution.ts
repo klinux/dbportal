@@ -400,6 +400,8 @@ export function useQueryExecution({
             // without values must stay a request without a `params` key (#290).
             ...(params && { params }),
             ...(reveal && !isExplain && { reveal: true }),
+            // The tab's ticket (docs/CONTEXT.md §4.18), so the audit line joins the change.
+            ...(currentTab.ticket && { ticket: currentTab.ticket }),
             ...(useTransaction
               ? { action: "query", sql: queryToExecute, options: { limit, offset, unlimited } }
               : {
@@ -713,6 +715,7 @@ export function useQueryExecution({
     },
     [
       activeConnection,
+      currentTab.ticket,
       toast,
       fetchSchema,
       onObjectsChanged,

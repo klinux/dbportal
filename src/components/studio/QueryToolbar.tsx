@@ -20,6 +20,11 @@ interface QueryToolbarProps {
    * open or just closed; omitted where nothing was ever approved.
    */
   writeWindow?: WriteWindow | null;
+  /** The tab's ticket or incident reference (docs/CONTEXT.md §4.18); the box renders when the caller can store it. */
+  ticket?: string;
+  onTicketChange?: (ticket: string) => void;
+  /** Whether the active datasource refuses a write without one. */
+  ticketRequired?: boolean;
   /** Omitted where the caller offers nowhere to save a query to. */
   onSaveQuery?: () => void;
   onExecuteQuery: () => void;
@@ -58,6 +63,9 @@ export function QueryToolbar({
   onTogglePlayground,
   onToggleEditing,
   onImport,
+  ticket,
+  onTicketChange,
+  ticketRequired,
 }: QueryToolbarProps) {
   // Bundled so the three cannot be half-supplied: a caller offering BEGIN without
   // COMMIT would strand the user inside a transaction it cannot close.
@@ -87,6 +95,19 @@ export function QueryToolbar({
             <span className="text-xs font-medium text-hue-blue">Query</span>
           </div>
           {writeWindow && <WriteWindowChip window={writeWindow} />}
+          {onTicketChange && (
+            <input
+              aria-label="Ticket"
+              value={ticket ?? ""}
+              onChange={(e) => onTicketChange(e.target.value)}
+              placeholder={ticketRequired ? "Ticket (required to write)" : "Ticket / incident"}
+              maxLength={120}
+              className={`h-7 w-44 rounded border px-2 text-[11px] font-mono bg-panel text-fg-secondary placeholder:text-fg-muted ${
+                ticketRequired && !ticket ? "border-status-danger/50" : "border-hairline-strong"
+              }`}
+              data-testid="toolbar-ticket"
+            />
+          )}
           {/* The separator is chrome for Save; with Save withheld it would be a rule
               standing alone, the same reason the control group drops its border (#427). */}
           {onSaveQuery && (

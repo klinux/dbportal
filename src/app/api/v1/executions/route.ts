@@ -19,7 +19,13 @@ export async function POST(request: Request) {
     const body = await readObjectBody(request);
     if (!body) return NextResponse.json({ error: "Request body must be a JSON object" }, { status: 400 });
     const record = await submitExecution(
-      { datasourceId: body.datasourceId, statement: body.statement, onBehalfOf: body.onBehalfOf, reply: body.reply },
+      {
+        datasourceId: body.datasourceId,
+        statement: body.statement,
+        onBehalfOf: body.onBehalfOf,
+        reply: body.reply,
+        ticket: body.ticket,
+      },
       guard.identity,
     );
     return NextResponse.json({ execution: record }, { status: record.status === "pending" ? 202 : 200 });

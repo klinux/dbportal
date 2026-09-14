@@ -1454,6 +1454,32 @@ describe("useQueryExecution", () => {
     expect(mockToastError).not.toHaveBeenCalled();
   });
 
+  // docs/CONTEXT.md §4.18: the tab's ticket travels with the run, and only when set.
+  test("sends the tab's ticket with the request, and no ticket key when the tab has none", async () => {
+    const fetchMock = mockGlobalFetch({ "/api/db/query": { ok: true, json: mockQueryResult } });
+    const tab = createTab({ ticket: "INC-42" });
+    const params = createDefaultParams({ tabs: [tab], currentTab: tab });
+    const { result } = renderHook(() => useQueryExecution(params));
+    await act(async () => {
+      await result.current.executeQuery("SELECT 1");
+    });
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0] as unknown[])[1]
+        ? (((fetchMock.mock.calls[0] as unknown[])[1] as RequestInit).body as string)
+        : "{}",
+    );
+    expect(body.ticket).toBe("INC-42");
+    const bare = createTab({});
+    const { result: bareResult } = renderHook(() =>
+      useQueryExecution(createDefaultParams({ tabs: [bare], currentTab: bare })),
+    );
+    await act(async () => {
+      await bareResult.current.executeQuery("SELECT 1");
+    });
+    const last = JSON.parse(((fetchMock.mock.calls.at(-1) as unknown[])[1] as RequestInit).body as string);
+    expect(last).not.toHaveProperty("ticket");
+  });
+
   // docs/CONTEXT.md §4.15: when a guardrail held the statement, the tab's record carries it
   // and the notice says which one, so the person knows it is the statement, not the datasource.
   test("carries the guardrail into the parked request and names it in the notice", async () => {

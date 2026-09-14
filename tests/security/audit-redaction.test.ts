@@ -29,6 +29,7 @@ const ALLOWED_KEYS = new Set([
   "approval_id",
   "reviewer",
   "subject",
+  "ticket",
   "statement",
 ]);
 
@@ -696,6 +697,28 @@ describe("approval fields on the line", () => {
 
   // docs/CONTEXT.md §4.10: a service token's execution names the person it acted for, so the
   // line has two names to attribute by - the token as actor, the person as subject.
+  // docs/CONTEXT.md §4.18: the change that asked, on the line, bounded like every field.
+  test("ticket is written when set and absent otherwise", () => {
+    const line = captureLine(() =>
+      emitAuditEvent({
+        type: "query_execution",
+        action: "query",
+        target: "t",
+        user: "ana",
+        result: "success",
+        ticket: "INC-42",
+      }),
+    );
+    expect(line.ticket).toBe("INC-42");
+    for (const key of Object.keys(line)) {
+      expect({ key, allowed: ALLOWED_KEYS.has(key) }).toEqual({ key, allowed: true });
+    }
+    const without = captureLine(() =>
+      emitAuditEvent({ type: "query_execution", action: "query", target: "t", user: "ana", result: "success" }),
+    );
+    expect(without).not.toHaveProperty("ticket");
+  });
+
   test("subject is written when set, bounded like every field, and absent otherwise", () => {
     const line = captureLine(() =>
       emitAuditEvent({

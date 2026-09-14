@@ -45,6 +45,8 @@ export interface ExecutionAuditContext {
   reviewer?: string;
   /** The person a service token ran this for (§4.10). */
   subject?: string;
+  /** The ticket or incident the execution was for (§4.18). */
+  ticket?: string;
 }
 
 /**
@@ -82,6 +84,7 @@ function record(
       ...(outcome.result === "failure" ? { reason: outcome.reason } : {}),
       ...(context.approvalId ? { approvalId: context.approvalId, reviewer: context.reviewer } : {}),
       ...(context.subject ? { subject: context.subject } : {}),
+      ...(context.ticket ? { ticket: context.ticket } : {}),
       ...(context.ip ? { ip: context.ip } : {}),
       ...(context.statement !== undefined && isStatementAuditEnabled() ? { details: context.statement } : {}),
     });

@@ -394,8 +394,13 @@ built. Each lands as its own section when done.
   bot queue refuses a write at submission and fails one approved into a window. Ended
   early by deleting. The check is a comparison of instants on every write from a cached
   list; no scheduler. Reads are never frozen.
-- **4.18 Ticket on every execution** — a `reason`/ticket field that travels into the audit
-  line; required where the datasource says so.
+- **4.18 Ticket on every execution — done.** A tab in the studio has a ticket box in its
+  toolbar (the value lives on the tab and travels with every run of it); the query,
+  multi-query and transaction routes and the bot API read `ticket` (trimmed, 120
+  characters), and the `query_execution` line carries it as `ticket`, so the trail says
+  not only who and what but which change asked. A datasource with `requireTicket: true`
+  (seed file or editor) refuses a write that names none - audited as `ticket_required` -
+  and a request that waits for a reviewer carries the ticket for them to see.
 - **4.19 Named roles** — beyond `admin`/`user`: a reviewer who does not administer, an
   on-call who writes only inside a window; groups from OIDC mapped to them.
 - **4.20 Runbooks** — shared, parameterised saved queries per datasource.

@@ -733,6 +733,9 @@ export default function Studio() {
                           transactionActive={txn.transactionActive}
                           editingEnabled={editingEnabled}
                           writeWindow={approvals.windowFor(conn.activeConnection?.seedId ?? conn.activeConnection?.id)}
+                          ticket={tabMgr.currentTab.ticket ?? ""}
+                          onTicketChange={(ticket) => tabMgr.updateCurrentTab({ ticket })}
+                          ticketRequired={conn.activeConnection?.requireTicket === true}
                           onSaveQuery={() => setIsSaveQueryModalOpen(true)}
                           onExecuteQuery={() => queryExec.executeQuery()}
                           onCancelQuery={() => queryExec.cancelQuery()}

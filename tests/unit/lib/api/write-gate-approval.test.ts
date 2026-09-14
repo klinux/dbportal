@@ -119,6 +119,19 @@ describe("assertWriteAllowed with write approval", () => {
     expect(gatedErr.approval.guardrail).toBe("drop");
   });
 
+  // docs/CONTEXT.md §4.18: the ticket travels onto the request the reviewer sees.
+  test("the ticket named with a write that waits is on the request", async () => {
+    const err = await assertWriteAllowed({
+      route: "POST /api/db/query",
+      session,
+      connection: gated,
+      statements: ["UPDATE t SET a = 1 WHERE id = 1"],
+      request,
+      ticket: "INC-7",
+    }).catch((e) => e);
+    expect(err.approval.ticket).toBe("INC-7");
+  });
+
   test("inside a window the write runs, and the gate names the approval and its reviewer", async () => {
     const err = await gate(["DELETE FROM t"]).catch((e) => e);
     await decideApproval({ id: err.approval.id, reviewer: "root", decision: "approve" });

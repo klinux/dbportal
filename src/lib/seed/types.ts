@@ -128,6 +128,8 @@ export const SeedConnectionSchema = z.object({
   guardrails: z.boolean().optional(),
   /** Rows, milliseconds and running statements per person a datasource allows (§4.16). */
   limits: LimitsSchema.optional(),
+  /** Writes must name a ticket or incident (§4.18). */
+  requireTicket: z.boolean().optional(),
   /** The SSH profile (a bastion declared once) this datasource is reached through (§4.9). */
   sshProfile: z.string().optional(),
   managed: z.boolean().optional(),
@@ -181,6 +183,7 @@ export interface ManagedConnection extends DatabaseConnection {
   approverRoles?: string[];
   guardrails?: boolean;
   limits?: DatasourceLimits;
+  requireTicket?: boolean;
   sshProfile?: string;
   seedId: string;
 }

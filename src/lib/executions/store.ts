@@ -4,6 +4,7 @@ import { dangerOf } from "@/lib/guardrails";
 import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import { activeFreeze } from "@/lib/freezes/store";
 import { freezeMessage } from "@/lib/api/write-gate";
+import { readTicket } from "@/lib/api/ticket";
 import { auditExecution } from "@/lib/audit-execution";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
@@ -48,6 +49,7 @@ export interface ExecutionRequestInput {
   statement: unknown;
   onBehalfOf?: unknown;
   reply?: unknown;
+  ticket?: unknown;
 }
 
 function readReply(value: unknown): ExecutionReply | undefined {
@@ -110,6 +112,7 @@ export async function runExecution(record: ApprovalRequest, identity: ServiceIde
           statement: prepared.query,
           ...(record.reviewer ? { approvalId: record.id, reviewer: record.reviewer } : {}),
           subject: record.subject,
+          ...(record.ticket ? { ticket: record.ticket } : {}),
         },
         () => provider.query(prepared.query),
       ),
@@ -183,7 +186,11 @@ export async function submitExecution(
       403,
     );
   }
+  const ticket = readTicket(input.ticket);
   if (writes) {
+    if (connection.requireTicket && !ticket) {
+      throw new ApprovalError(`A ticket or incident reference is required to write on "${connection.name}"`, 403);
+    }
     const frozen = await activeFreeze(datasourceId);
     if (frozen) throw new ApprovalError(freezeMessage(connection.name, frozen), 403);
   }
@@ -193,6 +200,7 @@ export async function submitExecution(
     id: randomUUID(),
     kind: "execution",
     ...(guardrail ? { guardrail } : {}),
+    ...(ticket ? { ticket } : {}),
     datasourceId,
     datasourceName: connection.name,
     requester: identity.session.username,

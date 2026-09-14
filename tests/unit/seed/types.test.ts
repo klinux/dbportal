@@ -357,6 +357,12 @@ describe("SeedConnectionSchema: write approval", () => {
     expect(SeedConnectionSchema.safeParse({ ...base, limits: "many" }).success).toBe(false);
   });
 
+  // docs/CONTEXT.md §4.18: a flag, off unless declared.
+  it("accepts requireTicket and rejects anything but a boolean", () => {
+    expect(SeedConnectionSchema.parse({ ...base, requireTicket: true }).requireTicket).toBe(true);
+    expect(SeedConnectionSchema.safeParse({ ...base, requireTicket: "yes" }).success).toBe(false);
+  });
+
   // docs/CONTEXT.md §4.15: on unless declared off.
   it("accepts guardrails: false as the opt-out and nothing else in that field", () => {
     expect(SeedConnectionSchema.parse({ ...base, guardrails: false }).guardrails).toBe(false);

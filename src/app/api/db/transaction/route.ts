@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readTicket } from "@/lib/api/ticket";
 import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { action, sql, options = {} } = body;
+    const ticket = readTicket(body.ticket);
 
     const connection = await resolveConnection(body, guard.session);
 
@@ -55,6 +57,7 @@ export async function POST(req: NextRequest) {
         connection,
         statements: [sql],
         request: req,
+        ticket,
       });
     }
 
@@ -81,6 +84,7 @@ export async function POST(req: NextRequest) {
           connectionName: connection.name,
           ip: clientAddress(req),
           ...(statement !== undefined ? { statement } : {}),
+          ...(ticket ? { ticket } : {}),
           ...access,
         },
         invoke,

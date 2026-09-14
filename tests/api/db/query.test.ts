@@ -812,6 +812,20 @@ describe("POST /api/db/query with an explain request", () => {
 
   // docs/CONTEXT.md §4.16: the datasource's limits hold what the client asked for, and
   // the statement over the person's concurrency limit is a 429 that names the datasource.
+  // docs/CONTEXT.md §4.18: the ticket the tab named is read here and decides a write on a strict datasource.
+  test("a datasource that requires a ticket refuses a write without one and takes one with it; a read needs none", async () => {
+    const post = (body: Record<string, unknown>) =>
+      POST(createMockRequest("/api/db/query", { method: "POST", body }) as never);
+    const strict = { ...validConnection, requireTicket: true, guardrails: false };
+    expect((await post({ connection: strict, sql: "SELECT 1" })).status).toBe(200);
+    const refused = await post({ connection: strict, sql: "UPDATE users SET name = 'x' WHERE id = 1" });
+    expect(refused.status).toBe(403);
+    expect(((await parseResponseJSON(refused)) as { error: string }).error).toContain("ticket");
+    expect(
+      (await post({ connection: strict, sql: "UPDATE users SET name = 'x' WHERE id = 1", ticket: " INC-42 " })).status,
+    ).toBe(200);
+  });
+
   describe("limits per datasource", () => {
     const limited = { ...validConnection, limits: { maxRows: 10, maxConcurrent: 1 } };
     const post = (body: Record<string, unknown>) =>
