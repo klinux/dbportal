@@ -103,7 +103,7 @@ library packaging, and any AI agent work beyond what is already here.
 
 | Admin · Audit | |
 | --- | --- |
-| ![Every execution and operation](docs/screenshots/admin-audit.png) | |
+| ![Every execution and operation](docs/screenshots/admin-audit.png) | ![Alerts on a datasource, fired to channels](docs/screenshots/alerts.png) |
 
 Regenerate them against a running dev server with `node scripts/screenshots.mjs`
 (see the header of that script for the variables it reads).
@@ -127,6 +127,7 @@ make stop         # app and database down
 
 `make help` lists the rest (`dev-bg`, `db-reset`, `status`, `check`, `test`, `coverage`).
 
+Operators: [docs/OPERATOR_GUIDE.md](docs/OPERATOR_GUIDE.md), from zero to the first datasource.
 Kubernetes: see [charts/](charts/) and [docs/HELM_CHART.md](docs/HELM_CHART.md).
 Managed datasources: [docs/SEED_CONNECTIONS.md](docs/SEED_CONNECTIONS.md).
 SSO: [docs/OIDC.md](docs/OIDC.md).

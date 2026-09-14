@@ -676,8 +676,14 @@ built. Each lands as its own section when done.
   reaches the browser or the store. Reading a secret's shape is audited as `vault_secret`;
   what Vault answered stays in the server log (the client sees a 502). Not a Vault UI: a
   secret whose keys carry other names fills nothing and the sheet says which keys it saw.
-- **4.35 Operator guide** — `docs/OPERATOR_GUIDE.md`: from zero to the first datasource,
-  OIDC, the seed file, a backup; screenshots of the newer pages.
+- **4.35 Operator guide — done.** [`docs/OPERATOR_GUIDE.md`](OPERATOR_GUIDE.md): the
+  order of the steps from an empty cluster to a team using the portal - the three decisions
+  before installing (the store, sign-in, where credentials live), the install and the image
+  verification, the first datasource through the two-tab sheet, who is who (named roles,
+  tokens, approvals), the production guardrails, the Operations page, alerts and channels,
+  the trail, the agent role run apart, and day two - each step pointing at the page with the
+  detail. Screenshots of the newer pages (the datasource sheet, alerts, channels) sit in
+  `docs/screenshots/`.
 
 ## 5. Decisions already taken
 
