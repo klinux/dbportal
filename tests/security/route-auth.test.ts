@@ -248,6 +248,8 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists and declares environments in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/environments.test.ts proves the 403",
   "admin/environments/[id]":
     "deletes one stored environment (DELETE, no POST export), asking the datasource store whether it is used; never opens a user database. Same admin gate",
+  "admin/principals":
+    "lists the principals already named anywhere - the seed file, the app's own storage backend, the tokens (GET); never opens a user database. Admin-gated by requireAdmin; tests/api/admin/principals.test.ts proves the 403",
   "admin/roles":
     "lists and declares named roles in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/roles.test.ts proves the 403",
   "admin/roles/[id]":
@@ -451,6 +453,8 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/api/freezes": "the freeze window routes' error answer; reaches no provider",
     "@/lib/api/roles": "the named role routes' error answer; reaches no provider",
     "@/lib/api/environments": "the environment routes' error answer; reaches no provider",
+    "@/lib/principals":
+      "the principals already named in the seed file, the app's own storage backend and the tokens, gathered once; opens no user database",
     "@/lib/environments/store":
       "environments from the built-ins, the seed file and the app's own storage backend, merged by id; opens no user database",
     "@/lib/api/runbooks": "the runbook routes' error answer and id reader; reaches no provider",

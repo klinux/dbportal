@@ -14,6 +14,30 @@ import type { DatabaseConnection } from "@/lib/types";
  * becomes - and tests/components/ConnectionModal.test.tsx owns the form itself.
  */
 let capturedModalProps: Record<string, unknown> = {};
+// docs/CONTEXT.md §4.37: the picker is its own component with its own test
+// (tests/components/admin/PrincipalPicker.test.tsx); here a box that takes a comma-separated list stands in.
+mock.module("@/components/admin/PrincipalPicker", () => ({
+  PrincipalPicker: (props: { value: string[]; onChange: (next: string[]) => void; idPrefix: string; label: string }) =>
+    React.createElement(
+      "div",
+      { "data-testid": `${props.idPrefix}-picker` },
+      ...props.value.map((id) =>
+        React.createElement("span", { key: id, "data-testid": `${props.idPrefix}-chip-${id}` }, id),
+      ),
+      React.createElement("input", {
+        "aria-label": props.label,
+        "data-testid": `${props.idPrefix}-input`,
+        onChange: (e: { target: { value: string } }) =>
+          props.onChange(
+            e.target.value
+              .split(",")
+              .map((s: string) => s.trim())
+              .filter(Boolean),
+          ),
+      }),
+    ),
+}));
+
 mock.module("@/components/ConnectionModal", () => ({
   ConnectionModal: (props: Record<string, unknown>) => {
     capturedModalProps = props;
@@ -25,7 +49,8 @@ mock.module("@/components/ConnectionModal", () => ({
       React.createElement("h2", null, heading.title),
       React.createElement("p", null, heading.description),
       React.createElement("span", { "data-testid": "submit-label" }, String(props.submitLabel)),
-      props.extraFields as React.ReactNode,
+      props.securityFields as React.ReactNode,
+      props.passwordNote as React.ReactNode,
     );
   },
 }));
@@ -181,12 +206,10 @@ describe("DatasourcesTab", () => {
         datasources: [{ ...storeRow, limits: { maxRows: 50, queryTimeoutMs: 9000, maxConcurrent: 1 } }],
       }),
     });
-    const { getByText, getByLabelText } = await renderLoaded();
+    const { getByText, getByLabelText, getByTestId } = await renderLoaded();
     fireEvent.click(getByText("New datasource"));
     fireEvent.click(getByLabelText("Writes need a ticket"));
-    fireEvent.change(getByLabelText(/^Who may export results/), {
-      target: { value: " group:analysts, role:oncall , group:analysts" },
-    });
+    fireEvent.change(getByTestId("export-input"), { target: { value: " group:analysts, role:oncall " } });
     fireEvent.change(getByLabelText("Rows per statement, at most"), { target: { value: "250" } });
     fireEvent.change(getByLabelText("Running statements per person, at most"), { target: { value: "2" } });
     await act(async () => {
@@ -295,7 +318,7 @@ describe("DatasourcesTab", () => {
       writeApproval: true,
     };
     const fetchMock = mockGlobalFetch({ "/api/admin/datasources": listing({ datasources: [storeRow, custom] }) });
-    const { getByText, getByLabelText, getAllByText } = await renderLoaded();
+    const { getByText, getByLabelText, getAllByText, getByTestId } = await renderLoaded();
     expect(getAllByText("dba").length).toBeGreaterThan(0);
     expect(getByText("writes restricted")).not.toBeNull();
     expect(getByText("approval")).not.toBeNull();
@@ -305,7 +328,7 @@ describe("DatasourcesTab", () => {
     fireEvent.click(getByLabelText("Writes need approval"));
     // docs/CONTEXT.md §4.28: the second checkbox appears once approval is on, and travels as approvalsRequired.
     fireEvent.click(getByLabelText("Two reviewers"));
-    fireEvent.change(getByLabelText(/Groups from the identity provider/), { target: { value: "sre, data-platform" } });
+    fireEvent.change(getByTestId("open-input"), { target: { value: "group:sre, group:data-platform" } });
     fireEvent.change(getByLabelText("Who may write"), { target: { value: "none" } });
     await act(async () => {
       await (capturedModalProps.onConnect as (c: DatabaseConnection) => Promise<void>)(built);
@@ -318,7 +341,7 @@ describe("DatasourcesTab", () => {
     expect(posted.approvalsRequired).toBe(2);
 
     fireEvent.click(getByLabelText("Edit DBA writes"));
-    expect((getByLabelText(/Groups from the identity provider/) as HTMLInputElement).value).toBe("dba");
+    expect(getByTestId("open-chip-group:dba")).not.toBeNull();
     expect((getByLabelText("Who may write") as HTMLSelectElement).value).toBe("custom");
     await act(async () => {
       await (capturedModalProps.onConnect as (c: DatabaseConnection) => Promise<void>)({ ...built, password: "" });
@@ -343,7 +366,7 @@ describe("DatasourcesTab", () => {
 
   test("a datasource nobody may open is refused before anything is sent", async () => {
     const fetchMock = mockGlobalFetch({ "/api/admin/datasources": listing() });
-    const { getByText, getByLabelText } = await renderLoaded();
+    const { getByText, getByLabelText, getByTestId } = await renderLoaded();
     fireEvent.click(getByText("New datasource"));
     fireEvent.click(getByLabelText("Administrators"));
     fireEvent.click(getByLabelText("Users"));

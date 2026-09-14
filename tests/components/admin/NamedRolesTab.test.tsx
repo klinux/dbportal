@@ -3,6 +3,31 @@ import { mockToastSuccess, mockToastError } from "../../helpers/mock-sonner";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { render, fireEvent, cleanup, waitFor, act, within } from "@testing-library/react";
 import { mockGlobalFetch, restoreGlobalFetch } from "../../helpers/mock-fetch";
+import { mock } from "bun:test";
+import React from "react";
+// docs/CONTEXT.md §4.37: the picker is its own component with its own test
+// (tests/components/admin/PrincipalPicker.test.tsx); here a box that takes a comma-separated list stands in.
+mock.module("@/components/admin/PrincipalPicker", () => ({
+  PrincipalPicker: (props: { value: string[]; onChange: (next: string[]) => void; idPrefix: string; label: string }) =>
+    React.createElement(
+      "div",
+      { "data-testid": `${props.idPrefix}-picker` },
+      ...props.value.map((id) =>
+        React.createElement("span", { key: id, "data-testid": `${props.idPrefix}-chip-${id}` }, id),
+      ),
+      React.createElement("input", {
+        "aria-label": props.label,
+        "data-testid": `${props.idPrefix}-input`,
+        onChange: (e: { target: { value: string } }) =>
+          props.onChange(
+            e.target.value
+              .split(",")
+              .map((s: string) => s.trim())
+              .filter(Boolean),
+          ),
+      }),
+    ),
+}));
 import { NamedRolesTab, parseMembers, slugifyRoleId } from "@/components/admin/tabs/NamedRolesTab";
 
 /**
@@ -68,14 +93,14 @@ describe("NamedRolesTab", () => {
       "/api/admin/roles": (req) =>
         req.method === "POST" ? { ok: true, status: 201, json: { role: oncall } } : listing([]),
     });
-    const { getByText, getByLabelText } = await renderLoaded();
+    const { getByText, getByLabelText, getByTestId } = await renderLoaded();
     fireEvent.click(getByText("New role"));
     fireEvent.click(getByText("Declare role"));
     expect(mockToastError).toHaveBeenCalledWith("A name and at least one member are required.");
     fireEvent.change(getByLabelText("Name"), { target: { value: "On-call (EU)" } });
     expect(getByText("role:on-call-eu")).not.toBeNull();
-    fireEvent.change(getByLabelText("Members (one per line)"), {
-      target: { value: "group:sre-oncall\n user:ana@example.test , group:sre-oncall\n\n" },
+    fireEvent.change(getByTestId("members-input"), {
+      target: { value: "group:sre-oncall, user:ana@example.test, group:sre-oncall" },
     });
     await act(async () => {
       fireEvent.click(getByText("Declare role"));
@@ -94,10 +119,10 @@ describe("NamedRolesTab", () => {
       "/api/admin/roles": (req) =>
         req.method === "POST" ? { ok: false, status: 409, json: { error: "already exists" } } : listing([]),
     });
-    const { getByText, getByLabelText } = await renderLoaded();
+    const { getByText, getByLabelText, getByTestId } = await renderLoaded();
     fireEvent.click(getByText("New role"));
     fireEvent.change(getByLabelText("Name"), { target: { value: "Dup" } });
-    fireEvent.change(getByLabelText("Members (one per line)"), { target: { value: "admin" } });
+    fireEvent.change(getByTestId("members-input"), { target: { value: "admin" } });
     await act(async () => {
       fireEvent.click(getByText("Declare role"));
     });

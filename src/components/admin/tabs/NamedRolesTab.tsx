@@ -3,6 +3,7 @@
 import { appFetch } from "@/lib/config/base-path";
 import { useCallback, useEffect, useState } from "react";
 import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
+import { PrincipalPicker } from "@/components/admin/PrincipalPicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,6 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,10 +40,10 @@ export interface NamedRoleView {
 
 interface Draft {
   name: string;
-  members: string;
+  members: string[];
 }
 
-const EMPTY: Draft = { name: "", members: "" };
+const EMPTY: Draft = { name: "", members: [] };
 
 export function slugifyRoleId(name: string): string {
   return name
@@ -98,7 +98,7 @@ export function NamedRolesTab() {
 
   const create = async () => {
     const id = slugifyRoleId(draft.name);
-    const members = parseMembers(draft.members);
+    const members = [...new Set(draft.members)];
     if (!id || !draft.name.trim() || members.length === 0) {
       toast.error("A name and at least one member are required.");
       return;
@@ -259,16 +259,15 @@ export function NamedRolesTab() {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="role-members" className="text-xs text-fg-tertiary">
-                  Members (one per line)
-                </Label>
-                <Textarea
-                  id="role-members"
+                <Label className="text-xs text-fg-tertiary">Members</Label>
+                {/* docs/CONTEXT.md §4.37: picked from what the deployment knows, or typed once. */}
+                <PrincipalPicker
                   value={draft.members}
-                  onChange={(e) => setDraft({ ...draft, members: e.target.value })}
-                  placeholder={"group:sre-oncall\nuser:ana@example.test"}
-                  rows={5}
-                  className="text-xs font-mono bg-panel border-hairline-strong"
+                  onChange={(members) => setDraft({ ...draft, members })}
+                  kinds={["role", "group", "user"]}
+                  placeholder="Add member"
+                  idPrefix="members"
+                  label="Add a member"
                 />
               </div>
             </div>

@@ -172,7 +172,8 @@ run_group "Group 2/6: Sidebar" \
 # CommandPalette.test.tsx replaces with a mock.module stub for the whole process).
 run_group "Group 2b/6: Datasource picker" \
   tests/components/sidebar/ConnectionsList.test.tsx \
-  tests/components/sidebar/ConnectionPicker.test.tsx
+  tests/components/sidebar/ConnectionPicker.test.tsx \
+  tests/components/admin/PrincipalPicker.test.tsx
 
 # Group 3: BottomPanel (isolated — mocks ResultsGrid, QueryHistory, DataCharts, SchemaDiff)
 run_group "Group 3/6: BottomPanel" \

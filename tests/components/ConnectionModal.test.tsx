@@ -486,6 +486,25 @@ describe("ConnectionModal", () => {
     expect(getByTestId("caller-fields")).not.toBeNull();
   });
 
+  // docs/CONTEXT.md §4.37: with security fields the sheet reads as two tabs, the connection's and theirs.
+  test("a caller's security fields live on a Security tab beside the Connection tab", () => {
+    const props = createDefaultProps({
+      securityFields: React.createElement("div", { "data-testid": "caller-security" }, "Who may open"),
+      passwordNote: React.createElement("p", { "data-testid": "caller-note" }, "Stored on the server"),
+    });
+    const { getByTestId, queryByTestId } = render(React.createElement(ConnectionModal, props));
+    expect(queryByTestId("caller-security")).toBeNull();
+    // The credential note is about the password, so it sits under that field on the Connection tab.
+    expect(getByTestId("caller-note").textContent).toBe("Stored on the server");
+    expect((getByTestId("sheet-connection") as HTMLElement).hidden).toBe(false);
+    // Radix tabs switch on pointer down in happy-dom, not on click.
+    fireEvent.mouseDown(getByTestId("sheet-tab-security"), { button: 0 });
+    expect(getByTestId("caller-security")).not.toBeNull();
+    expect((getByTestId("sheet-connection") as HTMLElement).hidden).toBe(true);
+    fireEvent.mouseDown(getByTestId("sheet-tab-connection"), { button: 0 });
+    expect(queryByTestId("caller-security")).toBeNull();
+  });
+
   // ── 11. onClose fires when Cancel clicked ──────────────────────────────────
 
   test("onClose fires when Cancel button clicked", () => {

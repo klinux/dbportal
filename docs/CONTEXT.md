@@ -582,6 +582,14 @@ built. Each lands as its own section when done.
   environment can be deleted when no stored datasource uses it; a datasource declared
   here must name an environment on the list. A datasource under an id the list lacks is
   listed under its own name.
+- **4.37 Pick, don't type — done (asked 2026-09-14).** The datasource sheet is two tabs,
+  Connection and Security, and every list of principals on the Security tab - who may
+  also open (groups, named roles), who reviews, who may export - and a named role's
+  members are picked from what the deployment already knows (`GET /api/admin/principals`
+  gathers the built-ins, every named role and its members, every list of every datasource
+  from the seed file and the store, every token's groups) or typed once in the kind's own
+  shape ([`src/components/admin/PrincipalPicker.tsx`](../src/components/admin/PrincipalPicker.tsx)).
+  Not a directory: a group nobody has named yet is typed the first time and picked after.
 - **4.35 Operator guide** — `docs/OPERATOR_GUIDE.md`: from zero to the first datasource,
   OIDC, the seed file, a backup; screenshots of the newer pages.
 

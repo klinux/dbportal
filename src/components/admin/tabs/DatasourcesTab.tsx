@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ADMIN_SUBTAB_LIST_CLASS, ADMIN_SUBTAB_TRIGGER_CLASS } from "@/lib/ui/admin-tabs";
 import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
+import { PrincipalPicker } from "@/components/admin/PrincipalPicker";
 import { useEnvironments } from "@/hooks/use-environments";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -121,6 +122,7 @@ interface StoreRow {
   writeRoles?: string[];
   writeApproval?: boolean;
   approvalsRequired?: number;
+  approverRoles?: string[];
   sshProfile?: string;
   limits?: DatasourceLimits;
   requireTicket?: boolean;
@@ -151,6 +153,7 @@ interface ConfigRow {
   writeRoles?: string[];
   writeApproval?: boolean;
   approvalsRequired?: number;
+  approverRoles?: string[];
   sshProfile?: string;
   limits?: DatasourceLimits;
   requireTicket?: boolean;
@@ -194,6 +197,7 @@ export function toDatasourcePayload(
   requireTicket = false,
   exportRoles: string[] | undefined = undefined,
   twoReviewers = false,
+  approverRoles: string[] | undefined = undefined,
 ) {
   // The editor's own timeout field is the datasource's timeout limit (§4.16).
   const merged: DatasourceLimits = {
@@ -226,6 +230,7 @@ export function toDatasourcePayload(
     ...(requireTicket ? { requireTicket: true } : {}),
     ...(exportRoles !== undefined ? { exportRoles } : {}),
     ...(writeApproval && twoReviewers ? { approvalsRequired: 2 } : {}),
+    ...(approverRoles !== undefined ? { approverRoles } : {}),
   };
 }
 
@@ -330,12 +335,14 @@ export function DatasourcesTab() {
   const [editing, setEditing] = useState<StoreRow | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [roles, setRoles] = useState<Role[]>(["admin", "user"]);
-  const [groupsInput, setGroupsInput] = useState("");
+  const [openPrincipals, setOpenPrincipals] = useState<string[]>([]);
+  const [approverRoles, setApproverRoles] = useState<string[]>([]);
   const [writeMode, setWriteMode] = useState<WriteMode>("open");
   const [writeApproval, setWriteApproval] = useState(false);
   const [twoReviewers, setTwoReviewers] = useState(false);
   const [requireTicket, setRequireTicket] = useState(false);
-  const [exportRolesInput, setExportRolesInput] = useState("");
+  const [exportPrincipals, setExportPrincipals] = useState<string[]>([]);
+  const [exportNobody, setExportNobody] = useState(false);
   const [maxRows, setMaxRows] = useState("");
   const [maxConcurrent, setMaxConcurrent] = useState("");
   const [pendingDelete, setPendingDelete] = useState<StoreRow | null>(null);
@@ -399,11 +406,13 @@ export function DatasourcesTab() {
   const openCreate = () => {
     setEditing(null);
     setRoles(["admin", "user"]);
-    setGroupsInput("");
     setWriteMode("open");
     setWriteApproval(false);
     setRequireTicket(false);
-    setExportRolesInput("");
+    setExportPrincipals([]);
+    setExportNobody(false);
+    setOpenPrincipals([]);
+    setApproverRoles([]);
     setMaxRows("");
     setMaxConcurrent("");
     setModalOpen(true);
@@ -412,12 +421,14 @@ export function DatasourcesTab() {
   const openEdit = (row: StoreRow) => {
     setEditing(row);
     setRoles(rolesOf(row));
-    setGroupsInput(groupNamesOf(row.roles).join(", "));
     setWriteMode(writeModeOf(row.writeRoles));
     setWriteApproval(row.writeApproval === true);
     setTwoReviewers(row.approvalsRequired === 2);
     setRequireTicket(row.requireTicket === true);
-    setExportRolesInput(exportRolesText(row.exportRoles));
+    setExportNobody(row.exportRoles !== undefined && row.exportRoles.length === 0);
+    setExportPrincipals(row.exportRoles ?? []);
+    setOpenPrincipals(row.roles.filter((r) => r.startsWith("group:") || r.startsWith("role:")));
+    setApproverRoles(row.approverRoles ?? []);
     setMaxRows(row.limits?.maxRows?.toString() ?? "");
     setMaxConcurrent(row.limits?.maxConcurrent?.toString() ?? "");
     setModalOpen(true);
@@ -437,7 +448,7 @@ export function DatasourcesTab() {
    * of the id, so both are added here; the id of a new datasource is derived from its name.
    */
   const save = async (conn: DatabaseConnection) => {
-    const openRule: string[] = [...roles, ...parseGroupNames(groupsInput)];
+    const openRule: string[] = [...roles, ...openPrincipals];
     if (openRule.length === 0) {
       toast.error("Choose at least one role or group that may open this datasource.");
       return;
@@ -463,8 +474,9 @@ export function DatasourcesTab() {
       writeApproval,
       limitsOf(maxRows, maxConcurrent),
       requireTicket,
-      parseExportRoles(exportRolesInput),
+      exportNobody ? [] : exportPrincipals.length > 0 ? exportPrincipals : undefined,
       twoReviewers,
+      writeApproval && approverRoles.length > 0 ? approverRoles : undefined,
     );
     try {
       const res = await appFetch(
@@ -523,15 +535,15 @@ export function DatasourcesTab() {
         ))}
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="datasource-groups" className="text-xs text-fg-tertiary">
-          Groups from the identity provider (comma-separated) that may also open it
-        </Label>
-        <Input
-          id="datasource-groups"
-          value={groupsInput}
-          onChange={(e) => setGroupsInput(e.target.value)}
-          placeholder="sre, data-platform"
-          className="h-8 text-xs bg-panel border-hairline-strong"
+        <Label className="text-xs text-fg-tertiary">Groups and named roles that may also open it</Label>
+        {/* docs/CONTEXT.md §4.37: picked from what the deployment knows, or typed once. */}
+        <PrincipalPicker
+          value={openPrincipals}
+          onChange={setOpenPrincipals}
+          kinds={["group", "named"]}
+          placeholder="Add group or role"
+          idPrefix="open"
+          label="Add a group or role that may open"
         />
       </div>
       <div className="space-y-1.5">
@@ -562,6 +574,19 @@ export function DatasourcesTab() {
         Writes need approval: a writing statement runs only inside a window a reviewer opened (administrators review
         unless the seed file names approvers)
       </Label>
+      {writeApproval && (
+        <div className="space-y-1.5 ml-6">
+          <Label className="text-xs text-fg-tertiary">Who reviews (administrators when blank)</Label>
+          <PrincipalPicker
+            value={approverRoles}
+            onChange={setApproverRoles}
+            kinds={["role", "named", "group", "user"]}
+            placeholder="Add reviewer"
+            idPrefix="approvers"
+            label="Add a reviewer principal"
+          />
+        </div>
+      )}
       {/* docs/CONTEXT.md §4.28: production-grade changes want two distinct reviewers. */}
       {writeApproval && (
         <Label className="flex items-start gap-2 text-xs text-fg-tertiary cursor-pointer ml-6">
@@ -583,18 +608,28 @@ export function DatasourcesTab() {
         Writes need a ticket: a writing statement is refused unless the tab names a ticket or incident reference
       </Label>
       {/* docs/CONTEXT.md §4.22: who may take a result out as a file. */}
-      <div className="space-y-1">
-        <Label htmlFor="export-roles" className="text-xs text-fg-tertiary">
-          Who may export results (principals, comma-separated; blank: everyone who can open, nobody on production;
-          &quot;nobody&quot;: no one)
+      <div className="space-y-1.5">
+        <Label className="text-xs text-fg-tertiary">
+          Who may export results (blank: everyone who can open, nobody on production)
         </Label>
-        <Input
-          id="export-roles"
-          value={exportRolesInput}
-          onChange={(e) => setExportRolesInput(e.target.value)}
-          placeholder="role:oncall, group:analysts"
-          className="h-8 text-xs font-mono bg-panel border-hairline-strong"
-        />
+        <Label className="flex items-center gap-2 text-xs text-fg-tertiary cursor-pointer">
+          <Checkbox
+            checked={exportNobody}
+            onCheckedChange={(checked) => setExportNobody(checked === true)}
+            aria-label="Nobody may export"
+          />
+          Nobody may export
+        </Label>
+        {!exportNobody && (
+          <PrincipalPicker
+            value={exportPrincipals}
+            onChange={setExportPrincipals}
+            kinds={["wildcard", "role", "named", "group", "user"]}
+            placeholder="Add exporter"
+            idPrefix="export"
+            label="Add a principal that may export"
+          />
+        )}
       </div>
       {/* docs/CONTEXT.md §4.16: what one statement may return and how many a person may run at once. */}
       <div className="grid grid-cols-2 gap-3" data-testid="datasource-limits">
@@ -625,9 +660,6 @@ export function DatasourcesTab() {
           />
         </div>
       </div>
-      <p className="text-xs text-fg-muted leading-relaxed" data-testid="datasource-secret-note">
-        {secretNote}
-      </p>
     </div>
   );
 
@@ -835,7 +867,12 @@ export function DatasourcesTab() {
         }}
         submitLabel={editing ? "Save datasource" : "Create datasource"}
         sshProfiles={sshProfiles}
-        extraFields={sharingFields}
+        securityFields={sharingFields}
+        passwordNote={
+          <p className="text-xs text-fg-muted leading-relaxed" data-testid="datasource-secret-note">
+            {secretNote}
+          </p>
+        }
       />
 
       <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
