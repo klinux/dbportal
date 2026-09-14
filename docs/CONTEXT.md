@@ -354,9 +354,18 @@ built. Each lands as its own section when done.
   until the new one can serve and an outage of the store is not turned into a crash loop.
   Both are public paths like every probe; the body names outcomes, never addresses. The
   chart's probes point at them; `/api/db/health` stays as the older unconditional answer.
-- **4.14 Backup and restore** — the portal's own store is managed (GCP) and backed up
-  there. This is about the *datasources*: in development, a person dumps and restores a
-  database from the portal; in production, an export to a bucket only, never a restore.
+- **4.14 Backup and restore — done.** [`src/lib/backups/store.ts`](../src/lib/backups/store.ts),
+  `GET/POST /api/admin/backups`, `POST /api/admin/backups/restore`, the Backups panel on
+  the Operations page. The portal's own store is managed (GCP) and backed up there; this
+  is about the *datasources*, PostgreSQL first: `pg_dump -Fc` into `BACKUP_DIR` (a
+  directory per datasource, names generated and validated so a request cannot leave it),
+  through the datasource's SSH profile when it has one, the password in the tool's
+  environment and never an argument, stderr in the server log and never the answer. With
+  `BACKUP_GCS_BUCKET` every backup is also copied to the bucket through the JSON API with
+  Workload Identity's token (or `GOOGLE_OAUTH_ACCESS_TOKEN`) - the production shape.
+  `pg_restore --clean` is offered only where the datasource is not production, whatever
+  the caller's role. Audited as `backup` created/uploaded/restored. The image installs
+  `postgresql-client`; a server without it says so and takes none.
 - **4.15 Guardrails per statement** — `DELETE`/`UPDATE` without `WHERE`, `DROP`,
   `TRUNCATE` need approval even from a writer; an automatic `EXPLAIN` before a write
   where the engine has one.

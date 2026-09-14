@@ -199,6 +199,7 @@ run_group "Group 5/6: SecurityTab" \
 run_group "Group 5b/6: SshProfilesTab" \
   tests/components/admin/SshProfilesTab.test.tsx \
   tests/components/admin/ServiceTokensTab.test.tsx \
+  tests/components/admin/BackupsPanel.test.tsx \
   tests/components/admin/AdminSectionHeader.test.tsx
 
 # Group 6: MonitoringDashboard (isolated - mocks all monitoring tabs)

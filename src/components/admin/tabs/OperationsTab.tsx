@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
+import { BackupsPanel } from "@/components/admin/BackupsPanel";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -403,6 +404,15 @@ export function OperationsTab() {
 
       {error && !data && (
         <div className="rounded-xl border border-danger-tint/20 bg-danger-tint/5 p-4 text-danger text-sm">{error}</div>
+      )}
+
+      {/* Backups (docs/CONTEXT.md §4.14): a dump of the selected datasource, and a restore
+          where it is not production. The panel asks the server what it may offer. */}
+      {selectedConnection && (
+        <BackupsPanel
+          datasourceId={selectedConnection.seedId ?? selectedConnection.id}
+          datasourceName={selectedConnection.name}
+        />
       )}
 
       {/* Global Operations — hidden entirely where not one operation has a

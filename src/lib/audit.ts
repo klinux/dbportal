@@ -32,6 +32,8 @@ export type AuditEventType =
   | "credential_issued"
   /** A service token created or revoked by an administrator (docs/CONTEXT.md §4.10). */
   | "service_token"
+  /** A backup taken, uploaded or restored by an administrator (docs/CONTEXT.md §4.14). */
+  | "backup"
   /** A reviewer's decision on a write approval request (docs/CONTEXT.md §4.6). */
   | "approval_decision"
   /** A permitted reveal of masked columns; the columns are named, never their values (§4.7). */

@@ -148,7 +148,7 @@ RUN addgroup --system --gid 1001 nodejs && \
 
 # gosu lets the entrypoint drop from root to the app user after fixing the
 # permissions of a mounted (often root-owned) data volume.
-RUN apt-get update && apt-get install -y --no-install-recommends gosu && \
+RUN apt-get update && apt-get install -y --no-install-recommends gosu postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
 # Entrypoint makes the SQLite data dir writable by `nextjs` then drops privileges.

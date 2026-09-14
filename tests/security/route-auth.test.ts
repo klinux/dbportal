@@ -238,6 +238,10 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "queues, or runs at once, a statement a service token submits (POST). It reaches a provider through @/lib/executions/store, but only behind guardServiceRoute, the Bearer-token twin of guardRoute; tests/api/v1/executions.test.ts proves the 401",
   "v1/executions/[id]":
     "reads one execution request the calling token queued, from the app's own storage backend; never opens a user database (GET, no POST export). Same Bearer gate",
+  "admin/backups":
+    "lists and takes backups of one datasource through pg_dump (GET/POST); it resolves the datasource like every route and hands it to @/lib/backups/store, pinned below. Admin-gated by requireAdmin; tests/api/admin/backups.test.ts proves the 403",
+  "admin/backups/restore":
+    "restores one of a datasource's own backups through pg_restore (POST), never on production. Same admin gate and the same pinned store",
   "admin/masking":
     "reads and replaces the one shared masking configuration in the app's own storage backend; never opens a user database (GET/PUT, no POST export). Admin-gated by requireAdmin like admin/datasources; tests/api/masking/routes.test.ts proves the 403",
   masking:
@@ -417,6 +421,10 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/api/approvals": "the approvals routes' error answer and decision-body reader; reaches no provider",
     "@/lib/api/ssh-profiles": "the SSH profile routes' error answer; reaches no provider",
     "@/lib/api/service-tokens": "the service token routes' error answer; reaches no provider",
+    "@/lib/api/backups": "the backup routes' error answer; reaches no provider",
+    "@/lib/seed/resolve-connection":
+      "turns a datasource id into the connection record - access rule, Vault reference, SSH profile - and opens nothing; the backup routes hand the record to pg_dump, not to a provider",
+    "@/lib/backups/store": `pg_dump and pg_restore as child processes, and it ${PROVIDER_NAMING_HELPER} (@/lib/db/factory) only for withOneShotTunnel, the SSH tunnel a dump crosses - it opens no provider; the tools connect on their own`,
     "@/lib/vault/health": "one GET to Vault's sys/health for the readiness probe; opens no user database",
     "@/lib/metrics/registry": "in-process counters, gauges and a histogram rendered as Prometheus text; opens nothing",
     "@/lib/api/service-auth":

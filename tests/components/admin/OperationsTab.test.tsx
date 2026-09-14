@@ -96,6 +96,16 @@ mock.module("@/lib/storage", () => ({
   },
 }));
 
+// docs/CONTEXT.md §4.14: the backups panel is its own component with its own test
+// (tests/components/admin/BackupsPanel.test.tsx); here it only has to be given the datasource.
+let backupsPanelProps: Record<string, unknown> | null = null;
+mock.module("@/components/admin/BackupsPanel", () => ({
+  BackupsPanel: (props: Record<string, unknown>) => {
+    backupsPanelProps = props;
+    return React.createElement("div", { "data-testid": "backups-panel-stub" });
+  },
+}));
+
 mock.module("@/lib/db-ui-config", () => ({
   getDBIcon: () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1869,5 +1879,15 @@ describe("OperationsTab", () => {
 
     // The rows and their controls are there; the operator's own filter hid them.
     expect(queryByTestId("operations-maintenance-unreachable")).toBeNull();
+  });
+
+  test("the backups panel is given the selected datasource's id and name", async () => {
+    backupsPanelProps = null;
+    await act(async () => {
+      render(<OperationsTab />);
+    });
+    expect(backupsPanelProps).not.toBeNull();
+    expect(typeof backupsPanelProps!.datasourceId).toBe("string");
+    expect(typeof backupsPanelProps!.datasourceName).toBe("string");
   });
 });

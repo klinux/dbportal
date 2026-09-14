@@ -246,6 +246,8 @@ function OperationsAudit() {
             <SelectItem value="approval_decision">Approval Decision</SelectItem>
             <SelectItem value="masking_reveal">Masking Reveal</SelectItem>
             <SelectItem value="ssh_profile">SSH Profile</SelectItem>
+            <SelectItem value="service_token">Service Token</SelectItem>
+            <SelectItem value="backup">Backup</SelectItem>
           </SelectContent>
         </Select>
         <Input

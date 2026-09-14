@@ -1202,6 +1202,16 @@ answers `404`. Series: `dbportal_audit_events_total{event,action,outcome}`,
 `dbportal_providers_cached`, `dbportal_build_info{version}`, `dbportal_uptime_seconds`, and
 `dbportal_store_scrape_failed` when the store did not answer.
 
+### Backups API
+
+Admin only (docs/CONTEXT.md §4.14), PostgreSQL datasources.
+
+- `GET /api/admin/backups?datasourceId=<id>` → `{ supported, tool, restoreAllowed, bucket, backups: [{ name, size, createdAt }] }`
+- `POST /api/admin/backups` — body `{ datasourceId }`; `201 { backup: { name, size, createdAt, object? } }` (`object` when copied to the bucket); `400` unsupported engine; `503` no `pg_dump`; `502` the tool failed (detail in the server log)
+- `POST /api/admin/backups/restore` — body `{ datasourceId, name }`; `403` on a production datasource; `404` unknown file
+
+Audited as `backup` / `created` · `uploaded` · `restored`.
+
 ### Executions API (service tokens)
 
 For bots (docs/CONTEXT.md §4.10). Authenticate with `Authorization: Bearer dbp_…`, a token
