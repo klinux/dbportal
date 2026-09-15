@@ -1010,8 +1010,8 @@ describe("ResultsGrid", () => {
       const { getAllByRole, container } = render(React.createElement(ResultsGrid, { result: mockResult }));
 
       expect(getAllByRole("button", { name: "name" })[0].textContent).toBe("name");
-      // No header gains a tooltip it did not have before ("Filter column" is pre-existing).
-      expect(container.querySelectorAll('[title]:not([title="Filter column"])').length).toBe(0);
+      // No header gains a tooltip it did not have before ("Filter column" and the resize handle's are pre-existing).
+      expect(container.querySelectorAll('[title]:not([title="Filter column"]):not(.cursor-col-resize)').length).toBe(0);
     });
   });
 
@@ -1104,6 +1104,29 @@ describe("ResultsGrid", () => {
       expect(rowButtons.length).toBeGreaterThan(0);
       fireEvent.click(rowButtons[0]);
       expect(queryByTestId("row-detail-sheet")).not.toBeNull();
+    });
+
+    // Column widths (§4.42): from the content, with a double-click on the handle fitting one back.
+    test("columns start as wide as their content and a double-click on a handle fits one again", () => {
+      const wide = {
+        ...mockResult,
+        rows: [{ id: 1, name: "Alice", email: "a-very-long-address-for-someone@example.com" }],
+      };
+      const { container, getByTestId } = render(React.createElement(ResultsGrid, { result: wide }));
+      const widthOf = (id: string) =>
+        Number.parseFloat((getByTestId(`resize-${id}`).parentElement as HTMLElement).style.width);
+      expect(widthOf("email")).toBeGreaterThan(widthOf("name"));
+      expect(widthOf("name")).toBeGreaterThan(widthOf("id"));
+      // jsdom has no layout, so the grid's width is unknown and nothing is stretched: the sum is the content's.
+      const fitted = widthOf("email");
+      // A drag on the handle is the person's width from then on; a double-click fits the content again.
+      fireEvent.mouseDown(getByTestId("resize-email"), { clientX: 400 });
+      fireEvent.mouseMove(document, { clientX: 460 });
+      fireEvent.mouseUp(document, { clientX: 460 });
+      expect(widthOf("email")).toBe(fitted + 60);
+      fireEvent.doubleClick(getByTestId("resize-email"));
+      expect(widthOf("email")).toBe(fitted);
+      expect(container.querySelector('[title="Drag to resize, double-click to fit"]')).not.toBeNull();
     });
 
     test("column resize handles are hidden from assistive technology", () => {

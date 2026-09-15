@@ -30,6 +30,14 @@ import { ResultCard } from "@/components/results-grid/ResultCard";
 import { RowDetailSheet } from "@/components/results-grid/RowDetailSheet";
 import { StatsBar, LoadMoreFooter } from "@/components/results-grid/StatsBar";
 import { describeWarning, formatCellValue } from "@/components/results-grid/utils";
+import {
+  COLUMN_MAX_PX,
+  COLUMN_MIN_PX,
+  type ColumnSizing,
+  fillWidth,
+  fitColumn,
+  fitColumns,
+} from "@/components/results-grid/column-sizing";
 
 export interface CellChange {
   rowIndex: number;
@@ -429,8 +437,8 @@ export function ResultsGrid({
         );
       },
       size: 150,
-      minSize: 80,
-      maxSize: 500,
+      minSize: COLUMN_MIN_PX,
+      maxSize: COLUMN_MAX_PX,
     }));
   }, [
     result.fields,
@@ -449,18 +457,55 @@ export function ResultsGrid({
     revealCell,
   ]);
 
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  // Column widths (§4.42): fitted to the content and stretched to the grid's width for
+  // every new result, until the person drags one - from then on theirs, for this result.
+  const [columnSizing, setColumnSizing] = useState<ColumnSizing>({});
+  const [containerWidth, setContainerWidth] = useState(0);
+  const sizedByHand = useRef(false);
+  useEffect(() => {
+    const el = tableContainerRef.current;
+    if (!el) return;
+    setContainerWidth(el.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setContainerWidth(el.clientWidth));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    sizedByHand.current = false;
+  }, [result]);
+  useEffect(() => {
+    if (sizedByHand.current) return;
+    setColumnSizing(fillWidth(fitColumns(result.fields, result.rows, result.columnTypes), containerWidth));
+  }, [result, containerWidth]);
+  const fitOne = useCallback(
+    (field: string) => {
+      sizedByHand.current = true;
+      setColumnSizing((prev) => ({
+        ...prev,
+        [field]: fitColumn(field, result.rows, declaredTypeOf(result.columnTypes, field)),
+      }));
+    },
+    [result.rows, result.columnTypes],
+  );
+
   const table = useTable({
     features: tableFeatureSet,
     data: filteredRows,
     columns,
     state: {
       sorting,
+      columnSizing,
     },
     onSortingChange: setSorting,
+    onColumnSizingChange: (updater) => {
+      sizedByHand.current = true;
+      setColumnSizing(updater);
+    },
     columnResizeMode: "onChange",
   });
-
-  const tableContainerRef = useRef<HTMLDivElement>(null);
   const cardContainerRef = useRef<HTMLDivElement>(null);
   const mobileTableContainerRef = useRef<HTMLDivElement>(null);
 
@@ -666,13 +711,20 @@ export function ResultsGrid({
                 >
                   {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
 
+                  {/* A wide hit area on the column's edge: drag to resize, double-click to fit the content. */}
                   <div
                     aria-hidden="true"
+                    data-testid={`resize-${header.id}`}
+                    title="Drag to resize, double-click to fit"
                     onMouseDown={header.getResizeHandler()}
                     onTouchStart={header.getResizeHandler()}
+                    onDoubleClick={() => fitOne(header.id)}
                     className={cn(
-                      "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-brand-tint/50 transition-colors",
-                      header.column.getIsResizing() ? "bg-brand-tint w-1" : "bg-transparent",
+                      "absolute -right-1 top-0 h-full w-2 cursor-col-resize z-10 flex justify-center",
+                      "after:content-[''] after:w-px after:h-full after:transition-colors",
+                      header.column.getIsResizing()
+                        ? "after:bg-brand-tint"
+                        : "after:bg-transparent hover:after:bg-brand-tint/60",
                     )}
                   />
                 </div>

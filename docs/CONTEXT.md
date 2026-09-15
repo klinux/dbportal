@@ -789,6 +789,17 @@ built. Each lands as its own section when done.
   reading. Not behind a lease, on purpose: the worker's job prune and the audit retention
   sweep (idempotent deletes), and approval expiry (decided per record on read).
 
+- **4.42 Result columns sized by their content — done (asked 2026-09-15).** The grid gave
+  every column 150 px, whatever it held, and left the rest of the width empty; the resize
+  handle was one pixel wide. Now a column starts as wide as the wider of its header and its
+  values in a sample of 200 rows (7.2 px a character in the monospace cell, between 80 and
+  500 px), and when the columns together fall short of the grid they stretch in proportion
+  to fill it ([`column-sizing.ts`](../src/components/results-grid/column-sizing.ts), pure
+  and tested on its numbers). A drag on the handle - an 8 px hit area with a line on hover -
+  makes the widths the person's for that result; a double-click on the handle fits that
+  column to its content again; a new result starts over. Nothing is persisted: a width is a
+  reading aid, not a setting.
+
 ## 5. Decisions already taken
 
 - **TypeScript stays.** The 50k-line driver layer is the main asset; rewriting the backend
