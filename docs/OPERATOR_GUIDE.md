@@ -123,6 +123,15 @@ the scrape, refuses every page and session route, and reaches what its tokens re
 more ([HELM_CHART.md](HELM_CHART.md) "Roles"). Give only that release's Service to the
 agents.
 
+The work itself - a bot's execution, an alert run, a seed, an export, a backup - goes
+through a job queue in the store. One release runs the queue inside the studio, which is
+enough to start. When the studio should only serve people, add a **third release** with
+`role: worker`, pointed at the same PostgreSQL store, and set `config.jobsWorker: "off"` on
+the studio; with KEDA in the cluster, `keda.enabled` grows the workers on the queue's depth
+(chart README, "Workers, run apart and scaled on the queue"). Two things must then be
+shared: `BACKUP_DIR` and `EXPORT_DIR`, which a worker writes and the studio reads - one
+ReadWriteMany volume on `/app/data` in both releases, or the bucket for backups.
+
 ## 10. Day two
 
 - **Rotate**: service tokens (revoke and create; the audit actor is the token's name), the

@@ -145,6 +145,11 @@
           "enum": ["debug", "info", "warn", "error"],
           "description": "Log level"
         },
+        "jobsWorker": {
+          "type": "string",
+          "enum": ["", "auto", "off"],
+          "description": "Run the job queue's loop in this release (auto) or only enqueue (off); empty is the image's default"
+        },
         "bindAddress": {
           "type": "string",
           "description": "Address the container listens on, written to HOSTNAME. Empty (the default) lets the image resolve it and prefer a verified dual-stack \"::\"; set \"::\" to force that, or an IPv4 literal such as \"0.0.0.0\" to pin the container to IPv4."
@@ -466,6 +471,21 @@
           "maximum": 100,
           "description": "Target memory utilization"
         }
+      }
+    },
+    "keda": {
+      "type": "object",
+      "description": "A KEDA ScaledObject on the queue's depth for the worker role (docs/CONTEXT.md §4.40)",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "prometheusAddress": { "type": "string", "minLength": 1 },
+        "query": { "type": "string" },
+        "queuedPerReplica": { "type": "integer", "minimum": 1 },
+        "minReplicas": { "type": "integer", "minimum": 0 },
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "pollingInterval": { "type": "integer", "minimum": 1 },
+        "cooldownPeriod": { "type": "integer", "minimum": 0 },
+        "authenticationRef": { "type": "string" }
       }
     },
     "podDisruptionBudget": {

@@ -740,8 +740,16 @@ built. Each lands as its own section when done.
   another ([`src/lib/backups/job.ts`](../src/lib/backups/job.ts)). The worker resolves the
   datasource as the administrator would and runs the tool where it is; `BACKUP_DIR` is
   therefore shared storage when workers run apart from the studio, or the bucket is the
-  place a backup is read from. Still in the studio's process: the editor's own queries (by
-  design, the person waits).
+  place a backup is read from.
+  **Sixth step: the workers scaled on the queue.** The chart's `keda` block renders a KEDA
+  `ScaledObject` for a `role: worker` release: a Prometheus trigger on
+  `dbportal_jobs_queued`, `queuedPerReplica` queued jobs per worker, the Deployment's
+  `replicas` line left out so the scaler owns the count; refused on another role, with the
+  HPA, or with the queue outside PostgreSQL. `config.jobsWorker: "off"` writes
+  `JOBS_WORKER=off` on the studio release once workers run apart. The operator guide and
+  the chart README carry the recipe and the one constraint: `EXPORT_DIR` and `BACKUP_DIR`
+  shared between the releases, or the bucket. Still in the studio's process: the editor's
+  own queries (by design, the person waits).
 
 ## 5. Decisions already taken
 

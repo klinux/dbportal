@@ -386,6 +386,36 @@ helm install libredb libredb/dbportal \
   --set podDisruptionBudget.enabled=true
 ```
 
+### Workers, run apart and scaled on the queue
+
+Executions, alerts, seeds, exports and backups run on a job queue in the store
+(docs/CONTEXT.md §4.40). A single release runs the queue inside the studio. To take that
+work out of the studio, install a **second release** of the same chart with `role: worker`,
+pointed at the same PostgreSQL store, and let KEDA (installed apart, https://keda.sh) grow
+it on the queue's depth, which every replica reports as `dbportal_jobs_queued` on
+`/api/metrics`:
+
+```bash
+helm install libredb-worker libredb/dbportal \
+  --set role=worker \
+  --set secrets.jwtSecret=$(openssl rand -base64 32) \
+  --set config.storageProvider=postgres \
+  --set secrets.storagePostgresUrl=postgres://user:pass@host:5432/libredb_storage \
+  --set keda.enabled=true \
+  --set keda.prometheusAddress=http://prometheus-server.monitoring.svc:9090 \
+  --set keda.queuedPerReplica=5
+```
+
+The trigger reads `max(dbportal_jobs_queued{namespace="<release namespace>"})` (set
+`keda.query` for another label set) and keeps `keda.minReplicas` workers when the queue
+is empty. Set `config.jobsWorker=off` on the studio release once workers run apart, so the
+studio only enqueues. Files a worker writes - exports under `EXPORT_DIR`, backups under
+`BACKUP_DIR` - must be where the studio reads them: mount one ReadWriteMany volume on
+`/app/data` in both releases, or send backups to a bucket with `BACKUP_GCS_BUCKET`. The
+image has `pg_dump`, so backups run wherever a worker is. `keda.enabled` is refused on
+another role, together with `autoscaling.enabled`, and with the queue on local or SQLite
+storage.
+
 ### Traefik Ingress
 
 ```bash
@@ -652,6 +682,14 @@ helm uninstall libredb
 | `autoscaling.enabled` | Enable HPA (ignored with SQLite storage: single-writer) | `false` |
 | `autoscaling.minReplicas` | Min replicas | `2` |
 | `autoscaling.maxReplicas` | Max replicas | `10` |
+| `config.jobsWorker` | Run the job queue's loop here (`auto`) or only enqueue (`off`); empty is the image's default | `""` |
+| `keda.enabled` | Render a KEDA ScaledObject on the queue's depth (worker role, PostgreSQL store, not with the HPA) | `false` |
+| `keda.prometheusAddress` | Prometheus the trigger queries | `http://prometheus-server.monitoring.svc:9090` |
+| `keda.query` | The query; empty is `max(dbportal_jobs_queued{namespace="<ns>"})` | `""` |
+| `keda.queuedPerReplica` | Queued jobs per worker before another starts | `5` |
+| `keda.minReplicas` / `keda.maxReplicas` | Workers kept when idle (0 allowed) / at most | `1` / `10` |
+| `keda.pollingInterval` / `keda.cooldownPeriod` | Seconds between reads / before scaling down | `15` / `120` |
+| `keda.authenticationRef` | A TriggerAuthentication for a Prometheus behind a token | `""` |
 | `podDisruptionBudget.enabled` | Enable PDB | `false` |
 | `podDisruptionBudget.minAvailable` | Min available pods (set only one of minAvailable/maxUnavailable) | `1` |
 | `podDisruptionBudget.maxUnavailable` | Max unavailable pods (unset minAvailable with `null` to use) | unset |

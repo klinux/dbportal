@@ -42,7 +42,8 @@ metadata:
   labels:
     {{- include "dbportal.labels" . | nindent 4 }}
 spec:
-  {{- if not (include "dbportal.autoscalingEnabled" .) }}
+  {{- /* An HPA or a KEDA ScaledObject owns the count; a replicas line here would reset it on every upgrade. */}}
+  {{- if not (or (include "dbportal.autoscalingEnabled" .) .Values.keda.enabled) }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:

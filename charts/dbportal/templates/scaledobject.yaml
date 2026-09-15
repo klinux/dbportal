@@ -1,0 +1,45 @@
+{{- /*
+A KEDA ScaledObject for the worker role (docs/CONTEXT.md §4.40): the queue's depth,
+read from Prometheus as the dbportal_jobs_queued gauge every replica of every role
+reports, decides how many workers run. It is offered for the worker release only -
+the studio scales on CPU with the HPA, and a worker is the one thing whose work is
+measured by the queue - and never together with that HPA, which would fight it for
+the same Deployment. The queue lives in the server store, so a release on local or
+SQLite storage has nothing shared to scale on and is refused.
+*/}}
+{{- if .Values.keda.enabled }}
+{{- if ne .Values.role "worker" }}
+{{- fail "keda.enabled scales the job queue's workers on its depth; it needs role=worker (the studio release scales on CPU with autoscaling.enabled)" }}
+{{- end }}
+{{- if .Values.autoscaling.enabled }}
+{{- fail "keda.enabled and autoscaling.enabled would each own the Deployment's replica count; set one" }}
+{{- end }}
+{{- if ne (include "dbportal.storageProvider" .) "postgres" }}
+{{- fail "keda.enabled needs the job queue in a shared store: config.storageProvider=postgres (or postgresql.enabled=true)" }}
+{{- end }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "dbportal.fullname" . }}
+  labels:
+    {{- include "dbportal.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "dbportal.fullname" . }}
+  minReplicaCount: {{ .Values.keda.minReplicas }}
+  maxReplicaCount: {{ .Values.keda.maxReplicas }}
+  pollingInterval: {{ .Values.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.keda.cooldownPeriod }}
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: {{ .Values.keda.prometheusAddress | quote }}
+        query: {{ .Values.keda.query | default (printf "max(dbportal_jobs_queued{namespace=%q})" .Release.Namespace) | quote }}
+        threshold: {{ .Values.keda.queuedPerReplica | quote }}
+        {{- with .Values.keda.authenticationRef }}
+      authenticationRef:
+        name: {{ . | quote }}
+        {{- end }}
+{{- end }}

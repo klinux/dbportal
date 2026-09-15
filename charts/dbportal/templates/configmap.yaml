@@ -38,6 +38,9 @@ data:
   {{- if and (not (kindIs "invalid" $cookieSecure)) (ne (toString $cookieSecure) "") }}
   AUTH_COOKIE_SECURE: {{ $cookieSecure | quote }}
   {{- end }}
+  {{- if .Values.config.jobsWorker }}
+  JOBS_WORKER: {{ .Values.config.jobsWorker | quote }}
+  {{- end }}
   STORAGE_PROVIDER: {{ include "dbportal.storageProvider" . | quote }}
   {{- if eq (include "dbportal.storageProvider" .) "sqlite" }}
   STORAGE_SQLITE_PATH: {{ .Values.config.storageSqlitePath | quote }}

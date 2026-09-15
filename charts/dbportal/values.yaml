@@ -120,6 +120,10 @@ config:
   basePath: ""
   # -- Log level
   logLevel: "info"
+  # -- Whether this release runs the job queue's loop (docs/CONTEXT.md §4.40): "auto" runs
+  # it in the studio and the worker, "off" only enqueues. Set "off" on the studio release
+  # once a worker release runs apart. Empty leaves the image's default (auto).
+  jobsWorker: ""
   # -- Address the container listens on, written to HOSTNAME. Empty is the
   # default and means "let the image choose": the container entrypoint binds a
   # throwaway listener on "::", connects to it over IPv4, and keeps "::" only
@@ -483,6 +487,31 @@ autoscaling:
   targetCPUUtilizationPercentage: 75
   # -- Target memory utilization percentage
   targetMemoryUtilizationPercentage: 80
+
+# -- Scale a worker release on the queue's depth with KEDA (docs/CONTEXT.md §4.40): a
+# ScaledObject with a Prometheus trigger reading dbportal_jobs_queued, the gauge every
+# replica of every role reports on /api/metrics. Offered for `role: worker` only, never
+# together with `autoscaling.enabled` (two owners of one replica count), and only with the
+# queue in PostgreSQL. KEDA itself is installed apart (https://keda.sh).
+keda:
+  # -- Render the ScaledObject
+  enabled: false
+  # -- Prometheus the trigger queries (KEDA reaches it, not the pod)
+  prometheusAddress: "http://prometheus-server.monitoring.svc:9090"
+  # -- The query; empty renders max(dbportal_jobs_queued{namespace="<release namespace>"})
+  query: ""
+  # -- Queued jobs per worker before another one is started
+  queuedPerReplica: 5
+  # -- Workers kept when the queue is empty (0 lets KEDA scale to zero; the studio still runs its own loop with JOBS_WORKER=auto)
+  minReplicas: 1
+  # -- Workers at most
+  maxReplicas: 10
+  # -- Seconds between two reads of the query
+  pollingInterval: 15
+  # -- Seconds the queue must stay empty before workers are removed
+  cooldownPeriod: 120
+  # -- A TriggerAuthentication for a Prometheus behind a token (optional)
+  authenticationRef: ""
 
 podDisruptionBudget:
   # -- Enable PodDisruptionBudget
