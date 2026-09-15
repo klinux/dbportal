@@ -40,7 +40,7 @@ helm install libredb libredb/dbportal \
 
 ```bash
 helm install libredb oci://ghcr.io/libredb/charts/dbportal \
-  --version 0.1.2 \
+  --version 0.1.3 \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
   --set secrets.adminPassword=MyAdmin123
 ```
