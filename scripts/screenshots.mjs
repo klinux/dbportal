@@ -9,7 +9,8 @@
  *
  * Optional: SHOT_BASE (default http://localhost:3000), SHOT_CHROME, the path of a Chromium
  * binary when the one Playwright installs is not on this machine, and SHOT_SQL, the
- * statement the studio picture shows run (one against the first datasource's tables).
+ * statement the studio picture shows run, and SHOT_DATASOURCE, the id of the datasource
+ * it runs on (the one the studio last opened otherwise).
  */
 import { chromium } from "playwright";
 
@@ -47,6 +48,13 @@ const page = await signedIn.newPage();
 // The studio with a statement run, not an empty editor: typed into Monaco and run with the shortcut.
 await page.goto(`${base}/`, { waitUntil: "networkidle" });
 await page.waitForTimeout(2500);
+// The datasource the picture shows, chosen by its id (SHOT_DATASOURCE) rather than whichever
+// the studio last opened, so the statement below runs where its tables are.
+if (process.env.SHOT_DATASOURCE) {
+  await page.getByTestId("connection-picker").click();
+  await page.getByTestId(`connection-${process.env.SHOT_DATASOURCE}`).click();
+  await page.waitForTimeout(2000);
+}
 await page.locator(".monaco-editor").first().click();
 await page.keyboard.type(process.env.SHOT_SQL ?? "SELECT id, name, created_at FROM app.categories ORDER BY id");
 await page.keyboard.press("Control+Enter");

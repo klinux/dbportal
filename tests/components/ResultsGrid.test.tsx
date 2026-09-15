@@ -1129,6 +1129,16 @@ describe("ResultsGrid", () => {
       expect(container.querySelector('[title="Drag to resize, double-click to fit"]')).not.toBeNull();
     });
 
+    // The row number (§4.42) is the position in the order shown, so a sort renumbers from 1.
+    test("rows are numbered by their position in the order shown", () => {
+      const { getByTestId, getAllByRole } = render(React.createElement(ResultsGrid, { result: mockResult }));
+      expect(getByTestId("row-number-0").textContent).toBe("1");
+      expect(getByTestId("row-number-2").textContent).toBe("3");
+      fireEvent.click(getAllByRole("button", { name: /^name/ })[0]);
+      fireEvent.click(getAllByRole("button", { name: /^name/ })[0]);
+      expect(getByTestId("row-number-0").textContent).toBe("1");
+    });
+
     test("column resize handles are hidden from assistive technology", () => {
       const { container } = render(React.createElement(ResultsGrid, { result: mockResult }));
       const handles = container.querySelectorAll(".cursor-col-resize");

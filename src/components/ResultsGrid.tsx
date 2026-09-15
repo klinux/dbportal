@@ -476,10 +476,14 @@ export function ResultsGrid({
   useEffect(() => {
     sizedByHand.current = false;
   }, [result]);
+  // The row-number column (§4.42): the position in the order shown, wide enough for the count.
+  const rowNumberWidth = Math.max(44, Math.round(String(filteredRows.length).length * 7.2 + 24));
   useEffect(() => {
     if (sizedByHand.current) return;
-    setColumnSizing(fillWidth(fitColumns(result.fields, result.rows, result.columnTypes), containerWidth));
-  }, [result, containerWidth]);
+    setColumnSizing(
+      fillWidth(fitColumns(result.fields, result.rows, result.columnTypes), containerWidth - rowNumberWidth),
+    );
+  }, [result, containerWidth, rowNumberWidth]);
   const fitOne = useCallback(
     (field: string) => {
       sizedByHand.current = true;
@@ -702,6 +706,13 @@ export function ResultsGrid({
       <div ref={tableContainerRef} className="hidden md:block flex-1 overflow-auto editor-scrollbar">
         <div className="min-w-max">
           <div className="sticky top-0 z-20 bg-raised flex">
+            <div
+              aria-hidden="true"
+              style={{ width: rowNumberWidth, minWidth: rowNumberWidth }}
+              className="h-10 px-2 flex items-center justify-end border-r border-b border-hairline text-xs font-mono text-fg-muted bg-raised shrink-0 sticky left-0 z-10"
+            >
+              #
+            </div>
             {table.getHeaderGroups().map((headerGroup) =>
               headerGroup.headers.map((header) => (
                 <div
@@ -748,6 +759,13 @@ export function ResultsGrid({
                   }}
                   className="flex group hover:bg-brand-tint/[0.03] transition-colors border-b border-hairline"
                 >
+                  <div
+                    data-testid={`row-number-${virtualRow.index}`}
+                    style={{ width: rowNumberWidth, minWidth: rowNumberWidth }}
+                    className="h-full px-2 border-r border-hairline text-xs font-mono text-fg-muted tabular-nums flex items-center justify-end shrink-0 sticky left-0 bg-sunken select-none"
+                  >
+                    {virtualRow.index + 1}
+                  </div>
                   {row.getVisibleCells().map((cell) => (
                     <div
                       key={cell.id}

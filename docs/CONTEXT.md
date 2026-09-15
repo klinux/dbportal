@@ -798,7 +798,9 @@ built. Each lands as its own section when done.
   and tested on its numbers). A drag on the handle - an 8 px hit area with a line on hover -
   makes the widths the person's for that result; a double-click on the handle fits that
   column to its content again; a new result starts over. Nothing is persisted: a width is a
-  reading aid, not a setting.
+  reading aid, not a setting. A row-number column, `#`, sits at the left, sticky, numbered
+  by the position in the order shown - a sort or a filter renumbers from 1 - and is no data
+  column: exports, filters and sorting never see it.
 
 ## 5. Decisions already taken
 
