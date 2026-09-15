@@ -70,9 +70,15 @@ mock.module("@/lib/alerts/store", () => ({
   saveAlert: (d: unknown, s: unknown) => store.save(d, s as { username: string }),
   findAlert: (id: string) => store.find(id),
   deleteAlert: (id: string, s: unknown) => store.remove(id as never, s as never),
+  updateAlertState: (id: string, state: unknown) => marked(id, state),
+  waitForAlertRun: (id: string, since: string, ms: number) => waited(id, since, ms),
 }));
-const run = mock(async (_a: unknown) => ({ status: "firing", lastValue: "120" }));
-mock.module("@/lib/alerts/run", () => ({ runAlert: run }));
+// "Run now" hands the alert to the queue (§4.40) and waits for the worker's run to land.
+const enqueue = mock(async (_i: unknown) => ({ id: "job-1" }));
+mock.module("@/lib/jobs/queue", () => ({ enqueueJob: enqueue }));
+let landed: Record<string, unknown> | null = { status: "firing", lastValue: "120" };
+const marked = mock(async (_id: string, _state: unknown) => null);
+const waited = mock(async (_id: string, _since: string, _ms: number) => landed);
 
 const { GET, POST } = await import("@/app/api/alerts/route");
 const { PUT, DELETE } = await import("@/app/api/alerts/[id]/route");
@@ -88,7 +94,10 @@ describe("alert routes", () => {
     clearRateLimitState();
     session = { role: "user", username: "ana" };
     audit.mockClear();
-    run.mockClear();
+    enqueue.mockClear();
+    marked.mockClear();
+    waited.mockClear();
+    landed = { status: "firing", lastValue: "120" };
   });
 
   test("a session is required everywhere", async () => {
@@ -145,13 +154,24 @@ describe("alert routes", () => {
     expect((await PUT(json(base, "PUT"), params("bobs"))).status).toBe(200);
   });
 
-  test("runs one now and answers the state; someone else's is not found", async () => {
+  test("runs one now through the queue and answers the state a worker landed, or 202 when none did; someone else's is not found", async () => {
     expect(await (await RUN(new Request(url, { method: "POST" }), params("slow-orders"))).json()).toEqual({
       state: { status: "firing", lastValue: "120" },
     });
-    expect(run.mock.calls[0][0]).toEqual(anas);
+    expect(enqueue.mock.calls[0][0]).toMatchObject({
+      kind: "alert",
+      payload: { alertId: "slow-orders" },
+      requestedBy: "ana",
+      maxAttempts: 1,
+    });
+    expect(marked.mock.calls[0][1]).toMatchObject({ status: "ok", lastScheduledAt: expect.any(String) });
+    expect(waited.mock.calls[0][2]).toBe(15_000);
+    landed = null;
+    const queued = await RUN(new Request(url, { method: "POST" }), params("slow-orders"));
+    expect(queued.status).toBe(202);
+    expect(await queued.json()).toEqual({ queued: true, jobId: "job-1" });
     expect((await RUN(new Request(url, { method: "POST" }), params("bobs"))).status).toBe(404);
-    run.mockImplementationOnce(async () => {
+    enqueue.mockImplementationOnce(async () => {
       throw new Error("boom");
     });
     expect((await RUN(new Request(url, { method: "POST" }), params("slow-orders"))).status).toBe(500);

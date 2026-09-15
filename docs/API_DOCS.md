@@ -1238,7 +1238,7 @@ column?, op, value?, everyMinutes, cooldownMinutes, channels, enabled }`, `201`;
 datasource opens for this session, the statement reads and every channel is declared (`400`/`404`);
 `PUT /api/alerts/[id]` replaces one (owner or admin; `404` otherwise), `DELETE /api/alerts/[id]`,
 `POST /api/alerts/[id]/run` → `{ state: { status, lastRunAt, lastValue?, lastError?, lastFiredAt?,
-lastNotifiedAt? } }`. Admin: `GET /api/admin/channels` (with `target` and `source`), `POST /api/admin/channels`
+lastNotifiedAt? } }` once a worker ran it within fifteen seconds, else `202 { queued: true, jobId }`. Admin: `GET /api/admin/channels` (with `target` and `source`), `POST /api/admin/channels`
 — body `{ id, name, kind, target }` (`target`: a Slack channel id, or an https URL bare of credentials), `201`,
 `409` when the id exists; `DELETE /api/admin/channels/[id]` — `409` while an alert names it, `404` for a
 seed-file one; `POST /api/admin/channels/[id]/test` → `{ delivered }`. Audited as `alert` (saved, deleted,
@@ -1268,7 +1268,8 @@ the token may open; `describe_schema` `{ datasourceId, container?, kind? }` → 
 objects of `kind` (default `table`) in `container` with columns, indexes and foreign keys (at most 200);
 `run_query` `{ datasourceId, statement, onBehalfOf?, ticket? }` → `{ status: "done", rowCount, fields,
 rows, truncated?, durationMs }`, or `{ status: "pending", requestId }` when the token or the datasource
-requires approval (poll `GET /api/v1/executions/[id]`), or `{ status: "failed", error }`. A statement
+requires approval, or `{ status: "queued", requestId }` when the worker did not answer within twenty seconds
+(poll `GET /api/v1/executions/[id]` for either), or `{ status: "failed", error }`. A statement
 that writes is refused with `isError`. A deployment with `DBPORTAL_ROLE=agent` serves only this endpoint,
 `/api/v1/*`, the probes and `/api/metrics`; everything else answers `404`.
 
@@ -1306,8 +1307,9 @@ queries, under the token's own name.
   `X-Dbportal-Signature: v1=<HMAC-SHA256 of "<X-Dbportal-Timestamp>.<body>" under CALLBACK_SIGNING_SECRET>`,
   `X-Dbportal-Event: execution.done|failed|rejected` and `X-Dbportal-Delivery: <id>:<attempt>`; three
   attempts on a network failure or a 5xx. `400` for a URL that is not allowed.
-  `200 { execution }` when policy let it run at once (the outcome is inside); `202 { execution }`
-  when a reviewer must decide (`status: "pending"`); `400` invalid; `403` the token may not
+  `202 { execution }` while the request waits - for a reviewer (`status: "pending"`) or for the worker that
+  runs it (`status: "approved"`, no `execution` yet, `jobId` set; docs/CONTEXT.md §4.40) - and `200 { execution }`
+  with the outcome inside once it ran; `400` invalid; `403` the token may not
   use the datasource, or the statement writes on a read-only one; `404` unknown datasource.
 - `GET /api/v1/executions/[id]` — the record the token queued: `status` (`pending`, `approved`,
   `rejected`) and, once run, `execution: { status: "done" | "failed", rowCount, fields, rows, truncated?, durationMs, error? }`.

@@ -64,7 +64,7 @@ describe("/api/v1/executions", () => {
     expect(submit).not.toHaveBeenCalled();
   });
 
-  test("POST hands the request's fields and the identity to the store; 202 while pending, 200 once it ran", async () => {
+  test("POST hands the request's fields and the identity to the store; 202 while pending or queued for a worker, 200 once it ran", async () => {
     const res = await post({
       datasourceId: "orders",
       statement: "SELECT 1",
@@ -85,6 +85,9 @@ describe("/api/v1/executions", () => {
       callback: { url: "https://bot.example.test/hook" },
     });
     expect((who as { session: { username: string } }).session.username).toBe("svc:bot");
+    // Approved by policy but not yet run: a worker still has to (§4.40), so 202 too.
+    submit.mockImplementation(async () => ({ ...record, status: "approved", jobId: "job-1" }));
+    expect((await post({ datasourceId: "orders", statement: "SELECT 1", onBehalfOf: "U01" })).status).toBe(202);
     submit.mockImplementation(async () => ({ ...record, status: "approved", execution: { status: "done" } as never }));
     const ran = await post({ datasourceId: "orders", statement: "SELECT 1", onBehalfOf: "U01" });
     expect(ran.status).toBe(200);

@@ -1,5 +1,5 @@
 import "../../setup-dom";
-import { mockToastSuccess, mockToastError } from "../../helpers/mock-sonner";
+import { mockToastSuccess, mockToastError, mockToastInfo } from "../../helpers/mock-sonner";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { render, fireEvent, cleanup, waitFor, act, within } from "@testing-library/react";
 import { mockGlobalFetch, restoreGlobalFetch } from "../../helpers/mock-fetch";
@@ -252,10 +252,15 @@ describe("AlertsPanel", () => {
   test("running now reports the state it landed in; deleting asks first and shows a refusal", async () => {
     let state: Record<string, unknown> = { status: "ok", lastValue: "3" };
     let refuse = false;
+    let queuedAnswer = false;
     const fetchMock = mockGlobalFetch(
       routes({
         "/api/alerts/slow-orders/run": () =>
-          refuse ? { ok: false, status: 500, json: { error: "boom" } } : { ok: true, json: { state } },
+          refuse
+            ? { ok: false, status: 500, json: { error: "boom" } }
+            : queuedAnswer
+              ? { ok: true, status: 202, json: { queued: true, jobId: "job-1" } }
+              : { ok: true, json: { state } },
         "/api/alerts/slow-orders": () =>
           refuse
             ? { ok: false, status: 403, json: { error: "someone else's" } }
@@ -278,6 +283,13 @@ describe("AlertsPanel", () => {
       fireEvent.click(getByLabelText("Run slow-orders now"));
     });
     expect(mockToastSuccess).toHaveBeenLastCalledWith('"Slow orders" ran: firing');
+    // The worker did not answer within the wait (§4.40): the run is queued, the list refreshes.
+    queuedAnswer = true;
+    await act(async () => {
+      fireEvent.click(getByLabelText("Run slow-orders now"));
+    });
+    expect(mockToastInfo).toHaveBeenLastCalledWith('"Slow orders" is queued for a worker; refresh in a moment');
+    queuedAnswer = false;
     fireEvent.click(getByLabelText("Delete slow-orders"));
     expect(getByText("Delete this alert?")).not.toBeNull();
     fireEvent.click(getByText("Cancel", { selector: "button" }));

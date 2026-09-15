@@ -50,9 +50,14 @@ let record: Record<string, unknown> = {
   execution: { status: "done", rowCount: 1, fields: ["n"], rows: [{ n: 1 }], durationMs: 3 },
 };
 const submit = mock(async (_input: unknown, _identity: unknown) => record);
-mock.module("@/lib/executions/store", () => ({ submitExecution: submit }));
+// The worker's answer (§4.40): what waitForExecution hands back, or null when it ran out of time.
+let landed: Record<string, unknown> | null | "same" = "same";
+const waited = mock(async (_id: string, _ms: number) => (landed === "same" ? record : landed));
+mock.module("@/lib/executions/store", () => ({ submitExecution: submit, waitForExecution: waited }));
 
-const { DESCRIBE_LIMIT, MCP_PROTOCOL_VERSION, TOOLS, handleMcpMessage, parseError } = await import("@/lib/mcp/server");
+const { DESCRIBE_LIMIT, MCP_PROTOCOL_VERSION, RUN_WAIT_MS, TOOLS, handleMcpMessage, parseError } = await import(
+  "@/lib/mcp/server"
+);
 
 const identity = (over: Partial<ServiceIdentity["token"]> = {}): ServiceIdentity =>
   ({
@@ -199,14 +204,25 @@ describe("mcp server", () => {
       status: "pending",
       requestId: "exec-2",
     });
+    // Approved by policy, but the worker did not answer within the wait: the id to poll.
+    record = { id: "exec-q", status: "approved", jobId: "job-1" };
+    landed = null;
+    expect(parsed(await call("run_query", { datasourceId: "orders", statement: "SELECT 1" }))).toMatchObject({
+      status: "queued",
+      requestId: "exec-q",
+    });
+    expect(waited).toHaveBeenLastCalledWith("exec-q", RUN_WAIT_MS);
+    landed = "same";
     record = { id: "exec-3", status: "approved", execution: { status: "failed", error: "execution_failed" } };
     const failed = await call("run_query", { datasourceId: "orders", statement: "SELECT 1" });
     expect(isError(failed)).toBe(true);
     expect(parsed(failed)).toEqual({ status: "failed", requestId: "exec-3", error: "execution_failed" });
+    // Approved but with no outcome yet, even after the wait: queued, with the id to poll.
     record = { id: "exec-4", status: "approved" };
-    expect(parsed(await call("run_query", { datasourceId: "orders", statement: "SELECT 1" })).error).toBe(
-      "execution_failed",
-    );
+    expect(parsed(await call("run_query", { datasourceId: "orders", statement: "SELECT 1" }))).toMatchObject({
+      status: "queued",
+      requestId: "exec-4",
+    });
     submit.mockImplementationOnce(async () => {
       throw new ApprovalError("This token may not use datasource", 403);
     });

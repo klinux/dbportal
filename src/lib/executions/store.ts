@@ -16,6 +16,7 @@ import { maskResult } from "@/lib/masking/store";
 import { notifyCallback, readCallbackUrl } from "@/lib/notify/callback";
 import { notifyExecutionOutcome, notifyReviewers } from "@/lib/notify/slack";
 import { resolveConnection, SeedConnectionError } from "@/lib/seed/resolve-connection";
+import { enqueueJob } from "@/lib/jobs/queue";
 import { getStorageProvider } from "@/lib/storage/factory";
 import type { ApprovalRequest, ExecutionOutcome, ExecutionReply } from "@/lib/storage/types";
 import { findServiceTokenByActor } from "@/lib/service-tokens/store";
@@ -243,17 +244,81 @@ export async function submitExecution(
     void notifyReviewers(record);
     return record;
   }
-  // Allowed as it is: recorded as approved by policy (no reviewer), then run.
+  // Allowed as it is: recorded as approved by policy (no reviewer), then handed to the queue.
   const approved: ApprovalRequest = { ...record, status: "approved", reviewedAt: record.requestedAt };
   await store.putApproval(approved);
-  return runExecution(approved, identity);
+  return enqueueExecution(approved);
 }
 
 /**
- * What a reviewer's decision sets in motion for an execution request: approved, it runs now
- * as the token that queued it (a token revoked meanwhile makes it fail as a permission
- * denial, the way the token's own call would); rejected, the thread that asked is told.
- * A window request is returned untouched.
+ * Hand an approved request to the queue (docs/CONTEXT.md §4.40): a worker - or this
+ * process's own loop - runs it as the token that queued it, resolved again at run time so a
+ * token revoked meanwhile fails the way its own call would. One attempt only: a statement
+ * whose worker died mid-run is marked lost, never run a second time.
+ */
+export async function enqueueExecution(record: ApprovalRequest): Promise<ApprovalRequest> {
+  const store = await requireStore();
+  const job = await enqueueJob({
+    kind: "execution",
+    payload: { approvalId: record.id },
+    requestedBy: record.requester,
+    maxAttempts: 1,
+  });
+  const queued: ApprovalRequest = { ...record, jobId: job.id };
+  await store.putApproval(queued);
+  return queued;
+}
+
+/** The identity an execution runs as: the token that queued it, as it is now. */
+async function identityForRecord(record: ApprovalRequest): Promise<ServiceIdentity | null> {
+  const found = await findServiceTokenByActor(record.requester);
+  return found ? { ...found, session: await withNamedRoles(found.session) } : null;
+}
+
+async function failWithout(record: ApprovalRequest, error: string): Promise<ApprovalRequest> {
+  const store = await requireStore();
+  const now = new Date().toISOString();
+  const failed: ApprovalRequest = {
+    ...record,
+    execution: { status: "failed", startedAt: now, finishedAt: now, durationMs: 0, error },
+  };
+  await store.putApproval(failed);
+  announceOutcome(failed);
+  return failed;
+}
+
+/** The queue's handler: run the request the job names, once. A request that already ran is left as it is. */
+export async function runExecutionJob(approvalId: string): Promise<ApprovalRequest | null> {
+  const record = await getApproval(approvalId);
+  if (!record || record.kind !== "execution") return null;
+  if (record.execution) return record;
+  const identity = await identityForRecord(record);
+  if (!identity) return failWithout(record, "token_revoked");
+  return runExecution(record, identity);
+}
+
+/** The queue lost the job mid-run (§4.40): the outcome is unknown, and the request says so rather than running again. */
+export async function markExecutionLost(approvalId: string): Promise<void> {
+  const record = await getApproval(approvalId);
+  if (!record || record.kind !== "execution" || record.execution) return;
+  await failWithout(record, "lost");
+}
+
+/** The record once it ran, polled for up to `waitMs`; the record as it is when it has not. */
+export async function waitForExecution(id: string, waitMs: number, stepMs = 300): Promise<ApprovalRequest | null> {
+  const deadline = Date.now() + waitMs;
+  let record = await getApproval(id);
+  while (record && !record.execution && record.status !== "pending" && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, stepMs));
+    record = await getApproval(id);
+  }
+  return record;
+}
+
+/**
+ * What a reviewer's decision sets in motion for an execution request: approved, it is
+ * handed to the queue to run as the token that queued it; rejected, the thread that asked
+ * is told. A window request is returned untouched.
  */
 export async function settleDecision(decided: ApprovalRequest): Promise<ApprovalRequest> {
   if (decided.kind !== "execution") return decided;
@@ -263,20 +328,9 @@ export async function settleDecision(decided: ApprovalRequest): Promise<Approval
   }
   // The first of two approvals (§4.28): nothing runs yet.
   if (decided.status !== "approved") return decided;
-  const found = await findServiceTokenByActor(decided.requester);
-  const identity = found ? { ...found, session: await withNamedRoles(found.session) } : null;
-  if (!identity) {
-    const store = await requireStore();
-    const now = new Date().toISOString();
-    const failed: ApprovalRequest = {
-      ...decided,
-      execution: { status: "failed", startedAt: now, finishedAt: now, durationMs: 0, error: "token_revoked" },
-    };
-    await store.putApproval(failed);
-    announceOutcome(failed);
-    return failed;
-  }
-  return runExecution(decided, identity);
+  // A token revoked before the decision is told now; one revoked later is told by the job.
+  if (!(await identityForRecord(decided))) return failWithout(decided, "token_revoked");
+  return enqueueExecution(decided);
 }
 
 /** One record, only if this token queued it: a token never reads another's requests. */

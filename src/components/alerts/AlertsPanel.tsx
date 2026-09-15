@@ -210,7 +210,16 @@ export function AlertsPanel() {
     setRunning(alert.id);
     try {
       const res = await appFetch(`/api/alerts/${encodeURIComponent(alert.id)}/run`, { method: "POST" });
-      const body = (await res.json().catch(() => ({}))) as { state?: AlertRecord["state"]; error?: string };
+      const body = (await res.json().catch(() => ({}))) as {
+        state?: AlertRecord["state"];
+        queued?: boolean;
+        error?: string;
+      };
+      if (res.status === 202 && body.queued) {
+        toast.info(`"${alert.name}" is queued for a worker; refresh in a moment`);
+        await load();
+        return;
+      }
       if (!res.ok || !body.state) throw new Error(body.error ?? `The server refused the run (${res.status})`);
       const state = body.state;
       if (state.status === "error") toast.error(`"${alert.name}" failed: ${state.lastError ?? "error"}`);

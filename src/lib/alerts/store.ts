@@ -161,8 +161,28 @@ export async function channelInUse(channelId: string): Promise<boolean> {
 
 /** The enabled alerts whose interval has elapsed since their last run, oldest run first. */
 export async function dueAlerts(now: number): Promise<AlertRecord[]> {
+  // A run handed to the queue counts as the last one until it runs, or it would be handed over again.
+  const last = (a: AlertRecord) =>
+    Math.max(Date.parse(a.state.lastRunAt ?? "1970-01-01"), Date.parse(a.state.lastScheduledAt ?? "1970-01-01"));
   return (await readAll())
     .filter((a) => a.enabled)
-    .filter((a) => !a.state.lastRunAt || Date.parse(a.state.lastRunAt) + a.everyMinutes * 60_000 <= now)
-    .sort((a, b) => Date.parse(a.state.lastRunAt ?? "1970-01-01") - Date.parse(b.state.lastRunAt ?? "1970-01-01"));
+    .filter((a) => last(a) + a.everyMinutes * 60_000 <= now)
+    .sort((a, b) => last(a) - last(b));
+}
+
+/** The next run of an alert as the queue reports it: the state once `lastRunAt` moved past `since`, or null after `waitMs`. */
+export async function waitForAlertRun(
+  id: string,
+  since: string,
+  waitMs: number,
+  stepMs = 300,
+): Promise<AlertState | null> {
+  const deadline = Date.now() + waitMs;
+  while (Date.now() < deadline) {
+    const record = await findAlert(id);
+    if (!record) return null;
+    if (record.state.lastRunAt && record.state.lastRunAt > since) return record.state;
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+  return null;
 }

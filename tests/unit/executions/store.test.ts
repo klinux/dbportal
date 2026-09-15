@@ -111,8 +111,25 @@ mock.module("@/lib/service-tokens/store", () => ({
     liveToken && liveToken.session.username === actor ? liveToken : null,
 }));
 
-const { boundRows, getExecutionForToken, runExecution, settleDecision, submitExecution, RESULT_MAX_ROWS } =
-  await import("@/lib/executions/store");
+// The queue (§4.40): what an approved request is handed to; the handler is called back by the tests.
+const enqueued: { kind: string; payload: Record<string, unknown>; requestedBy: string; maxAttempts?: number }[] = [];
+mock.module("@/lib/jobs/queue", () => ({
+  enqueueJob: async (input: (typeof enqueued)[number]) => {
+    enqueued.push(input);
+    return { id: `job-${enqueued.length}` };
+  },
+}));
+const {
+  boundRows,
+  getExecutionForToken,
+  markExecutionLost,
+  runExecution,
+  runExecutionJob,
+  settleDecision,
+  submitExecution,
+  waitForExecution,
+  RESULT_MAX_ROWS,
+} = await import("@/lib/executions/store");
 const { ApprovalError } = await import("@/lib/approvals/errors");
 
 const bot = (
@@ -147,6 +164,7 @@ const audited = () => audit.mock.calls.map((c) => (c as unknown[])[0] as Record<
 describe("executions store", () => {
   beforeEach(() => {
     rows = new Map();
+    enqueued.length = 0;
     enabled = true;
     queryFails = null;
     liveToken = null;
@@ -188,16 +206,28 @@ describe("executions store", () => {
     expect(ran.status).toBe("approved");
   });
 
-  test("a read on a datasource without approval runs at once: approved by policy, masked, bounded, audited with subject", async () => {
-    const record = await ask({ reply: { channel: "C1", threadTs: "1.2" } });
-    expect(record).toMatchObject({
+  test("a read on a datasource without approval is approved by policy and handed to the queue; the job runs it masked, bounded, audited with subject", async () => {
+    const queued = await ask({ reply: { channel: "C1", threadTs: "1.2" } });
+    expect(queued).toMatchObject({
       kind: "execution",
       status: "approved",
       requester: "svc:bot",
       subject: "U01",
       datasourceName: "Plain",
       reply: { channel: "C1", threadTs: "1.2" },
+      jobId: "job-1",
     });
+    expect(queued.execution).toBeUndefined();
+    expect(enqueued[0]).toEqual({
+      kind: "execution",
+      payload: { approvalId: queued.id },
+      requestedBy: "svc:bot",
+      maxAttempts: 1,
+    });
+    expect(query).not.toHaveBeenCalled();
+    // The worker's turn: the request runs as the token that queued it, resolved now.
+    liveToken = bot();
+    const record = (await runExecutionJob(queued.id))!;
     expect(record.reviewer).toBeUndefined();
     expect(record.execution).toMatchObject({
       status: "done",
@@ -226,6 +256,28 @@ describe("executions store", () => {
     expect(audited()[0]).not.toHaveProperty("approvalId");
     expect(notifyReviewers).not.toHaveBeenCalled();
     expect(notifyExecutionOutcome).toHaveBeenCalledTimes(1);
+    // Run once: the job called again leaves the record as it is; an unknown or a window request is nothing.
+    expect((await runExecutionJob(queued.id))!.execution).toBe(record.execution);
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(await runExecutionJob("ghost")).toBeNull();
+    // A token revoked between the request and the worker fails the request the same closed way.
+    const later = await ask({});
+    liveToken = null;
+    expect((await runExecutionJob(later.id))!.execution).toMatchObject({ status: "failed", error: "token_revoked" });
+    // The queue lost the job mid-run: the outcome is unknown, and the record says so; a run that finished is left alone.
+    liveToken = bot();
+    const lost = await ask({});
+    await markExecutionLost(lost.id);
+    expect(rows.get(lost.id)?.execution).toMatchObject({ status: "failed", error: "lost" });
+    await markExecutionLost(queued.id);
+    expect(rows.get(queued.id)?.execution?.status).toBe("done");
+    await markExecutionLost("ghost");
+    // waitForExecution polls until the outcome lands, or the wait runs out, or the request still waits for a reviewer.
+    const waiting = await ask({});
+    expect((await waitForExecution(waiting.id, 40, 10))?.execution).toBeUndefined();
+    setTimeout(() => void runExecutionJob(waiting.id), 15);
+    expect((await waitForExecution(waiting.id, 500, 10))?.execution?.status).toBe("done");
+    expect(await waitForExecution("ghost", 10, 5)).toBeNull();
   });
 
   test("a write on a datasource that requires approval, or any request from a token that requires it, waits and is announced", async () => {
@@ -259,14 +311,15 @@ describe("executions store", () => {
 
   // docs/CONTEXT.md §4.16: the datasource's row cap holds the bot's statement too.
   test("a datasource's row cap reaches the provider; without one the options are empty", async () => {
+    liveToken = bot();
     datasources.plain.limits = { maxRows: 3 };
     try {
-      await ask({});
+      await runExecutionJob((await ask({})).id);
       expect(lastPrepareOptions).toEqual({ limit: 3, unlimited: false });
     } finally {
       delete datasources.plain.limits;
     }
-    await ask({});
+    await runExecutionJob((await ask({})).id);
     expect(lastPrepareOptions).toEqual({});
   });
 
@@ -283,15 +336,18 @@ describe("executions store", () => {
     liveToken = bot();
     const queued = await ask({ datasourceId: "orders", statement: "DELETE FROM orders WHERE id = 1" });
     frozenWindow = { id: "w", reason: "Deploy", from: "x", until: "y" };
-    const settled = await settleDecision({ ...queued, status: "approved", reviewer: "root" });
+    await settleDecision({ ...queued, status: "approved", reviewer: "root" });
+    const settled = (await runExecutionJob(queued.id))!;
     expect(settled.execution).toMatchObject({ status: "failed", error: "freeze_window" });
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(query).not.toHaveBeenCalled();
   });
 
   // docs/CONTEXT.md §4.18: the ticket is read, bounded, kept on the record and written to the audit line.
   test("a ticket travels with the request into the audit line; a datasource that requires one refuses a write without it", async () => {
+    liveToken = bot();
     const withTicket = await ask({ ticket: `  ${"x".repeat(130)}  ` });
     expect(withTicket.ticket).toBe("x".repeat(120));
+    await runExecutionJob(withTicket.id);
     expect(audited().at(-1)).toMatchObject({ ticket: "x".repeat(120) });
     datasources.plain.requireTicket = true;
     try {
@@ -313,8 +369,10 @@ describe("executions store", () => {
     expect(refused.statusCode).toBe(400);
     expect(refused.message).toContain("not allowed");
     expect((await ask({ callback: "nope" }).catch((e) => e)).statusCode).toBe(400);
+    liveToken = bot();
     const ran = await ask({ callback: { url: "https://bot.example.test/hook" } });
     expect(ran.callback).toEqual({ url: "https://bot.example.test/hook" });
+    await runExecutionJob(ran.id);
     expect(notifyCallback).toHaveBeenCalledTimes(1);
     expect((notifyCallback.mock.calls[0] as unknown[])[0]).toMatchObject({ id: ran.id, execution: { status: "done" } });
     await settleDecision({ ...ran, status: "rejected", reviewer: "root" });
@@ -324,7 +382,8 @@ describe("executions store", () => {
 
   test("a failed run stores a closed reason, never the driver's words, and still answers the thread", async () => {
     queryFails = Object.assign(new Error('relation "secret_table" does not exist'), { name: "QueryError" });
-    const record = await ask({});
+    liveToken = bot();
+    const record = (await runExecutionJob((await ask({})).id))!;
     expect(record.execution?.status).toBe("failed");
     expect(JSON.stringify(record)).not.toContain("secret_table");
     expect(audited()[0]).toMatchObject({ result: "failure" });
@@ -335,7 +394,8 @@ describe("executions store", () => {
     const missing = { ...queued, status: "approved" as const, reviewer: "root" };
     rows.set(missing.id, missing);
     denyAll = true;
-    const settled = await settleDecision(missing);
+    await settleDecision(missing);
+    const settled = (await runExecutionJob(missing.id))!;
     expect(settled.execution).toMatchObject({ status: "failed", error: "permission_denied" });
   });
 
@@ -376,8 +436,12 @@ describe("executions store", () => {
     expect(failed.execution).toMatchObject({ status: "failed", error: "token_revoked" });
     expect(rows.get(queued.id)?.execution?.error).toBe("token_revoked");
 
+    // With the token live, approval hands the request to the queue; the job runs it as that token.
     liveToken = bot();
-    const ran = await settleDecision(approved);
+    const handed = await settleDecision({ ...approved, execution: undefined });
+    expect(handed.execution).toBeUndefined();
+    expect(enqueued.at(-1)).toMatchObject({ kind: "execution", payload: { approvalId: queued.id } });
+    const ran = (await runExecutionJob(queued.id))!;
     expect(ran.execution?.status).toBe("done");
     expect(audited().at(-1)).toMatchObject({
       user: "svc:bot",

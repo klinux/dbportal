@@ -8,8 +8,9 @@ import { submitExecution } from "@/lib/executions/store";
 /**
  * A bot's execution request (docs/CONTEXT.md §4.10):
  * `{ datasourceId, statement, onBehalfOf, reply?: { channel, threadTs? } }`.
- * 200 with the outcome when policy let it run at once; 202 with the pending record when a
- * reviewer must decide first. The record is what `GET /api/v1/executions/[id]` returns.
+ * 202 with the record while it waits - for a reviewer, or for the worker that runs it
+ * (§4.40); 200 with the outcome inside once it ran. `GET /api/v1/executions/[id]` is the
+ * same record, to poll.
  */
 export async function POST(request: Request) {
   const route = "POST /api/v1/executions";
@@ -29,7 +30,8 @@ export async function POST(request: Request) {
       },
       guard.identity,
     );
-    return NextResponse.json({ execution: record }, { status: record.status === "pending" ? 202 : 200 });
+    // 202 until the outcome is there: a request may wait for a reviewer, or for a worker (§4.40).
+    return NextResponse.json({ execution: record }, { status: record.execution ? 200 : 202 });
   } catch (error) {
     return answerApprovalError(error, route) ?? createErrorResponse(error, { route });
   }

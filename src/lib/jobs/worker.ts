@@ -17,6 +17,8 @@ import type { JobRecord } from "@/lib/storage/types";
  * a single-instance install still executes what it enqueues; never the agent role.
  */
 export type JobHandler = (job: JobRecord) => Promise<Record<string, unknown> | void>;
+/** What a kind does when a job of it is lost for good - a run whose outcome nobody knows. */
+export type JobLostHandler = (job: JobRecord) => Promise<void>;
 
 /** A failure the handler explains with a closed word; anything else is recorded by its name. */
 export class JobFailure extends Error {
@@ -34,13 +36,20 @@ export const RETRY_BACKOFF_MS = 30_000;
 const KEY = Symbol.for("dbportal.job-worker");
 interface State {
   handlers: Map<string, JobHandler>;
+  onLost: Map<string, JobLostHandler>;
   timer: ReturnType<typeof setInterval> | null;
   running: Set<string>;
   name: string;
 }
 function state(): State {
   const g = globalThis as typeof globalThis & { [KEY]?: State };
-  g[KEY] ??= { handlers: new Map(), timer: null, running: new Set(), name: `${hostname()}:${process.pid}` };
+  g[KEY] ??= {
+    handlers: new Map(),
+    onLost: new Map(),
+    timer: null,
+    running: new Set(),
+    name: `${hostname()}:${process.pid}`,
+  };
   return g[KEY];
 }
 
@@ -50,8 +59,9 @@ export function resetWorker(): void {
   delete (globalThis as typeof globalThis & { [KEY]?: State })[KEY];
 }
 
-export function registerJobHandler(kind: string, handler: JobHandler): void {
+export function registerJobHandler(kind: string, handler: JobHandler, onLost?: JobLostHandler): void {
   state().handlers.set(kind, handler);
+  if (onLost) state().onLost.set(kind, onLost);
 }
 
 export function workerName(): string {
@@ -149,6 +159,12 @@ export async function workerPass(now = new Date()): Promise<number> {
         result: "failure",
         details: `${job.kind}: the lease expired ${job.attempts} times`,
       });
+      const onLost = s.onLost.get(job.kind);
+      if (onLost) {
+        await onLost(job).catch((error: unknown) => {
+          logger.error("Lost-job handler failed", error, { route: "jobs/worker", jobId: job.id });
+        });
+      }
     }
   }
   let claimed = 0;

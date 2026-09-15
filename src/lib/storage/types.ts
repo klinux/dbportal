@@ -125,6 +125,8 @@ export interface ApprovalRequest {
   callback?: ExecutionCallback;
   /** The outcome of an `execution` request once it ran. */
   execution?: ExecutionOutcome;
+  /** The queue job that runs, or ran, an `execution` request (docs/CONTEXT.md §4.40). */
+  jobId?: string;
   /** The guardrail the statement tripped (§4.15), when that is why the request exists. */
   guardrail?: Guardrail;
   /** The ticket or incident the requester named (§4.18). */

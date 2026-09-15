@@ -1,19 +1,69 @@
-import { describe, test, expect, mock } from "bun:test";
+import { describe, test, expect, mock, beforeEach } from "bun:test";
 
-/** The handlers this image registers at boot (docs/CONTEXT.md §4.40): `ping` answers with the time and the echo. */
+/**
+ * The handlers this image registers at boot (docs/CONTEXT.md §4.40): `ping` answers with the
+ * time and the echo; `execution` runs the request the job names once and marks a lost one
+ * on the record; `alert` runs the alert the job names. A job without its id, or naming
+ * nothing, fails with a closed word.
+ */
 const handlers = new Map<string, (job: unknown) => Promise<unknown>>();
+const lost = new Map<string, (job: unknown) => Promise<void>>();
+const real = await import("@/lib/jobs/worker");
 mock.module("@/lib/jobs/worker", () => ({
-  registerJobHandler: (k: string, h: (job: unknown) => Promise<unknown>) => handlers.set(k, h),
+  ...real,
+  registerJobHandler: (k: string, h: (job: unknown) => Promise<unknown>, l?: (job: unknown) => Promise<void>) => {
+    handlers.set(k, h);
+    if (l) lost.set(k, l);
+  },
 }));
+let record: Record<string, unknown> | null = { id: "a1", execution: { status: "done" } };
+const runExecutionJob = mock(async (_id: string) => record);
+const markExecutionLost = mock(async (_id: string) => {});
+mock.module("@/lib/executions/store", () => ({ runExecutionJob, markExecutionLost }));
+let alert: Record<string, unknown> | null = { id: "slow" };
+mock.module("@/lib/alerts/store", () => ({ findAlert: async (_id: string) => alert }));
+const runAlert = mock(
+  async (_a: unknown): Promise<{ status: string; lastValue?: string }> => ({ status: "firing", lastValue: "9" }),
+);
+mock.module("@/lib/alerts/run", () => ({ runAlert }));
 const { registerJobHandlers } = await import("@/lib/jobs/handlers");
+const job = (payload: Record<string, unknown>) => ({ id: "j", kind: "x", payload });
 
 describe("job handlers", () => {
-  test("ping", async () => {
+  beforeEach(() => {
+    handlers.clear();
+    lost.clear();
     registerJobHandlers();
-    expect([...handlers.keys()]).toEqual(["ping"]);
-    const result = (await handlers.get("ping")!({ payload: { echo: "hi" } })) as { pong: string; echo: unknown };
+    record = { id: "a1", execution: { status: "done" } };
+    alert = { id: "slow" };
+  });
+
+  test("ping", async () => {
+    expect([...handlers.keys()]).toEqual(["ping", "execution", "alert"]);
+    const result = (await handlers.get("ping")!(job({ echo: "hi" }))) as { pong: string; echo: unknown };
     expect(Number.isNaN(Date.parse(result.pong))).toBe(false);
     expect(result.echo).toBe("hi");
-    expect(((await handlers.get("ping")!({ payload: {} })) as { echo: unknown }).echo).toBeNull();
+    expect(((await handlers.get("ping")!(job({}))) as { echo: unknown }).echo).toBeNull();
+  });
+
+  test("execution: runs the request named once, reports its outcome, and marks a lost job on the record", async () => {
+    expect(await handlers.get("execution")!(job({ approvalId: "a1" }))).toEqual({ status: "done" });
+    expect(runExecutionJob).toHaveBeenLastCalledWith("a1");
+    record = { id: "a2" };
+    expect(await handlers.get("execution")!(job({ approvalId: "a2" }))).toEqual({ status: "queued" });
+    record = null;
+    await expect(handlers.get("execution")!(job({ approvalId: "ghost" }))).rejects.toThrow("not_found");
+    await expect(handlers.get("execution")!(job({}))).rejects.toThrow("no_approvalId");
+    await lost.get("execution")!(job({ approvalId: "a1" }));
+    expect(markExecutionLost).toHaveBeenLastCalledWith("a1");
+  });
+
+  test("alert: runs the alert named and reports the state it landed in", async () => {
+    expect(await handlers.get("alert")!(job({ alertId: "slow" }))).toEqual({ status: "firing", value: "9" });
+    expect(runAlert).toHaveBeenLastCalledWith({ id: "slow" });
+    runAlert.mockImplementationOnce(async () => ({ status: "ok" }));
+    expect(await handlers.get("alert")!(job({ alertId: "slow" }))).toEqual({ status: "ok" });
+    alert = null;
+    await expect(handlers.get("alert")!(job({ alertId: "ghost" }))).rejects.toThrow("not_found");
   });
 });

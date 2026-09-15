@@ -15,6 +15,7 @@ import React from "react";
 
 export const mockToastSuccess = mock(() => {});
 export const mockToastError = mock(() => {});
+export const mockToastInfo = mock(() => {});
 export const mockToastDefault = mock(() => {});
 export const mockToaster = mock((props: Record<string, unknown>) =>
   React.createElement("div", { "data-testid": "toaster", className: props.className }),
@@ -25,5 +26,6 @@ mock.module("sonner", () => ({
   toast: Object.assign(mockToastDefault, {
     success: mockToastSuccess,
     error: mockToastError,
+    info: mockToastInfo,
   }),
 }));

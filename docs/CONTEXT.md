@@ -701,9 +701,19 @@ built. Each lands as its own section when done.
   agent never. `/api/metrics` exposes `dbportal_jobs_queued` and `dbportal_jobs_running`,
   which is what an autoscaler of workers reads. This step ships the queue, the loop, the
   role and one kind, `ping`, that an administrator enqueues (`POST /api/admin/jobs/ping`)
-  and reads back (`GET /api/admin/jobs`) to prove a worker is there. Next steps, each its
-  own commit: the bot executions and the alert runs through the queue; seed and export
-  with a stored result; backups on shared storage; the chart's autoscaling recipe.
+  and reads back (`GET /api/admin/jobs`) to prove a worker is there.
+  **Second step (same day): executions and alerts through the queue.** A bot's request
+  approved by policy, and one a reviewer approved, are handed to the queue (`execution`,
+  one attempt: a statement whose worker died mid-run is marked `lost` on the record, never
+  run a second time) and run as the token that queued it, resolved at run time; the studio
+  no longer executes them. `POST /api/v1/executions` answers 202 until the outcome is on
+  the record (a reviewer, or a worker, still to come); the MCP's `run_query` waits up to
+  twenty seconds for the worker and otherwise hands back the id to poll. The alert
+  scheduler hands each due alert to the queue (`alert`) and marks it scheduled, so a
+  queued run is not handed over twice; "Run now" enqueues and waits up to fifteen seconds,
+  else answers 202 and the list shows the outcome on its next refresh. Still in the studio's
+  process: the editor's own queries (by design, the person waits), seeds, exports and
+  backups - the next commits.
 
 ## 5. Decisions already taken
 

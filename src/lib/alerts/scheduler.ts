@@ -1,11 +1,11 @@
 import { deploymentRole } from "@/lib/config/role";
 import { logger } from "@/lib/logger";
-import { runAlert } from "./run";
-import { dueAlerts } from "./store";
+import { enqueueJob } from "@/lib/jobs/queue";
+import { dueAlerts, updateAlertState } from "./store";
 
 /**
  * The alert scheduler (docs/CONTEXT.md §4.29): one interval per process, started at boot,
- * that runs every alert whose time has come, one after the other. It lives on globalThis
+ * that hands every alert whose time has come to the job queue (§4.40). It lives on globalThis
  * because Next.js gives each entry its own module instance and a server must hold one
  * scheduler, not one per route. Off with ALERTS_ENABLED=false, and off by default on any
  * role but the studio: the agent (§4.30) holds no alert of anyone's, and a worker (§4.40)
@@ -38,7 +38,11 @@ export function tickMs(): number {
   return Number.isFinite(n) && n >= 1_000 ? n : DEFAULT_TICK_MS;
 }
 
-/** One pass: every due alert, in turn. A pass still running when the next is due is not doubled. */
+/**
+ * One pass: every due alert handed to the queue (§4.40) - a worker, or this process's own
+ * loop, runs it - and marked as scheduled so the next pass does not hand it over again. A
+ * pass still running when the next is due is not doubled.
+ */
 export async function tickOnce(now = new Date()): Promise<number> {
   const h = holder();
   if (h.running) return 0;
@@ -46,7 +50,8 @@ export async function tickOnce(now = new Date()): Promise<number> {
   let ran = 0;
   try {
     for (const alert of await dueAlerts(now.getTime())) {
-      await runAlert(alert, new Date());
+      await enqueueJob({ kind: "alert", payload: { alertId: alert.id }, requestedBy: "scheduler", maxAttempts: 1 });
+      await updateAlertState(alert.id, { ...alert.state, lastScheduledAt: now.toISOString() });
       ran++;
     }
   } catch (error) {

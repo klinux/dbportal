@@ -30,6 +30,7 @@ const {
   saveAlert,
   updateAlertState,
   validateAlert,
+  waitForAlertRun,
 } = await import("@/lib/alerts/store");
 
 const ana = { role: "user", username: "ana", groups: ["sre"], namedRoles: ["oncall"] };
@@ -127,7 +128,35 @@ describe("alerts store", () => {
     await updateAlertState("stale", { status: "ok", lastRunAt: new Date(t0 - 6 * 60_000).toISOString() });
     await updateAlertState("off", { status: "ok" });
     expect((await dueAlerts(t0)).map((a) => a.id)).toEqual(["never", "stale"]);
+    // A run handed to the queue counts as the last one until it runs (§4.40).
+    await updateAlertState("stale", {
+      status: "ok",
+      lastRunAt: new Date(t0 - 6 * 60_000).toISOString(),
+      lastScheduledAt: new Date(t0 - 60_000).toISOString(),
+    });
+    expect((await dueAlerts(t0)).map((a) => a.id)).toEqual(["never"]);
     serverStorage = false;
     expect(await dueAlerts(t0)).toEqual([]);
+  });
+
+  // docs/CONTEXT.md §4.40: "Run now" waits for the worker's run to land on the record.
+  test("waitForAlertRun answers the state once lastRunAt moved past the mark, null for an unknown alert or a wait that ran out", async () => {
+    await saveAlert(validateAlert(base), ana);
+    await updateAlertState("slow-orders", { status: "ok", lastRunAt: "2026-09-14T12:00:00.000Z" });
+    expect(await waitForAlertRun("slow-orders", "2026-09-14T12:00:01.000Z", 50, 10)).toBeNull();
+    expect(await waitForAlertRun("ghost", "2026-09-14T12:00:01.000Z", 50, 10)).toBeNull();
+    setTimeout(
+      () =>
+        void updateAlertState("slow-orders", {
+          status: "firing",
+          lastRunAt: "2026-09-14T12:00:05.000Z",
+          lastValue: "7",
+        }),
+      20,
+    );
+    expect(await waitForAlertRun("slow-orders", "2026-09-14T12:00:01.000Z", 500, 10)).toMatchObject({
+      status: "firing",
+      lastValue: "7",
+    });
   });
 });

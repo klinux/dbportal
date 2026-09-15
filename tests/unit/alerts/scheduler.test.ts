@@ -8,21 +8,33 @@ import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
  */
 const errorLog = mock(() => {});
 mock.module("@/lib/logger", () => ({ logger: { warn: () => {}, debug: () => {}, info: () => {}, error: errorLog } }));
-let due: { id: string }[] = [];
+let due: { id: string; state: Record<string, unknown> }[] = [];
 let fail = false;
+const marked: [string, Record<string, unknown>][] = [];
 mock.module("@/lib/alerts/store", () => ({
   dueAlerts: async () => {
     if (fail) throw new Error("store down");
     return due;
   },
+  updateAlertState: async (id: string, state: Record<string, unknown>) => {
+    marked.push([id, state]);
+    return null;
+  },
 }));
+// The pass hands each due alert to the queue (§4.40); `release` holds the enqueue open to prove a pass is not doubled.
 const ran: string[] = [];
 let release: (() => void) | null = null;
-mock.module("@/lib/alerts/run", () => ({
-  runAlert: async (a: { id: string }) => {
-    ran.push(a.id);
+mock.module("@/lib/jobs/queue", () => ({
+  enqueueJob: async (input: {
+    kind: string;
+    payload: { alertId: string };
+    maxAttempts: number;
+    requestedBy: string;
+  }) => {
+    ran.push(input.payload.alertId);
+    expect(input).toMatchObject({ kind: "alert", maxAttempts: 1, requestedBy: "scheduler" });
     if (release) await new Promise<void>((r) => (release = r));
-    return { status: "ok" };
+    return { id: `job-${input.payload.alertId}` };
   },
 }));
 const { DEFAULT_TICK_MS, alertsEnabled, startAlertScheduler, stopAlertScheduler, tickMs, tickOnce } = await import(
@@ -40,6 +52,7 @@ describe("alerts scheduler", () => {
     due = [];
     fail = false;
     ran.length = 0;
+    marked.length = 0;
     errorLog.mockClear();
   });
   afterEach(() => {
@@ -71,9 +84,18 @@ describe("alerts scheduler", () => {
   });
 
   test("a pass runs every due alert in turn, is not doubled while running, and survives a failing store", async () => {
-    due = [{ id: "a" }, { id: "b" }];
-    expect(await tickOnce()).toBe(2);
+    due = [
+      { id: "a", state: { status: "ok" } },
+      { id: "b", state: { status: "firing", lastValue: "9" } },
+    ];
+    const t0 = new Date("2026-09-14T12:00:00.000Z");
+    expect(await tickOnce(t0)).toBe(2);
     expect(ran).toEqual(["a", "b"]);
+    // Each one is marked scheduled, its state otherwise kept, so the next pass does not hand it over again.
+    expect(marked).toEqual([
+      ["a", { status: "ok", lastScheduledAt: t0.toISOString() }],
+      ["b", { status: "firing", lastValue: "9", lastScheduledAt: t0.toISOString() }],
+    ]);
     // A second pass while the first is inside a run is skipped.
     release = () => {};
     const first = tickOnce();

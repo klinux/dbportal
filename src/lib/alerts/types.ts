@@ -39,6 +39,8 @@ export type AlertStatus = "unknown" | "ok" | "firing" | "error";
 export interface AlertState {
   status: AlertStatus;
   lastRunAt?: string;
+  /** When the scheduler last handed a run to the queue (§4.40); a queued run is not due again. */
+  lastScheduledAt?: string;
   /** The value read on the last run, as text. */
   lastValue?: string;
   /** Why the last run failed: a closed word (the audit reason), never the engine's message. */

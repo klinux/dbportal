@@ -3,7 +3,7 @@ import { assertContainerDepth, ObjectRouteError } from "@/lib/api/object-route";
 import { ApprovalError } from "@/lib/approvals/errors";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
-import { submitExecution } from "@/lib/executions/store";
+import { submitExecution, waitForExecution } from "@/lib/executions/store";
 import { logger } from "@/lib/logger";
 import { getManagedConnections } from "@/lib/seed";
 import { resolveConnection, SeedConnectionError } from "@/lib/seed/resolve-connection";
@@ -23,6 +23,8 @@ import type { ServiceIdentity } from "@/lib/service-tokens/types";
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
 export const MCP_SERVER_NAME = "dbportal";
 export const DESCRIBE_LIMIT = 200;
+/** How long run_query waits for the worker before answering with the request id to poll. */
+export const RUN_WAIT_MS = 20_000;
 
 export interface JsonRpcRequest {
   jsonrpc?: unknown;
@@ -161,7 +163,7 @@ async function runQuery(args: Record<string, unknown>, identity: ServiceIdentity
   if (!isReadStatement(statement, connection.type)) {
     throw new ApprovalError(`Only a statement that reads may run through the MCP surface on "${connection.name}"`, 403);
   }
-  const record = await submitExecution(
+  const submitted = await submitExecution(
     {
       datasourceId: connection.seedId,
       statement,
@@ -171,11 +173,20 @@ async function runQuery(args: Record<string, unknown>, identity: ServiceIdentity
     },
     identity,
   );
-  if (record.status === "pending") {
+  if (submitted.status === "pending") {
     return {
       status: "pending",
+      requestId: submitted.id,
+      message: `The read waits for a reviewer on "${connection.name}"; poll GET /api/v1/executions/${submitted.id}.`,
+    };
+  }
+  // Approved by policy: a worker runs it (§4.40); wait a while, then hand back the id to poll.
+  const record = (await waitForExecution(submitted.id, RUN_WAIT_MS)) ?? submitted;
+  if (!record.execution) {
+    return {
+      status: "queued",
       requestId: record.id,
-      message: `The read waits for a reviewer on "${connection.name}"; poll GET /api/v1/executions/${record.id}.`,
+      message: `The read is queued for a worker on "${connection.name}"; poll GET /api/v1/executions/${record.id}.`,
     };
   }
   const outcome = record.execution;

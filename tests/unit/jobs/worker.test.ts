@@ -173,6 +173,16 @@ describe("jobs worker", () => {
         worker: "dead:1",
       }),
     );
+    // A kind may say what to do with a job lost for good; a handler that throws is one error line.
+    const lost: string[] = [];
+    registerJobHandler(
+      "ping",
+      async () => ({}),
+      async (job) => {
+        lost.push(job.id);
+        throw new Error("cannot mark");
+      },
+    );
     registerJobHandler("slow", async () => {
       await new Promise((r) => setTimeout(r, 2_500));
       return {};
@@ -181,7 +191,10 @@ describe("jobs worker", () => {
     process.env.JOBS_LEASE_MS = "5000";
     const t0 = new Date("2026-09-14T00:01:00.000Z");
     await workerPass(t0);
-    expect((await store.getJob("stale"))!).toMatchObject({ status: "queued", worker: undefined });
+    // Back on the queue with its attempt counted - and, a handler being registered, run again by this pass.
+    const stale = (await store.getJob("stale"))!;
+    expect(stale.attempts).toBe(2);
+    expect(["queued", "running", "done"]).toContain(stale.status);
     expect((await store.getJob("gone"))!.status).toBe("lost");
     expect(audit.mock.calls[0][0]).toMatchObject({
       type: "job",
@@ -189,6 +202,12 @@ describe("jobs worker", () => {
       target: "gone",
       details: "ping: the lease expired 2 times",
     });
+    expect(lost).toEqual(["gone"]);
+    expect(errorLog).toHaveBeenCalledWith(
+      "Lost-job handler failed",
+      expect.any(Error),
+      expect.objectContaining({ jobId: "gone" }),
+    );
     // The slow job is running under this worker; its lease moves forward while it runs, and a
     // heartbeat the store refuses is one warning, not a failed job.
     const before = (await store.getJob("s"))!.leaseUntil!;
