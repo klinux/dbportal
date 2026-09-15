@@ -60,8 +60,9 @@ describe("PostgresStorageProvider", () => {
 
   test("initialize creates the user table, the audit table and its index", async () => {
     await provider.initialize();
-    // user_storage, the audit table and its four indexes (§4.2, §4.27), the approval table and its index (§4.6), the job table and its index (§4.40).
-    expect(mockQuery).toHaveBeenCalledTimes(10);
+    // user_storage, the audit table and its four indexes (§4.2, §4.27), the approval table and its index (§4.6), the job table and its index (§4.40), the leases (§4.41).
+    expect(mockQuery).toHaveBeenCalledTimes(11);
+    expect((mockQuery.mock.calls[10] as [string])[0]).toContain("CREATE TABLE IF NOT EXISTS leases");
     const sql = (mockQuery.mock.calls as unknown[][]).map((call) => call[0] as string);
     expect(sql[0]).toContain("CREATE TABLE IF NOT EXISTS user_storage");
     expect(sql[1]).toContain("CREATE TABLE IF NOT EXISTS audit_events");
@@ -647,6 +648,31 @@ describe("PostgresStorageProvider", () => {
       expect(params).toEqual(["2026-09-07T00:00:00.000Z"]);
       mockQuery.mockResolvedValueOnce({ rows: [] });
       expect(await provider.pruneJobs("x")).toBe(0);
+    });
+  });
+
+  // Leases (§4.41): one upsert whose WHERE decides - free, expired before now, or the holder's own.
+  describe("leases", () => {
+    test("acquireLease is one upsert the database arbitrates; listLeases reads every row", async () => {
+      await provider.initialize();
+      mockQuery.mockClear();
+      mockQuery.mockResolvedValueOnce({ rowCount: 1, rows: [{ name: "alerts-scheduler" }] });
+      expect(await provider.acquireLease("alerts-scheduler", "a:1", "NOW", "UNTIL")).toBe(true);
+      const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("INSERT INTO leases (name, holder, held_until)");
+      expect(sql).toContain(
+        "ON CONFLICT (name) DO UPDATE SET holder = EXCLUDED.holder, held_until = EXCLUDED.held_until",
+      );
+      expect(sql).toContain("WHERE leases.held_until < $4 OR leases.holder = EXCLUDED.holder");
+      expect(params).toEqual(["alerts-scheduler", "a:1", "UNTIL", "NOW"]);
+      mockQuery.mockResolvedValueOnce({ rowCount: 0, rows: [] });
+      expect(await provider.acquireLease("alerts-scheduler", "b:2", "NOW", "UNTIL")).toBe(false);
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ name: "alerts-scheduler", holder: "a:1", held_until: new Date("2026-09-15T00:01:00.000Z") }],
+      });
+      expect(await provider.listLeases()).toEqual([
+        { name: "alerts-scheduler", holder: "a:1", until: "2026-09-15T00:01:00.000Z" },
+      ]);
     });
   });
 });

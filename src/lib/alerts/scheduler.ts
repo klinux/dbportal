@@ -1,6 +1,7 @@
 import { deploymentRole } from "@/lib/config/role";
 import { logger } from "@/lib/logger";
 import { enqueueJob } from "@/lib/jobs/queue";
+import { ALERT_SCHEDULER_LEASE, holdLease, holdsLease } from "@/lib/leases";
 import { dueAlerts, updateAlertState } from "./store";
 
 /**
@@ -9,9 +10,14 @@ import { dueAlerts, updateAlertState } from "./store";
  * because Next.js gives each entry its own module instance and a server must hold one
  * scheduler, not one per route. Off with ALERTS_ENABLED=false, and off by default on any
  * role but the studio: the agent (§4.30) holds no alert of anyone's, and a worker (§4.40)
- * beside a studio would run every alert twice.
+ * beside a studio would run every alert twice. Across studio replicas one leads (§4.41):
+ * every tick asks the store for the scheduler's lease, held for three ticks, and only the
+ * instance that holds it hands alerts over; the others tick and wait, and take over within
+ * the lease when the leader is gone.
  */
 export const DEFAULT_TICK_MS = 30_000;
+export const SCHEDULER_LEASE = ALERT_SCHEDULER_LEASE;
+export const LEASE_TICKS = 3;
 const KEY = Symbol.for("dbportal.alert-scheduler");
 
 interface Holder {
@@ -49,6 +55,7 @@ export async function tickOnce(now = new Date()): Promise<number> {
   h.running = true;
   let ran = 0;
   try {
+    if (!(await holdLease(SCHEDULER_LEASE, LEASE_TICKS * tickMs(), now))) return 0;
     for (const alert of await dueAlerts(now.getTime())) {
       await enqueueJob({ kind: "alert", payload: { alertId: alert.id }, requestedBy: "scheduler", maxAttempts: 1 });
       await updateAlertState(alert.id, { ...alert.state, lastScheduledAt: now.toISOString() });
@@ -60,6 +67,11 @@ export async function tickOnce(now = new Date()): Promise<number> {
     h.running = false;
   }
   return ran;
+}
+
+/** Whether this instance led the scheduler on its last tick. */
+export function isSchedulerLeader(): boolean {
+  return holdsLease(SCHEDULER_LEASE);
 }
 
 export function startAlertScheduler(): boolean {

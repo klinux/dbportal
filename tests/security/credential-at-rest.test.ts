@@ -97,6 +97,12 @@ class CaptureProvider implements ServerStorageProvider {
   async pruneJobs(): Promise<number> {
     return 0;
   }
+  async acquireLease(): Promise<boolean> {
+    return true;
+  }
+  async listLeases(): Promise<never[]> {
+    return [];
+  }
   async countAuditEvents(): Promise<number> {
     return 0;
   }

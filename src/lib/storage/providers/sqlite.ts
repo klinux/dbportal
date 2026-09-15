@@ -15,6 +15,7 @@ import type {
   JobQuery,
   JobRecord,
   JobStatus,
+  LeaseRecord,
 } from "../types";
 import type { AuditEvent } from "@/lib/audit";
 import { STORAGE_COLLECTIONS } from "../types";
@@ -150,6 +151,11 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
           data         TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS jobs_queue ON jobs (status, run_at);
+        CREATE TABLE IF NOT EXISTS leases (
+          name       TEXT PRIMARY KEY,
+          holder     TEXT NOT NULL,
+          held_until TEXT NOT NULL
+        );
       `);
     } catch (error) {
       logger.error("SQLite storage initialization failed", error, { provider: "sqlite", path: this.dbPath });
@@ -371,6 +377,26 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
     });
     const row = claim();
     return row ? jobFromRow(row) : null;
+  }
+
+  async acquireLease(name: string, holder: string, now: string, until: string): Promise<boolean> {
+    this.ensureDb();
+    const result = this.db!.prepare(
+      `INSERT INTO leases (name, holder, held_until) VALUES (?, ?, ?)
+       ON CONFLICT (name) DO UPDATE SET holder = excluded.holder, held_until = excluded.held_until
+       WHERE leases.held_until < ? OR leases.holder = excluded.holder`,
+    ).run(name, holder, until, now);
+    return Number(result.changes ?? 0) > 0;
+  }
+
+  async listLeases(): Promise<LeaseRecord[]> {
+    this.ensureDb();
+    const rows = this.db!.prepare("SELECT name, holder, held_until FROM leases ORDER BY name").all() as {
+      name: string;
+      holder: string;
+      held_until: string;
+    }[];
+    return rows.map((row) => ({ name: row.name, holder: row.holder, until: row.held_until }));
   }
 
   async pruneJobs(before: string): Promise<number> {

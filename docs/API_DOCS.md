@@ -1257,8 +1257,10 @@ runAt, leaseUntil?, worker?, startedAt?, finishedAt?, result?, error? }] }` newe
 `POST /api/admin/jobs/ping` — body `{ echo? }`, `202 { job }`, a job a worker answers with the time (`503` without
 server storage). `GET /api/admin/jobs/stats?hours=24` (1 to 720) → `{ since, hours, sample, queued, running, total,
 done, failed, lost, wait: { p50Ms, p95Ms, maxMs } | null, run: …, kinds: [{ kind, total, done, failed, lost, wait,
-run }], workers: [{ name, jobs, lastSeenAt }] }` over the settled jobs in the window (read from the latest 2000
-records; `sample` says how many). `/api/metrics` exposes `dbportal_jobs_queued`, `dbportal_jobs_running`,
+run }], workers: [{ name, jobs, lastSeenAt }], leases: [{ name, holder, until }], instance, schedulerLeader }` over the
+settled jobs in the window (read from the latest 2000 records; `sample` says how many); `instance` is the replica
+that answered (`host:pid`) and `schedulerLeader` the one holding the alert scheduler's lease (docs/CONTEXT.md
+§4.41), or null. `/api/metrics` also exposes `dbportal_alert_scheduler_leader` (1 on the leader). `/api/metrics` exposes `dbportal_jobs_queued`, `dbportal_jobs_running`,
 `dbportal_jobs_total` by kind and outcome, and the histograms `dbportal_job_wait_seconds` and
 `dbportal_job_run_seconds` by kind. Settled jobs are kept `JOBS_RETENTION_DAYS` (7; 0 keeps all) and pruned by the
 worker once an hour. A job that failed past its attempts or lost its lease for good is audited as `job`.

@@ -774,6 +774,21 @@ built. Each lands as its own section when done.
   release-per-role shape stays for whoever wants the namespaces and upgrade cycles apart.
   A default render is byte for byte what it was.
 
+- **4.41 One leader among replicas — done (asked 2026-09-15).** Three studios must not
+  hand every alert over three times, nor tell a trail alert three times. Leases in the
+  store ([`src/lib/leases.ts`](../src/lib/leases.ts); a `leases` table in both providers,
+  taken with one upsert whose `WHERE` decides - free, expired, or the holder's own - so the
+  database arbitrates between instances that ask at the same instant). The alert scheduler
+  asks for its lease on every tick, holds it for three ticks, and hands alerts over only
+  while it holds it; the others tick and wait, and take over within the lease when the
+  leader is gone. The trail alerts' cooldown moved from process memory to the same table
+  (a fresh holder every time, so nobody passes twice inside the window). Without a server
+  store there is one instance and both answer as such. Who leads is on the scrape
+  (`dbportal_alert_scheduler_leader`), in `GET /api/admin/jobs/stats` (`leases`,
+  `instance`, `schedulerLeader`) and on the Jobs page, so a rollout of three is checked by
+  reading. Not behind a lease, on purpose: the worker's job prune and the audit retention
+  sweep (idempotent deletes), and approval expiry (decided per record on read).
+
 ## 5. Decisions already taken
 
 - **TypeScript stays.** The 50k-line driver layer is the main asset; rewriting the backend

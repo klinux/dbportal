@@ -54,6 +54,27 @@ function Stat({ label, value, hint, testId }: { label: string; value: string; hi
   );
 }
 
+/** Who leads the alert scheduler (§4.41), read off the store's leases; what a rollout of several studios is checked by. */
+function Leader({ stats }: { stats: JobStats }) {
+  const leader = stats.schedulerLeader;
+  return (
+    <p className="text-xs text-fg-secondary border-t border-hairline pt-2" data-testid="scheduler-leader">
+      Alert scheduler:{" "}
+      {leader ? (
+        <>
+          <span className="font-mono">{leader}</span>
+          {leader === stats.instance ? " (this instance)" : ""}
+        </>
+      ) : (
+        <span className="text-fg-muted">no leader yet</span>
+      )}
+      <span className="block text-[11px] text-fg-muted">
+        Answered by <span className="font-mono">{stats.instance || "–"}</span>
+      </span>
+    </p>
+  );
+}
+
 export function JobsTab() {
   const [hours, setHours] = useState(24);
   const [status, setStatus] = useState<JobStatus | "all">("all");
@@ -273,6 +294,7 @@ export function JobsTab() {
               <p className="text-[11px] text-fg-muted">
                 From the latest {stats.sample} records{stats.sample >= 2_000 ? " (the window may hold more)" : ""}.
               </p>
+              <Leader stats={stats} />
             </div>
           </div>
 

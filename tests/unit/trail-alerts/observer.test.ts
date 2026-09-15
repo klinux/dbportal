@@ -38,6 +38,7 @@ mock.module("@/lib/datasources/store", () => ({
 const deliver = mock(async (_c: unknown, _m: unknown) => true);
 mock.module("@/lib/notify/channels", () => ({ deliverToChannel: deliver }));
 
+const { resetLeases } = await import("@/lib/leases");
 const { TRAIL_COOLDOWN_MS, observeForTrailAlerts, registerTrailAlerts, resetTrailAlertsState } = await import(
   "@/lib/trail-alerts/observer"
 );
@@ -60,6 +61,8 @@ const t0 = Date.parse("2026-09-14T12:00:00.000Z");
 describe("trail alerts observer", () => {
   beforeEach(() => {
     resetTrailAlertsState();
+    // The cooldown lives with the leases (§4.41): in memory here, with no server store.
+    resetLeases();
     deliver.mockClear();
     emitted.mockClear();
     errorLog.mockClear();

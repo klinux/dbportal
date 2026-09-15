@@ -252,6 +252,8 @@ describe("jobs pass through", () => {
       heartbeatJob: mock(async () => true),
       reclaimJobs: mock(async () => [job]),
       pruneJobs: mock(async () => 2),
+      acquireLease: mock(async () => true),
+      listLeases: mock(async () => [{ name: "l", holder: "h", until: "u" }]),
     });
     const wrapped = withCredentialEncryption(inner);
     await wrapped.putJob(job);
@@ -265,6 +267,9 @@ describe("jobs pass through", () => {
     expect(await wrapped.reclaimJobs("now")).toEqual([job]);
     expect(await wrapped.pruneJobs("before")).toBe(2);
     expect(inner.pruneJobs).toHaveBeenCalledWith("before");
+    expect(await wrapped.acquireLease("l", "h", "now", "until")).toBe(true);
+    expect(inner.acquireLease).toHaveBeenCalledWith("l", "h", "now", "until");
+    expect(await wrapped.listLeases()).toEqual([{ name: "l", holder: "h", until: "u" }]);
   });
 });
 

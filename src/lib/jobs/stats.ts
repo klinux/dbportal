@@ -1,4 +1,5 @@
-import type { JobRecord } from "@/lib/storage/types";
+import { ALERT_SCHEDULER_LEASE, instanceName, listLeases } from "@/lib/leases";
+import type { JobRecord, LeaseRecord } from "@/lib/storage/types";
 import { countJobs, listJobs } from "./queue";
 
 /**
@@ -50,7 +51,15 @@ export interface JobStats {
   run: Percentiles | null;
   kinds: JobKindStats[];
   workers: JobWorkerStats[];
+  /** The leases in the store (§4.41): who leads the alert scheduler, which cooldowns are running. */
+  leases: LeaseRecord[];
+  /** The instance that answered, as it names itself in a lease. */
+  instance: string;
+  /** Who holds the alert scheduler's lease now (§4.41); null when nobody does. */
+  schedulerLeader: string | null;
 }
+
+export const SCHEDULER_LEASE_NAME = ALERT_SCHEDULER_LEASE;
 
 function percentiles(values: number[]): Percentiles | null {
   if (values.length === 0) return null;
@@ -72,8 +81,11 @@ export function computeJobStats(
   counts: { queued: number; running: number },
   since: Date,
   hours: number,
+  leases: LeaseRecord[] = [],
+  instance = "",
 ): JobStats {
   const sinceIso = since.toISOString();
+  const nowIso = new Date(since.getTime() + hours * 3_600_000).toISOString();
   const settled = jobs.filter((j) => j.status !== "queued" && j.status !== "running" && j.createdAt >= sinceIso);
   const byKind = new Map<string, { jobs: JobRecord[]; wait: number[]; run: number[] }>();
   const workers = new Map<string, JobWorkerStats>();
@@ -131,16 +143,27 @@ export function computeJobStats(
     run: percentiles(run),
     kinds,
     workers: [...workers.values()].sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt)),
+    leases,
+    instance,
+    schedulerLeader: leases.find((l) => l.name === SCHEDULER_LEASE_NAME && l.until > nowIso)?.holder ?? null,
   };
 }
 
 /** The statistics over the last `hours`, read from the queue. */
 export async function jobStats(hours = DEFAULT_STATS_HOURS, now = new Date()): Promise<JobStats> {
   const window = Math.min(MAX_STATS_HOURS, Math.max(1, Math.floor(hours)));
-  const [jobs, queued, running] = await Promise.all([
+  const [jobs, queued, running, leases] = await Promise.all([
     listJobs({ limit: STATS_SAMPLE }),
     countJobs("queued"),
     countJobs("running"),
+    listLeases(),
   ]);
-  return computeJobStats(jobs, { queued, running }, new Date(now.getTime() - window * 3_600_000), window);
+  return computeJobStats(
+    jobs,
+    { queued, running },
+    new Date(now.getTime() - window * 3_600_000),
+    window,
+    leases,
+    instanceName(),
+  );
 }

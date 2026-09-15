@@ -1,4 +1,4 @@
-import type { JobQuery, JobRecord, JobStatus } from "@/lib/storage/types";
+import type { JobQuery, JobRecord, JobStatus, LeaseRecord } from "@/lib/storage/types";
 
 /**
  * An in-memory job store with the queue's semantics (docs/CONTEXT.md §4.40): a claim takes
@@ -57,5 +57,15 @@ export class FakeJobStore {
       }
     }
     return n;
+  }
+  leases = new Map<string, LeaseRecord>();
+  async acquireLease(name: string, holder: string, now: string, until: string): Promise<boolean> {
+    const held = this.leases.get(name);
+    if (held && held.until >= now && held.holder !== holder) return false;
+    this.leases.set(name, { name, holder, until });
+    return true;
+  }
+  async listLeases(): Promise<LeaseRecord[]> {
+    return [...this.leases.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 }

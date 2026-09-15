@@ -137,6 +137,11 @@ backups. The whole
 picture - the three roles, what they share, how each scales, the perimeter - is
 [ARCHITECTURE.md](ARCHITECTURE.md) §7.
 
+With more than one studio replica, one leads the alert scheduler at a time (a lease in the
+store, docs/CONTEXT.md §4.41): Admin → Jobs names the leader and the replica that answered,
+and `dbportal_alert_scheduler_leader` is 1 on exactly one pod. A leader that dies is
+replaced within three scheduler ticks (90 s by default).
+
 ## 10. Day two
 
 - **Rotate**: service tokens (revoke and create; the audit actor is the token's name), the

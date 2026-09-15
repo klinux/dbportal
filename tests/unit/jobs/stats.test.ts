@@ -12,6 +12,11 @@ mock.module("@/lib/jobs/queue", () => ({
   listJobs,
   countJobs: async (status: string) => (status === "queued" ? 4 : 1),
 }));
+mock.module("@/lib/leases", () => ({
+  ALERT_SCHEDULER_LEASE: "alerts-scheduler",
+  instanceName: () => "host:1",
+  listLeases: async () => [{ name: "alerts-scheduler", holder: "host:2", until: "2999-01-01T00:00:00.000Z" }],
+}));
 const { DEFAULT_STATS_HOURS, MAX_STATS_HOURS, STATS_SAMPLE, computeJobStats, jobStats } = await import(
   "@/lib/jobs/stats"
 );
@@ -36,7 +41,14 @@ describe("job statistics", () => {
     const jobs = [
       job("a", { startedAt: at(1), finishedAt: at(3), worker: "w1" }),
       job("b", { startedAt: at(2), finishedAt: at(12), worker: "w2" }),
-      job("c", { kind: "backup", status: "failed", startedAt: at(4), finishedAt: at(5), worker: "w1", error: "BackupError" }),
+      job("c", {
+        kind: "backup",
+        status: "failed",
+        startedAt: at(4),
+        finishedAt: at(5),
+        worker: "w1",
+        error: "BackupError",
+      }),
       job("d", { kind: "backup", status: "lost" }),
       job("e", { status: "running", startedAt: at(6) }),
       job("f", { status: "queued" }),
@@ -70,7 +82,17 @@ describe("job statistics", () => {
 
   test("an empty window has null percentiles and no kinds; a job without instants counts but measures nothing", () => {
     const empty = computeJobStats([], { queued: 0, running: 0 }, now, 24);
-    expect(empty).toMatchObject({ total: 0, wait: null, run: null, kinds: [], workers: [] });
+    expect(empty).toMatchObject({ total: 0, wait: null, run: null, kinds: [], workers: [], leases: [], instance: "" });
+    // The scheduler's leader (§4.41) is whoever holds a lease of that name that has not run out at the window's end.
+    const led = computeJobStats([], { queued: 0, running: 0 }, new Date(now.getTime() - 3_600_000), 1, [
+      { name: "alerts-scheduler", holder: "studio-a:7", until: new Date(now.getTime() + 60_000).toISOString() },
+      { name: "trail:x", holder: "r", until: "2999-01-01T00:00:00.000Z" },
+    ]);
+    expect(led.schedulerLeader).toBe("studio-a:7");
+    const lapsed = computeJobStats([], { queued: 0, running: 0 }, new Date(now.getTime() - 3_600_000), 1, [
+      { name: "alerts-scheduler", holder: "studio-a:7", until: new Date(now.getTime() - 1).toISOString() },
+    ]);
+    expect(lapsed.schedulerLeader).toBeNull();
     const bare = computeJobStats([job("x", { status: "failed" })], { queued: 0, running: 0 }, new Date(0), 24);
     expect(bare.total).toBe(1);
     expect(bare.kinds[0]).toMatchObject({ kind: "export", failed: 1, wait: null, run: null });
@@ -89,7 +111,15 @@ describe("job statistics", () => {
     listed.length = 0;
     listed.push(job("a", { startedAt: at(1), finishedAt: at(2), worker: "w1" }));
     const stats = await jobStats(undefined, now);
-    expect(stats).toMatchObject({ hours: DEFAULT_STATS_HOURS, queued: 4, running: 1, total: 1, sample: 1 });
+    expect(stats).toMatchObject({
+      hours: DEFAULT_STATS_HOURS,
+      queued: 4,
+      running: 1,
+      total: 1,
+      sample: 1,
+      instance: "host:1",
+      schedulerLeader: "host:2",
+    });
     expect(listJobs.mock.calls[0][0]).toEqual({ limit: STATS_SAMPLE });
     expect((await jobStats(0.5, now)).hours).toBe(1);
     expect((await jobStats(99_999, now)).hours).toBe(MAX_STATS_HOURS);

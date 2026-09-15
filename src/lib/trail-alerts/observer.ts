@@ -1,6 +1,7 @@
 import { emitAuditEvent, setAuditObserver, type AuditEvent } from "@/lib/audit";
 import { findChannel } from "@/lib/channels/store";
 import { listSharedDatasources } from "@/lib/datasources/store";
+import { onceWithin } from "@/lib/leases";
 import { logger } from "@/lib/logger";
 import { deliverToChannel } from "@/lib/notify/channels";
 import { loadConfig } from "@/lib/seed/config-loader";
@@ -20,12 +21,11 @@ const ENVIRONMENTS_TTL_MS = 60_000;
 
 const KEY = Symbol.for("dbportal.trail-alerts");
 interface State {
-  lastSent: Map<string, number>;
   environments: { at: number; byName: Map<string, string | undefined> } | null;
 }
 function state(): State {
   const g = globalThis as typeof globalThis & { [KEY]?: State };
-  g[KEY] ??= { lastSent: new Map(), environments: null };
+  g[KEY] ??= { environments: null };
   return g[KEY];
 }
 
@@ -51,10 +51,10 @@ export async function observeForTrailAlerts(event: AuditEvent, now = Date.now())
   const environments = await environmentsByName(now);
   const rule = ruleFor(event, config, (name) => environments.get(name));
   if (!rule || config.rules[rule].length === 0) return null;
+  // The cooldown is kept in the store (§4.41), so replicas that each saw an event of the
+  // same rule on the same datasource still tell it once.
   const key = `${rule}:${event.connectionName ?? ""}`;
-  const last = state().lastSent.get(key);
-  if (last !== undefined && now - last < TRAIL_COOLDOWN_MS) return null;
-  state().lastSent.set(key, now);
+  if (!(await onceWithin(`trail:${key}`, TRAIL_COOLDOWN_MS, now))) return null;
   const message = {
     alertId: `trail-${rule}`,
     alertName: TRAIL_RULE_LABELS[rule],

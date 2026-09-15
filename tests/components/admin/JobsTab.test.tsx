@@ -36,6 +36,9 @@ const stats = {
     },
   ],
   workers: [{ name: "worker-1:42", jobs: 8, lastSeenAt: "2026-09-15T11:59:00.000Z" }],
+  leases: [],
+  instance: "studio-a:7",
+  schedulerLeader: "studio-a:7",
 };
 const job = {
   id: "0a1b2c3d-rest",
@@ -99,6 +102,9 @@ describe("JobsTab", () => {
     expect(getByTestId("kind-export").textContent).toContain("850 ms / 900 ms");
     expect(getByTestId("kind-backup").textContent).toContain("– / –");
     expect(getByText("worker-1:42", { selector: "span" })).not.toBeNull();
+    // The alert scheduler's leader (§4.41), and that it is the instance that answered.
+    expect(getByTestId("scheduler-leader").textContent).toContain("studio-a:7 (this instance)");
+    expect(getByTestId("scheduler-leader").textContent).toContain("Answered by studio-a:7");
     expect(getByTestId("job-0a1b2c3d-rest").textContent).toContain("2.5 s");
     expect(getByTestId("job-lost-1").textContent).toContain("lease");
     // A job nobody took yet has neither a wait nor a run to show.
@@ -108,12 +114,13 @@ describe("JobsTab", () => {
 
   test("the window and the status filter re-read the server; refresh reads again", async () => {
     const fetchMock = mockGlobalFetch({
-      "/api/admin/jobs/stats": { ok: true, json: { ...stats, kinds: [], workers: [] } },
+      "/api/admin/jobs/stats": { ok: true, json: { ...stats, kinds: [], workers: [], schedulerLeader: null } },
       "/api/admin/jobs": { ok: true, json: { counts: {}, jobs: [] } },
     });
     const { getByText, getByTestId } = await renderLoaded();
     expect(getByTestId("kinds-empty")).not.toBeNull();
     expect(getByTestId("workers-empty")).not.toBeNull();
+    expect(getByTestId("scheduler-leader").textContent).toContain("no leader yet");
     expect(getByTestId("jobs-empty").textContent).toContain("No job yet");
     await act(async () => {
       fireEvent.click(getByText("7 d"));

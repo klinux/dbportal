@@ -14,6 +14,7 @@ import type {
   JobQuery,
   JobRecord,
   JobStatus,
+  LeaseRecord,
 } from "../types";
 import type { AuditEvent } from "@/lib/audit";
 import { STORAGE_COLLECTIONS } from "../types";
@@ -133,6 +134,15 @@ export class PostgresStorageProvider implements ServerStorageProvider {
         )
       `);
       await this.pool.query("CREATE INDEX IF NOT EXISTS jobs_queue ON jobs (status, run_at)");
+      // Leases (§4.41): one row per name, taken with an upsert whose WHERE decides, so the
+      // database arbitrates between instances that ask at the same instant.
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS leases (
+          name       TEXT PRIMARY KEY,
+          holder     TEXT NOT NULL,
+          held_until TIMESTAMPTZ NOT NULL
+        )
+      `);
     } catch (error) {
       if (error instanceof Error && error.message.includes("does not support SSL")) {
         throw new Error(
@@ -364,6 +374,28 @@ export class PostgresStorageProvider implements ServerStorageProvider {
       [now, leaseUntil, worker, kinds],
     );
     return rows[0] ? jobFromRow(rows[0]) : null;
+  }
+
+  async acquireLease(name: string, holder: string, now: string, until: string): Promise<boolean> {
+    this.ensurePool();
+    const result = await this.pool!.query(
+      `INSERT INTO leases (name, holder, held_until) VALUES ($1, $2, $3)
+       ON CONFLICT (name) DO UPDATE SET holder = EXCLUDED.holder, held_until = EXCLUDED.held_until
+       WHERE leases.held_until < $4 OR leases.holder = EXCLUDED.holder
+       RETURNING name`,
+      [name, holder, until, now],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async listLeases(): Promise<LeaseRecord[]> {
+    this.ensurePool();
+    const { rows } = await this.pool!.query("SELECT name, holder, held_until FROM leases ORDER BY name");
+    return rows.map((row) => ({
+      name: String(row.name),
+      holder: String(row.holder),
+      until: row.held_until instanceof Date ? row.held_until.toISOString() : String(row.held_until),
+    }));
   }
 
   async pruneJobs(before: string): Promise<number> {

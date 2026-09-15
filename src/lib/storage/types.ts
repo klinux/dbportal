@@ -192,6 +192,13 @@ export interface JobRecord {
   error?: string;
 }
 
+/** A named lease in the store (docs/CONTEXT.md §4.41): who holds it and until when. */
+export interface LeaseRecord {
+  name: string;
+  holder: string;
+  until: string;
+}
+
 export interface JobQuery {
   status?: JobStatus;
   kind?: string;
@@ -242,6 +249,14 @@ export interface ServerStorageProvider {
   reclaimJobs(now: string): Promise<JobRecord[]>;
   /** Delete jobs that settled (done, failed, lost) and were due before `before`; how many went. */
   pruneJobs(before: string): Promise<number>;
+  /**
+   * Take the named lease until `until` (docs/CONTEXT.md §4.41): granted when nobody holds it,
+   * when the holder's own lease is renewed, or when the current one expired before `now` -
+   * atomically against other instances, so one holder at a time.
+   */
+  acquireLease(name: string, holder: string, now: string, until: string): Promise<boolean>;
+  /** Every lease the store holds, expired ones included, for the operator to read. */
+  listLeases(): Promise<LeaseRecord[]>;
   /** Get all collections for a user */
   getAllData(userId: string): Promise<Partial<StorageData>>;
   /** Get a single collection for a user */

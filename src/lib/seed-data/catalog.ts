@@ -97,6 +97,7 @@ export const PORTAL_TABLES: ReadonlySet<string> = new Set([
   "audit_events",
   "approval_requests",
   "jobs",
+  "leases",
 ]);
 
 /** Every table of `schema` with what the seed needs, or a refusal when there is none. */

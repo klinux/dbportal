@@ -37,9 +37,28 @@ mock.module("@/lib/jobs/queue", () => ({
     return { id: `job-${input.payload.alertId}` };
   },
 }));
-const { DEFAULT_TICK_MS, alertsEnabled, startAlertScheduler, stopAlertScheduler, tickMs, tickOnce } = await import(
-  "@/lib/alerts/scheduler"
-);
+// The scheduler's lease (§4.41): granted or not, as the store would; what was asked for is pinned.
+let leader = true;
+const leaseAsked: [string, number][] = [];
+mock.module("@/lib/leases", () => ({
+  ALERT_SCHEDULER_LEASE: "alerts-scheduler",
+  holdLease: async (name: string, ttlMs: number) => {
+    leaseAsked.push([name, ttlMs]);
+    return leader;
+  },
+  holdsLease: (name: string) => name === "alerts-scheduler" && leader,
+}));
+const {
+  DEFAULT_TICK_MS,
+  LEASE_TICKS,
+  SCHEDULER_LEASE,
+  alertsEnabled,
+  isSchedulerLeader,
+  startAlertScheduler,
+  stopAlertScheduler,
+  tickMs,
+  tickOnce,
+} = await import("@/lib/alerts/scheduler");
 
 const saved: Record<string, string | undefined> = {};
 
@@ -51,6 +70,8 @@ describe("alerts scheduler", () => {
     }
     due = [];
     fail = false;
+    leader = true;
+    leaseAsked.length = 0;
     ran.length = 0;
     marked.length = 0;
     errorLog.mockClear();
@@ -119,5 +140,20 @@ describe("alerts scheduler", () => {
     expect(startAlertScheduler()).toBe(true);
     stopAlertScheduler();
     stopAlertScheduler();
+  });
+
+  // Several studios, one scheduler (§4.41): the lease is asked for every tick, for three ticks' worth, and a
+  // tick without it hands nothing over - the due alerts wait for the instance that leads.
+  test("a tick asks for the scheduler's lease and, without it, hands nothing over", async () => {
+    due = [{ id: "a", state: { status: "ok" } }];
+    leader = false;
+    expect(await tickOnce()).toBe(0);
+    expect(ran).toEqual([]);
+    expect(marked).toEqual([]);
+    expect(leaseAsked).toEqual([[SCHEDULER_LEASE, LEASE_TICKS * DEFAULT_TICK_MS]]);
+    expect(isSchedulerLeader()).toBe(false);
+    leader = true;
+    expect(await tickOnce()).toBe(1);
+    expect(isSchedulerLeader()).toBe(true);
   });
 });

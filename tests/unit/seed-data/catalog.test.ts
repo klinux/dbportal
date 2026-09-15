@@ -136,7 +136,9 @@ describe("seed-data catalog", () => {
     // The portal's own store tables are never part of a plan, whatever schema they sit in.
     rows.columns.push({ ...rows.columns[0], table_name: "user_storage", column_name: "owner_id" });
     rows.columns.push({ ...rows.columns[0], table_name: "jobs", column_name: "kind" });
+    rows.columns.push({ ...rows.columns[0], table_name: "leases", column_name: "holder" });
     const tables = await readCatalog(runner, "public");
+    rows.columns.pop();
     rows.columns.pop();
     rows.columns.pop();
     for (const call of runner.query.mock.calls) expect((call as unknown[])[1]).toEqual(["public"]);

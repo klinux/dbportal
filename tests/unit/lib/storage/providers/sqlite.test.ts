@@ -654,5 +654,19 @@ describe("SQLiteStorageProvider", () => {
       expect(last().sql).toContain("DELETE FROM jobs WHERE status IN ('done', 'failed', 'lost') AND run_at < ?");
       expect(last().run.mock.calls[0]).toEqual(["BEFORE"]);
     });
+
+    // Leases (§4.41): the same upsert as PostgreSQL's; one writer at a time makes it atomic.
+    test("acquireLease is one upsert answered by its change count; listLeases reads every row", async () => {
+      await provider.initialize();
+      answers = [{ changes: 1 }];
+      expect(await provider.acquireLease("alerts-scheduler", "a:1", "NOW", "UNTIL")).toBe(true);
+      expect(last().sql).toContain("ON CONFLICT (name) DO UPDATE SET holder = excluded.holder");
+      expect(last().sql).toContain("WHERE leases.held_until < ? OR leases.holder = excluded.holder");
+      expect(last().run.mock.calls[0]).toEqual(["alerts-scheduler", "a:1", "UNTIL", "NOW"]);
+      answers = [{ changes: 0 }];
+      expect(await provider.acquireLease("alerts-scheduler", "b:2", "NOW", "UNTIL")).toBe(false);
+      answers = [{ all: () => [{ name: "alerts-scheduler", holder: "a:1", held_until: "U" }] }];
+      expect(await provider.listLeases()).toEqual([{ name: "alerts-scheduler", holder: "a:1", until: "U" }]);
+    });
   });
 });

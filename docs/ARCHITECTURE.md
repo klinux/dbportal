@@ -369,8 +369,10 @@ graph LR
   admin panels, the bot API, the MCP tool). The worker writes progress and the result on the
   job. One attempt for anything that writes or runs a tool (an execution, a seed, a backup), so
   a worker that dies mid-run marks the job lost rather than running it twice.
-- **The alert scheduler** runs in the studio only, hands each due alert to the queue and marks
-  it scheduled in the store, so a second studio replica does not hand the same alert over twice.
+- **The alert scheduler** runs in every studio replica, but only the one holding the
+  scheduler's lease in the store hands due alerts to the queue (docs/CONTEXT.md §4.41); the
+  lease is renewed every tick and taken over within three ticks when the leader is gone. The
+  trail alerts' cooldown is kept in the same table, so three replicas tell a trip once.
 
 ### 7.3 How each role scales
 
@@ -403,7 +405,7 @@ graph LR
 ### 7.5 What still runs in one place
 
 - The interactive editor's queries, in the studio's process, by design.
-- The alert scheduler, in each studio replica; the store keeps it from double-handing an alert,
-  but there is no leader election.
+- The audit retention sweep and the job prune run in every instance that holds them; both are
+  idempotent deletes, so no lease guards them.
 - The agent role uses the same datasource credentials as the studio, under the token's rules;
   read-only credentials of its own would be the next layer of segregation (docs/CONTEXT.md §4.40).

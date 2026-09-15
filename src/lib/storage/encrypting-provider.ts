@@ -11,6 +11,7 @@ import type {
   JobQuery,
   JobRecord,
   JobStatus,
+  LeaseRecord,
 } from "./types";
 import type { DatabaseConnection } from "@/lib/types";
 import type { AuditEvent } from "@/lib/audit";
@@ -128,6 +129,14 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
 
   pruneJobs(before: string): Promise<number> {
     return this.inner.pruneJobs(before);
+  }
+
+  acquireLease(name: string, holder: string, now: string, until: string): Promise<boolean> {
+    return this.inner.acquireLease(name, holder, now, until);
+  }
+
+  listLeases(): Promise<LeaseRecord[]> {
+    return this.inner.listLeases();
   }
 
   async getAllData(userId: string): Promise<Partial<StorageData>> {

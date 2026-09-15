@@ -10,6 +10,7 @@ let pending: { requestedAt: string }[] = [];
 let storeFails = false;
 let storeMissing = false;
 mock.module("@/lib/storage/factory", () => ({
+  isServerStorageEnabled: () => !storeMissing,
   getStorageProvider: async () => {
     if (storeMissing) return null;
     return {
@@ -76,6 +77,8 @@ describe("GET /api/metrics", () => {
     expect(text).toContain("dbportal_approvals_pending 2");
     expect(text).toContain("dbportal_jobs_queued 3");
     expect(text).toContain("dbportal_jobs_running 1");
+    // Leadership (§4.41): this process leads nothing in the test, and says so as a gauge.
+    expect(text).toContain("dbportal_alert_scheduler_leader 0");
     expect(text).toMatch(/dbportal_approval_oldest_pending_seconds (89|90|91)\n/);
     expect(text).not.toContain("dbportal_store_scrape_failed");
   });

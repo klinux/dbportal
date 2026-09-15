@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
+import { ALERT_SCHEDULER_LEASE, holdsLease } from "@/lib/leases";
 import { renderMetrics, type GaugeSample } from "@/lib/metrics/registry";
 import { getStorageProvider } from "@/lib/storage/factory";
 
@@ -69,6 +70,17 @@ async function gauges(): Promise<GaugeSample[]> {
   return out;
 }
 
+/** Which instance leads the alert scheduler (§4.41): 1 on the leader, 0 elsewhere; what a rollout is watched by. */
+function leadership(): GaugeSample[] {
+  return [
+    {
+      name: "dbportal_alert_scheduler_leader",
+      help: "1 when this instance holds the alert scheduler's lease.",
+      value: holdsLease(ALERT_SCHEDULER_LEASE) ? 1 : 0,
+    },
+  ];
+}
+
 export async function GET(request: Request) {
   const expected = process.env.METRICS_TOKEN;
   if (!expected) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -77,7 +89,7 @@ export async function GET(request: Request) {
   if (!presented || !tokenMatches(presented, expected)) {
     return NextResponse.json({ error: "A valid metrics token is required" }, { status: 401 });
   }
-  return new NextResponse(renderMetrics(await gauges()), {
+  return new NextResponse(renderMetrics([...leadership(), ...(await gauges())]), {
     status: 200,
     headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8", "Cache-Control": "no-store" },
   });
