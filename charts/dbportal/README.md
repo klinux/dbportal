@@ -40,7 +40,7 @@ Once the chart is published to a registry, the same release installs with the ch
 version this tag carries (`bun run chart:check` keeps this line and `Chart.yaml` together):
 
 ```bash
-helm install libredb <registry>/dbportal --version 0.1.5
+helm install libredb <registry>/dbportal --version 0.1.6
 ```
 
 ### Installing from a checkout
@@ -49,7 +49,7 @@ The chart is not published to a registry yet; install it from the repository at 
 tag, whose `appVersion` is the image that tag built:
 
 ```bash
-git clone --branch v0.2.3 https://github.com/klinux/dbportal
+git clone --branch v0.3.0 https://github.com/klinux/dbportal
 helm install libredb ./dbportal/charts/dbportal \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
   --set secrets.adminPassword=MyAdmin123

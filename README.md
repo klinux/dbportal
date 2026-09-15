@@ -26,7 +26,7 @@ Adminer, and every statement that reaches a database is attributable to a person
 > database drivers and SSO come from there ([NOTICE.md](NOTICE.md)). The governance,
 > operations and scale layers described below were built on top, and
 > [docs/CONTEXT.md](docs/CONTEXT.md) §4 records the design of each and what was
-> deliberately left out. Current release: [0.2.3](https://github.com/klinux/dbportal/releases).
+> deliberately left out. Current release: [0.3.0](https://github.com/klinux/dbportal/releases).
 
 ## Why
 
@@ -85,6 +85,12 @@ bucket). Seeds: a staging datasource filled from its schema with generated rows,
 with a masked sample of another datasource. Alerts: a read on a schedule with a
 condition, fired to Slack channels picked by name or to webhooks; and alerts on the
 trail itself (a guardrail trip, an export off production, a failed backup).
+
+**Virtual datasources.** Two to eight PostgreSQL or MySQL datasources of the same
+environment opened as one, so a statement joins `orders.public.pedidos` with
+`crm.crm.clientes`: read-only for everyone, open to whoever may open every member, each
+member resolved with that person's own credentials, joined in an embedded engine session
+that runs in a process of its own and is locked once the members are attached.
 
 **Bots and agents, apart.** A bot API (`/api/v1/executions`) where a bot asks, a
 reviewer approves, the server runs and POSTs the outcome to a signed callback; an MCP
