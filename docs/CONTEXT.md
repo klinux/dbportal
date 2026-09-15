@@ -802,6 +802,29 @@ built. Each lands as its own section when done.
   by the position in the order shown - a sort or a filter renumbers from 1 - and is no data
   column: exports, filters and sorting never see it.
 
+- **4.43 The audit record partitioned by period — done (asked 2026-09-15).** One table,
+  growing by every execution, pruned by `DELETE` and counted whole on every page of the
+  admin trail. On PostgreSQL `audit_events` is now partitioned by range on `ts`, a month
+  per partition by default or a week with `AUDIT_PARTITION=week`
+  ([`src/lib/storage/audit-partitions.ts`](../src/lib/storage/audit-partitions.ts) for the
+  periods, the provider for the DDL). The primary key is `(ts, id)`, which a partitioned
+  unique index requires; `ON CONFLICT (ts, id)` keeps the append idempotent. The current
+  and the next two periods' partitions exist after every boot; an `audit-partitions` job,
+  enqueued once a day by the scheduler leader (a lease-backed cooldown, §4.41), keeps them
+  ahead and drops the ones wholly past `AUDIT_RETENTION_DAYS`; an append whose instant no
+  partition holds makes one and inserts again, so no event is lost at a boundary. The
+  hourly sweep after an append keeps working and now drops partitions too. An install with
+  the plain table has it renamed and attached, in one transaction and with no copy, as the
+  legacy partition holding everything up to the end of the current period - its rows reach
+  into it - so the new partitions begin with the next; its old rows are the only ones still
+  deleted, until it can go whole. The unfiltered total on the admin page is the planner's
+  estimate past a hundred thousand rows; a filtered count stays exact and, with a period,
+  touches only that period's partitions. Offset paging stays: with the `ts` index it
+  costs the offset alone, and a cursor would have changed the page for little. One table
+  rather than one per kind: the trail is one timeline, and `(type, ts)` inside each
+  partition is the split by kind. SQLite is single-instance and keeps one table. Verified
+  on a real PostgreSQL in CI, the migration path included.
+
 ## 5. Decisions already taken
 
 - **TypeScript stays.** The 50k-line driver layer is the main asset; rewriting the backend

@@ -1263,7 +1263,9 @@ that answered (`host:pid`) and `schedulerLeader` the one holding the alert sched
 §4.41), or null. `/api/metrics` also exposes `dbportal_alert_scheduler_leader` (1 on the leader). `/api/metrics` exposes `dbportal_jobs_queued`, `dbportal_jobs_running`,
 `dbportal_jobs_total` by kind and outcome, and the histograms `dbportal_job_wait_seconds` and
 `dbportal_job_run_seconds` by kind. Settled jobs are kept `JOBS_RETENTION_DAYS` (7; 0 keeps all) and pruned by the
-worker once an hour. A job that failed past its attempts or lost its lease for good is audited as `job`.
+worker once an hour. A job that failed past its attempts or lost its lease for good is audited as `job`. Kinds:
+`ping`, `execution`, `alert`, `seed`, `export`, `backup`, and `audit-partitions` (docs/CONTEXT.md §4.43), the audit
+record's daily upkeep the scheduler leader enqueues, whose result is `{ created, dropped, removed }`.
 
 Alerts on the trail (docs/CONTEXT.md §4.32). Admin: `GET /api/admin/trail-alerts` → `{ trailAlerts: { rules:
 { guardrail, production_export, backup_failed, seed_failed: [channel ids] }, exportRowsThreshold } }`;

@@ -1,6 +1,8 @@
 import { findAlert } from "@/lib/alerts/store";
 import { runAlert } from "@/lib/alerts/run";
+import { retentionDays } from "@/lib/audit-persistence";
 import { runBackupJob } from "@/lib/backups/job";
+import { getStorageProvider } from "@/lib/storage/factory";
 import { markExecutionLost, runExecutionJob } from "@/lib/executions/store";
 import { runExport } from "@/lib/export/job";
 import { runSeedJob } from "@/lib/seed-data/job";
@@ -13,7 +15,9 @@ import { JobFailure, registerJobHandler } from "./worker";
  * once, and marks it lost rather than running it again when the worker died mid-run;
  * `alert` runs one alert the scheduler handed over (§4.29); `seed` fills a datasource
  * (§4.23, §4.31), the run kept on the job as it goes; `export` builds a result's file (§4.22);
- * `backup` runs pg_dump or pg_restore on one datasource (§4.14), the file its result.
+ * `backup` runs pg_dump or pg_restore on one datasource (§4.14), the file its result;
+ * `audit-partitions` is the audit record's daily upkeep (§4.43): the next periods'
+ * partitions made, the ones past retention dropped.
  */
 function text(job: { payload: Record<string, unknown> }, key: string): string {
   const value = job.payload[key];
@@ -44,6 +48,13 @@ export function registerJobHandlers(): void {
   });
   // A backup or a restore (§4.14): the tool runs where the worker is, the file under BACKUP_DIR.
   registerJobHandler("backup", async (job) => (await runBackupJob(job)) as unknown as Record<string, unknown>);
+  registerJobHandler("audit-partitions", async () => {
+    const store = await getStorageProvider();
+    if (!store) throw new JobFailure("no_store");
+    const days = retentionDays();
+    const before = days === null ? null : new Date(Date.now() - days * 86_400_000).toISOString();
+    return (await store.maintainAuditStorage(new Date(), before)) as unknown as Record<string, unknown>;
+  });
   registerJobHandler("alert", async (job) => {
     const record = await findAlert(text(job, "alertId"));
     if (!record) throw new JobFailure("not_found");

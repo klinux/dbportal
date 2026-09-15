@@ -46,7 +46,7 @@
     "test:evals": "bun test tests/evals",
     "test:unit": "bun test tests/unit",
     "test:integration": "bun test tests/integration",
-    "test:integration:postgres": "bun test tests/integration/routes/postgres-routes.test.ts",
+    "test:integration:postgres": "bun test tests/integration/routes/postgres-routes.test.ts && bun test tests/integration/storage/postgres-audit-partitions.test.ts",
     "test:hooks": "bun test tests/hooks",
     "test:api": "bun test tests/api",
     "test:components": "bash tests/run-components.sh",

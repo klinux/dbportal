@@ -148,7 +148,11 @@ replaced within three scheduler ticks (90 s by default).
   JWT secret (every session ends), database credentials (change the Vault secret or the
   environment variable; references pick it up within the KV TTL).
 - **Upgrade**: the chart's `appVersion` follows the app; read `docs/CONTEXT.md` §4 for what
-  changed and `SECURITY.md` for the verification of the new image.
+  changed and `SECURITY.md` for the verification of the new image. The first boot of 0.2.3
+  or later on an existing PostgreSQL store partitions the audit table by period in place
+  (docs/CONTEXT.md §4.43): one transaction, no copy, the old rows in a legacy partition.
+- **The audit record's size**: `AUDIT_RETENTION_DAYS` drops whole partitions; Admin → Jobs
+  shows the daily `audit-partitions` job that keeps the next periods ready.
 - **When something is wrong**: the readiness probe names which dependency does not answer;
   the server log carries what the client was not told (a Vault refusal, a receiver's answer,
   an engine's message); the audit trail carries who did what.

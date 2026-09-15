@@ -449,6 +449,14 @@ describe("SQLiteStorageProvider", () => {
         "DELETE FROM audit_events WHERE ts < ?",
       );
       expect(run).toHaveBeenCalledWith("2026-06-01T00:00:00.000Z");
+      // §4.43: SQLite has no partitions, so its upkeep is the prune alone, and nothing with no retention.
+      mockPrepare.mockImplementationOnce(() => ({ get: mock(() => undefined), all: mock(() => []), run }));
+      expect(await provider.maintainAuditStorage(new Date(), "2026-06-01T00:00:00.000Z")).toEqual({
+        created: [],
+        dropped: [],
+        removed: 5,
+      });
+      expect(await provider.maintainAuditStorage(new Date(), null)).toEqual({ created: [], dropped: [], removed: 0 });
       mockPrepare.mockImplementationOnce(() => ({
         get: mock(() => undefined),
         all: mock(() => []),

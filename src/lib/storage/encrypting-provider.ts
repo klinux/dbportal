@@ -5,6 +5,7 @@ import type {
   ApprovalRequest,
   AuditEventFilter,
   AuditEventQuery,
+  AuditMaintenance,
   ServerStorageProvider,
   StorageCollection,
   StorageData,
@@ -83,6 +84,10 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
 
   countAuditEvents(filter?: AuditEventFilter): Promise<number> {
     return this.inner.countAuditEvents(filter);
+  }
+
+  maintainAuditStorage(now: Date, retainBefore: string | null): Promise<AuditMaintenance> {
+    return this.inner.maintainAuditStorage(now, retainBefore);
   }
 
   // Approval requests carry a statement and names, never a credential: passed through.

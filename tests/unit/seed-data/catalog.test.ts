@@ -137,7 +137,9 @@ describe("seed-data catalog", () => {
     rows.columns.push({ ...rows.columns[0], table_name: "user_storage", column_name: "owner_id" });
     rows.columns.push({ ...rows.columns[0], table_name: "jobs", column_name: "kind" });
     rows.columns.push({ ...rows.columns[0], table_name: "leases", column_name: "holder" });
+    rows.columns.push({ ...rows.columns[0], table_name: "audit_events_p2026_09", column_name: "ts" });
     const tables = await readCatalog(runner, "public");
+    rows.columns.pop();
     rows.columns.pop();
     rows.columns.pop();
     rows.columns.pop();

@@ -100,6 +100,11 @@ export const PORTAL_TABLES: ReadonlySet<string> = new Set([
   "leases",
 ]);
 
+/** The store's tables, the audit record's partitions included (§4.43: `audit_events_p2026_09`, `audit_events_legacy`). */
+export function isPortalTable(name: string): boolean {
+  return PORTAL_TABLES.has(name) || name.startsWith("audit_events_");
+}
+
 /** Every table of `schema` with what the seed needs, or a refusal when there is none. */
 export async function readCatalog(runner: Runner, schema: string): Promise<TableSpec[]> {
   const [columns, keys, fks, enums] = await Promise.all([
@@ -130,7 +135,7 @@ export async function readCatalog(runner: Runner, schema: string): Promise<Table
   const tables = new Map<string, TableSpec>();
   for (const row of columns.rows) {
     const table = str(row.table_name);
-    if (PORTAL_TABLES.has(table)) continue;
+    if (isPortalTable(table)) continue;
     const name = str(row.column_name);
     const key = `${table}.${name}`;
     const udt = str(row.udt_name);

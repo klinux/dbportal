@@ -16,6 +16,7 @@ import type {
   JobRecord,
   JobStatus,
   LeaseRecord,
+  AuditMaintenance,
 } from "../types";
 import type { AuditEvent } from "@/lib/audit";
 import { STORAGE_COLLECTIONS } from "../types";
@@ -286,6 +287,11 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
     this.ensureDb();
     const result = this.db!.prepare("DELETE FROM audit_events WHERE ts < ?").run(before);
     return Number(result.changes ?? 0);
+  }
+
+  /** SQLite has no partitions (§4.43): upkeep is the row prune alone. */
+  async maintainAuditStorage(_now: Date, retainBefore: string | null): Promise<AuditMaintenance> {
+    return { created: [], dropped: [], removed: retainBefore ? await this.pruneAuditEvents(retainBefore) : 0 };
   }
 
   async putApproval(record: ApprovalRequest): Promise<void> {

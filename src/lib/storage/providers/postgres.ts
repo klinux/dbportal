@@ -15,14 +15,28 @@ import type {
   JobRecord,
   JobStatus,
   LeaseRecord,
+  AuditMaintenance,
 } from "../types";
 import type { AuditEvent } from "@/lib/audit";
 import { STORAGE_COLLECTIONS } from "../types";
+import {
+  AUDIT_TABLE,
+  LEGACY_PARTITION,
+  type PartitionBounds,
+  covers,
+  parseBounds,
+  partitionKind,
+  periodOf,
+  periodsAhead,
+  tsLiteral,
+} from "../audit-partitions";
 import { logger } from "@/lib/logger";
 
 let Pool: typeof import("pg").Pool;
 
 const JOB_COLUMNS = "id, kind, status, run_at, lease_until, attempts, max_attempts, worker, data";
+/** Below this many rows the exact count is cheap and the estimate coarse; above, the estimate serves the page. */
+export const COUNT_ESTIMATE_FROM = 100_000;
 
 /** The record as JSON, with the columns a worker changes laid over it. */
 function jobFromRow(row: Record<string, unknown>): JobRecord {
@@ -87,14 +101,18 @@ export class PostgresStorageProvider implements ServerStorageProvider {
       `);
       // The audit record (docs/CONTEXT.md §4.2): one row per event, the sanitized event as
       // JSON, and the two columns the admin API filters and orders on. Append-only by
-      // contract - nothing in this provider updates or deletes a row.
+      // contract - nothing in this provider updates or deletes a row. Partitioned by period
+      // on ts (§4.43), so retention drops a partition instead of deleting rows; the primary
+      // key carries ts because a partitioned unique index must include the partition key.
+      await this.migrateAuditTable();
       await this.pool.query(`
         CREATE TABLE IF NOT EXISTS audit_events (
-          id   TEXT PRIMARY KEY,
+          id   TEXT NOT NULL,
           ts   TIMESTAMPTZ NOT NULL,
           type TEXT NOT NULL,
-          data TEXT NOT NULL
-        )
+          data TEXT NOT NULL,
+          PRIMARY KEY (ts, id)
+        ) PARTITION BY RANGE (ts)
       `);
       await this.pool.query("CREATE INDEX IF NOT EXISTS audit_events_ts ON audit_events (ts DESC)");
       // The admin page's filters (docs/CONTEXT.md §4.27): the actor and the datasource live in
@@ -143,6 +161,7 @@ export class PostgresStorageProvider implements ServerStorageProvider {
           held_until TIMESTAMPTZ NOT NULL
         )
       `);
+      await this.ensureAuditPartitions(new Date());
     } catch (error) {
       if (error instanceof Error && error.message.includes("does not support SSL")) {
         throw new Error(
@@ -222,12 +241,139 @@ export class PostgresStorageProvider implements ServerStorageProvider {
     }
   }
 
+  /**
+   * An install from before §4.43 has a plain `audit_events`: it becomes the legacy
+   * partition of the new parent, attached with no copy, holding everything up to the end
+   * of the current period (its rows reach into it), so the parent's own partitions start
+   * with the next. Its indexes and constraint are renamed out of the parent's way first.
+   */
+  private async migrateAuditTable(): Promise<void> {
+    const { rows } = await this.pool!.query(
+      "SELECT c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = $1 AND n.nspname = current_schema()",
+      [AUDIT_TABLE],
+    );
+    if (rows.length === 0 || String(rows[0].relkind) !== "r") return;
+    const upTo = periodOf(new Date(), partitionKind()).to;
+    logger.info("Audit table becomes the legacy partition of a partitioned one", { route: "storage", upTo });
+    await this.pool!.query("BEGIN");
+    try {
+      await this.pool!.query(`ALTER TABLE ${AUDIT_TABLE} RENAME TO ${LEGACY_PARTITION}`);
+      for (const index of [
+        "audit_events_ts",
+        "audit_events_type_ts",
+        "audit_events_actor",
+        "audit_events_connection",
+      ]) {
+        await this.pool!.query(
+          `ALTER INDEX IF EXISTS ${index} RENAME TO ${index.replace("audit_events", LEGACY_PARTITION)}`,
+        );
+      }
+      // The parent's key is (ts, id) and a partition cannot keep a primary key of its own:
+      // the old one goes, and the attach gives the partition the parent's. An id is minted
+      // with its instant, so (ts, id) is as unique as id was.
+      await this.pool!.query(`ALTER TABLE ${LEGACY_PARTITION} DROP CONSTRAINT IF EXISTS audit_events_pkey`);
+      await this.pool!.query(`
+        CREATE TABLE ${AUDIT_TABLE} (
+          id   TEXT NOT NULL,
+          ts   TIMESTAMPTZ NOT NULL,
+          type TEXT NOT NULL,
+          data TEXT NOT NULL,
+          PRIMARY KEY (ts, id)
+        ) PARTITION BY RANGE (ts)
+      `);
+      await this.pool!.query(
+        `ALTER TABLE ${AUDIT_TABLE} ATTACH PARTITION ${LEGACY_PARTITION} FOR VALUES FROM (MINVALUE) TO (${tsLiteral(upTo)})`,
+      );
+      await this.pool!.query("COMMIT");
+    } catch (error) {
+      await this.pool!.query("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /** Every partition of the audit record with its bounds, the legacy one included. */
+  private async auditPartitions(): Promise<PartitionBounds[]> {
+    const { rows } = await this.pool!.query(
+      `SELECT c.relname AS name, pg_get_expr(c.relpartbound, c.oid) AS bound
+       FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid JOIN pg_class p ON p.oid = i.inhparent
+       WHERE p.relname = $1 ORDER BY c.relname`,
+      [AUDIT_TABLE],
+    );
+    return rows
+      .map((row: { name: string; bound: string }) => parseBounds(String(row.name), String(row.bound)))
+      .filter((b: PartitionBounds | null): b is PartitionBounds => b !== null);
+  }
+
+  /** The partitions for `now`'s period and the next ones, where none holds them yet. */
+  async ensureAuditPartitions(now: Date): Promise<string[]> {
+    this.ensurePool();
+    const existing = await this.auditPartitions();
+    const created: string[] = [];
+    for (const period of periodsAhead(now, partitionKind())) {
+      if (existing.some((b) => covers(b, period.from))) continue;
+      await this.pool!.query(
+        `CREATE TABLE IF NOT EXISTS ${period.name} PARTITION OF ${AUDIT_TABLE} FOR VALUES FROM (${tsLiteral(period.from)}) TO (${tsLiteral(period.to)})`,
+      );
+      created.push(period.name);
+    }
+    return created;
+  }
+
   async appendAuditEvent(event: AuditEvent): Promise<void> {
     this.ensurePool();
-    await this.pool!.query(
-      "INSERT INTO audit_events (id, ts, type, data) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
-      [event.id, event.timestamp, event.type, JSON.stringify(event)],
+    const insert = () =>
+      this.pool!.query(
+        "INSERT INTO audit_events (id, ts, type, data) VALUES ($1, $2, $3, $4) ON CONFLICT (ts, id) DO NOTHING",
+        [event.id, event.timestamp, event.type, JSON.stringify(event)],
+      );
+    try {
+      await insert();
+    } catch (error) {
+      // No partition for the instant (a boundary the upkeep did not reach): made now, then the row.
+      if (!/no partition of relation/i.test((error as Error).message)) throw error;
+      await this.ensureAuditPartitions(new Date(event.timestamp));
+      await insert();
+    }
+  }
+
+  /** The planner's row estimate over the partitions; -1 when one was never analyzed. */
+  private async auditEstimate(): Promise<number> {
+    const { rows } = await this.pool!.query(
+      `SELECT COALESCE(SUM(c.reltuples), 0)::bigint AS n, BOOL_OR(c.reltuples < 0) AS unknown
+       FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid JOIN pg_class p ON p.oid = i.inhparent
+       WHERE p.relname = $1`,
+      [AUDIT_TABLE],
     );
+    return rows[0]?.unknown ? -1 : Number(rows[0]?.n ?? 0);
+  }
+
+  async maintainAuditStorage(now: Date, retainBefore: string | null): Promise<AuditMaintenance> {
+    this.ensurePool();
+    const created = await this.ensureAuditPartitions(now);
+    const { dropped, removed } = retainBefore
+      ? await this.pruneAuditPartitions(retainBefore)
+      : { dropped: [], removed: 0 };
+    return { created, dropped, removed };
+  }
+
+  /**
+   * Retention (§4.12, §4.43): a partition wholly before the instant is dropped, which is
+   * instant and leaves no bloat; the legacy partition, which reaches into the present, has
+   * its old rows deleted until it can go whole.
+   */
+  private async pruneAuditPartitions(before: string): Promise<{ dropped: string[]; removed: number }> {
+    const dropped: string[] = [];
+    let removed = 0;
+    for (const partition of await this.auditPartitions()) {
+      if (partition.to <= before) {
+        await this.pool!.query(`DROP TABLE IF EXISTS ${partition.name}`);
+        dropped.push(partition.name);
+      } else if (partition.from === null) {
+        const result = await this.pool!.query(`DELETE FROM ${partition.name} WHERE ts < $1`, [before]);
+        removed += result.rowCount ?? 0;
+      }
+    }
+    return { dropped, removed };
   }
 
   /** The WHERE the filter asks for, with its bound values, or none. */
@@ -261,14 +407,21 @@ export class PostgresStorageProvider implements ServerStorageProvider {
   async countAuditEvents(filter?: AuditEventFilter): Promise<number> {
     this.ensurePool();
     const where = this.auditWhere(filter);
+    // Without a filter the page shows a total, and the planner's estimate is that total
+    // to within a fraction of a percent once the table is large - an exact count would
+    // walk every partition on every page.
+    if (where.params.length === 0) {
+      const estimate = await this.auditEstimate();
+      if (estimate >= COUNT_ESTIMATE_FROM) return estimate;
+    }
     const { rows } = await this.pool!.query(`SELECT COUNT(*)::int AS n FROM audit_events${where.sql}`, where.params);
     return rows[0]?.n ?? 0;
   }
 
   async pruneAuditEvents(before: string): Promise<number> {
     this.ensurePool();
-    const result = await this.pool!.query("DELETE FROM audit_events WHERE ts < $1", [before]);
-    return result.rowCount ?? 0;
+    const { dropped, removed } = await this.pruneAuditPartitions(before);
+    return removed + dropped.length;
   }
 
   async putApproval(record: ApprovalRequest): Promise<void> {

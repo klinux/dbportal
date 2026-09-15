@@ -1,7 +1,7 @@
 import { deploymentRole } from "@/lib/config/role";
 import { logger } from "@/lib/logger";
 import { enqueueJob } from "@/lib/jobs/queue";
-import { ALERT_SCHEDULER_LEASE, holdLease, holdsLease } from "@/lib/leases";
+import { ALERT_SCHEDULER_LEASE, holdLease, holdsLease, onceWithin } from "@/lib/leases";
 import { dueAlerts, updateAlertState } from "./store";
 
 /**
@@ -17,6 +17,9 @@ import { dueAlerts, updateAlertState } from "./store";
  */
 export const DEFAULT_TICK_MS = 30_000;
 export const SCHEDULER_LEASE = ALERT_SCHEDULER_LEASE;
+/** The daily chores the leader hands to the queue (§4.43): once a day across every replica. */
+export const CHORE_EVERY_MS = 24 * 60 * 60 * 1000;
+export const CHORES = ["audit-partitions"] as const;
 export const LEASE_TICKS = 3;
 const KEY = Symbol.for("dbportal.alert-scheduler");
 
@@ -56,6 +59,11 @@ export async function tickOnce(now = new Date()): Promise<number> {
   let ran = 0;
   try {
     if (!(await holdLease(SCHEDULER_LEASE, LEASE_TICKS * tickMs(), now))) return 0;
+    for (const chore of CHORES) {
+      if (await onceWithin(`chores:${chore}`, CHORE_EVERY_MS, now.getTime())) {
+        await enqueueJob({ kind: chore, payload: {}, requestedBy: "scheduler", maxAttempts: 2 });
+      }
+    }
     for (const alert of await dueAlerts(now.getTime())) {
       await enqueueJob({ kind: "alert", payload: { alertId: alert.id }, requestedBy: "scheduler", maxAttempts: 1 });
       await updateAlertState(alert.id, { ...alert.state, lastScheduledAt: now.toISOString() });

@@ -254,6 +254,7 @@ describe("jobs pass through", () => {
       pruneJobs: mock(async () => 2),
       acquireLease: mock(async () => true),
       listLeases: mock(async () => [{ name: "l", holder: "h", until: "u" }]),
+      maintainAuditStorage: mock(async () => ({ created: ["p"], dropped: [], removed: 0 })),
     });
     const wrapped = withCredentialEncryption(inner);
     await wrapped.putJob(job);
@@ -270,6 +271,7 @@ describe("jobs pass through", () => {
     expect(await wrapped.acquireLease("l", "h", "now", "until")).toBe(true);
     expect(inner.acquireLease).toHaveBeenCalledWith("l", "h", "now", "until");
     expect(await wrapped.listLeases()).toEqual([{ name: "l", holder: "h", until: "u" }]);
+    expect(await wrapped.maintainAuditStorage(new Date(0), null)).toEqual({ created: ["p"], dropped: [], removed: 0 });
   });
 });
 

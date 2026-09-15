@@ -27,11 +27,15 @@ let release: (() => void) | null = null;
 mock.module("@/lib/jobs/queue", () => ({
   enqueueJob: async (input: {
     kind: string;
-    payload: { alertId: string };
+    payload: { alertId?: string };
     maxAttempts: number;
     requestedBy: string;
   }) => {
-    ran.push(input.payload.alertId);
+    if (input.kind !== "alert") {
+      ran.push(`chore:${input.kind}`);
+      return { id: `job-${input.kind}` };
+    }
+    ran.push(input.payload.alertId as string);
     expect(input).toMatchObject({ kind: "alert", maxAttempts: 1, requestedBy: "scheduler" });
     if (release) await new Promise<void>((r) => (release = r));
     return { id: `job-${input.payload.alertId}` };
@@ -40,12 +44,14 @@ mock.module("@/lib/jobs/queue", () => ({
 // The scheduler's lease (§4.41): granted or not, as the store would; what was asked for is pinned.
 let leader = true;
 const leaseAsked: [string, number][] = [];
+let choreDue = false;
 mock.module("@/lib/leases", () => ({
   ALERT_SCHEDULER_LEASE: "alerts-scheduler",
   holdLease: async (name: string, ttlMs: number) => {
     leaseAsked.push([name, ttlMs]);
     return leader;
   },
+  onceWithin: async () => choreDue,
   holdsLease: (name: string) => name === "alerts-scheduler" && leader,
 }));
 const {
@@ -71,6 +77,7 @@ describe("alerts scheduler", () => {
     due = [];
     fail = false;
     leader = true;
+    choreDue = false;
     leaseAsked.length = 0;
     ran.length = 0;
     marked.length = 0;
@@ -155,5 +162,17 @@ describe("alerts scheduler", () => {
     leader = true;
     expect(await tickOnce()).toBe(1);
     expect(isSchedulerLeader()).toBe(true);
+  });
+
+  // The daily chores (§4.43): the leader hands them to the queue once a day, before the alerts.
+  test("the leader enqueues the daily chores once a day, ahead of the alerts", async () => {
+    choreDue = true;
+    due = [{ id: "a", state: { status: "ok" } }];
+    expect(await tickOnce()).toBe(1);
+    expect(ran).toEqual(["chore:audit-partitions", "a"]);
+    leader = false;
+    ran.length = 0;
+    expect(await tickOnce()).toBe(0);
+    expect(ran).toEqual([]);
   });
 });

@@ -35,6 +35,17 @@ const runExport = mock(async (_p: unknown, id: string) => ({ file: `/x/${id}.csv
 mock.module("@/lib/export/job", () => ({ runExport }));
 const runBackupJob = mock(async (_job: unknown) => ({ name: "n.dump", size: 3, createdAt: "z" }));
 mock.module("@/lib/backups/job", () => ({ runBackupJob }));
+let retention: number | null = 90;
+mock.module("@/lib/audit-persistence", () => ({ retentionDays: () => retention }));
+const maintain = mock(async (_now: Date, before: string | null) => ({
+  created: ["p"],
+  dropped: [],
+  removed: before ? 3 : 0,
+}));
+let storeUp = true;
+mock.module("@/lib/storage/factory", () => ({
+  getStorageProvider: async () => (storeUp ? { maintainAuditStorage: maintain } : null),
+}));
 const { registerJobHandlers } = await import("@/lib/jobs/handlers");
 const job = (payload: Record<string, unknown>) => ({ id: "j", kind: "x", payload });
 const context = { progress: mock(async (_r: Record<string, unknown>) => {}) };
@@ -49,7 +60,15 @@ describe("job handlers", () => {
   });
 
   test("ping", async () => {
-    expect([...handlers.keys()]).toEqual(["ping", "execution", "seed", "export", "backup", "alert"]);
+    expect([...handlers.keys()]).toEqual([
+      "ping",
+      "execution",
+      "seed",
+      "export",
+      "backup",
+      "audit-partitions",
+      "alert",
+    ]);
     const result = (await handlers.get("ping")!(job({ echo: "hi" }))) as { pong: string; echo: unknown };
     expect(Number.isNaN(Date.parse(result.pong))).toBe(false);
     expect(result.echo).toBe("hi");
@@ -96,5 +115,24 @@ describe("job handlers", () => {
     const job = { id: "j3", kind: "backup", payload: { action: "create" } };
     expect(await handlers.get("backup")!(job)).toEqual({ name: "n.dump", size: 3, createdAt: "z" });
     expect(runBackupJob.mock.calls[0]).toEqual([job]);
+  });
+
+  // The audit record's upkeep (§4.43): the store's own, with the retention instant or none.
+  test("audit-partitions: the store's upkeep with the retention instant, none when retention is off, a closed word without a store", async () => {
+    const handler = handlers.get("audit-partitions")!;
+    expect(await handler({ id: "j4", kind: "audit-partitions", payload: {} })).toEqual({
+      created: ["p"],
+      dropped: [],
+      removed: 3,
+    });
+    const before = (maintain.mock.calls[0] as unknown[])[1] as string;
+    expect(Date.now() - Date.parse(before)).toBeGreaterThan(89 * 86_400_000);
+    retention = null;
+    await handler({ id: "j5", kind: "audit-partitions", payload: {} });
+    expect((maintain.mock.calls[1] as unknown[])[1]).toBeNull();
+    storeUp = false;
+    await expect(handler({ id: "j6", kind: "audit-partitions", payload: {} })).rejects.toThrow("no_store");
+    storeUp = true;
+    retention = 90;
   });
 });

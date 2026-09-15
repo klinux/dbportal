@@ -109,6 +109,9 @@ class CaptureProvider implements ServerStorageProvider {
   async pruneAuditEvents(): Promise<number> {
     return 0;
   }
+  async maintainAuditStorage(): Promise<{ created: never[]; dropped: never[]; removed: number }> {
+    return { created: [], dropped: [], removed: 0 };
+  }
   readonly rows = new Map<string, unknown>();
 
   async initialize(): Promise<void> {}

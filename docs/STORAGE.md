@@ -347,6 +347,20 @@ appended to an `audit_events` table next to `user_storage`:
 | `type` | text | the event type, for filtering |
 | `data` | text | the sanitized event as JSON — never a credential, never a raw error |
 
+On PostgreSQL the table is **partitioned by range on `ts`** (docs/CONTEXT.md §4.43): one
+partition per calendar month (`audit_events_p2026_09`) or, with `AUDIT_PARTITION=week`, per
+week from Monday (`audit_events_w2026_09_14`). The primary key is `(ts, id)`, as a
+partitioned unique index must carry the partition key. The current period's partition and
+the next two exist after every boot, a daily `audit-partitions` job (handed to the queue by
+the scheduler leader) keeps them ahead, and an append whose instant no partition holds makes
+one on the spot. Retention (`AUDIT_RETENTION_DAYS`) drops a partition whole once it is
+wholly past, instead of deleting rows. An install from before this has its plain table
+attached, with no copy, as the `audit_events_legacy` partition holding everything up to the
+end of the current period; that one partition is the only one whose old rows are deleted
+until it can go whole. Without a filter the admin page's total is the planner's estimate
+once the table holds more than a hundred thousand rows. SQLite keeps one table and prunes
+by row.
+
 The table is **append-only by contract**: no code path updates or deletes a row, and it is
 not reachable through the per-user `/api/storage` routes. The admin Audit page reads it
 (`GET /api/admin/audit` answers `source: "store"`), so the record survives restarts and is

@@ -192,6 +192,14 @@ export interface JobRecord {
   error?: string;
 }
 
+/** What one round of audit upkeep did (§4.43). */
+export interface AuditMaintenance {
+  created: string[];
+  dropped: string[];
+  /** Rows deleted where a partition could not be dropped whole (the legacy one, or SQLite). */
+  removed: number;
+}
+
 /** A named lease in the store (docs/CONTEXT.md §4.41): who holds it and until when. */
 export interface LeaseRecord {
   name: string;
@@ -226,6 +234,12 @@ export interface ServerStorageProvider {
   countAuditEvents(filter?: AuditEventFilter): Promise<number>;
   /** Delete audit events older than `before` (ISO instant); the number removed (§4.12 retention). */
   pruneAuditEvents(before: string): Promise<number>;
+  /**
+   * The audit record's upkeep (§4.43): the partitions the next periods need created, the
+   * ones wholly past `retainBefore` dropped (null keeps everything). A provider without
+   * partitions prunes by row and creates nothing.
+   */
+  maintainAuditStorage(now: Date, retainBefore: string | null): Promise<AuditMaintenance>;
   /** Write or replace one approval request by its id (§4.6). */
   putApproval(record: ApprovalRequest): Promise<void>;
   getApproval(id: string): Promise<ApprovalRequest | null>;

@@ -48,6 +48,8 @@ describe("PostgresStorageProvider", () => {
 
   beforeEach(() => {
     mockQuery.mockClear();
+    // An implementation a test set (a failing attach, a row estimate) must not outlive it.
+    mockQuery.mockImplementation(async () => ({ rows: [] }));
     mockEnd.mockClear();
     mockRelease.mockClear();
     mockPoolConstructor.mockClear();
@@ -58,18 +60,56 @@ describe("PostgresStorageProvider", () => {
     await provider.close();
   });
 
-  test("initialize creates the user table, the audit table and its index", async () => {
+  test("initialize creates the user table, the partitioned audit table with its indexes, and the next periods' partitions", async () => {
     await provider.initialize();
-    // user_storage, the audit table and its four indexes (§4.2, §4.27), the approval table and its index (§4.6), the job table and its index (§4.40), the leases (§4.41).
-    expect(mockQuery).toHaveBeenCalledTimes(11);
-    expect((mockQuery.mock.calls[10] as [string])[0]).toContain("CREATE TABLE IF NOT EXISTS leases");
     const sql = (mockQuery.mock.calls as unknown[][]).map((call) => call[0] as string);
     expect(sql[0]).toContain("CREATE TABLE IF NOT EXISTS user_storage");
-    expect(sql[1]).toContain("CREATE TABLE IF NOT EXISTS audit_events");
-    expect(sql[2]).toContain("CREATE INDEX IF NOT EXISTS audit_events_ts");
-    expect(sql[3]).toContain("audit_events_type_ts ON audit_events (type, ts DESC)");
-    expect(sql[4]).toContain("audit_events_actor ON audit_events ((data::jsonb->>'user'))");
-    expect(sql[5]).toContain("audit_events_connection ON audit_events ((data::jsonb->>'connectionName'))");
+    // The audit table is looked at first (§4.43): a plain one from before becomes the legacy partition.
+    expect(sql[1]).toContain("SELECT c.relkind FROM pg_class");
+    expect(sql[2]).toContain("CREATE TABLE IF NOT EXISTS audit_events");
+    expect(sql[2]).toContain("PRIMARY KEY (ts, id)");
+    expect(sql[2]).toContain("PARTITION BY RANGE (ts)");
+    expect(sql[3]).toContain("CREATE INDEX IF NOT EXISTS audit_events_ts");
+    expect(sql[4]).toContain("audit_events_type_ts ON audit_events (type, ts DESC)");
+    expect(sql[5]).toContain("audit_events_actor ON audit_events ((data::jsonb->>'user'))");
+    expect(sql[6]).toContain("audit_events_connection ON audit_events ((data::jsonb->>'connectionName'))");
+    expect(sql.some((q) => q.includes("CREATE TABLE IF NOT EXISTS leases"))).toBe(true);
+    // The partitions: the current period and two more, none existing yet (the bounds read answers nothing).
+    const partitions = sql.filter((q) => q.includes("PARTITION OF audit_events"));
+    expect(partitions).toHaveLength(3);
+    expect(partitions[0]).toMatch(
+      /CREATE TABLE IF NOT EXISTS audit_events_p\d{4}_\d{2} PARTITION OF audit_events FOR VALUES FROM \('\d{4}-\d{2}-01T00:00:00\.000Z'\) TO \('\d{4}-\d{2}-01T00:00:00\.000Z'\)/,
+    );
+  });
+
+  // §4.43: an install with the plain table from before gets it attached as the legacy partition, in one transaction.
+  test("initialize turns a plain audit table into the legacy partition of a partitioned one", async () => {
+    mockQuery.mockImplementation(async (sql: string) =>
+      sql.includes("SELECT c.relkind") ? { rows: [{ relkind: "r" }] } : { rows: [] },
+    );
+    await provider.initialize();
+    const sql = (mockQuery.mock.calls as unknown[][]).map((call) => call[0] as string);
+    const begin = sql.indexOf("BEGIN");
+    expect(begin).toBeGreaterThan(0);
+    expect(sql[begin + 1]).toBe("ALTER TABLE audit_events RENAME TO audit_events_legacy");
+    const inside = sql.slice(begin, sql.indexOf("COMMIT"));
+    expect(inside.filter((q) => q.startsWith("ALTER INDEX IF EXISTS"))).toHaveLength(4);
+    // A partition cannot keep a primary key of its own beside the parent's (ts, id).
+    expect(inside).toContain("ALTER TABLE audit_events_legacy DROP CONSTRAINT IF EXISTS audit_events_pkey");
+    expect(sql.find((q) => q.includes("ATTACH PARTITION audit_events_legacy"))).toMatch(
+      /FOR VALUES FROM \(MINVALUE\) TO \('\d{4}-\d{2}-01T00:00:00\.000Z'\)/,
+    );
+    expect(sql.indexOf("COMMIT")).toBeGreaterThan(begin);
+    // A failure inside rolls back and is thrown, so a half-migrated table never stands.
+    mockQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes("SELECT c.relkind")) return { rows: [{ relkind: "r" }] };
+      if (sql.includes("ATTACH PARTITION")) throw new Error("attach failed");
+      return { rows: [] };
+    });
+    const again = new PostgresStorageProvider("postgres://x");
+    await expect(again.initialize()).rejects.toThrow();
+    expect((mockQuery.mock.calls as unknown[][]).map((c) => c[0]).at(-1)).toBe("ROLLBACK");
+    await again.close();
   });
 
   // docs/CONTEXT.md §4.2: the durable audit record. Append-only by contract - the one write
@@ -91,9 +131,29 @@ describe("PostgresStorageProvider", () => {
       await provider.appendAuditEvent(event);
       const [sql, params] = (mockQuery.mock.calls as unknown[][])[0] as [string, unknown[]];
       expect(sql).toContain("INSERT INTO audit_events");
-      expect(sql).toContain("ON CONFLICT (id) DO NOTHING");
+      expect(sql).toContain("ON CONFLICT (ts, id) DO NOTHING");
       expect(sql).not.toMatch(/UPDATE|DELETE/);
       expect(params).toEqual(["evt-1", event.timestamp, "query_execution", JSON.stringify(event)]);
+    });
+
+    // §4.43: an instant no partition holds yet gets its partition made on the spot, then the row; any other error is thrown.
+    test("appendAuditEvent makes the missing partition and inserts again; another error is thrown as is", async () => {
+      await provider.initialize();
+      mockQuery.mockClear();
+      let inserts = 0;
+      mockQuery.mockImplementation(async (sql: string) => {
+        if (sql.startsWith("INSERT INTO audit_events") && inserts++ === 0)
+          throw new Error('no partition of relation "audit_events" found for row');
+        return { rows: [] };
+      });
+      await provider.appendAuditEvent(event);
+      const sql = (mockQuery.mock.calls as unknown[][]).map((call) => call[0] as string);
+      expect(sql.filter((q) => q.startsWith("INSERT INTO audit_events"))).toHaveLength(2);
+      expect(sql.find((q) => q.includes("PARTITION OF audit_events"))).toContain("audit_events_p2026_09");
+      mockQuery.mockImplementation(async () => {
+        throw new Error("connection refused");
+      });
+      await expect(provider.appendAuditEvent(event)).rejects.toThrow("connection refused");
     });
 
     test("listAuditEvents reads newest first, optionally of one type, and parses the rows", async () => {
@@ -145,16 +205,86 @@ describe("PostgresStorageProvider", () => {
       expect(await provider.countAuditEvents()).toBe(0);
     });
 
-    // docs/CONTEXT.md §4.12: retention is the one delete the append-only table allows.
-    test("pruneAuditEvents deletes what is older than the instant and answers the count, 0 when the driver gives none", async () => {
+    // §4.43: without a filter, a large table's total is the planner's estimate, not a walk of every partition.
+    test("countAuditEvents answers the planner's estimate for a large unfiltered table, and counts when small, unknown or filtered", async () => {
       await provider.initialize();
-      mockQuery.mockImplementation(async () => ({ rows: [], rowCount: 12 }));
-      expect(await provider.pruneAuditEvents("2026-06-01T00:00:00.000Z")).toBe(12);
-      const [sql, params] = mockQuery.mock.calls.at(-1) as [string, unknown[]];
-      expect(sql).toContain("DELETE FROM audit_events WHERE ts < $1");
-      expect(params).toEqual(["2026-06-01T00:00:00.000Z"]);
-      mockQuery.mockImplementation(async () => ({ rows: [] }));
-      expect(await provider.pruneAuditEvents("2026-06-01T00:00:00.000Z")).toBe(0);
+      mockQuery.mockImplementation(async (sql: string) =>
+        sql.includes("SUM(c.reltuples)") ? { rows: [{ n: "2500000", unknown: false }] } : { rows: [{ n: 7 }] },
+      );
+      expect(await provider.countAuditEvents()).toBe(2_500_000);
+      expect(await provider.countAuditEvents({ type: "maintenance" })).toBe(7);
+      mockQuery.mockImplementation(async (sql: string) =>
+        sql.includes("SUM(c.reltuples)") ? { rows: [{ n: "5000", unknown: false }] } : { rows: [{ n: 5100 }] },
+      );
+      expect(await provider.countAuditEvents()).toBe(5100);
+      mockQuery.mockImplementation(async (sql: string) =>
+        sql.includes("SUM(c.reltuples)") ? { rows: [{ n: "0", unknown: true }] } : { rows: [{ n: 9 }] },
+      );
+      expect(await provider.countAuditEvents()).toBe(9);
+    });
+
+    // docs/CONTEXT.md §4.12: retention is the one delete the append-only table allows.
+    test("pruneAuditEvents drops the partitions wholly before the instant, deletes old rows from the legacy one, and leaves the rest", async () => {
+      await provider.initialize();
+      const bounds = [
+        { name: "audit_events_legacy", bound: "FOR VALUES FROM (MINVALUE) TO ('2026-07-01 00:00:00+00')" },
+        {
+          name: "audit_events_p2026_04",
+          bound: "FOR VALUES FROM ('2026-04-01 00:00:00+00') TO ('2026-05-01 00:00:00+00')",
+        },
+        {
+          name: "audit_events_p2026_07",
+          bound: "FOR VALUES FROM ('2026-07-01 00:00:00+00') TO ('2026-08-01 00:00:00+00')",
+        },
+      ];
+      mockQuery.mockImplementation(async (sql: string) =>
+        sql.includes("pg_get_expr")
+          ? { rows: bounds }
+          : sql.startsWith("DELETE")
+            ? { rows: [], rowCount: 12 }
+            : { rows: [] },
+      );
+      expect(await provider.pruneAuditEvents("2026-06-01T00:00:00.000Z")).toBe(13);
+      const sql = (mockQuery.mock.calls as unknown[][]).map((call) => call[0] as string);
+      expect(sql).toContain("DROP TABLE IF EXISTS audit_events_p2026_04");
+      expect(sql.some((q) => q.includes("DROP TABLE IF EXISTS audit_events_p2026_07"))).toBe(false);
+      expect(sql.some((q) => q.includes("DROP TABLE IF EXISTS audit_events_legacy"))).toBe(false);
+      const del = (mockQuery.mock.calls as unknown[][]).find((c) => String(c[0]).startsWith("DELETE"));
+      expect(del).toEqual(["DELETE FROM audit_events_legacy WHERE ts < $1", ["2026-06-01T00:00:00.000Z"]]);
+      // The legacy partition goes whole once the instant is past its end.
+      mockQuery.mockClear();
+      expect(await provider.pruneAuditEvents("2026-08-01T00:00:00.000Z")).toBe(3);
+      expect((mockQuery.mock.calls as unknown[][]).map((c) => c[0])).toContain(
+        "DROP TABLE IF EXISTS audit_events_legacy",
+      );
+    });
+
+    // §4.43: the daily upkeep is the two halves in one call, with or without retention.
+    test("maintainAuditStorage creates the next partitions and, with a retention instant, drops what is past it", async () => {
+      await provider.initialize();
+      mockQuery.mockImplementation(async (sql: string) =>
+        sql.includes("pg_get_expr")
+          ? {
+              rows: [
+                {
+                  name: "audit_events_p2020_01",
+                  bound: "FOR VALUES FROM ('2020-01-01 00:00:00+00') TO ('2020-02-01 00:00:00+00')",
+                },
+              ],
+            }
+          : { rows: [] },
+      );
+      const done = await provider.maintainAuditStorage(
+        new Date("2026-09-15T12:00:00.000Z"),
+        "2026-06-01T00:00:00.000Z",
+      );
+      expect(done).toEqual({
+        created: ["audit_events_p2026_09", "audit_events_p2026_10", "audit_events_p2026_11"],
+        dropped: ["audit_events_p2020_01"],
+        removed: 0,
+      });
+      const kept = await provider.maintainAuditStorage(new Date("2026-09-15T12:00:00.000Z"), null);
+      expect(kept.dropped).toEqual([]);
     });
 
     test("every audit method refuses before initialize()", async () => {
@@ -162,6 +292,7 @@ describe("PostgresStorageProvider", () => {
       await expect(provider.listAuditEvents({ limit: 1 })).rejects.toThrow("not initialized");
       await expect(provider.countAuditEvents()).rejects.toThrow("not initialized");
       await expect(provider.pruneAuditEvents("x")).rejects.toThrow("not initialized");
+      await expect(provider.maintainAuditStorage(new Date(), null)).rejects.toThrow("not initialized");
     });
   });
 
