@@ -48,6 +48,8 @@ export type AuditEventType =
   | "notification_channel"
   /** An alert saved or deleted, and each time it fires, resolves or cannot be delivered (docs/CONTEXT.md §4.29). */
   | "alert"
+  /** A job on the queue that failed past its attempts or lost its lease for good (docs/CONTEXT.md §4.40). */
+  | "job"
   /** A reviewer's decision on a write approval request (docs/CONTEXT.md §4.6). */
   | "approval_decision"
   /** A permitted reveal of masked columns; the columns are named, never their values (§4.7). */

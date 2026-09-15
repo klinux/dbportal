@@ -12,6 +12,9 @@ import type {
   ServerStorageProvider,
   StorageCollection,
   StorageData,
+  JobQuery,
+  JobRecord,
+  JobStatus,
 } from "../types";
 import type { AuditEvent } from "@/lib/audit";
 import { STORAGE_COLLECTIONS } from "../types";
@@ -40,6 +43,33 @@ let Database: any;
 function isNodeAbiMismatch(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /NODE_MODULE_VERSION|was compiled against a different Node\.js version/i.test(message);
+}
+
+const JOB_COLUMNS = "id, kind, status, run_at, lease_until, attempts, max_attempts, worker, data";
+interface JobRow {
+  id: string;
+  kind: string;
+  status: string;
+  run_at: string;
+  lease_until: string | null;
+  attempts: number;
+  max_attempts: number;
+  worker: string | null;
+  data: string;
+}
+
+/** The record as JSON, with the columns a worker changes laid over it. */
+function jobFromRow(row: JobRow): JobRecord {
+  const record = JSON.parse(row.data) as JobRecord;
+  return {
+    ...record,
+    status: row.status as JobStatus,
+    runAt: row.run_at,
+    leaseUntil: row.lease_until ?? undefined,
+    attempts: Number(row.attempts),
+    maxAttempts: Number(row.max_attempts),
+    worker: row.worker ?? undefined,
+  };
 }
 
 export class SQLiteStorageProvider implements ServerStorageProvider {
@@ -104,6 +134,22 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
           data          TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS approval_requests_lookup ON approval_requests (datasource_id, requester, status);
+      `);
+      // The job queue (docs/CONTEXT.md §4.40); see the PostgreSQL provider for the shape.
+      // One writer at a time in SQLite, so a claim inside a transaction is atomic by nature.
+      this.db!.exec(`
+        CREATE TABLE IF NOT EXISTS jobs (
+          id           TEXT PRIMARY KEY,
+          kind         TEXT NOT NULL,
+          status       TEXT NOT NULL,
+          run_at       TEXT NOT NULL,
+          lease_until  TEXT,
+          attempts     INTEGER NOT NULL DEFAULT 0,
+          max_attempts INTEGER NOT NULL DEFAULT 1,
+          worker       TEXT,
+          data         TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS jobs_queue ON jobs (status, run_at);
       `);
     } catch (error) {
       logger.error("SQLite storage initialization failed", error, { provider: "sqlite", path: this.dbPath });
@@ -259,6 +305,97 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
       query.limit,
     ) as { data: string }[];
     return rows.map((row) => JSON.parse(row.data) as ApprovalRequest);
+  }
+
+  async putJob(record: JobRecord): Promise<void> {
+    this.ensureDb();
+    this.db!.prepare(
+      "INSERT OR REPLACE INTO jobs (id, kind, status, run_at, lease_until, attempts, max_attempts, worker, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      record.id,
+      record.kind,
+      record.status,
+      record.runAt,
+      record.leaseUntil ?? null,
+      record.attempts,
+      record.maxAttempts,
+      record.worker ?? null,
+      JSON.stringify(record),
+    );
+  }
+
+  async getJob(id: string): Promise<JobRecord | null> {
+    this.ensureDb();
+    const row = this.db!.prepare(`SELECT ${JOB_COLUMNS} FROM jobs WHERE id = ?`).get(id) as JobRow | undefined;
+    return row ? jobFromRow(row) : null;
+  }
+
+  async listJobs(query: JobQuery): Promise<JobRecord[]> {
+    this.ensureDb();
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (query.status) {
+      clauses.push("status = ?");
+      params.push(query.status);
+    }
+    if (query.kind) {
+      clauses.push("kind = ?");
+      params.push(query.kind);
+    }
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db!.prepare(`SELECT ${JOB_COLUMNS} FROM jobs${where} ORDER BY run_at DESC LIMIT ?`).all(
+      ...params,
+      query.limit,
+    ) as JobRow[];
+    return rows.map(jobFromRow);
+  }
+
+  async countJobs(status: JobStatus): Promise<number> {
+    this.ensureDb();
+    const row = this.db!.prepare("SELECT count(*) AS n FROM jobs WHERE status = ?").get(status) as { n: number };
+    return Number(row?.n ?? 0);
+  }
+
+  async claimJob(kinds: string[], worker: string, now: string, leaseUntil: string): Promise<JobRecord | null> {
+    this.ensureDb();
+    const claim = this.db!.transaction((): JobRow | undefined => {
+      const marks = kinds.map(() => "?").join(", ");
+      const row = this.db!.prepare(
+        `SELECT ${JOB_COLUMNS} FROM jobs WHERE status = 'queued' AND run_at <= ? AND kind IN (${marks}) ORDER BY run_at LIMIT 1`,
+      ).get(now, ...kinds) as JobRow | undefined;
+      if (!row) return undefined;
+      this.db!.prepare(
+        "UPDATE jobs SET status = 'running', lease_until = ?, attempts = attempts + 1, worker = ? WHERE id = ?",
+      ).run(leaseUntil, worker, row.id);
+      return { ...row, status: "running", lease_until: leaseUntil, attempts: Number(row.attempts) + 1, worker };
+    });
+    const row = claim();
+    return row ? jobFromRow(row) : null;
+  }
+
+  async heartbeatJob(id: string, worker: string, leaseUntil: string): Promise<boolean> {
+    this.ensureDb();
+    const result = this.db!.prepare(
+      "UPDATE jobs SET lease_until = ? WHERE id = ? AND worker = ? AND status = 'running'",
+    ).run(leaseUntil, id, worker);
+    return Number(result.changes ?? 0) > 0;
+  }
+
+  async reclaimJobs(now: string): Promise<JobRecord[]> {
+    this.ensureDb();
+    const expired = this.db!.prepare(
+      `SELECT ${JOB_COLUMNS} FROM jobs WHERE status = 'running' AND lease_until < ?`,
+    ).all(now) as JobRow[];
+    const out: JobRecord[] = [];
+    for (const row of expired) {
+      const status: JobStatus = Number(row.attempts) >= Number(row.max_attempts) ? "lost" : "queued";
+      this.db!.prepare("UPDATE jobs SET status = ?, lease_until = NULL, worker = NULL WHERE id = ?").run(
+        status,
+        row.id,
+      );
+      out.push(jobFromRow({ ...row, status, lease_until: null, worker: null }));
+    }
+    return out;
   }
 
   async isHealthy(): Promise<boolean> {

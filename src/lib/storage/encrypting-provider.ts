@@ -8,6 +8,9 @@ import type {
   ServerStorageProvider,
   StorageCollection,
   StorageData,
+  JobQuery,
+  JobRecord,
+  JobStatus,
 } from "./types";
 import type { DatabaseConnection } from "@/lib/types";
 import type { AuditEvent } from "@/lib/audit";
@@ -92,6 +95,35 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
 
   listApprovals(query: ApprovalQuery): Promise<ApprovalRequest[]> {
     return this.inner.listApprovals(query);
+  }
+
+  // Jobs carry ids, a kind and a bounded payload the queue validated, never a credential: passed through.
+  putJob(record: JobRecord): Promise<void> {
+    return this.inner.putJob(record);
+  }
+
+  getJob(id: string): Promise<JobRecord | null> {
+    return this.inner.getJob(id);
+  }
+
+  listJobs(query: JobQuery): Promise<JobRecord[]> {
+    return this.inner.listJobs(query);
+  }
+
+  countJobs(status: JobStatus): Promise<number> {
+    return this.inner.countJobs(status);
+  }
+
+  claimJob(kinds: string[], worker: string, now: string, leaseUntil: string): Promise<JobRecord | null> {
+    return this.inner.claimJob(kinds, worker, now, leaseUntil);
+  }
+
+  heartbeatJob(id: string, worker: string, leaseUntil: string): Promise<boolean> {
+    return this.inner.heartbeatJob(id, worker, leaseUntil);
+  }
+
+  reclaimJobs(now: string): Promise<JobRecord[]> {
+    return this.inner.reclaimJobs(now);
   }
 
   async getAllData(userId: string): Promise<Partial<StorageData>> {

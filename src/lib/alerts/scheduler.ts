@@ -1,3 +1,4 @@
+import { deploymentRole } from "@/lib/config/role";
 import { logger } from "@/lib/logger";
 import { runAlert } from "./run";
 import { dueAlerts } from "./store";
@@ -6,8 +7,9 @@ import { dueAlerts } from "./store";
  * The alert scheduler (docs/CONTEXT.md §4.29): one interval per process, started at boot,
  * that runs every alert whose time has come, one after the other. It lives on globalThis
  * because Next.js gives each entry its own module instance and a server must hold one
- * scheduler, not one per route. Off with ALERTS_ENABLED=false, and off by default on a
- * deployment in the agent role (§4.30), which holds no alert of anyone's.
+ * scheduler, not one per route. Off with ALERTS_ENABLED=false, and off by default on any
+ * role but the studio: the agent (§4.30) holds no alert of anyone's, and a worker (§4.40)
+ * beside a studio would run every alert twice.
  */
 export const DEFAULT_TICK_MS = 30_000;
 const KEY = Symbol.for("dbportal.alert-scheduler");
@@ -26,7 +28,9 @@ function holder(): Holder {
 export function alertsEnabled(): boolean {
   const flag = process.env.ALERTS_ENABLED?.trim().toLowerCase();
   if (flag !== undefined && flag !== "") return flag === "true" || flag === "1";
-  return process.env.DBPORTAL_ROLE !== "agent";
+  // Only the studio schedules: the agent holds no alert of anyone's, and a worker (§4.40)
+  // beside a studio would run every alert twice.
+  return deploymentRole() === "studio";
 }
 
 export function tickMs(): number {

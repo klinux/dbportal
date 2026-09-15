@@ -17,6 +17,8 @@ mock.module("@/lib/storage/factory", () => ({
         if (storeFails) throw new Error("store down");
         return pending;
       },
+      // docs/CONTEXT.md §4.40: the queue's depth, what an autoscaler of workers reads.
+      countJobs: async (status: string) => (status === "queued" ? 3 : 1),
     };
   },
 }));
@@ -72,6 +74,8 @@ describe("GET /api/metrics", () => {
     expect(text).toContain('dbportal_build_info{version="9.9.9"} 1');
     expect(text).toContain("dbportal_providers_cached 3");
     expect(text).toContain("dbportal_approvals_pending 2");
+    expect(text).toContain("dbportal_jobs_queued 3");
+    expect(text).toContain("dbportal_jobs_running 1");
     expect(text).toMatch(/dbportal_approval_oldest_pending_seconds (89|90|91)\n/);
     expect(text).not.toContain("dbportal_store_scrape_failed");
   });

@@ -42,6 +42,17 @@ async function gauges(): Promise<GaugeSample[]> {
         help: "Age of the oldest approval request still waiting; 0 when none waits.",
         value: pending.length === 0 ? 0 : Math.max(0, Math.floor((Date.now() - oldest) / 1000)),
       });
+      // The job queue (docs/CONTEXT.md §4.40): what an autoscaler of workers reads.
+      out.push({
+        name: "dbportal_jobs_queued",
+        help: "Jobs waiting for a worker.",
+        value: await store.countJobs("queued"),
+      });
+      out.push({
+        name: "dbportal_jobs_running",
+        help: "Jobs a worker holds a lease on.",
+        value: await store.countJobs("running"),
+      });
     }
   } catch (error) {
     // A store that is down is itself worth a series, not a failed scrape.

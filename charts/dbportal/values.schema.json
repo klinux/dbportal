@@ -200,8 +200,8 @@
     },
     "role": {
       "type": "string",
-      "enum": ["studio", "agent"],
-      "description": "studio (the portal) or agent (only the service API, the MCP endpoint, the probes and the scrape)"
+      "enum": ["studio", "agent", "worker"],
+      "description": "studio (the portal), agent (only the service API, the MCP endpoint, the probes and the scrape) or worker (the job queue only, plus the probes and the scrape)"
     },
     "agent": {
       "type": "object",

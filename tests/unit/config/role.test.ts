@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { agentRoleAdmits, deploymentRole, isAgentRole, MCP_PATH } from "@/lib/config/role";
+import { agentRoleAdmits, deploymentRole, isAgentRole, MCP_PATH, roleAdmits } from "@/lib/config/role";
 
 /** The deployment's role (docs/CONTEXT.md §4.30): studio unless told `agent`, and what the agent role still answers. */
 const saved = process.env.DBPORTAL_ROLE;
@@ -18,6 +18,9 @@ describe("deployment role", () => {
     process.env.DBPORTAL_ROLE = " Agent ";
     expect(deploymentRole()).toBe("agent");
     expect(isAgentRole()).toBe(true);
+    process.env.DBPORTAL_ROLE = "worker";
+    expect(deploymentRole()).toBe("worker");
+    expect(isAgentRole()).toBe(false);
   });
 
   test("the agent role admits the service API, the MCP endpoint, the probes and the scrape, and nothing else", () => {
@@ -44,5 +47,17 @@ describe("deployment role", () => {
     ]) {
       expect(agentRoleAdmits(path)).toBe(false);
     }
+  });
+
+  // docs/CONTEXT.md §4.40: the worker role answers the probes and the scrape, nothing else; the studio everything.
+  test("roleAdmits per role", () => {
+    expect(roleAdmits("studio", "/admin")).toBe(true);
+    expect(roleAdmits("agent", MCP_PATH)).toBe(true);
+    expect(roleAdmits("agent", "/admin")).toBe(false);
+    expect(roleAdmits("worker", "/api/health/ready")).toBe(true);
+    expect(roleAdmits("worker", "/api/metrics")).toBe(true);
+    expect(roleAdmits("worker", MCP_PATH)).toBe(false);
+    expect(roleAdmits("worker", "/api/v1/executions")).toBe(false);
+    expect(roleAdmits("worker", "/")).toBe(false);
   });
 });

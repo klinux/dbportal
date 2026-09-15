@@ -684,6 +684,26 @@ built. Each lands as its own section when done.
   the trail, the agent role run apart, and day two - each step pointing at the page with the
   detail. Screenshots of the newer pages (the datasource sheet, alerts, channels) sit in
   `docs/screenshots/`.
+- **4.40 A job queue and a worker role — done, first step (asked 2026-09-14).** Everything
+  ran in the studio's process with the studio's credentials; the way out is a queue and a
+  process that consumes it. The queue is one table in the server store (`jobs`:
+  [`src/lib/storage/types.ts`](../src/lib/storage/types.ts), both providers): a worker
+  claims a job atomically (`FOR UPDATE SKIP LOCKED` on PostgreSQL, one writer at a time on
+  SQLite), leases it while it runs and renews the lease from a heartbeat; a lease that
+  expires puts the job back until its attempts run out, then marks it lost; a handler that
+  throws puts it back with a backoff, then failed. Both ends are audited as `job`.
+  [`src/lib/jobs/worker.ts`](../src/lib/jobs/worker.ts) is the loop - one per process, the
+  kinds it has handlers for, up to `JOBS_CONCURRENCY` at a time - and
+  [`src/lib/jobs/queue.ts`](../src/lib/jobs/queue.ts) the front door. Who runs the loop: the
+  `worker` role (`DBPORTAL_ROLE=worker`, chart `role: worker`: only the probes and the
+  scrape, no page, no session, no scheduler) always; the studio too by default
+  (`JOBS_WORKER=auto`), so a single-instance install still executes what it enqueues; the
+  agent never. `/api/metrics` exposes `dbportal_jobs_queued` and `dbportal_jobs_running`,
+  which is what an autoscaler of workers reads. This step ships the queue, the loop, the
+  role and one kind, `ping`, that an administrator enqueues (`POST /api/admin/jobs/ping`)
+  and reads back (`GET /api/admin/jobs`) to prove a worker is there. Next steps, each its
+  own commit: the bot executions and the alert runs through the queue; seed and export
+  with a stored result; backups on shared storage; the chart's autoscaling recipe.
 
 ## 5. Decisions already taken
 

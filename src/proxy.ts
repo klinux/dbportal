@@ -17,7 +17,7 @@ import {
   shouldRenew,
 } from "@/lib/config/session";
 import { withSecurityHeaders } from "@/lib/security/config";
-import { agentRoleAdmits, isAgentRole, MCP_PATH, SERVICE_API_PREFIX } from "@/lib/config/role";
+import { deploymentRole, MCP_PATH, roleAdmits, SERVICE_API_PREFIX } from "@/lib/config/role";
 
 // Lazy-initialized to prevent module-level crash if JWT_SECRET is misconfigured.
 // A module-level throw would block ALL requests (including health check).
@@ -52,12 +52,14 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isStaticAsset = /\.[a-z0-9]+$/i.test(pathname);
 
-  // The agent role (docs/CONTEXT.md §4.30) serves programs and probes, nothing else: no page,
-  // no session route, no admin API. A 404 rather than a redirect, since no browser is meant
-  // to be here, and before every other branch so that nothing below can widen it.
-  if (isAgentRole() && !agentRoleAdmits(pathname)) {
+  // The agent role (docs/CONTEXT.md §4.30) serves programs and probes, nothing else, and the
+  // worker role (§4.40) only the probes: no page, no session route, no admin API. A 404
+  // rather than a redirect, since no browser is meant to be here, and before every other
+  // branch so that nothing below can widen it.
+  const role = deploymentRole();
+  if (!roleAdmits(role, pathname)) {
     return withSecurityHeaders(
-      NextResponse.json({ error: "This deployment serves the agent surface only", statusCode: 404 }, { status: 404 }),
+      NextResponse.json({ error: `This deployment serves the ${role} surface only`, statusCode: 404 }, { status: 404 }),
     );
   }
 

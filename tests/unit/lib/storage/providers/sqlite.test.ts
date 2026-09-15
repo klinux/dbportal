@@ -63,8 +63,8 @@ describe("SQLiteStorageProvider", () => {
   test("initialize creates table and enables WAL", async () => {
     await provider.initialize();
     expect(mockPragma).toHaveBeenCalledWith("journal_mode = WAL");
-    // user_storage, the audit record (§4.2), the approval record (§4.6).
-    expect(mockExec).toHaveBeenCalledTimes(3);
+    // user_storage, the audit record (§4.2), the approval record (§4.6), the job queue (§4.40).
+    expect(mockExec).toHaveBeenCalledTimes(4);
     expect((mockExec.mock.calls as unknown[][])[1][0] as string).toContain("CREATE TABLE IF NOT EXISTS audit_events");
     const sql = (mockExec.mock.calls as unknown[][])[0][0] as string;
     expect(sql).toContain("CREATE TABLE IF NOT EXISTS user_storage");
@@ -533,6 +533,117 @@ describe("SQLiteStorageProvider", () => {
       await expect(provider.putApproval(record)).rejects.toThrow("not initialized");
       await expect(provider.getApproval("x")).rejects.toThrow("not initialized");
       await expect(provider.listApprovals({ limit: 1 })).rejects.toThrow("not initialized");
+    });
+  });
+
+  // docs/CONTEXT.md §4.40: the job queue on SQLite - the claim inside one transaction, one writer at a time.
+  describe("jobs", () => {
+    const job = {
+      id: "j1",
+      kind: "ping",
+      payload: {},
+      status: "queued" as const,
+      attempts: 0,
+      maxAttempts: 2,
+      requestedBy: "root",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      runAt: "2026-09-14T00:00:00.000Z",
+    };
+    // The JSON and the columns always agree on the id: putJob writes both from one record.
+    const row = (over: Record<string, unknown> = {}) => ({
+      id: "j1",
+      kind: "ping",
+      status: "queued",
+      run_at: job.runAt,
+      lease_until: null,
+      attempts: 0,
+      max_attempts: 2,
+      worker: null,
+      data: JSON.stringify({ ...job, id: (over.id as string | undefined) ?? "j1" }),
+      ...over,
+    });
+    // Every prepared statement, with what its reads answer: the SQL and the arguments are what the tests pin.
+    const prepared: { sql: string; run: ReturnType<typeof mock> }[] = [];
+    let answers: { get?: () => unknown; all?: () => unknown[]; changes?: number }[] = [];
+    beforeEach(() => {
+      prepared.length = 0;
+      answers = [];
+      // The driver mock is typed without parameters; the SQL is what we read off the call.
+      mockPrepare.mockImplementation((...args: unknown[]) => {
+        const sql = String(args[0]);
+        const answer = answers.shift() ?? {};
+        const statement = {
+          sql,
+          get: mock((..._a: unknown[]) => answer.get?.()),
+          all: mock((..._a: unknown[]) => answer.all?.() ?? []),
+          run: mock((..._a: unknown[]) => ({ changes: answer.changes ?? 1 })),
+        };
+        prepared.push(statement);
+        return statement;
+      });
+    });
+    const last = () => prepared[prepared.length - 1];
+
+    test("putJob, getJob, listJobs and countJobs", async () => {
+      await provider.initialize();
+      await provider.putJob(job);
+      expect(last().sql).toContain("INSERT OR REPLACE INTO jobs");
+      expect(last().run.mock.calls[0]).toEqual([
+        "j1",
+        "ping",
+        "queued",
+        job.runAt,
+        null,
+        0,
+        2,
+        null,
+        JSON.stringify(job),
+      ]);
+      answers = [{ get: () => row({ status: "running", worker: "w:1", lease_until: "L", attempts: 1 }) }];
+      expect(await provider.getJob("j1")).toEqual({
+        ...job,
+        status: "running",
+        worker: "w:1",
+        leaseUntil: "L",
+        attempts: 1,
+      });
+      expect(await provider.getJob("ghost")).toBeNull();
+      answers = [{ all: () => [row()] }];
+      const listed = await provider.listJobs({ status: "queued", kind: "ping", limit: 3 });
+      expect(listed[0]).toMatchObject({ id: "j1", leaseUntil: undefined, worker: undefined });
+      expect(last().sql).toContain("WHERE status = ? AND kind = ? ORDER BY run_at DESC LIMIT ?");
+      await provider.listJobs({ limit: 3 });
+      expect(last().sql).toContain("FROM jobs ORDER BY run_at DESC LIMIT ?");
+      answers = [{ get: () => ({ n: 4 }) }];
+      expect(await provider.countJobs("queued")).toBe(4);
+    });
+
+    test("claimJob reads the oldest due job and marks it running in one transaction; heartbeat and reclaim", async () => {
+      await provider.initialize();
+      answers = [{ get: () => row() }];
+      const claimed = await provider.claimJob(["ping", "export"], "w:1", "NOW", "LEASE");
+      expect(claimed).toMatchObject({ id: "j1", status: "running", attempts: 1, worker: "w:1", leaseUntil: "LEASE" });
+      expect(prepared[prepared.length - 2].sql).toContain("kind IN (?, ?)");
+      expect(last().sql).toContain("UPDATE jobs SET status = 'running'");
+      expect(last().run.mock.calls[0]).toEqual(["LEASE", "w:1", "j1"]);
+      expect(await provider.claimJob(["ping"], "w:1", "NOW", "LEASE")).toBeNull();
+      expect(await provider.heartbeatJob("j1", "w:1", "L2")).toBe(true);
+      expect(last().run.mock.calls[0]).toEqual(["L2", "j1", "w:1"]);
+      answers = [{ changes: 0 }];
+      expect(await provider.heartbeatJob("j1", "w:2", "L2")).toBe(false);
+      answers = [
+        {
+          all: () => [
+            row({ status: "running", attempts: 1, lease_until: "OLD", worker: "dead" }),
+            row({ id: "j2", status: "running", attempts: 2, lease_until: "OLD", worker: "dead" }),
+          ],
+        },
+      ];
+      const reclaimed = await provider.reclaimJobs("NOW");
+      expect(reclaimed.map((j) => [j.id, j.status, j.worker])).toEqual([
+        ["j1", "queued", undefined],
+        ["j2", "lost", undefined],
+      ]);
     });
   });
 });

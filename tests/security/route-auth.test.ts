@@ -267,6 +267,10 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "replaces or deletes one alert in the app's own storage backend (PUT/DELETE, no POST export); resolving the datasource opens nothing. Session-gated by guardRoute; tests/api/alerts.test.ts proves the 401",
   "admin/trail-alerts":
     "reads and saves the trail alert rules in the app's own storage backend (GET/PUT, no POST export); never opens a user database. Admin-gated by requireAdmin; tests/api/admin/trail-alerts.test.ts proves the 403",
+  "admin/jobs":
+    "counts and lists the job queue in the app's own storage backend (GET, no POST export); never opens a user database. Admin-gated by requireAdmin; tests/api/admin/jobs.test.ts proves the 403",
+  "admin/jobs/ping":
+    "enqueues a ping job in the app's own storage backend (POST); never opens a user database. Same admin gate; tests/api/admin/jobs.test.ts proves the 403",
   "admin/vault/kv":
     "browses the Vault KV mount and shapes one secret for the datasource sheet (GET); talks to Vault, never opens a user database. Admin-gated by requireAdmin; tests/api/admin/vault-kv.test.ts proves the 403",
   "admin/principals":
@@ -496,6 +500,8 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/vault/health": "one GET to Vault's sys/health for the readiness probe; opens no user database",
     "@/lib/trail-alerts/store":
       "the trail alert rules, one document in the app's own storage backend; opens no user database",
+    "@/lib/jobs/queue": "the job queue's front door over the app's own storage backend; opens no user database",
+    "@/lib/api/jobs": "the job routes' error answer; reaches no provider",
     "@/lib/channels/store":
       "notification channels in the app's own storage backend and the seed file; opens no user database",
     "@/lib/alerts/store":

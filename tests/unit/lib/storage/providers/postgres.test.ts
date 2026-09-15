@@ -60,8 +60,8 @@ describe("PostgresStorageProvider", () => {
 
   test("initialize creates the user table, the audit table and its index", async () => {
     await provider.initialize();
-    // user_storage, the audit table and its four indexes (§4.2, §4.27), the approval table and its index (§4.6).
-    expect(mockQuery).toHaveBeenCalledTimes(8);
+    // user_storage, the audit table and its four indexes (§4.2, §4.27), the approval table and its index (§4.6), the job table and its index (§4.40).
+    expect(mockQuery).toHaveBeenCalledTimes(10);
     const sql = (mockQuery.mock.calls as unknown[][]).map((call) => call[0] as string);
     expect(sql[0]).toContain("CREATE TABLE IF NOT EXISTS user_storage");
     expect(sql[1]).toContain("CREATE TABLE IF NOT EXISTS audit_events");
@@ -537,6 +537,103 @@ describe("PostgresStorageProvider", () => {
       await expect(provider.putApproval(record)).rejects.toThrow("not initialized");
       await expect(provider.getApproval("x")).rejects.toThrow("not initialized");
       await expect(provider.listApprovals({ limit: 1 })).rejects.toThrow("not initialized");
+    });
+  });
+
+  // docs/CONTEXT.md §4.40: the job queue - the record as JSON with the claimable columns beside it.
+  describe("jobs", () => {
+    const job = {
+      id: "j1",
+      kind: "ping",
+      payload: { echo: "hi" },
+      status: "queued" as const,
+      attempts: 0,
+      maxAttempts: 2,
+      requestedBy: "root",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      runAt: "2026-09-14T00:00:00.000Z",
+    };
+    const row = (over: Record<string, unknown> = {}) => ({
+      id: "j1",
+      kind: "ping",
+      status: "running",
+      run_at: new Date("2026-09-14T00:00:00.000Z"),
+      lease_until: new Date("2026-09-14T00:01:00.000Z"),
+      attempts: 1,
+      max_attempts: 2,
+      worker: "w:1",
+      data: JSON.stringify(job),
+      ...over,
+    });
+
+    test("putJob upserts every claimable column and the record; getJob lays the columns over the record", async () => {
+      await provider.initialize();
+      mockQuery.mockClear();
+      await provider.putJob(job);
+      const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("INSERT INTO jobs");
+      expect(sql).toContain("ON CONFLICT (id) DO UPDATE");
+      expect(params).toEqual(["j1", "ping", "queued", job.runAt, null, 0, 2, null, JSON.stringify(job)]);
+      mockQuery.mockResolvedValueOnce({ rows: [row()] });
+      expect(await provider.getJob("j1")).toEqual({
+        ...job,
+        status: "running",
+        leaseUntil: "2026-09-14T00:01:00.000Z",
+        attempts: 1,
+        worker: "w:1",
+      });
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      expect(await provider.getJob("ghost")).toBeNull();
+    });
+
+    test("listJobs filters by what is given and bounds the list; countJobs counts one status", async () => {
+      await provider.initialize();
+      mockQuery.mockClear();
+      mockQuery.mockResolvedValueOnce({ rows: [row({ lease_until: null, worker: null })] });
+      const listed = await provider.listJobs({ status: "queued", kind: "ping", limit: 5 });
+      expect(listed[0]).toMatchObject({ id: "j1", leaseUntil: undefined, worker: undefined });
+      const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("WHERE status = $1 AND kind = $2 ORDER BY run_at DESC LIMIT $3");
+      expect(params).toEqual(["queued", "ping", 5]);
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      await provider.listJobs({ limit: 10 });
+      expect((mockQuery.mock.calls[1] as [string])[0]).toContain("FROM jobs ORDER BY run_at DESC LIMIT $1");
+      mockQuery.mockResolvedValueOnce({ rows: [{ n: 3 }] });
+      expect(await provider.countJobs("queued")).toBe(3);
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      expect(await provider.countJobs("lost")).toBe(0);
+    });
+
+    test("claimJob takes one due job of the kinds asked with SKIP LOCKED; heartbeatJob extends only this worker's lease; reclaimJobs frees or loses expired leases", async () => {
+      await provider.initialize();
+      mockQuery.mockClear();
+      mockQuery.mockResolvedValueOnce({ rows: [row()] });
+      const claimed = await provider.claimJob(
+        ["ping", "export"],
+        "w:1",
+        "2026-09-14T00:00:30.000Z",
+        "2026-09-14T00:01:00.000Z",
+      );
+      expect(claimed).toMatchObject({ id: "j1", status: "running", attempts: 1, worker: "w:1" });
+      const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("FOR UPDATE SKIP LOCKED");
+      expect(sql).toContain("kind = ANY($4)");
+      expect(params).toEqual(["2026-09-14T00:00:30.000Z", "2026-09-14T00:01:00.000Z", "w:1", ["ping", "export"]]);
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      expect(await provider.claimJob(["ping"], "w:1", "x", "y")).toBeNull();
+      mockQuery.mockResolvedValueOnce({ rowCount: 1, rows: [] });
+      expect(await provider.heartbeatJob("j1", "w:1", "2026-09-14T00:02:00.000Z")).toBe(true);
+      expect((mockQuery.mock.calls[2] as [string, unknown[]])[1]).toEqual(["j1", "w:1", "2026-09-14T00:02:00.000Z"]);
+      mockQuery.mockResolvedValueOnce({ rowCount: 0, rows: [] });
+      expect(await provider.heartbeatJob("j1", "w:2", "x")).toBe(false);
+      mockQuery.mockResolvedValueOnce({
+        rows: [row({ status: "lost", lease_until: null, worker: null, attempts: 2 })],
+      });
+      const reclaimed = await provider.reclaimJobs("2026-09-14T00:05:00.000Z");
+      expect(reclaimed[0]).toMatchObject({ status: "lost", attempts: 2, worker: undefined });
+      expect((mockQuery.mock.calls[4] as [string])[0]).toContain(
+        "CASE WHEN attempts >= max_attempts THEN 'lost' ELSE 'queued' END",
+      );
     });
   });
 });

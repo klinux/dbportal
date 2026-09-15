@@ -11,12 +11,32 @@ import type {
   ServerStorageProvider,
   StorageCollection,
   StorageData,
+  JobQuery,
+  JobRecord,
+  JobStatus,
 } from "../types";
 import type { AuditEvent } from "@/lib/audit";
 import { STORAGE_COLLECTIONS } from "../types";
 import { logger } from "@/lib/logger";
 
 let Pool: typeof import("pg").Pool;
+
+const JOB_COLUMNS = "id, kind, status, run_at, lease_until, attempts, max_attempts, worker, data";
+
+/** The record as JSON, with the columns a worker changes laid over it. */
+function jobFromRow(row: Record<string, unknown>): JobRecord {
+  const record = JSON.parse(String(row.data)) as JobRecord;
+  const instant = (v: unknown) => (v instanceof Date ? v.toISOString() : v == null ? undefined : String(v));
+  return {
+    ...record,
+    status: String(row.status) as JobStatus,
+    runAt: instant(row.run_at) ?? record.runAt,
+    leaseUntil: instant(row.lease_until),
+    attempts: Number(row.attempts),
+    maxAttempts: Number(row.max_attempts),
+    worker: row.worker == null ? undefined : String(row.worker),
+  };
+}
 
 export class PostgresStorageProvider implements ServerStorageProvider {
   private pool: InstanceType<typeof import("pg").Pool> | null = null;
@@ -97,6 +117,22 @@ export class PostgresStorageProvider implements ServerStorageProvider {
       await this.pool.query(
         "CREATE INDEX IF NOT EXISTS approval_requests_lookup ON approval_requests (datasource_id, requester, status)",
       );
+      // The job queue (docs/CONTEXT.md §4.40): the columns a worker claims and leases by,
+      // the rest of the record as JSON. Claimed with SKIP LOCKED, so workers never collide.
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS jobs (
+          id           TEXT PRIMARY KEY,
+          kind         TEXT NOT NULL,
+          status       TEXT NOT NULL,
+          run_at       TIMESTAMPTZ NOT NULL,
+          lease_until  TIMESTAMPTZ,
+          attempts     INTEGER NOT NULL DEFAULT 0,
+          max_attempts INTEGER NOT NULL DEFAULT 1,
+          worker       TEXT,
+          data         TEXT NOT NULL
+        )
+      `);
+      await this.pool.query("CREATE INDEX IF NOT EXISTS jobs_queue ON jobs (status, run_at)");
     } catch (error) {
       if (error instanceof Error && error.message.includes("does not support SSL")) {
         throw new Error(
@@ -260,6 +296,94 @@ export class PostgresStorageProvider implements ServerStorageProvider {
       params,
     );
     return rows.map((row: { data: string }) => JSON.parse(row.data) as ApprovalRequest);
+  }
+
+  async putJob(record: JobRecord): Promise<void> {
+    this.ensurePool();
+    await this.pool!.query(
+      `INSERT INTO jobs (id, kind, status, run_at, lease_until, attempts, max_attempts, worker, data)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, run_at = EXCLUDED.run_at, lease_until = EXCLUDED.lease_until,
+         attempts = EXCLUDED.attempts, max_attempts = EXCLUDED.max_attempts, worker = EXCLUDED.worker, data = EXCLUDED.data`,
+      [
+        record.id,
+        record.kind,
+        record.status,
+        record.runAt,
+        record.leaseUntil ?? null,
+        record.attempts,
+        record.maxAttempts,
+        record.worker ?? null,
+        JSON.stringify(record),
+      ],
+    );
+  }
+
+  async getJob(id: string): Promise<JobRecord | null> {
+    this.ensurePool();
+    const { rows } = await this.pool!.query(`SELECT ${JOB_COLUMNS} FROM jobs WHERE id = $1`, [id]);
+    return rows[0] ? jobFromRow(rows[0]) : null;
+  }
+
+  async listJobs(query: JobQuery): Promise<JobRecord[]> {
+    this.ensurePool();
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    for (const [column, value] of [
+      ["status", query.status],
+      ["kind", query.kind],
+    ] as const) {
+      if (!value) continue;
+      params.push(value);
+      clauses.push(`${column} = $${params.length}`);
+    }
+    params.push(query.limit);
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const { rows } = await this.pool!.query(
+      `SELECT ${JOB_COLUMNS} FROM jobs${where} ORDER BY run_at DESC LIMIT $${params.length}`,
+      params,
+    );
+    return rows.map(jobFromRow);
+  }
+
+  async countJobs(status: JobStatus): Promise<number> {
+    this.ensurePool();
+    const { rows } = await this.pool!.query("SELECT count(*)::int AS n FROM jobs WHERE status = $1", [status]);
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  async claimJob(kinds: string[], worker: string, now: string, leaseUntil: string): Promise<JobRecord | null> {
+    this.ensurePool();
+    const { rows } = await this.pool!.query(
+      `UPDATE jobs SET status = 'running', lease_until = $2, attempts = attempts + 1, worker = $3
+       WHERE id = (
+         SELECT id FROM jobs WHERE status = 'queued' AND run_at <= $1 AND kind = ANY($4)
+         ORDER BY run_at LIMIT 1 FOR UPDATE SKIP LOCKED
+       )
+       RETURNING ${JOB_COLUMNS}`,
+      [now, leaseUntil, worker, kinds],
+    );
+    return rows[0] ? jobFromRow(rows[0]) : null;
+  }
+
+  async heartbeatJob(id: string, worker: string, leaseUntil: string): Promise<boolean> {
+    this.ensurePool();
+    const result = await this.pool!.query(
+      "UPDATE jobs SET lease_until = $3 WHERE id = $1 AND worker = $2 AND status = 'running'",
+      [id, worker, leaseUntil],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async reclaimJobs(now: string): Promise<JobRecord[]> {
+    this.ensurePool();
+    const { rows } = await this.pool!.query(
+      `UPDATE jobs SET status = CASE WHEN attempts >= max_attempts THEN 'lost' ELSE 'queued' END, lease_until = NULL, worker = NULL
+       WHERE status = 'running' AND lease_until < $1
+       RETURNING ${JOB_COLUMNS}`,
+      [now],
+    );
+    return rows.map(jobFromRow);
   }
 
   async isHealthy(): Promise<boolean> {

@@ -35,11 +35,25 @@ export async function register(): Promise<void> {
   const { startAlertScheduler } = await import("@/lib/alerts/scheduler");
   startAlertScheduler();
 
+  // The job queue (docs/CONTEXT.md §4.40): the handlers this image knows, and the loop where
+  // this role runs one - the worker always, the studio unless told not to, the agent never.
+  const { registerJobHandlers } = await import("@/lib/jobs/handlers");
+  registerJobHandlers();
+  const { startWorker } = await import("@/lib/jobs/worker");
+  startWorker();
+
   // The agent role (docs/CONTEXT.md §4.30) holds no sample and prints no studio banner: it
-  // serves the datasources its tokens name, and nothing a browser would open.
-  const { isAgentRole } = await import("@/lib/config/role");
-  if (isAgentRole()) {
-    logger.info("Agent role: serving the service API and the MCP endpoint only", { route: "instrumentation" });
+  // serves the datasources its tokens name, and nothing a browser would open. The worker
+  // role (§4.40) serves nothing but the queue.
+  const { deploymentRole } = await import("@/lib/config/role");
+  const role = deploymentRole();
+  if (role !== "studio") {
+    logger.info(
+      `${role === "agent" ? "Agent" : "Worker"} role: ${role === "agent" ? "serving the service API and the MCP endpoint only" : "running the job queue only"}`,
+      {
+        route: "instrumentation",
+      },
+    );
     return;
   }
 

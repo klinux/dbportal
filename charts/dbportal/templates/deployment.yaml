@@ -288,9 +288,9 @@ spec:
             {{- /* The deployment's role (docs/CONTEXT.md §4.30). Written only for the agent
                    role, so a studio render stays byte-for-byte what it was; before extraEnv
                    so an operator can still override it. */}}
-            {{- if eq .Values.role "agent" }}
+            {{- if ne .Values.role "studio" }}
             - name: DBPORTAL_ROLE
-              value: agent
+              value: {{ .Values.role }}
             {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}

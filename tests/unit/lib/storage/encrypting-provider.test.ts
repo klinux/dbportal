@@ -229,6 +229,42 @@ describe("approval requests pass through", () => {
   });
 });
 
+// docs/CONTEXT.md §4.40: a job carries ids, a kind and a bounded payload, never a credential.
+describe("jobs pass through", () => {
+  test("every queue method reaches the inner provider as it is", async () => {
+    const job = {
+      id: "j1",
+      kind: "ping",
+      payload: {},
+      status: "queued" as const,
+      attempts: 0,
+      maxAttempts: 2,
+      requestedBy: "root",
+      createdAt: "2026-09-14T00:00:00.000Z",
+      runAt: "2026-09-14T00:00:00.000Z",
+    };
+    const inner = stubProvider({
+      putJob: mock(async () => {}),
+      getJob: mock(async () => job),
+      listJobs: mock(async () => [job]),
+      countJobs: mock(async () => 3),
+      claimJob: mock(async () => job),
+      heartbeatJob: mock(async () => true),
+      reclaimJobs: mock(async () => [job]),
+    });
+    const wrapped = withCredentialEncryption(inner);
+    await wrapped.putJob(job);
+    expect(inner.putJob).toHaveBeenCalledWith(job);
+    expect(await wrapped.getJob("j1")).toBe(job);
+    expect(await wrapped.listJobs({ limit: 5 })).toEqual([job]);
+    expect(await wrapped.countJobs("queued")).toBe(3);
+    expect(await wrapped.claimJob(["ping"], "w", "now", "lease")).toBe(job);
+    expect(inner.claimJob).toHaveBeenCalledWith(["ping"], "w", "now", "lease");
+    expect(await wrapped.heartbeatJob("j1", "w", "lease")).toBe(true);
+    expect(await wrapped.reclaimJobs("now")).toEqual([job]);
+  });
+});
+
 // docs/CONTEXT.md §4.9: the SSH profile collection is sealed on the way in and opened on the
 // way out exactly as `connections` is, so a bastion key never sits in the table in clear.
 describe("ssh_profiles", () => {

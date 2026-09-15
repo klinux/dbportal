@@ -1245,6 +1245,13 @@ seed-file one; `POST /api/admin/channels/[id]/test` → `{ delivered }`. Audited
 fired, resolved, delivery_failed) and `notification_channel` (saved, deleted, tested); each run is a
 `query_execution` with action `alert` under the alert's owner.
 
+Job queue (docs/CONTEXT.md §4.40). Admin: `GET /api/admin/jobs?status=&kind=&limit=` → `{ counts: { queued,
+running, done, failed, lost }, jobs: [{ id, kind, payload, status, attempts, maxAttempts, requestedBy, createdAt,
+runAt, leaseUntil?, worker?, startedAt?, finishedAt?, result?, error? }] }` newest first;
+`POST /api/admin/jobs/ping` — body `{ echo? }`, `202 { job }`, a job a worker answers with the time (`503` without
+server storage). `/api/metrics` exposes `dbportal_jobs_queued`, `dbportal_jobs_running` and `dbportal_jobs_total`
+by kind and outcome. A job that failed past its attempts or lost its lease for good is audited as `job`.
+
 Alerts on the trail (docs/CONTEXT.md §4.32). Admin: `GET /api/admin/trail-alerts` → `{ trailAlerts: { rules:
 { guardrail, production_export, backup_failed, seed_failed: [channel ids] }, exportRowsThreshold } }`;
 `PUT /api/admin/trail-alerts` with the same body saves it (`400` invalid, `503` without server storage), audited

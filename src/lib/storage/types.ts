@@ -163,6 +163,40 @@ export interface ApprovalQuery {
 }
 
 /**
+ * A job on the queue (docs/CONTEXT.md §4.40): what a worker executes apart from the request
+ * that asked for it. The columns a worker claims and leases by are the store's; the rest is
+ * the record as JSON. `attempts` counts claims; a lease that expires puts the job back on
+ * the queue until `maxAttempts`, then marks it lost.
+ */
+export type JobStatus = "queued" | "running" | "done" | "failed" | "lost";
+
+export interface JobRecord {
+  id: string;
+  kind: string;
+  payload: Record<string, unknown>;
+  status: JobStatus;
+  attempts: number;
+  maxAttempts: number;
+  requestedBy: string;
+  createdAt: string;
+  /** Not before this instant; a retry moves it forward. */
+  runAt: string;
+  leaseUntil?: string;
+  worker?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  result?: Record<string, unknown>;
+  /** A closed word, never an engine's message. */
+  error?: string;
+}
+
+export interface JobQuery {
+  status?: JobStatus;
+  kind?: string;
+  limit: number;
+}
+
+/**
  * Server-side storage provider interface.
  * Implements the Strategy Pattern — SQLite and PostgreSQL both implement this.
  *
@@ -188,6 +222,22 @@ export interface ServerStorageProvider {
   getApproval(id: string): Promise<ApprovalRequest | null>;
   /** Newest first, filtered by whichever of status, requester and datasourceId are given. */
   listApprovals(query: ApprovalQuery): Promise<ApprovalRequest[]>;
+  /** Write or replace one job by its id (docs/CONTEXT.md §4.40). */
+  putJob(record: JobRecord): Promise<void>;
+  getJob(id: string): Promise<JobRecord | null>;
+  /** Newest first, filtered by whichever of status and kind are given. */
+  listJobs(query: JobQuery): Promise<JobRecord[]>;
+  countJobs(status: JobStatus): Promise<number>;
+  /**
+   * Take one queued job of the kinds given whose time has come, marking it running under
+   * `worker` until `leaseUntil` and counting the attempt - atomically against other
+   * workers, so no job is executed twice.
+   */
+  claimJob(kinds: string[], worker: string, now: string, leaseUntil: string): Promise<JobRecord | null>;
+  /** Extend the lease of a running job; false when it is no longer running under this worker. */
+  heartbeatJob(id: string, worker: string, leaseUntil: string): Promise<boolean>;
+  /** Running jobs whose lease expired before `now`: back on the queue, or lost past maxAttempts. Returns what changed. */
+  reclaimJobs(now: string): Promise<JobRecord[]>;
   /** Get all collections for a user */
   getAllData(userId: string): Promise<Partial<StorageData>>;
   /** Get a single collection for a user */

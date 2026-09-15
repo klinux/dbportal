@@ -54,6 +54,8 @@ describe("alerts scheduler", () => {
     expect(alertsEnabled()).toBe(true);
     process.env.DBPORTAL_ROLE = "agent";
     expect(alertsEnabled()).toBe(false);
+    process.env.DBPORTAL_ROLE = "worker";
+    expect(alertsEnabled()).toBe(false);
     process.env.ALERTS_ENABLED = "true";
     expect(alertsEnabled()).toBe(true);
     delete process.env.DBPORTAL_ROLE;

@@ -15,12 +15,14 @@ global:
       # same value.
       adaptSecurityContext: auto
 
-# -- The deployment's role (docs/CONTEXT.md §4.30): `studio` is the portal; `agent` is a
+# -- The deployment's role (docs/CONTEXT.md §4.30, §4.40): `studio` is the portal; `agent` is a
 # second release of the same image that serves only the service API (/api/v1) and the
 # MCP endpoint (/api/mcp), the probes and the metrics scrape - for the agents and bots
-# that hold a service token - and refuses every page and session route. Run it as its
-# own release, in its own network policy, pointed at the same storage backend, so a
-# compromise of the agent runtime reaches what its tokens reach and no more.
+# that hold a service token - and refuses every page and session route; `worker` serves
+# nothing but the probes and the scrape and runs the job queue, so the studio can stop
+# executing and workers can scale on queue depth (dbportal_jobs_queued on /api/metrics).
+# Run each as its own release, in its own network policy, pointed at the same storage
+# backend, so a compromise of one reaches what it holds and no more.
 role: studio
 
 # -- Number of replicas. Note: SQLite storage mode only supports 1 replica.
