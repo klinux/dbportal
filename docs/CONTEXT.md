@@ -761,6 +761,18 @@ built. Each lands as its own section when done.
   providers; the worker observes `dbportal_job_wait_seconds` and `dbportal_job_run_seconds`
   for the scrape, and prunes settled jobs past `JOBS_RETENTION_DAYS` (7) once an hour, so
   the table and the statistics stay bounded.
+  **Eighth step (2026-09-15): the roles in one release.** A release per role repeated the
+  store, the secrets and the seed three times and rendered a Service and an Ingress a
+  worker never used. The chart's pod template moved to one helper
+  ([`templates/_pod.tpl`](../charts/dbportal/templates/_pod.tpl)) parameterised by role, and
+  `workers.enabled` / `agentRole.enabled` render a Deployment per role beside the studio
+  from it, sharing the release's ConfigMap and Secret and carrying a name label of their
+  own (`dbportal-worker`, `dbportal-agent`) so no selector of the studio's matches their
+  pods; the agent gets its Service, each its NetworkPolicy, KEDA targets the workers and the
+  HPA keeps the studio, and the studio writes `JOBS_WORKER=off` for itself. Refused: workers
+  without the queue in PostgreSQL, or on a persistent volume that is not ReadWriteMany. The
+  release-per-role shape stays for whoever wants the namespaces and upgrade cycles apart.
+  A default render is byte for byte what it was.
 
 ## 5. Decisions already taken
 

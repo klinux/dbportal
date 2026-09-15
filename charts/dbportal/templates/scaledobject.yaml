@@ -8,11 +8,12 @@ the same Deployment. The queue lives in the server store, so a release on local 
 SQLite storage has nothing shared to scale on and is refused.
 */}}
 {{- if .Values.keda.enabled }}
-{{- if ne .Values.role "worker" }}
-{{- fail "keda.enabled scales the job queue's workers on its depth; it needs role=worker (the studio release scales on CPU with autoscaling.enabled)" }}
+{{- /* The workers Deployment of this release when it renders one; else this release must itself be the worker role. */}}
+{{- if and (not .Values.workers.enabled) (ne .Values.role "worker") }}
+{{- fail "keda.enabled scales the job queue's workers on its depth; it needs workers.enabled (the workers beside the studio) or role=worker (a release that is the worker); the studio scales on CPU with autoscaling.enabled" }}
 {{- end }}
-{{- if .Values.autoscaling.enabled }}
-{{- fail "keda.enabled and autoscaling.enabled would each own the Deployment's replica count; set one" }}
+{{- if and (not .Values.workers.enabled) .Values.autoscaling.enabled }}
+{{- fail "keda.enabled and autoscaling.enabled would each own the Deployment's replica count; set one, or run the workers beside the studio with workers.enabled so each scaler has a Deployment of its own" }}
 {{- end }}
 {{- if ne (include "dbportal.storageProvider" .) "postgres" }}
 {{- fail "keda.enabled needs the job queue in a shared store: config.storageProvider=postgres (or postgresql.enabled=true)" }}
@@ -27,7 +28,7 @@ spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "dbportal.fullname" . }}
+    name: {{ include "dbportal.fullname" . }}{{ if .Values.workers.enabled }}-workers{{ end }}
   minReplicaCount: {{ .Values.keda.minReplicas }}
   maxReplicaCount: {{ .Values.keda.maxReplicas }}
   pollingInterval: {{ .Values.keda.pollingInterval }}

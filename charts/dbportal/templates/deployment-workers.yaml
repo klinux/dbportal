@@ -1,0 +1,31 @@
+{{- /*
+The workers beside the studio (docs/CONTEXT.md §4.40): the same image, this release's
+ConfigMap and Secret, DBPORTAL_ROLE=worker, and only what the role needs - no Service, no
+Ingress, the scrape by pod annotation. The queue lives in the server store, so the
+release must keep it in PostgreSQL; and what a worker writes (exports, backups) the studio
+serves, so a persistent data volume must be one both can mount at once.
+*/}}
+{{- if .Values.workers.enabled }}
+{{- if ne (include "dbportal.storageProvider" .) "postgres" }}
+{{- fail "workers.enabled runs the job queue on its own pods, which needs the queue in a shared store: config.storageProvider=postgres (or postgresql.enabled=true)" }}
+{{- end }}
+{{- if and (include "dbportal.persistenceEnabled" .) (not (has "ReadWriteMany" .Values.persistence.accessModes)) }}
+{{- fail "workers.enabled with persistence.enabled mounts the data volume on the studio and on the workers at once - exports and backups are written by a worker and served by the studio - which needs persistence.accessModes to include ReadWriteMany; or keep persistence off and send backups to a bucket (BACKUP_GCS_BUCKET)" }}
+{{- end }}
+{{- $labels := include "dbportal.roleLabels" (dict "root" . "role" "worker") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dbportal.fullname" . }}-workers
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  {{- /* KEDA owns the count when it is on; a replicas line would reset it on every upgrade. */}}
+  {{- if not .Values.keda.enabled }}
+  replicas: {{ .Values.workers.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "dbportal.roleSelectorLabels" (dict "root" . "role" "worker") | nindent 6 }}
+  {{- include "dbportal.podTemplate" (dict "root" . "role" "worker" "labels" $labels "resources" (.Values.workers.resources | default .Values.resources) "dataVolume" "shared") | nindent 2 }}
+{{- end }}

@@ -398,3 +398,80 @@ Return the PostgreSQL URL when subchart is enabled
 {{- end -}}
 {{- toYaml $probe -}}
 {{- end -}}
+
+{{/*
+A role's own name label (docs/CONTEXT.md §4.40): the workers and the agent Deployments a
+release renders beside the studio carry app.kubernetes.io/name=<chart>-<role>, so their
+pods match no selector of the studio's - not its Deployment (selectors are immutable and
+overlapping ones fight), not its Service, not its PDB. Called with (dict "root" . "role" "worker").
+*/}}
+{{- define "dbportal.roleSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "dbportal.name" .root }}-{{ .role }}
+app.kubernetes.io/instance: {{ .root.Release.Name }}
+{{- end }}
+
+{{- define "dbportal.roleLabels" -}}
+helm.sh/chart: {{ include "dbportal.chart" .root }}
+{{ include "dbportal.roleSelectorLabels" . }}
+{{- if .root.Chart.AppVersion }}
+app.kubernetes.io/version: {{ .root.Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .root.Release.Service }}
+app.kubernetes.io/component: {{ .role }}
+{{- end }}
+
+{{/*
+The egress every role needs and the ingress on the app's port, as one NetworkPolicy per
+Deployment. Called with (dict "root" . "name" <object name> "selector" <selector labels>
+"labels" <labels>).
+*/}}
+{{- define "dbportal.networkPolicy" -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- .labels | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- .selector | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: {{ .root.Values.service.targetPort }}
+          protocol: TCP
+    {{- with .root.Values.networkPolicy.additionalIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  egress:
+    # Allow DNS resolution
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Allow HTTPS outbound (for database connections, AI APIs, OIDC)
+    - ports:
+        - port: 443
+          protocol: TCP
+    # Allow common database ports
+    - ports:
+        - port: 5432
+          protocol: TCP
+        - port: 3306
+          protocol: TCP
+        - port: 1521
+          protocol: TCP
+        - port: 1433
+          protocol: TCP
+        - port: 27017
+          protocol: TCP
+        - port: 6379
+          protocol: TCP
+    {{- with .root.Values.networkPolicy.additionalEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

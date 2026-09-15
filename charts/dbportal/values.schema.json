@@ -473,6 +473,32 @@
         }
       }
     },
+    "workers": {
+      "type": "object",
+      "description": "The workers Deployment beside the studio (docs/CONTEXT.md §4.40)",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicaCount": { "type": "integer", "minimum": 0 },
+        "resources": { "type": "object" }
+      }
+    },
+    "agentRole": {
+      "type": "object",
+      "description": "The agent Deployment and Service beside the studio (docs/CONTEXT.md §4.30, §4.40)",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicaCount": { "type": "integer", "minimum": 0 },
+        "resources": { "type": "object" },
+        "service": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        }
+      }
+    },
     "keda": {
       "type": "object",
       "description": "A KEDA ScaledObject on the queue's depth for the worker role (docs/CONTEXT.md §4.40)",

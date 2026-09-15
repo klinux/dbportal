@@ -310,9 +310,13 @@ The proxy answers 404 to every path a role does not admit, before any handler ru
 | `agent` | `/api/v1/*` (the bot API), `/api/mcp`, the probes, the scrape | programs, with a service token | never | no |
 | `worker` | the probes and the scrape | nobody | always | no |
 
-Each role is its **own Helm release** of the same chart (`role: studio|agent|worker`), with its
-own Deployment, Service and NetworkPolicy, all pointed at the same store. A single release with
-the default role is a complete install: the studio enqueues and executes its own jobs.
+A single release with the default role is a complete install: the studio enqueues and
+executes its own jobs. The chart renders the other two roles either **beside the studio in the
+same release** (`workers.enabled`, `agentRole.enabled`: one Deployment per role from one pod
+template, sharing the release's ConfigMap, Secret and seed, each with its own name label,
+Service where it has one, NetworkPolicy and scaler) or as **a release per role**
+(`role: agent|worker`, for a namespace and an upgrade cycle apart), all pointed at the same
+store.
 
 ```mermaid
 graph LR

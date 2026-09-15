@@ -25,6 +25,34 @@ global:
 # backend, so a compromise of one reaches what it holds and no more.
 role: studio
 
+# -- Deployments this release renders beside the studio (docs/CONTEXT.md §4.40), so one
+# release carries the roles instead of one release per role: they share this release's
+# ConfigMap, Secret, seed and datasource secrets, and each gets only what its role needs.
+# `workers` runs the job queue (no Service, no Ingress; the scrape by pod annotation) and,
+# once enabled, the studio only enqueues (JOBS_WORKER=off, unless config.jobsWorker says
+# otherwise); with persistence enabled the workers mount the same volume as the studio,
+# which must then be ReadWriteMany - exports and backups are written there by a worker and
+# served by the studio. `agentRole` serves the bot API and the MCP endpoint on a Service of
+# its own, <release>-agent, which is what programs are given. `role` below keeps the other
+# shape: a release that is itself one role, for a namespace and an upgrade cycle apart.
+workers:
+  # -- Render the workers Deployment
+  enabled: false
+  # -- Workers when keda.enabled is off (KEDA owns the count otherwise)
+  replicaCount: 1
+  # -- The workers' resources; empty inherits `resources`
+  resources: {}
+agentRole:
+  # -- Render the agent Deployment and its Service
+  enabled: false
+  replicaCount: 1
+  # -- The agent's resources; empty inherits `resources`
+  resources: {}
+  service:
+    type: ClusterIP
+    port: 80
+    annotations: {}
+
 # -- Number of replicas. Note: SQLite storage mode only supports 1 replica.
 # The agent runtime carries a second single-instance constraint: its zero-config
 # durable backend keeps run state on local disk behind file locks, and each pod

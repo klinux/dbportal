@@ -40,7 +40,7 @@ helm install libredb libredb/dbportal \
 
 ```bash
 helm install libredb oci://ghcr.io/libredb/charts/dbportal \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
   --set secrets.adminPassword=MyAdmin123
 ```
@@ -386,35 +386,47 @@ helm install libredb libredb/dbportal \
   --set podDisruptionBudget.enabled=true
 ```
 
-### Workers, run apart and scaled on the queue
+### Workers and the agent beside the studio, scaled on the queue
 
 Executions, alerts, seeds, exports and backups run on a job queue in the store
-(docs/CONTEXT.md §4.40). A single release runs the queue inside the studio. To take that
-work out of the studio, install a **second release** of the same chart with `role: worker`,
-pointed at the same PostgreSQL store, and let KEDA (installed apart, https://keda.sh) grow
-it on the queue's depth, which every replica reports as `dbportal_jobs_queued` on
-`/api/metrics`:
+(docs/CONTEXT.md §4.40). A default release runs the queue inside the studio. To take that
+work out of the studio, turn on the roles **in the same release**: they share its
+ConfigMap, Secret, seed and datasource secrets, and each renders only what its role needs.
 
 ```bash
-helm install libredb-worker libredb/dbportal \
-  --set role=worker \
+helm install libredb libredb/dbportal \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
+  --set secrets.adminPassword="$ADMIN_PASSWORD" \
   --set config.storageProvider=postgres \
   --set secrets.storagePostgresUrl=postgres://user:pass@host:5432/libredb_storage \
+  --set workers.enabled=true \
+  --set agentRole.enabled=true \
   --set keda.enabled=true \
-  --set keda.prometheusAddress=http://prometheus-server.monitoring.svc:9090 \
-  --set keda.queuedPerReplica=5
+  --set keda.prometheusAddress=http://prometheus-server.monitoring.svc:9090
 ```
 
-The trigger reads `max(dbportal_jobs_queued{namespace="<release namespace>"})` (set
-`keda.query` for another label set) and keeps `keda.minReplicas` workers when the queue
-is empty. Set `config.jobsWorker=off` on the studio release once workers run apart, so the
-studio only enqueues. Files a worker writes - exports under `EXPORT_DIR`, backups under
-`BACKUP_DIR` - must be where the studio reads them: mount one ReadWriteMany volume on
-`/app/data` in both releases, or send backups to a bucket with `BACKUP_GCS_BUCKET`. The
-image has `pg_dump`, so backups run wherever a worker is. `keda.enabled` is refused on
-another role, together with `autoscaling.enabled`, and with the queue on local or SQLite
-storage.
+- `workers.enabled` renders `<release>-workers`: `DBPORTAL_ROLE=worker`, no Service and no
+  Ingress (the scrape by pod annotation), `workers.replicaCount` pods, or as many as KEDA
+  decides when `keda.enabled` is on (the trigger reads
+  `max(dbportal_jobs_queued{namespace="<release namespace>"})`; set `keda.query` for another
+  label set, and `keda.queuedPerReplica` for the queued jobs each worker is worth). The
+  studio then only enqueues (`JOBS_WORKER=off`, unless `config.jobsWorker` says otherwise);
+  the HPA (`autoscaling.enabled`) keeps scaling the studio on CPU.
+- `agentRole.enabled` renders `<release>-agent` with a Service of its own,
+  `<release>-agent`, which is what programs holding a service token are given; it serves
+  only the bot API and the MCP endpoint.
+- Each role Deployment carries its own name label (`app.kubernetes.io/name: dbportal-worker`,
+  `dbportal-agent`), so no selector of the studio's - its Deployment, Service or PDB -
+  matches their pods; with `networkPolicy.enabled` each gets a policy of its own.
+- Files a worker writes - exports under `EXPORT_DIR`, backups under `BACKUP_DIR` - are
+  served by the studio, so with `persistence.enabled` the data volume must be
+  `ReadWriteMany` (the chart refuses otherwise); or keep persistence off and send backups to
+  a bucket with `BACKUP_GCS_BUCKET`. The image has `pg_dump`, so backups run wherever a
+  worker is. `workers.enabled` also needs the queue in PostgreSQL.
+
+The other shape still holds: a release that is itself one role (`role: worker` or
+`role: agent`), for a namespace and an upgrade cycle apart, pointed at the same store with
+the same values; `keda.enabled` on a `role: worker` release scales that release.
 
 ### Traefik Ingress
 
@@ -682,8 +694,13 @@ helm uninstall libredb
 | `autoscaling.enabled` | Enable HPA (ignored with SQLite storage: single-writer) | `false` |
 | `autoscaling.minReplicas` | Min replicas | `2` |
 | `autoscaling.maxReplicas` | Max replicas | `10` |
+| `workers.enabled` | Render the workers Deployment beside the studio (PostgreSQL store; RWX volume when persistence is on) | `false` |
+| `workers.replicaCount` / `workers.resources` | Workers when KEDA is off / their resources (empty inherits `resources`) | `1` / `{}` |
+| `agentRole.enabled` | Render the agent Deployment and its Service `<release>-agent` beside the studio | `false` |
+| `agentRole.replicaCount` / `agentRole.resources` | The agent's replicas / resources (empty inherits `resources`) | `1` / `{}` |
+| `agentRole.service.type` / `agentRole.service.port` | The agent Service | `ClusterIP` / `80` |
 | `config.jobsWorker` | Run the job queue's loop here (`auto`) or only enqueue (`off`); empty is the image's default | `""` |
-| `keda.enabled` | Render a KEDA ScaledObject on the queue's depth (worker role, PostgreSQL store, not with the HPA) | `false` |
+| `keda.enabled` | Render a KEDA ScaledObject on the queue's depth, for the workers Deployment or a `role: worker` release (PostgreSQL store) | `false` |
 | `keda.prometheusAddress` | Prometheus the trigger queries | `http://prometheus-server.monitoring.svc:9090` |
 | `keda.query` | The query; empty is `max(dbportal_jobs_queued{namespace="<ns>"})` | `""` |
 | `keda.queuedPerReplica` | Queued jobs per worker before another starts | `5` |

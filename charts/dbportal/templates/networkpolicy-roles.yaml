@@ -1,0 +1,10 @@
+{{- /* One policy per role Deployment (docs/CONTEXT.md §4.40): the same egress, the same port. */}}
+{{- if .Values.networkPolicy.enabled }}
+{{- range $role := list "worker" "agent" }}
+{{- $on := eq $role "worker" | ternary $.Values.workers.enabled $.Values.agentRole.enabled }}
+{{- if $on }}
+---
+{{ include "dbportal.networkPolicy" (dict "root" $ "name" (printf "%s-%s" (include "dbportal.fullname" $) (eq $role "worker" | ternary "workers" "agent")) "selector" (include "dbportal.roleSelectorLabels" (dict "root" $ "role" $role)) "labels" (include "dbportal.roleLabels" (dict "root" $ "role" $role))) }}
+{{- end }}
+{{- end }}
+{{- end }}

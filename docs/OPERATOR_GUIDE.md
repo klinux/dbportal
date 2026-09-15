@@ -125,12 +125,15 @@ agents.
 
 The work itself - a bot's execution, an alert run, a seed, an export, a backup - goes
 through a job queue in the store. One release runs the queue inside the studio, which is
-enough to start. When the studio should only serve people, add a **third release** with
-`role: worker`, pointed at the same PostgreSQL store, and set `config.jobsWorker: "off"` on
-the studio; with KEDA in the cluster, `keda.enabled` grows the workers on the queue's depth
-(chart README, "Workers, run apart and scaled on the queue"). Two things must then be
-shared: `BACKUP_DIR` and `EXPORT_DIR`, which a worker writes and the studio reads - one
-ReadWriteMany volume on `/app/data` in both releases, or the bucket for backups. The whole
+enough to start. When the studio should only serve people, turn the roles on **in the same
+release**: `workers.enabled` renders the workers (the studio then only enqueues) and
+`agentRole.enabled` the agent with its own Service; both share the release's secrets and
+configuration and render only what their role needs; with KEDA in the cluster,
+`keda.enabled` grows the workers on the queue's depth (chart README, "Workers and the agent
+beside the studio"). A release per role (`role: worker`, `role: agent`) is the other shape,
+for a namespace or an upgrade cycle apart. Either way, what a worker writes the studio
+serves: `BACKUP_DIR` and `EXPORT_DIR` on one ReadWriteMany volume, or the bucket for
+backups. The whole
 picture - the three roles, what they share, how each scales, the perimeter - is
 [ARCHITECTURE.md](ARCHITECTURE.md) §7.
 

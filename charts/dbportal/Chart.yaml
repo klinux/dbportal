@@ -2,7 +2,7 @@ apiVersion: v2
 name: dbportal
 description: Web-based SQL IDE for cloud-native teams supporting sixteen engines - PostgreSQL, MySQL, SQLite, DuckDB, Oracle, SQL Server, MongoDB, Redis, Couchbase, ClickHouse, Apache Druid, Elasticsearch, OpenSearch, Apache Trino, Apache Cassandra and libSQL
 type: application
-version: 0.1.1
+version: 0.1.2
 appVersion: "0.2.0"
 kubeVersion: ">=1.26.0-0"
 home: https://github.com/klinux/dbportal

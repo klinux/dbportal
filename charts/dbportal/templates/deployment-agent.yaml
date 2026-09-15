@@ -1,0 +1,40 @@
+{{- /*
+The agent role beside the studio (docs/CONTEXT.md §4.30, §4.40): the same image and this
+release's ConfigMap and Secret, DBPORTAL_ROLE=agent, a Service of its own that is what
+programs are given, and a data volume of its own - it keeps nothing there.
+*/}}
+{{- if .Values.agentRole.enabled }}
+{{- $labels := include "dbportal.roleLabels" (dict "root" . "role" "agent") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dbportal.fullname" . }}-agent
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: {{ .Values.agentRole.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "dbportal.roleSelectorLabels" (dict "root" . "role" "agent") | nindent 6 }}
+  {{- include "dbportal.podTemplate" (dict "root" . "role" "agent" "labels" $labels "resources" (.Values.agentRole.resources | default .Values.resources) "dataVolume" "own") | nindent 2 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "dbportal.fullname" . }}-agent
+  labels:
+    {{- $labels | nindent 4 }}
+  {{- with .Values.agentRole.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.agentRole.service.type }}
+  ports:
+    - port: {{ .Values.agentRole.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "dbportal.roleSelectorLabels" (dict "root" . "role" "agent") | nindent 4 }}
+{{- end }}
