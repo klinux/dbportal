@@ -730,8 +730,18 @@ built. Each lands as its own section when done.
   202 with the job id past the wait, and `GET /api/db/export/[jobId]` serves it to its
   requester (or an administrator) once it is there; the studio polls that and downloads
   ([`src/lib/export/job.ts`](../src/lib/export/job.ts), [`request.ts`](../src/lib/export/request.ts)).
-  Still in the studio's process: the editor's own queries (by design, the person waits)
-  and backups - the next commit.
+  **Fifth step: backups through the queue.** `POST /api/admin/backups` and
+  `/restore` check what needs no tool - the engine, the tool on this image, restore never
+  on production, the file's name and that it is there - refuse a second job while one is
+  open on the datasource (409), hand the rest to the queue (`backup`, one attempt) with the
+  session's principals, and wait up to twenty seconds; past the wait they answer 202 with
+  the job, `GET /api/admin/backups/[jobId]` reads it back, and the panel polls it - also a
+  job it finds open on load, so a backup asked from one tab or one replica is followed from
+  another ([`src/lib/backups/job.ts`](../src/lib/backups/job.ts)). The worker resolves the
+  datasource as the administrator would and runs the tool where it is; `BACKUP_DIR` is
+  therefore shared storage when workers run apart from the studio, or the bucket is the
+  place a backup is read from. Still in the studio's process: the editor's own queries (by
+  design, the person waits).
 
 ## 5. Decisions already taken
 

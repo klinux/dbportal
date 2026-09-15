@@ -28,6 +28,11 @@ const run = promisify(execFile);
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const STDERR_MAX = 4 * 1024;
 const FILE_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.dump$/;
+
+/** The only shape a backup's name takes: generated here, checked on the way back. */
+export function isBackupName(name: string): boolean {
+  return FILE_SHAPE.test(name);
+}
 const ID_SHAPE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const TOOL_KEY = Symbol.for("dbportal.backup-tool");
 
@@ -136,7 +141,7 @@ export async function listBackups(datasourceId: string): Promise<BackupFile[]> {
   return files.sort((a, b) => b.name.localeCompare(a.name));
 }
 
-function requireSupported(connection: ManagedConnection): void {
+export function requireSupported(connection: ManagedConnection): void {
   if (!backupSupported(connection.type))
     throw new BackupError(
       `Backups are offered for PostgreSQL datasources only; "${connection.name}" is ${connection.type}`,

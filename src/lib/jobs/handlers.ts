@@ -1,5 +1,6 @@
 import { findAlert } from "@/lib/alerts/store";
 import { runAlert } from "@/lib/alerts/run";
+import { runBackupJob } from "@/lib/backups/job";
 import { markExecutionLost, runExecutionJob } from "@/lib/executions/store";
 import { runExport } from "@/lib/export/job";
 import { runSeedJob } from "@/lib/seed-data/job";
@@ -11,7 +12,8 @@ import { JobFailure, registerJobHandler } from "./worker";
  * is the proof of the loop; `execution` runs a bot's request the studio approved (§4.10),
  * once, and marks it lost rather than running it again when the worker died mid-run;
  * `alert` runs one alert the scheduler handed over (§4.29); `seed` fills a datasource
- * (§4.23, §4.31), the run kept on the job as it goes; `export` builds a result's file (§4.22).
+ * (§4.23, §4.31), the run kept on the job as it goes; `export` builds a result's file (§4.22);
+ * `backup` runs pg_dump or pg_restore on one datasource (§4.14), the file its result.
  */
 function text(job: { payload: Record<string, unknown> }, key: string): string {
   const value = job.payload[key];
@@ -40,6 +42,8 @@ export function registerJobHandlers(): void {
     const result = await runExport(job.payload as unknown as ExportJobPayload, job.id);
     return result as unknown as Record<string, unknown>;
   });
+  // A backup or a restore (§4.14): the tool runs where the worker is, the file under BACKUP_DIR.
+  registerJobHandler("backup", async (job) => (await runBackupJob(job)) as unknown as Record<string, unknown>);
   registerJobHandler("alert", async (job) => {
     const record = await findAlert(text(job, "alertId"));
     if (!record) throw new JobFailure("not_found");

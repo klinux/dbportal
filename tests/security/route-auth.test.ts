@@ -298,7 +298,9 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
   "admin/backups":
     "lists and takes backups of one datasource through pg_dump (GET/POST); it resolves the datasource like every route and hands it to @/lib/backups/store, pinned below. Admin-gated by requireAdmin; tests/api/admin/backups.test.ts proves the 403",
   "admin/backups/restore":
-    "restores one of a datasource's own backups through pg_restore (POST), never on production. Same admin gate and the same pinned store",
+    "restores one of a datasource's own backups through pg_restore (POST), never on production, through the queue (§4.40). Same admin gate and the same pinned store",
+  "admin/backups/[jobId]":
+    "reads a backup job back from the queue (GET, no POST export): 202 while a worker has it, then its outcome. Admin-gated by requireAdmin; tests/api/admin/backups.test.ts proves the 403",
   "admin/masking":
     "reads and replaces the one shared masking configuration in the app's own storage backend; never opens a user database (GET/PUT, no POST export). Admin-gated by requireAdmin like admin/datasources; tests/api/masking/routes.test.ts proves the 403",
   masking:
@@ -478,7 +480,9 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/api/approvals": "the approvals routes' error answer and decision-body reader; reaches no provider",
     "@/lib/api/ssh-profiles": "the SSH profile routes' error answer; reaches no provider",
     "@/lib/api/service-tokens": "the service token routes' error answer; reaches no provider",
-    "@/lib/api/backups": "the backup routes' error answer; reaches no provider",
+    "@/lib/api/backups": "the backup routes' error answer and a job's outcome as a response; reaches no provider",
+    "@/lib/backups/job":
+      "a backup as a job (docs/CONTEXT.md §4.40): the checks before the queue, the outcome read off the job, and the worker's side, which hands the datasource to the pinned store's tools - it opens no provider",
     "@/lib/api/freezes": "the freeze window routes' error answer; reaches no provider",
     "@/lib/api/roles": "the named role routes' error answer; reaches no provider",
     "@/lib/api/environments": "the environment routes' error answer; reaches no provider",

@@ -1295,9 +1295,13 @@ the bot API answers the same. Audited as `freeze_window` / `created` · `deleted
 
 Admin only (docs/CONTEXT.md §4.14), PostgreSQL datasources.
 
-- `GET /api/admin/backups?datasourceId=<id>` → `{ supported, tool, restoreAllowed, bucket, backups: [{ name, size, createdAt }] }`
-- `POST /api/admin/backups` — body `{ datasourceId }`; `201 { backup: { name, size, createdAt, object? } }` (`object` when copied to the bucket); `400` unsupported engine; `503` no `pg_dump`; `502` the tool failed (detail in the server log)
-- `POST /api/admin/backups/restore` — body `{ datasourceId, name }`; `403` on a production datasource; `404` unknown file
+Both operations run on a worker through the job queue (docs/CONTEXT.md §4.40); the routes
+wait up to twenty seconds for the outcome and otherwise answer `202` with the job to poll.
+
+- `GET /api/admin/backups?datasourceId=<id>` → `{ supported, tool, restoreAllowed, bucket, backups: [{ name, size, createdAt }], job }` — `job` is `{ jobId, action, status }` while a backup or restore is queued or running on the datasource, else `null`
+- `POST /api/admin/backups` — body `{ datasourceId }`; `201 { jobId, action: "create", status: "done", backup: { name, size, createdAt, object? } }` (`object` when copied to the bucket); `202 { jobId, action, status }` past the wait; `400` unsupported engine; `503` no `pg_dump`; `409` a job already open on the datasource; `502` the tool failed (detail in the server log); `500` the worker stopped answering
+- `POST /api/admin/backups/restore` — body `{ datasourceId, name }`; `200 { jobId, action: "restore", status: "done", backup }` or `202` as above; `403` on a production datasource; `404` unknown file
+- `GET /api/admin/backups/<jobId>` — the job read back: `202` while a worker has it, then `200` with the outcome, `502`/`500` with `error` when it failed or was lost; `404` for a job that is not a backup
 
 Audited as `backup` / `created` · `uploaded` · `restored`.
 

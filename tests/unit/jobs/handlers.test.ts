@@ -33,6 +33,8 @@ const runSeedJob = mock(async (_job: unknown, progress: (run: unknown) => Promis
 mock.module("@/lib/seed-data/job", () => ({ runSeedJob }));
 const runExport = mock(async (_p: unknown, id: string) => ({ file: `/x/${id}.csv`, rows: 1 }));
 mock.module("@/lib/export/job", () => ({ runExport }));
+const runBackupJob = mock(async (_job: unknown) => ({ name: "n.dump", size: 3, createdAt: "z" }));
+mock.module("@/lib/backups/job", () => ({ runBackupJob }));
 const { registerJobHandlers } = await import("@/lib/jobs/handlers");
 const job = (payload: Record<string, unknown>) => ({ id: "j", kind: "x", payload });
 const context = { progress: mock(async (_r: Record<string, unknown>) => {}) };
@@ -47,7 +49,7 @@ describe("job handlers", () => {
   });
 
   test("ping", async () => {
-    expect([...handlers.keys()]).toEqual(["ping", "execution", "seed", "export", "alert"]);
+    expect([...handlers.keys()]).toEqual(["ping", "execution", "seed", "export", "backup", "alert"]);
     const result = (await handlers.get("ping")!(job({ echo: "hi" }))) as { pong: string; echo: unknown };
     expect(Number.isNaN(Date.parse(result.pong))).toBe(false);
     expect(result.echo).toBe("hi");
@@ -88,5 +90,11 @@ describe("job handlers", () => {
       rows: 1,
     });
     expect(runExport.mock.calls[0]).toEqual([{ sql: "SELECT 1" }, "j9"]);
+  });
+
+  test("backup: runs the job's backup or restore; the file is the result", async () => {
+    const job = { id: "j3", kind: "backup", payload: { action: "create" } };
+    expect(await handlers.get("backup")!(job)).toEqual({ name: "n.dump", size: 3, createdAt: "z" });
+    expect(runBackupJob.mock.calls[0]).toEqual([job]);
   });
 });
