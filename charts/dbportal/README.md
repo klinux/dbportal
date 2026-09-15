@@ -36,11 +36,18 @@ helm install libredb libredb/dbportal \
   --set secrets.adminPassword=MyAdmin123
 ```
 
-### OCI Registry Install
+Once the chart is published to a registry, the same release installs as
+`helm install libredb <registry>/dbportal --version 0.1.3` (the chart version this tag
+carries; `bun run chart:check` keeps this line and `Chart.yaml` together).
+
+### Installing from a checkout
+
+The chart is not published to a registry yet; install it from the repository at a release
+tag, whose `appVersion` is the image that tag built:
 
 ```bash
-helm install libredb oci://ghcr.io/libredb/charts/dbportal \
-  --version 0.1.3 \
+git clone --branch v0.2.1 https://github.com/klinux/dbportal
+helm install libredb ./dbportal/charts/dbportal \
   --set secrets.jwtSecret=$(openssl rand -base64 32) \
   --set secrets.adminPassword=MyAdmin123
 ```

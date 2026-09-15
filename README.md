@@ -21,10 +21,12 @@ One deployment, one set of datasources, single sign-on, and an audit trail of
 **every** execution — so nobody needs a database password, a bastion host, or
 Adminer, and every statement that reaches a database is attributable to a person.
 
-> **Status: early.** dbportal is a snapshot of [LibreDB Studio](https://github.com/libredb/libredb-studio)
-> 0.16.0 (MIT) with the packaging and distribution machinery removed. The editor,
-> the 16 database drivers, SSO and the Helm chart work today; the governance layer
-> described below is being built on top. See [NOTICE.md](NOTICE.md) for attribution.
+> dbportal started as a snapshot of [LibreDB Studio](https://github.com/libredb/libredb-studio)
+> 0.16.0 (MIT) with the packaging and distribution machinery removed; the editor, the 16
+> database drivers and SSO come from there ([NOTICE.md](NOTICE.md)). The governance,
+> operations and scale layers described below were built on top, and
+> [docs/CONTEXT.md](docs/CONTEXT.md) §4 records the design of each and what was
+> deliberately left out. Current release: [0.2.1](https://github.com/klinux/dbportal/releases).
 
 ## Why
 
@@ -38,50 +40,66 @@ Teams that run databases end up with the same shape of problem:
   credentials injected from a secrets manager, never typed by a person.
 
 Web IDEs solve the editor part. Access proxies solve the audit part. dbportal
-aims to be the one thing you deploy that does both for the browser use case.
+is the one thing you deploy that does both for the browser use case, and it
+runs the bots' and agents' requests through the same rules.
 
-## What works today (inherited)
+## The editor (inherited)
 
 - Browser SQL IDE (Monaco) with schema explorer, ER diagrams, schema diff,
-  EXPLAIN, monitoring dashboard and maintenance actions.
+  EXPLAIN, charts, monitoring dashboard and maintenance actions.
 - 16 engines: PostgreSQL, MySQL, Oracle, SQL Server, SQLite, libSQL, DuckDB,
   MongoDB, Redis, Couchbase, ClickHouse, Druid, Elasticsearch, OpenSearch,
   Trino, Cassandra — plus wire-compatible relatives (MariaDB, TimescaleDB,
   CockroachDB, Valkey, ScyllaDB, …).
 - OIDC single sign-on (Keycloak, Okta, Entra ID, Auth0, …) with role mapping
   from claims; local accounts with TOTP as the fallback.
-- **Managed datasources** from a YAML file, with `${ENV}` credential injection
-  and per-role visibility (`roles: ["admin"]`, `["*"]`). Credentials never
-  reach the browser.
 - SSL/TLS and SSH tunnels for every networked engine.
-- Helm chart, Docker image, `docker compose`.
 
 ## What dbportal adds
 
-Each of these is in place; [docs/CONTEXT.md](docs/CONTEXT.md) §4 records the
-design and what was deliberately left out of each.
+**Datasources, declared once.** Created by administrators only — in a YAML file or on
+the admin page — stored server-side and shared; no route accepts a connection from the
+browser. Credentials come from `${ENV}` references or from HashiCorp Vault (`vault:kv:`
+static secrets, `vault:db:` a credential issued per person with a lease), picked from a
+searchable list, never typed. SSH bastions declared once as profiles. Environments
+(production, staging, …) an administrator keeps.
 
-1. **Datasources are created by admins only, and shared.** Declared in a YAML
-   file or in the admin page, stored server-side; the request path that
-   accepted a client-supplied connection is closed.
-2. **Server-side audit of every execution** — person, datasource, duration,
-   outcome (and the statement under `AUDIT_INCLUDE_SQL`) — as structured log
-   lines and in an append-only `audit_events` table the user cannot clear.
-3. **`application_name` per person** on database sessions, so the database's
-   own logs (pgAudit, `pg_stat_activity`) show who, not the shared role.
-4. **Access rules per datasource** — `roles` (who may open) and `writeRoles`
-   (who may write), with `group:<name>` principals from the identity provider;
-   read-only sessions get a read-only pool where the engine has one.
-5. **Ephemeral credentials** — `vault:db:<mount>/<role>` has HashiCorp Vault's
-   database secrets engine issue a credential per person, with a lease;
-   `vault:kv:…` reads a static secret.
-6. **Approval flow** — `writeApproval: true` runs a write only inside a window
-   a reviewer opened, with the reviewer on the audit line.
-7. **Server-side data masking** — the rules run before the rows leave; a
-   reveal is granted per role and audited.
+**Who may do what.** Access rules per datasource: `roles` (who may open), `writeRoles`
+(who may write), `exportRoles`, with `group:<name>` principals from the identity
+provider and named roles declared once. Read-only sessions get a read-only pool.
+`application_name` per person on every database session, so the database's own logs
+name who, not the shared role. Short sessions renewed in use.
 
-Things deliberately **out of scope**: desktop apps, marketplace listings, npm
-library packaging, and any AI agent work beyond what is already here.
+**Every execution governed and audited.** One audit line per execution — person,
+datasource, duration, outcome, the statement under `AUDIT_INCLUDE_SQL` — as structured
+stdout and in an append-only table nobody can clear; read a page at a time, shipped to
+Elasticsearch, pruned by age. Write approvals with one or two reviewers, from the portal
+or from Slack's buttons. Guardrails (a `DELETE` without `WHERE`, a `DROP`, a `TRUNCATE`
+wait for a reviewer), limits per datasource (rows, timeout, concurrency), freeze windows,
+a ticket reference required where the datasource says so. Server-side masking, with a
+reveal granted per role and audited. Exports by rule, built and masked on the server.
+
+**Operations.** Runbooks: one statement declared once per datasource, run from a form.
+Backups with `pg_dump` (restore outside production; production dumps copied to a
+bucket). Seeds: a staging datasource filled from its schema with generated rows, or
+with a masked sample of another datasource. Alerts: a read on a schedule with a
+condition, fired to Slack channels picked by name or to webhooks; and alerts on the
+trail itself (a guardrail trip, an export off production, a failed backup).
+
+**Bots and agents, apart.** A bot API (`/api/v1/executions`) where a bot asks, a
+reviewer approves, the server runs and POSTs the outcome to a signed callback; an MCP
+endpoint for troubleshooting agents; both served by an `agent` role that answers only
+those two surfaces.
+
+**Built to run several of each.** Executions, alerts, seeds, exports and backups run
+through a job queue in the store, consumed by `worker` pods that scale on the queue's
+depth (KEDA); several studio replicas elect one alert-scheduler leader through a lease
+in the store; a Jobs page watches all of it. Liveness and readiness probes, a
+Prometheus exposition of the portal itself, a signed image with SBOM and provenance.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §7 draws the topology.
+
+Deliberately **out of scope**: desktop apps, marketplace listings, npm library
+packaging.
 
 ## Screenshots
 
@@ -93,19 +111,27 @@ library packaging, and any AI agent work beyond what is already here.
 | --- | --- |
 | ![Fleet health, key metrics, recent activity](docs/screenshots/admin-overview.png) | ![Shared datasources, one tab per environment](docs/screenshots/admin-datasources.png) |
 
-| Admin · Approvals | Admin · Operations |
+| Datasource sheet | Admin · Approvals |
 | --- | --- |
-| ![Write approvals waiting for a reviewer](docs/screenshots/admin-approvals.png) | ![Maintenance on one datasource](docs/screenshots/admin-operations.png) |
+| ![A datasource declared: engine, access, secrets from Vault](docs/screenshots/datasource-sheet.png) | ![Write approvals waiting for a reviewer](docs/screenshots/admin-approvals.png) |
 
-| Admin · Monitoring | Admin · Security |
+| Admin · Operations | Admin · Operations · Backups |
 | --- | --- |
-| ![Live metrics of one datasource](docs/screenshots/admin-monitoring.png) | ![Masking, access, thresholds and SSH profiles](docs/screenshots/admin-security.png) |
+| ![Maintenance, runbooks, seeds and backups on one datasource](docs/screenshots/admin-operations.png) | ![Dumps taken by a worker, restore outside production](docs/screenshots/admin-operations-backups.png) |
 
-| Admin · Audit | |
+| Admin · Jobs | Admin · Monitoring |
 | --- | --- |
-| ![Every execution and operation](docs/screenshots/admin-audit.png) | ![Alerts on a datasource, fired to channels](docs/screenshots/alerts.png) |
+| ![The queue: what waits and runs, the workers, the scheduler leader](docs/screenshots/admin-jobs.png) | ![Live metrics of one datasource](docs/screenshots/admin-monitoring.png) |
 
-Regenerate them against a running dev server with `node scripts/screenshots.mjs`
+| Admin · Security | Admin · Audit |
+| --- | --- |
+| ![Masking, environments, named roles, freezes, tokens and SSH profiles](docs/screenshots/admin-security.png) | ![Every execution and operation, paged and filtered](docs/screenshots/admin-audit.png) |
+
+| Alerts | Alerts · Channels |
+| --- | --- |
+| ![Alerts on a datasource, on a schedule](docs/screenshots/alerts.png) | ![Slack channels picked by name, webhooks](docs/screenshots/alerts-channels.png) |
+
+Regenerate them against a running server with `node scripts/screenshots.mjs`
 (see the header of that script for the variables it reads).
 
 ## Quick start
@@ -127,10 +153,12 @@ make stop         # app and database down
 
 `make help` lists the rest (`dev-bg`, `db-reset`, `status`, `check`, `test`, `coverage`).
 
-Operators: [docs/OPERATOR_GUIDE.md](docs/OPERATOR_GUIDE.md), from zero to the first datasource.
-Kubernetes: see [charts/](charts/) and [docs/HELM_CHART.md](docs/HELM_CHART.md).
+Operators: [docs/OPERATOR_GUIDE.md](docs/OPERATOR_GUIDE.md), from an empty cluster to a team.
+Kubernetes: [charts/dbportal](charts/dbportal) (three studios, workers scaled on the queue,
+the agent apart: the chart README) and [docs/HELM_CHART.md](docs/HELM_CHART.md).
+Topology: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §7.
 Managed datasources: [docs/SEED_CONNECTIONS.md](docs/SEED_CONNECTIONS.md).
-SSO: [docs/OIDC.md](docs/OIDC.md).
+SSO: [docs/OIDC.md](docs/OIDC.md). API: [docs/API_DOCS.md](docs/API_DOCS.md).
 
 ## Development
 
