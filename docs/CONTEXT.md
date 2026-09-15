@@ -684,7 +684,7 @@ built. Each lands as its own section when done.
   the trail, the agent role run apart, and day two - each step pointing at the page with the
   detail. Screenshots of the newer pages (the datasource sheet, alerts, channels) sit in
   `docs/screenshots/`.
-- **4.40 A job queue and a worker role — done, first step (asked 2026-09-14).** Everything
+- **4.40 A job queue and a worker role — done in six steps (asked 2026-09-14).** Everything
   ran in the studio's process with the studio's credentials; the way out is a queue and a
   process that consumes it. The queue is one table in the server store (`jobs`:
   [`src/lib/storage/types.ts`](../src/lib/storage/types.ts), both providers): a worker
