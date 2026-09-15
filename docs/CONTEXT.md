@@ -720,8 +720,18 @@ built. Each lands as its own section when done.
   catalog again and runs, writing the run on the job after every table
   ([`src/lib/seed-data/job.ts`](../src/lib/seed-data/job.ts)); `GET /api/admin/seed-data/[id]`
   reads the job back as the run - the worker's snapshot, the queued shape, or what a lost or
-  failed job leaves, every table marked. Still in the studio's process: the editor's own
-  queries (by design, the person waits), exports and backups - the next commits.
+  failed job leaves, every table marked.
+  **Fourth step: exports through the queue.** `POST /api/db/export` checks the rule and
+  that the statement reads, hands the export to the queue (`export`, one attempt) with the
+  session's principals, and waits up to thirty seconds for the file; a worker runs the
+  read again on a read-only pool, masks, writes the file under `EXPORT_DIR` (default
+  `data/exports`) by the job's id - a shared volume when workers run apart - and removes
+  files past `EXPORT_RETENTION_HOURS` (default 24); the route streams the file, or answers
+  202 with the job id past the wait, and `GET /api/db/export/[jobId]` serves it to its
+  requester (or an administrator) once it is there; the studio polls that and downloads
+  ([`src/lib/export/job.ts`](../src/lib/export/job.ts), [`request.ts`](../src/lib/export/request.ts)).
+  Still in the studio's process: the editor's own queries (by design, the person waits)
+  and backups - the next commit.
 
 ## 5. Decisions already taken
 

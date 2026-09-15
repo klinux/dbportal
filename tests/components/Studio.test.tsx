@@ -465,6 +465,7 @@ mock.module("@/components/ui/resizable", () => {
 // The dynamic import resolves against the mock registry instead.
 
 const { default: Studio } = await import("@/components/Studio");
+const { EXPORT_POLL_MS } = await import("@/components/Studio");
 import type { DatabaseObject } from "@/lib/db/types";
 import type { TreeRowActionHandlers } from "@/components/object-tree/row-actions";
 
@@ -1218,6 +1219,77 @@ describe("Studio", () => {
     expect(((mockCreateObjectURL.mock.calls[0] as unknown[])[0] as Blob).type).toContain("text/csv");
     expect(fetchMock.mock.calls.some((c) => String((c as unknown[])[0]).includes("/api/audit/export"))).toBe(false);
   });
+
+  // docs/CONTEXT.md §4.40: an export a worker is still building is announced, then fetched by its job id and downloaded.
+  test("exportResults downloads an export the server queued, once the worker wrote it", async () => {
+    let polls = 0;
+    const fetchMock = mock(async (url: string) => {
+      if (String(url).includes("/api/db/export/job-1")) {
+        polls += 1;
+        return polls === 1
+          ? new Response(JSON.stringify({ jobId: "job-1", status: "running" }), { status: 202 })
+          : new Response("[1]", {
+              status: 200,
+              headers: { "Content-Type": "application/json", "X-Export-Extension": "json" },
+            });
+      }
+      return new Response(JSON.stringify({ jobId: "job-1", status: "queued" }), { status: 202 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    connMgrOverride = { activeConnection: pgConn };
+    tabMgrOverride = {
+      currentTab: {
+        id: "tab-1",
+        name: "Users",
+        query: "SELECT 1",
+        result: testResult,
+        isExecuting: false,
+        type: "sql",
+      },
+    };
+    render(<Studio />);
+    await act(async () => {
+      (capturedBottomPanelProps.onExportResults as (format: string) => void)("json");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Export queued" }));
+    expect(mockCreateObjectURL).not.toHaveBeenCalled();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, EXPORT_POLL_MS * 2 + 300));
+    });
+    expect(polls).toBe(2);
+    expect(mockCreateObjectURL).toHaveBeenCalledTimes(1);
+    expect(((mockCreateObjectURL.mock.calls[0] as unknown[])[0] as Blob).type).toContain("application/json");
+  }, 10_000);
+
+  test("exportResults tells when a queued export failed on the worker, and downloads nothing", async () => {
+    const fetchMock = mock(async (url: string) =>
+      String(url).includes("/api/db/export/job-1")
+        ? new Response(JSON.stringify({ error: "The export did not run (QueryError)" }), { status: 500 })
+        : new Response(JSON.stringify({ jobId: "job-1", status: "queued" }), { status: 202 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    connMgrOverride = { activeConnection: pgConn };
+    tabMgrOverride = {
+      currentTab: {
+        id: "tab-1",
+        name: "Users",
+        query: "SELECT 1",
+        result: testResult,
+        isExecuting: false,
+        type: "sql",
+      },
+    };
+    render(<Studio />);
+    await act(async () => {
+      (capturedBottomPanelProps.onExportResults as (format: string) => void)("json");
+      await new Promise((resolve) => setTimeout(resolve, EXPORT_POLL_MS + 300));
+    });
+    expect(mockCreateObjectURL).not.toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Export failed", description: "The export did not run (QueryError)" }),
+    );
+  }, 10_000);
 
   test("exportResults shows the server's refusal and downloads nothing; a datasource closed to exports never asks", async () => {
     const fetchMock = mock(

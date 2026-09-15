@@ -1245,6 +1245,12 @@ seed-file one; `POST /api/admin/channels/[id]/test` → `{ delivered }`. Audited
 fired, resolved, delivery_failed) and `notification_channel` (saved, deleted, tested); each run is a
 `query_execution` with action `alert` under the alert's owner.
 
+Exports through the queue (docs/CONTEXT.md §4.40): `POST /api/db/export` answers the file when a worker built it
+within thirty seconds (headers `X-Export-Rows`, `X-Export-Extension`, `X-Export-Job`), else `202 { jobId, status }`;
+`GET /api/db/export/[jobId]` streams the file to its requester or an administrator, `202` while it is built, `404`
+for another's, `410` when the file is past retention (`EXPORT_RETENTION_HOURS`, default 24; files live under
+`EXPORT_DIR`), `500` when the job failed or lost its worker.
+
 Job queue (docs/CONTEXT.md §4.40). Admin: `GET /api/admin/jobs?status=&kind=&limit=` → `{ counts: { queued,
 running, done, failed, lost }, jobs: [{ id, kind, payload, status, attempts, maxAttempts, requestedBy, createdAt,
 runAt, leaseUntil?, worker?, startedAt?, finishedAt?, result?, error? }] }` newest first;

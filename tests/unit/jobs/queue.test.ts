@@ -17,6 +17,7 @@ const {
   getJob,
   jobsAvailable,
   listJobs,
+  waitForJob,
 } = await import("@/lib/jobs/queue");
 
 describe("jobs queue", () => {
@@ -61,5 +62,17 @@ describe("jobs queue", () => {
     const none = await enqueueJob({ kind: "ping", payload: {}, requestedBy: "root" }).catch((e) => e);
     expect(none.statusCode).toBe(503);
     await expect(countJobs("queued")).rejects.toThrow("server storage");
+  });
+
+  test("waits on a job only while it is queued or running, and gives up at the deadline with the job as it is", async () => {
+    const job = await enqueueJob({ kind: "ping", payload: {}, requestedBy: "root" });
+    setTimeout(() => {
+      const row = store.jobs.get(job.id);
+      if (row) store.jobs.set(job.id, { ...row, status: "done" });
+    }, 20);
+    expect((await waitForJob(job.id, 2_000, 5))?.status).toBe("done");
+    const slow = await enqueueJob({ kind: "ping", payload: {}, requestedBy: "root" });
+    expect((await waitForJob(slow.id, 30, 5))?.status).toBe("queued");
+    expect(await waitForJob("ghost", 30, 5)).toBeNull();
   });
 });

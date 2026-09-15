@@ -1,7 +1,9 @@
 import { findAlert } from "@/lib/alerts/store";
 import { runAlert } from "@/lib/alerts/run";
 import { markExecutionLost, runExecutionJob } from "@/lib/executions/store";
+import { runExport } from "@/lib/export/job";
 import { runSeedJob } from "@/lib/seed-data/job";
+import type { ExportJobPayload } from "@/lib/export/request";
 import { JobFailure, registerJobHandler } from "./worker";
 
 /**
@@ -9,7 +11,7 @@ import { JobFailure, registerJobHandler } from "./worker";
  * is the proof of the loop; `execution` runs a bot's request the studio approved (§4.10),
  * once, and marks it lost rather than running it again when the worker died mid-run;
  * `alert` runs one alert the scheduler handed over (§4.29); `seed` fills a datasource
- * (§4.23, §4.31), the run kept on the job as it goes.
+ * (§4.23, §4.31), the run kept on the job as it goes; `export` builds a result's file (§4.22).
  */
 function text(job: { payload: Record<string, unknown> }, key: string): string {
   const value = job.payload[key];
@@ -32,6 +34,11 @@ export function registerJobHandlers(): void {
   registerJobHandler("seed", async (job, context) => {
     const run = await runSeedJob(job, (snapshot) => context.progress(snapshot as unknown as Record<string, unknown>));
     return run as unknown as Record<string, unknown>;
+  });
+  // An export (§4.22): the file lands under EXPORT_DIR, the result says where and how big.
+  registerJobHandler("export", async (job) => {
+    const result = await runExport(job.payload as unknown as ExportJobPayload, job.id);
+    return result as unknown as Record<string, unknown>;
   });
   registerJobHandler("alert", async (job) => {
     const record = await findAlert(text(job, "alertId"));

@@ -77,3 +77,14 @@ export async function listJobs(query: Partial<JobQuery>): Promise<JobRecord[]> {
 export async function countJobs(status: JobStatus): Promise<number> {
   return (await requireStore()).countJobs(status);
 }
+
+/** The job once it settled, polled for up to `waitMs`; the job as it is when it has not, null when unknown. */
+export async function waitForJob(id: string, waitMs: number, stepMs = 300): Promise<JobRecord | null> {
+  const deadline = Date.now() + waitMs;
+  let job = await getJob(id);
+  while (job && (job.status === "queued" || job.status === "running") && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, stepMs));
+    job = await getJob(id);
+  }
+  return job;
+}

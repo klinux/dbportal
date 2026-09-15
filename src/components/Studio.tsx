@@ -95,6 +95,10 @@ const SchemaDiagram = React.lazy(
   lazyRetry(() => import("@/components/SchemaDiagram").then((m) => ({ default: m.SchemaDiagram }))),
 );
 
+/** How an export that outran the route's wait is fetched (docs/CONTEXT.md §4.40): every two seconds, for five minutes. */
+export const EXPORT_POLL_MS = 2_000;
+export const EXPORT_POLL_ATTEMPTS = 150;
+
 export default function Studio() {
   const queryEditorRef = useRef<QueryEditorRef>(null);
   const router = useRouter();
@@ -422,6 +426,22 @@ export default function Studio() {
    * `currentTab.result` wrote rows nobody was looking at. That is why the menu used to
    * be hidden over a hydrated view instead of retargeted.
    */
+  /** Poll the export's file (§4.40) until the worker wrote it, then download it; give up after a while. */
+  const downloadWhenReady = async (jobId: string) => {
+    for (let attempt = 0; attempt < EXPORT_POLL_ATTEMPTS; attempt++) {
+      await new Promise((r) => setTimeout(r, EXPORT_POLL_MS));
+      const res = await appFetch(`/api/db/export/${encodeURIComponent(jobId)}`);
+      if (res.status === 202) continue;
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `The export failed (${res.status})`);
+      }
+      downloadBlob(await res.blob(), resultExportFileName(res.headers.get("X-Export-Extension") ?? "txt"));
+      return;
+    }
+    throw new Error("The export is still being built; try again in a moment");
+  };
+
   const exportResults = (
     format: ResultExportFormat,
     hydrated: AgentArtifactHydration | null = null,
@@ -460,6 +480,13 @@ export default function Studio() {
           if (!res.ok) {
             const body = (await res.json().catch(() => ({}))) as { error?: string };
             throw new Error(body.error ?? `The server refused the export (${res.status})`);
+          }
+          // A worker still builds it (docs/CONTEXT.md §4.40): say so, and fetch the file when it is there.
+          if (res.status === 202) {
+            const { jobId } = (await res.json()) as { jobId: string };
+            toast({ title: "Export queued", description: "A worker is building the file; it downloads when ready." });
+            await downloadWhenReady(jobId);
+            return;
           }
           const extension = res.headers.get("X-Export-Extension") ?? "txt";
           downloadBlob(await res.blob(), resultExportFileName(extension));
