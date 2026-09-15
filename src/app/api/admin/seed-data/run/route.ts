@@ -6,15 +6,17 @@ import { answerSeedDataError } from "@/lib/api/seed-data";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
 import { readCatalog, readSchemaName } from "@/lib/seed-data/catalog";
-import { buildPlan, readCounts, readRatios } from "@/lib/seed-data/plan";
 import { SeedDataError } from "@/lib/seed-data/errors";
-import { assertSeedable, startSeedRun } from "@/lib/seed-data/run";
+import { enqueueSeed } from "@/lib/seed-data/job";
+import { buildPlan, readCounts, readRatios } from "@/lib/seed-data/plan";
+import { assertSeedable } from "@/lib/seed-data/run";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 
 /**
- * Start a seed (docs/CONTEXT.md §4.23): the catalog is read again here rather than trusted
- * from the plan the browser sent back, the counts are bounded, and the job runs on after this
- * answers with its id. `truncate: true` empties the tables first; the audit line says so.
+ * Start a seed (docs/CONTEXT.md §4.23, §4.31): the catalog is read here to validate what was
+ * asked - the counts bounded, the ratios on tables with a parent, the source another
+ * PostgreSQL this session may open - and the seed is handed to the queue (§4.40), where a
+ * worker runs it and writes each table's progress; this answers 202 with the run to poll.
  */
 export async function POST(request: Request) {
   const route = "POST /api/admin/seed-data/run";
@@ -39,36 +41,27 @@ export async function POST(request: Request) {
     const plan = buildPlan(tables);
     const counts = readCounts(body.counts, plan);
     const ratios = readRatios(body.ratios, plan);
-    // Copy mode (docs/CONTEXT.md §4.31): the source is any PostgreSQL datasource this session may open, read-only.
     const mode = body.mode === "copy" ? "copy" : "generate";
-    let source: { runner: typeof provider; name: string } | undefined;
+    let sourceName: string | undefined;
+    let sourceDatasourceId: string | undefined;
     if (mode === "copy") {
-      const sourceId = typeof body.sourceDatasourceId === "string" ? body.sourceDatasourceId.trim() : "";
-      if (!sourceId) throw new SeedDataError("sourceDatasourceId is required to copy a sample", 400);
-      if (sourceId === datasourceId) throw new SeedDataError("The sample must come from another datasource", 400);
-      const sourceConnection = await resolveConnection({ connectionId: `seed:${sourceId}` }, gate.session);
-      if (sourceConnection.type !== "postgres")
+      sourceDatasourceId = typeof body.sourceDatasourceId === "string" ? body.sourceDatasourceId.trim() : "";
+      if (!sourceDatasourceId) throw new SeedDataError("sourceDatasourceId is required to copy a sample", 400);
+      if (sourceDatasourceId === datasourceId) {
+        throw new SeedDataError("The sample must come from another datasource", 400);
+      }
+      const sourceConnection = await resolveConnection({ connectionId: `seed:${sourceDatasourceId}` }, gate.session);
+      if (sourceConnection.type !== "postgres") {
         throw new SeedDataError("A sample is copied from a PostgreSQL datasource only", 403);
-      source = {
-        runner: await getOrCreateProvider(sourceConnection, {
-          applicationName: applicationNameFor(gate.session.username),
-          readOnly: true,
-        }),
-        name: sourceConnection.name,
-      };
+      }
+      sourceName = sourceConnection.name;
     }
-    const run = startSeedRun({
-      connection,
-      runner: provider,
-      schema,
-      tables,
-      counts,
-      ratios,
-      mode,
-      source,
-      truncate: body.truncate === true,
-      actor: gate.session.username,
-    });
+    const run = await enqueueSeed(
+      { datasourceId, schema, counts, ratios, mode, sourceDatasourceId, truncate: body.truncate === true },
+      plan,
+      { target: connection.name, source: sourceName },
+      gate.session,
+    );
     return NextResponse.json({ run }, { status: 202 });
   } catch (error) {
     return answerSeedDataError(error, route);

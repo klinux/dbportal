@@ -92,7 +92,12 @@ const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : 
  * plan that listed them would fill them with generated rows or, with `truncate`, empty
  * them (measured 2026-09-14 on a local install: the store went with the tables).
  */
-export const PORTAL_TABLES: ReadonlySet<string> = new Set(["user_storage", "audit_events", "approval_requests"]);
+export const PORTAL_TABLES: ReadonlySet<string> = new Set([
+  "user_storage",
+  "audit_events",
+  "approval_requests",
+  "jobs",
+]);
 
 /** Every table of `schema` with what the seed needs, or a refusal when there is none. */
 export async function readCatalog(runner: Runner, schema: string): Promise<TableSpec[]> {

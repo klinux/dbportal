@@ -26,8 +26,14 @@ const runAlert = mock(
   async (_a: unknown): Promise<{ status: string; lastValue?: string }> => ({ status: "firing", lastValue: "9" }),
 );
 mock.module("@/lib/alerts/run", () => ({ runAlert }));
+const runSeedJob = mock(async (_job: unknown, progress: (run: unknown) => Promise<void>) => {
+  await progress({ status: "running" });
+  return { status: "done", tables: [] };
+});
+mock.module("@/lib/seed-data/job", () => ({ runSeedJob }));
 const { registerJobHandlers } = await import("@/lib/jobs/handlers");
 const job = (payload: Record<string, unknown>) => ({ id: "j", kind: "x", payload });
+const context = { progress: mock(async (_r: Record<string, unknown>) => {}) };
 
 describe("job handlers", () => {
   beforeEach(() => {
@@ -39,7 +45,7 @@ describe("job handlers", () => {
   });
 
   test("ping", async () => {
-    expect([...handlers.keys()]).toEqual(["ping", "execution", "alert"]);
+    expect([...handlers.keys()]).toEqual(["ping", "execution", "seed", "alert"]);
     const result = (await handlers.get("ping")!(job({ echo: "hi" }))) as { pong: string; echo: unknown };
     expect(Number.isNaN(Date.parse(result.pong))).toBe(false);
     expect(result.echo).toBe("hi");
@@ -65,5 +71,12 @@ describe("job handlers", () => {
     expect(await handlers.get("alert")!(job({ alertId: "slow" }))).toEqual({ status: "ok" });
     alert = null;
     await expect(handlers.get("alert")!(job({ alertId: "ghost" }))).rejects.toThrow("not_found");
+  });
+
+  test("seed: runs the job's seed and writes its progress on the job; the run is the result", async () => {
+    const handler = handlers.get("seed")! as unknown as (job: unknown, context: unknown) => Promise<unknown>;
+    expect(await handler(job({}), context)).toEqual({ status: "done", tables: [] });
+    expect(context.progress).toHaveBeenCalledWith({ status: "running" });
+    expect(runSeedJob.mock.calls[0][0]).toEqual(job({}));
   });
 });

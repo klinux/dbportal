@@ -88,7 +88,18 @@ describe("jobs worker", () => {
   });
 
   test("a pass claims due jobs of the handled kinds up to the free slots; a handler's result lands on the job", async () => {
-    registerJobHandler("ping", async (job) => ({ pong: true, echo: job.payload.echo }));
+    registerJobHandler("ping", async (job, context) => {
+      // A progress snapshot lands on the running job without touching its lease or its worker.
+      await context.progress({ step: 1 });
+      const running = (await store.getJob(job.id))!;
+      expect(running).toMatchObject({
+        status: "running",
+        result: { step: 1 },
+        worker: workerName(),
+        leaseUntil: job.leaseUntil,
+      });
+      return { pong: true, echo: job.payload.echo };
+    });
     await store.putJob(queued("a", "ping", { payload: { echo: 1 } }));
     await store.putJob(queued("b", "ping", { runAt: "2026-09-14T00:00:01.000Z" }));
     await store.putJob(queued("c", "ping", { runAt: "2026-09-14T00:00:02.000Z" }));

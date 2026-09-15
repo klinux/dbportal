@@ -711,9 +711,17 @@ built. Each lands as its own section when done.
   twenty seconds for the worker and otherwise hands back the id to poll. The alert
   scheduler hands each due alert to the queue (`alert`) and marks it scheduled, so a
   queued run is not handed over twice; "Run now" enqueues and waits up to fifteen seconds,
-  else answers 202 and the list shows the outcome on its next refresh. Still in the studio's
-  process: the editor's own queries (by design, the person waits), seeds, exports and
-  backups - the next commits.
+  else answers 202 and the list shows the outcome on its next refresh.
+  **Third step: seeds through the queue.** `POST /api/admin/seed-data/run` validates as
+  before - the catalog read, the counts and ratios bounded, the source resolved - and hands
+  the seed to the queue (`seed`, one attempt, one at a time per datasource) with the
+  session's principals in the payload; it answers 202 with the run in its queued shape,
+  under the job's id. The worker resolves the datasources as the person would, reads the
+  catalog again and runs, writing the run on the job after every table
+  ([`src/lib/seed-data/job.ts`](../src/lib/seed-data/job.ts)); `GET /api/admin/seed-data/[id]`
+  reads the job back as the run - the worker's snapshot, the queued shape, or what a lost or
+  failed job leaves, every table marked. Still in the studio's process: the editor's own
+  queries (by design, the person waits), exports and backups - the next commits.
 
 ## 5. Decisions already taken
 

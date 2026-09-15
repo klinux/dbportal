@@ -486,8 +486,6 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/api/seed-data": "the seed-data routes' error answer; reaches no provider",
     "@/lib/audit-query":
       "the admin audit route's question, read from the query string and asked of the ring; reaches no provider",
-    "@/lib/seed-data/run":
-      "the seed job's state and its filling of tables through a runner the route hands it; opens no provider of its own (the type import of @/lib/seed is a type)",
     "@/lib/runbooks/store":
       "runbooks in the app's own storage backend and the seed file, and the binding of their values into an engine's placeholders (@/lib/sql/values, a pure helper); opens no user database",
     "@/lib/roles/store":
@@ -501,6 +499,7 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/trail-alerts/store":
       "the trail alert rules, one document in the app's own storage backend; opens no user database",
     "@/lib/jobs/queue": "the job queue's front door over the app's own storage backend; opens no user database",
+    "@/lib/seed-data/job": `a seed as a job (docs/CONTEXT.md §4.40): the queued run, the run read off the job, and the worker's side, which ${PROVIDER_NAMING_HELPER} (@/lib/db) - but the status route imports it for seedRunById alone, which reads the queue and opens nothing`,
     "@/lib/api/jobs": "the job routes' error answer; reaches no provider",
     "@/lib/channels/store":
       "notification channels in the app's own storage backend and the seed file; opens no user database",

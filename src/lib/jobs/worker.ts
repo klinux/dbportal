@@ -16,7 +16,11 @@ import type { JobRecord } from "@/lib/storage/types";
  * Who runs it: the `worker` role always; the studio too by default (JOBS_WORKER=auto), so
  * a single-instance install still executes what it enqueues; never the agent role.
  */
-export type JobHandler = (job: JobRecord) => Promise<Record<string, unknown> | void>;
+/** What a handler may do while it runs: write a snapshot of its progress on the job, for whoever reads the queue. */
+export interface JobContext {
+  progress(result: Record<string, unknown>): Promise<void>;
+}
+export type JobHandler = (job: JobRecord, context: JobContext) => Promise<Record<string, unknown> | void>;
 /** What a kind does when a job of it is lost for good - a run whose outcome nobody knows. */
 export type JobLostHandler = (job: JobRecord) => Promise<void>;
 
@@ -87,18 +91,26 @@ async function runOne(job: JobRecord, leaseMs: number): Promise<void> {
   const store = await getStorageProvider();
   if (!store) return;
   const handler = s.handlers.get(job.kind);
+  // `lease` is what the heartbeat last set: a progress snapshot must not write back a shorter one.
+  let lease = job.leaseUntil;
   const heartbeat = setInterval(
     () => {
-      store.heartbeatJob(job.id, s.name, new Date(Date.now() + leaseMs).toISOString()).catch((error: unknown) => {
+      lease = new Date(Date.now() + leaseMs).toISOString();
+      store.heartbeatJob(job.id, s.name, lease).catch((error: unknown) => {
         logger.warn("Job heartbeat failed", { route: "jobs/worker", jobId: job.id, error: (error as Error).name });
       });
     },
     Math.max(1_000, Math.floor(leaseMs / 3)),
   );
   const startedAt = new Date().toISOString();
+  const context: JobContext = {
+    progress: async (result) => {
+      await store.putJob({ ...job, status: "running", startedAt, leaseUntil: lease, worker: s.name, result });
+    },
+  };
   try {
     if (!handler) throw new JobFailure("no_handler");
-    const result = await handler(job);
+    const result = await handler(job, context);
     // The record keeps which worker finished it, for the operator reading the queue.
     await store.putJob({
       ...job,

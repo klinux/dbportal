@@ -84,7 +84,8 @@ describe("SeedDataPanel", () => {
     const fetchMock = mockGlobalFetch({
       "/api/admin/seed-data/plan": { ok: true, json: plan },
       "/api/admin/seed-data/run": (req) => {
-        if (req.method === "POST") return { ok: true, status: 202, json: { run: running } };
+        // The route answers the queued run first (§4.40); the worker's snapshot follows on the next poll.
+        if (req.method === "POST") return { ok: true, status: 202, json: { run: { ...running, status: "queued" } } };
         polls += 1;
         return polls < 2
           ? { ok: true, json: { run: running } }
@@ -121,10 +122,12 @@ describe("SeedDataPanel", () => {
       mode: "generate",
       truncate: true,
     });
-    expect(view.getByTestId("seed-status").textContent).toBe("running");
+    expect(view.getByTestId("seed-status").textContent).toBe("queued");
+    expect((view.getByLabelText("Rows for orders") as HTMLInputElement).disabled).toBe(true);
     await act(async () => {
       fireEvent.click(view.getByText("Refresh"));
     });
+    expect(view.getByTestId("seed-status").textContent).toBe("running");
     // The panel polls again on its own after POLL_MS; the second answer is the end.
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, POLL_MS + 200));

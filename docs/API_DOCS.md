@@ -1329,11 +1329,13 @@ Seed from the schema (docs/CONTEXT.md §4.23), admin only, PostgreSQL, never pro
 `POST /api/admin/seed-data/plan` — body `{ datasourceId, schema? }` → `{ schema, tables: [{ name, columns,
 dependsOn, rows }] }` in the order they are filled; `POST /api/admin/seed-data/run` — body `{ datasourceId,
 schema?, counts?: { <table>: n }, ratios?: { <child table>: rows per parent row }, mode?: "generate" | "copy",
-sourceDatasourceId?, truncate?: boolean }` → `202 { run }` (`run.mode`, `run.sourceName`), `409` while one runs on
-the datasource; in copy mode (docs/CONTEXT.md §4.31) the source must be another PostgreSQL datasource the session
+sourceDatasourceId?, truncate?: boolean }` → `202 { run }` in its queued shape (`status: "queued"`, `run.mode`, `run.sourceName`; the id is the queue job's,
+docs/CONTEXT.md §4.40), `409` while one is queued or running on the datasource; in copy mode (docs/CONTEXT.md §4.31) the source must be another PostgreSQL datasource the session
 may open (`400` without one or for the target itself, `403` for another engine, `404` unknown) and the sample is
 masked by the server's rules;
-`GET /api/admin/seed-data/[id]` → `{ run: { id, status, tables: [{ name, target, inserted, error? }] } }`.
+`GET /api/admin/seed-data/[id]` → `{ run: { id, status: "queued" | "running" | "done" | "failed", tables: [{ name,
+target, inserted, error? }] } }`, read off the job: the worker's snapshot after each table, or every table marked
+when the job was lost.
 Audited as `data_seed`.
 
 `POST /api/db/export` (docs/CONTEXT.md §4.22) — body `{ connectionId, sql, format, params?, csvDelimiter?,

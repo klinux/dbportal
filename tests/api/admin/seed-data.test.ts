@@ -57,17 +57,7 @@ mock.module("@/lib/seed-data/catalog", () => ({
   readCatalog,
   readSchemaName: (v: unknown) => (v === undefined ? "public" : String(v)),
 }));
-const startSeedRun = mock((input: { counts: Map<string, number>; truncate: boolean; schema: string }) => ({
-  id: "run-1",
-  status: "running",
-  schema: input.schema,
-  truncated: input.truncate,
-  tables: [...input.counts.entries()].map(([name, target]) => ({ name, target, inserted: 0 })),
-}));
-const getSeedRun = mock((id: string) => (id === "run-1" ? { id: "run-1", status: "done", tables: [] } : null));
 mock.module("@/lib/seed-data/run", () => ({
-  startSeedRun,
-  getSeedRun,
   assertSeedable: async (c: { environment: string }) => {
     if (c.environment === "production") {
       const { SeedDataError } = await import("@/lib/seed-data/errors");
@@ -75,6 +65,29 @@ mock.module("@/lib/seed-data/run", () => ({
     }
   },
 }));
+// The seed is handed to the queue (§4.40); the status is read off the job.
+const enqueueSeed = mock(
+  async (
+    request: { datasourceId: string; schema: string; counts: Map<string, number>; truncate: boolean; mode: string },
+    _plan: unknown,
+    names: { target: string; source?: string },
+    session: { username: string },
+  ) => ({
+    id: "run-1",
+    datasourceId: request.datasourceId,
+    datasourceName: names.target,
+    ...(names.source ? { sourceName: names.source } : {}),
+    schema: request.schema,
+    mode: request.mode,
+    truncated: request.truncate,
+    status: "queued",
+    startedBy: session.username,
+    startedAt: "x",
+    tables: [...request.counts.entries()].map(([name, target]) => ({ name, target, inserted: 0 })),
+  }),
+);
+const seedRunById = mock(async (id: string) => (id === "run-1" ? { id: "run-1", status: "done", tables: [] } : null));
+mock.module("@/lib/seed-data/job", () => ({ enqueueSeed, seedRunById }));
 
 const { POST: plan } = await import("@/app/api/admin/seed-data/plan/route");
 const { POST: run } = await import("@/app/api/admin/seed-data/run/route");
@@ -90,7 +103,7 @@ describe("/api/admin/seed-data", () => {
     clearRateLimitState();
     session = { role: "admin", username: "root" };
     readCatalog.mockClear();
-    startSeedRun.mockClear();
+    enqueueSeed.mockClear();
   });
 
   test("a session first, then the admin role, on every handler", async () => {
@@ -118,26 +131,36 @@ describe("/api/admin/seed-data", () => {
     expect((await plan(json({ datasourceId: "ghost" }))).status).toBe(404);
   });
 
-  test("run reads the catalog again, bounds the counts, starts the job as the session's user and answers 202 with it", async () => {
+  test("run reads the catalog again, bounds the counts, hands the seed to the queue as the session and answers 202 with the queued run", async () => {
     const res = await run(json({ datasourceId: "stage", counts: { customers: 5 }, truncate: true }));
     expect(res.status).toBe(202);
     expect((await res.json()).run).toMatchObject({
       id: "run-1",
+      status: "queued",
       truncated: true,
+      startedBy: "root",
       tables: [{ name: "customers", target: 5 }],
     });
-    const input = (startSeedRun.mock.calls[0] as unknown[])[0] as { actor: string; runner: unknown; schema: string };
-    expect(input.actor).toBe("root");
-    expect(input.runner).toBe(provider);
-    expect(input.schema).toBe("public");
+    const [request, plan, names, session] = enqueueSeed.mock.calls[0] as unknown[] as [
+      { schema: string; mode: string; counts: Map<string, number> },
+      unknown[],
+      { target: string; source?: string },
+      { username: string },
+    ];
+    expect(request.schema).toBe("public");
+    expect(request.mode).toBe("generate");
+    expect(request.counts).toEqual(new Map([["customers", 5]]));
+    expect(plan).toHaveLength(1);
+    expect(names).toEqual({ target: "Stage", source: undefined });
+    expect(session.username).toBe("root");
     expect((await run(json({ datasourceId: "stage", counts: { customers: -1 } }))).status).toBe(400);
     expect((await run(json({ datasourceId: "prod" }))).status).toBe(403);
   });
 
-  test("status answers the run by id, and 404 for one this process never ran", async () => {
+  test("status answers the run read off its job, and 404 for an id the queue does not know", async () => {
     expect((await (await status(new Request(url), params("run-1"))).json()).run.status).toBe("done");
     expect((await status(new Request(url), params("ghost"))).status).toBe(404);
-    getSeedRun.mockImplementationOnce(() => {
+    seedRunById.mockImplementationOnce(async () => {
       throw new Error("state lost");
     });
     expect((await status(new Request(url), params("run-1"))).status).toBe(500);
@@ -147,15 +170,15 @@ describe("/api/admin/seed-data", () => {
   test("run in copy mode opens the source read-only and hands it on; refuses no source, the target itself, another engine, and a bad ratio", async () => {
     const res = await run(json({ datasourceId: "stage", mode: "copy", sourceDatasourceId: "prod", ratios: {} }));
     expect(res.status).toBe(202);
-    const input = (startSeedRun.mock.calls[0] as unknown[])[0] as {
-      mode: string;
-      source?: { name: string; runner: unknown };
-      ratios: Map<string, number>;
-    };
-    expect(input.mode).toBe("copy");
-    expect(input.source?.name).toBe("Prod");
-    expect(input.source?.runner).toBe(provider);
-    expect(input.ratios).toEqual(new Map());
+    const [request, , names] = enqueueSeed.mock.calls[0] as unknown[] as [
+      { mode: string; sourceDatasourceId?: string; ratios: Map<string, number> },
+      unknown,
+      { target: string; source?: string },
+    ];
+    expect(request.mode).toBe("copy");
+    expect(request.sourceDatasourceId).toBe("prod");
+    expect(names.source).toBe("Prod");
+    expect(request.ratios).toEqual(new Map());
     expect((await run(json({ datasourceId: "stage", mode: "copy" }))).status).toBe(400);
     expect((await run(json({ datasourceId: "stage", mode: "copy", sourceDatasourceId: "stage" }))).status).toBe(400);
     expect((await run(json({ datasourceId: "stage", mode: "copy", sourceDatasourceId: "mysql" }))).status).toBe(403);

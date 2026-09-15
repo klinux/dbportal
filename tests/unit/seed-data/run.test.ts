@@ -27,9 +27,8 @@ const copyTable = mock(
 );
 mock.module("@/lib/seed-data/copy", () => ({ copyTable }));
 
-const { MAX_BATCH_ROWS, assertSeedable, getSeedRun, resetSeedRuns, seedAllowed, startSeedRun } = await import(
-  "@/lib/seed-data/run"
-);
+const { MAX_BATCH_ROWS, assertSeedable, getSeedRun, resetSeedRuns, runSeedNow, seedAllowed, startSeedRun } =
+  await import("@/lib/seed-data/run");
 
 const col = (name: string, over: Partial<ColumnSpec> = {}): ColumnSpec => ({
   name,
@@ -317,5 +316,36 @@ describe("seed-data run", () => {
     });
     await settle();
     expect(getSeedRun(generated.id)!.tables[1]).toEqual({ name: "orders", target: 6, inserted: 6 });
+  });
+
+  // docs/CONTEXT.md §4.40: a worker runs to the end here, under the id the queue chose, telling its progress table by table.
+  test("runSeedNow awaits the run under the caller's id and hands a snapshot after each table; a snapshot that fails to write is a warning", async () => {
+    const snapshots: { status: string; inserted: number[] }[] = [];
+    let calls = 0;
+    const run = await runSeedNow(
+      {
+        connection,
+        runner,
+        schema: "public",
+        tables: [orders, customers],
+        counts: new Map([
+          ["customers", 2],
+          ["orders", 3],
+        ]),
+        truncate: false,
+        actor: "root",
+        runId: "job-42",
+      },
+      async (snapshot) => {
+        calls++;
+        if (calls === 1) throw new Error("store hiccup");
+        snapshots.push({ status: snapshot.status, inserted: snapshot.tables.map((t) => t.inserted) });
+      },
+    );
+    expect(run.id).toBe("job-42");
+    expect(run.status).toBe("done");
+    expect(calls).toBe(2);
+    expect(snapshots).toEqual([{ status: "running", inserted: [2, 3] }]);
+    expect(getSeedRun("job-42")?.status).toBe("done");
   });
 });

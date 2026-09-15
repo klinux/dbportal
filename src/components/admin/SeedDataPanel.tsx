@@ -86,7 +86,8 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
         const body = (await res.json().catch(() => ({}))) as { run?: SeedRun; error?: string };
         if (!res.ok || !body.run) throw new Error(body.error ?? `The run could not be read (${res.status})`);
         setRun(body.run);
-        if (body.run.status === "running") timer.current = setTimeout(() => poll(id), POLL_MS);
+        if (body.run.status === "running" || body.run.status === "queued")
+          timer.current = setTimeout(() => poll(id), POLL_MS);
         else
           toast[body.run.status === "done" ? "success" : "error"](
             `Seed ${body.run.status} on ${body.run.datasourceName}`,
@@ -173,7 +174,7 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
           id="seed-mode"
           value={mode}
           onChange={(e) => setMode(e.target.value as "generate" | "copy")}
-          disabled={run?.status === "running"}
+          disabled={run?.status === "running" || run?.status === "queued"}
           className="h-8 rounded-md border border-hairline-strong bg-panel px-2 text-xs"
         >
           <option value="generate">generated from the schema</option>
@@ -188,7 +189,7 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
               id="seed-source"
               value={sourceId}
               onChange={(e) => setSourceId(e.target.value)}
-              disabled={run?.status === "running"}
+              disabled={run?.status === "running" || run?.status === "queued"}
               className="h-8 rounded-md border border-hairline-strong bg-panel px-2 text-xs"
             >
               <option value="">Select a PostgreSQL datasource</option>
@@ -237,7 +238,11 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
                           inputMode="numeric"
                           value={counts[table.name] ?? ""}
                           onChange={(e) => setCounts({ ...counts, [table.name]: e.target.value })}
-                          disabled={run?.status === "running" || (ratios[table.name] ?? "").trim() !== ""}
+                          disabled={
+                            run?.status === "running" ||
+                            run?.status === "queued" ||
+                            (ratios[table.name] ?? "").trim() !== ""
+                          }
                           className="h-7 w-24 ml-auto text-right text-xs font-mono bg-panel border-hairline-strong"
                         />
                       </td>
@@ -249,7 +254,7 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
                             placeholder="—"
                             value={ratios[table.name] ?? ""}
                             onChange={(e) => setRatios({ ...ratios, [table.name]: e.target.value })}
-                            disabled={run?.status === "running"}
+                            disabled={run?.status === "running" || run?.status === "queued"}
                             className="h-7 w-20 ml-auto text-right text-xs font-mono bg-panel border-hairline-strong"
                           />
                         ) : (
@@ -289,7 +294,7 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
                 checked={truncate}
                 onCheckedChange={(checked) => setTruncate(checked === true)}
                 aria-label="Empty the tables first"
-                disabled={run?.status === "running"}
+                disabled={run?.status === "running" || run?.status === "queued"}
               />
               Empty the tables first (TRUNCATE … RESTART IDENTITY CASCADE)
             </Label>
@@ -303,7 +308,7 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
                   {run.status}
                 </Badge>
               )}
-              {run?.status === "running" && (
+              {(run?.status === "running" || run?.status === "queued") && (
                 <Button variant="ghost" size="sm" className="h-8 text-xs gap-2" onClick={() => poll(run.id)}>
                   <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />
                   Refresh
@@ -313,7 +318,7 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
                 size="sm"
                 className="h-8 text-xs gap-2"
                 onClick={() => setConfirming(true)}
-                disabled={run?.status === "running" || (total === 0 && ratioed === 0)}
+                disabled={run?.status === "running" || run?.status === "queued" || (total === 0 && ratioed === 0)}
               >
                 <Play className="h-3.5 w-3.5" strokeWidth={1.75} />
                 {mode === "copy" ? "Copy" : "Seed"} {total.toLocaleString()} rows

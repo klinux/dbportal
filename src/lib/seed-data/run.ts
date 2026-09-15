@@ -36,7 +36,7 @@ export interface SeedRun {
   /** The datasource the sample came from, in copy mode. */
   sourceName?: string;
   truncated: boolean;
-  status: "running" | "done" | "failed";
+  status: "queued" | "running" | "done" | "failed";
   startedBy: string;
   startedAt: string;
   finishedAt?: string;
@@ -175,13 +175,15 @@ export interface StartSeedInput {
   source?: CopySource;
   /** Rows per parent row for a child table, in place of its count. */
   ratios?: Map<string, number>;
+  /** The run's id, when the caller already has one (a queue job's, §4.40); fresh otherwise. */
+  runId?: string;
   counts: Map<string, number>;
   truncate: boolean;
   actor: string;
 }
 
 /** Start the job and answer its record at once; the work goes on after the response. */
-export function startSeedRun(input: StartSeedInput): SeedRun {
+function prepare(input: StartSeedInput): { run: SeedRun; order: TableSpec[]; softened: Set<string> } {
   const datasourceId = input.connection.seedId ?? input.connection.id;
   for (const other of runs().values()) {
     if (other.datasourceId === datasourceId && other.status === "running") {
@@ -190,7 +192,7 @@ export function startSeedRun(input: StartSeedInput): SeedRun {
   }
   const { order, softened } = orderTables(input.tables);
   const run: SeedRun = {
-    id: randomUUID(),
+    id: input.runId ?? randomUUID(),
     datasourceId,
     datasourceName: input.connection.name,
     schema: input.schema,
@@ -219,11 +221,36 @@ export function startSeedRun(input: StartSeedInput): SeedRun {
     connectionName: input.connection.name,
     details: `${input.source ? `copied from ${input.source.name}, ` : ""}${run.tables.length} tables, ${[...input.counts.values()].reduce((a, b) => a + b, 0)} rows${input.ratios?.size ? `, ${input.ratios.size} by ratio` : ""}${input.truncate ? ", tables emptied first" : ""}`,
   });
+  return { run, order, softened };
+}
+
+/** Start a run in this process and answer at once; progress is read back by id (§4.23). */
+export function startSeedRun(input: StartSeedInput): SeedRun {
+  const { run, order, softened } = prepare(input);
   void execute(run, input, order, softened);
   return run;
 }
 
-async function execute(run: SeedRun, input: StartSeedInput, order: TableSpec[], softened: Set<string>): Promise<void> {
+/**
+ * Run to the end, here, for a worker (§4.40): the same run, with a snapshot handed to
+ * `onProgress` after each table so whoever reads the queue sees the tables fill.
+ */
+export async function runSeedNow(
+  input: StartSeedInput,
+  onProgress?: (run: SeedRun) => Promise<void>,
+): Promise<SeedRun> {
+  const { run, order, softened } = prepare(input);
+  await execute(run, input, order, softened, onProgress);
+  return run;
+}
+
+async function execute(
+  run: SeedRun,
+  input: StartSeedInput,
+  order: TableSpec[],
+  softened: Set<string>,
+  onProgress?: (run: SeedRun) => Promise<void>,
+): Promise<void> {
   const pools = new PoolMap();
   const wanted = referencedColumns(order);
   // One offset per run so unique columns do not collide with the last run's values.
@@ -275,6 +302,14 @@ async function execute(run: SeedRun, input: StartSeedInput, order: TableSpec[], 
         progress.error = error instanceof Error ? error.message : "The table could not be filled";
         logger.warn("Seed table failed", { route: "seed-data/run", runId: run.id, table: table.name });
       }
+      // A snapshot the reader may lose is not the run's failure.
+      await onProgress?.(run).catch((error: unknown) => {
+        logger.warn("Seed progress not written", {
+          route: "seed-data/run",
+          runId: run.id,
+          error: (error as Error).name,
+        });
+      });
     }
   } catch (error) {
     failed = true;

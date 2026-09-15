@@ -84,9 +84,21 @@ describe.skipIf(!URL_)("routes on a real PostgreSQL", () => {
       `version: "1"\nconnections:\n${conn("it-src", "it_src", "production", '"admin"')}${conn("it-stage", "it_stage", "staging", '"*"')}runbooks:\n  - id: "orders-of"\n    name: "Orders of a customer"\n    datasource: "it-stage"\n    sql: "SELECT count(*) AS n FROM orders WHERE customer_id = {{customer}}"\n    params:\n      - name: customer\n        type: number\n`,
     );
     process.env.SEED_CONFIG_PATH = join(dir, "seed.yaml");
-    delete process.env.STORAGE_PROVIDER;
+    // The seed goes through the queue (§4.40): the store is this test's `it_stage` database
+    // and the worker loop runs in this process, polling fast.
+    process.env.STORAGE_PROVIDER = "postgres";
+    process.env.STORAGE_POSTGRES_URL = (() => {
+      const store = new URL(URL_);
+      store.pathname = "/it_stage";
+      return store.toString();
+    })();
+    process.env.JOBS_POLL_MS = "250";
     const { resetCache } = await import("@/lib/seed");
     resetCache();
+    const { registerJobHandlers } = await import("@/lib/jobs/handlers");
+    registerJobHandlers();
+    const { startWorker } = await import("@/lib/jobs/worker");
+    expect(startWorker()).toBe(true);
     routes = {
       plan: (await import("@/app/api/admin/seed-data/plan/route")).POST,
       run: (await import("@/app/api/admin/seed-data/run/route")).POST,
@@ -99,6 +111,13 @@ describe.skipIf(!URL_)("routes on a real PostgreSQL", () => {
   });
 
   afterAll(async () => {
+    const { stopWorker } = await import("@/lib/jobs/worker");
+    stopWorker();
+    const { closeStorageProvider } = await import("@/lib/storage/factory");
+    await closeStorageProvider();
+    delete process.env.STORAGE_PROVIDER;
+    delete process.env.STORAGE_POSTGRES_URL;
+    delete process.env.JOBS_POLL_MS;
     const { clearProviderCache } = await import("@/lib/db/factory");
     await clearProviderCache();
     await admin(async (c) => {
@@ -119,7 +138,7 @@ describe.skipIf(!URL_)("routes on a real PostgreSQL", () => {
       const { run } = (await res.json()) as {
         run: { status: string; tables: { name: string; inserted: number; error?: string }[] };
       };
-      if (run.status !== "running") return run;
+      if (run.status !== "running" && run.status !== "queued") return run;
       await new Promise((r) => setTimeout(r, 250));
     }
     throw new Error("the seed run did not settle");
