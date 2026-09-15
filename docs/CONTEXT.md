@@ -51,7 +51,7 @@ Verified in code, not from the README:
 
 ## 4. Roadmap, in order, with the intended design
 
-### 4.1 Datasources are created by admins only, and shared ← **next**
+### 4.1 Datasources are created by admins only, and shared — done
 
 Two steps. The first closes the hole; the second delivers the product.
 
@@ -73,7 +73,7 @@ Two steps. The first closes the hole; the second delivers the product.
   the other order would open a non-admin's stored connection and greet them with the 403.
   The built-in samples (`managed:false` seeds) are therefore admin-only by construction.
 
-**Step B — server-side shared datasources — done, one piece open:**
+**Step B — server-side shared datasources — done:**
 - Store: [`src/lib/datasources/store.ts`](../src/lib/datasources/store.ts). A record is a
   `SeedConnection` (same zod schema, same `${ENV_VAR}` credential resolution) plus who
   wrote it and when, persisted in `user_storage` under the reserved owner
@@ -110,7 +110,7 @@ Two steps. The first closes the hole; the second delivers the product.
   storage facade lost those methods, the sync hook those collections. The `connections`
   collection itself stays: the shared datasource store keeps its records there.
 
-### 4.2 Server-side audit of every execution — done, persistence open
+### 4.2 Server-side audit of every execution — done, persisted (§4.27)
 
 - [`src/lib/audit-execution.ts`](../src/lib/audit-execution.ts): `auditExecution(context,
   invoke)` wraps the provider call in `query`, `multi-query` (one record per statement) and
