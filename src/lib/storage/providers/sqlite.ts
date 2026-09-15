@@ -373,6 +373,14 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
     return row ? jobFromRow(row) : null;
   }
 
+  async pruneJobs(before: string): Promise<number> {
+    this.ensureDb();
+    const result = this.db!.prepare("DELETE FROM jobs WHERE status IN ('done', 'failed', 'lost') AND run_at < ?").run(
+      before,
+    );
+    return Number(result.changes ?? 0);
+  }
+
   async heartbeatJob(id: string, worker: string, leaseUntil: string): Promise<boolean> {
     this.ensureDb();
     const result = this.db!.prepare(

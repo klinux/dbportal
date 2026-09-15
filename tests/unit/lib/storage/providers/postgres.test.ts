@@ -635,5 +635,18 @@ describe("PostgresStorageProvider", () => {
         "CASE WHEN attempts >= max_attempts THEN 'lost' ELSE 'queued' END",
       );
     });
+
+    // Retention (§4.40): only settled jobs go, and only those due before the instant given.
+    test("pruneJobs deletes settled jobs due before the instant and answers how many", async () => {
+      await provider.initialize();
+      mockQuery.mockClear();
+      mockQuery.mockResolvedValueOnce({ rowCount: 4, rows: [] });
+      expect(await provider.pruneJobs("2026-09-07T00:00:00.000Z")).toBe(4);
+      const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("DELETE FROM jobs WHERE status IN ('done', 'failed', 'lost') AND run_at < $1");
+      expect(params).toEqual(["2026-09-07T00:00:00.000Z"]);
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      expect(await provider.pruneJobs("x")).toBe(0);
+    });
   });
 });

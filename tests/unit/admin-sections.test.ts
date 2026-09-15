@@ -8,12 +8,13 @@ import {
 } from "@/lib/admin-sections";
 
 describe("admin-sections", () => {
-  test("lists seven canonical sections", () => {
+  test("lists eight canonical sections", () => {
     expect([...ADMIN_SECTIONS]).toEqual([
       "overview",
       "datasources",
       "approvals",
       "operations",
+      "jobs",
       "monitoring",
       "security",
       "audit",

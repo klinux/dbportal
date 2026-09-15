@@ -17,7 +17,10 @@ mock.module("@/lib/jobs/queue", () => ({
   countJobs: (s: string) => queue.count(s),
   enqueueJob: (i: unknown) => queue.enqueue(i),
 }));
+const statsMock = mock(async (_hours: number) => ({ hours: _hours, queued: 1, running: 0, kinds: [], workers: [] }));
+mock.module("@/lib/jobs/stats", () => ({ DEFAULT_STATS_HOURS: 24, jobStats: statsMock }));
 const { GET } = await import("@/app/api/admin/jobs/route");
+const { GET: STATS } = await import("@/app/api/admin/jobs/stats/route");
 const { POST } = await import("@/app/api/admin/jobs/ping/route");
 const url = "http://localhost/api/admin/jobs";
 
@@ -58,5 +61,18 @@ describe("/api/admin/jobs", () => {
     session = { role: "user", username: "ana" };
     expect((await GET(new Request(url))).status).toBe(403);
     expect((await POST(new Request(`${url}/ping`, { method: "POST" }))).status).toBe(403);
+  });
+
+  test("stats answers the window asked, 24 hours when none or nonsense, admin only, and the queue's refusals", async () => {
+    expect(await (await STATS(new Request(`${url}/stats?hours=6`))).json()).toMatchObject({ hours: 6, queued: 1 });
+    await STATS(new Request(`${url}/stats?hours=abc`));
+    await STATS(new Request(`${url}/stats`));
+    expect(statsMock.mock.calls.map((c) => (c as unknown[])[0])).toEqual([6, 24, 24]);
+    statsMock.mockImplementationOnce(async () => {
+      throw new real.JobError("no store", 503);
+    });
+    expect((await STATS(new Request(`${url}/stats`))).status).toBe(503);
+    session = { role: "user", username: "ana" };
+    expect((await STATS(new Request(`${url}/stats`))).status).toBe(403);
   });
 });

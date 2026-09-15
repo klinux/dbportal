@@ -123,6 +123,9 @@ const HELP: Record<string, string> = {
   dbportal_audit_events_total: "Audit events emitted, by event type, action and outcome.",
   dbportal_execution_duration_seconds: "Latency of statements run through the portal, by route and datasource.",
   dbportal_audit_export_total: "Audit lines shipped to, rejected by, or dropped before a SIEM sink.",
+  dbportal_jobs_total: "Jobs a worker finished, by kind and outcome (done, retry, failed).",
+  dbportal_job_wait_seconds: "Time a job waited in the queue before a worker took it, by kind.",
+  dbportal_job_run_seconds: "Time a worker spent on a job, by kind, whatever the outcome.",
 };
 
 function formatNumber(value: number): string {

@@ -366,6 +366,15 @@ export class PostgresStorageProvider implements ServerStorageProvider {
     return rows[0] ? jobFromRow(rows[0]) : null;
   }
 
+  async pruneJobs(before: string): Promise<number> {
+    this.ensurePool();
+    const result = await this.pool!.query(
+      "DELETE FROM jobs WHERE status IN ('done', 'failed', 'lost') AND run_at < $1",
+      [before],
+    );
+    return result.rowCount ?? 0;
+  }
+
   async heartbeatJob(id: string, worker: string, leaseUntil: string): Promise<boolean> {
     this.ensurePool();
     const result = await this.pool!.query(

@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
 import { emitAuditEvent } from "@/lib/audit";
 import { logger } from "@/lib/logger";
-import { incrementCounter } from "@/lib/metrics/registry";
+import { incrementCounter, observeHistogram } from "@/lib/metrics/registry";
 import { getStorageProvider, isServerStorageEnabled } from "@/lib/storage/factory";
 import type { JobRecord } from "@/lib/storage/types";
 
@@ -36,6 +36,8 @@ export const DEFAULT_POLL_MS = 2_000;
 export const DEFAULT_LEASE_MS = 60_000;
 export const DEFAULT_CONCURRENCY = 2;
 export const RETRY_BACKOFF_MS = 30_000;
+export const DEFAULT_RETENTION_DAYS = 7;
+export const PRUNE_EVERY_MS = 60 * 60 * 1000;
 
 const KEY = Symbol.for("dbportal.job-worker");
 interface State {
@@ -44,6 +46,7 @@ interface State {
   timer: ReturnType<typeof setInterval> | null;
   running: Set<string>;
   name: string;
+  lastPruneAt: number;
 }
 function state(): State {
   const g = globalThis as typeof globalThis & { [KEY]?: State };
@@ -53,6 +56,7 @@ function state(): State {
     timer: null,
     running: new Set(),
     name: `${hostname()}:${process.pid}`,
+    lastPruneAt: 0,
   };
   return g[KEY];
 }
@@ -103,6 +107,12 @@ async function runOne(job: JobRecord, leaseMs: number): Promise<void> {
     Math.max(1_000, Math.floor(leaseMs / 3)),
   );
   const startedAt = new Date().toISOString();
+  // The two latencies the operator watches (§4.40): how long the job waited, how long it ran.
+  observeHistogram(
+    "dbportal_job_wait_seconds",
+    { kind: job.kind },
+    Math.max(0, Date.now() - Date.parse(job.createdAt)) / 1000,
+  );
   const context: JobContext = {
     progress: async (result) => {
       await store.putJob({ ...job, status: "running", startedAt, leaseUntil: lease, worker: s.name, result });
@@ -150,6 +160,33 @@ async function runOne(job: JobRecord, leaseMs: number): Promise<void> {
   } finally {
     clearInterval(heartbeat);
     s.running.delete(job.id);
+    observeHistogram("dbportal_job_run_seconds", { kind: job.kind }, (Date.now() - Date.parse(startedAt)) / 1000);
+  }
+}
+
+/** Days a settled job is kept for the statistics and the list; 0 keeps everything. */
+export function retentionDays(): number {
+  const raw = process.env.JOBS_RETENTION_DAYS;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_RETENTION_DAYS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_RETENTION_DAYS;
+}
+
+/** Once an hour per process: settled jobs past the retention go; a store that refuses is one warning. */
+export async function pruneIfDue(now: Date): Promise<number> {
+  const s = state();
+  const days = retentionDays();
+  if (days === 0 || now.getTime() - s.lastPruneAt < PRUNE_EVERY_MS) return 0;
+  s.lastPruneAt = now.getTime();
+  const store = await getStorageProvider();
+  if (!store) return 0;
+  try {
+    const gone = await store.pruneJobs(new Date(now.getTime() - days * 86_400_000).toISOString());
+    if (gone > 0) logger.info("Settled jobs pruned", { route: "jobs/worker", gone, days });
+    return gone;
+  } catch (error) {
+    logger.warn("Job prune failed", { route: "jobs/worker", error: (error as Error).name });
+    return 0;
   }
 }
 
@@ -160,6 +197,7 @@ export async function workerPass(now = new Date()): Promise<number> {
   if (!store || s.handlers.size === 0) return 0;
   const leaseMs = setting("JOBS_LEASE_MS", DEFAULT_LEASE_MS, 5_000);
   const concurrency = setting("JOBS_CONCURRENCY", DEFAULT_CONCURRENCY, 1);
+  await pruneIfDue(now);
   for (const job of await store.reclaimJobs(now.toISOString())) {
     logger.warn("Job lease expired", { route: "jobs/worker", jobId: job.id, kind: job.kind, status: job.status });
     if (job.status === "lost") {

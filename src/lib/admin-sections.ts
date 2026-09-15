@@ -3,6 +3,7 @@ export const ADMIN_SECTIONS = [
   "datasources",
   "approvals",
   "operations",
+  "jobs",
   "monitoring",
   "security",
   "audit",

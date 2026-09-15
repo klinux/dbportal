@@ -15,6 +15,7 @@ import {
   Shield,
   FileText,
   ClipboardCheck,
+  Workflow,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ const SECTION_NAV: Record<AdminSection, { label: string; icon: typeof LayoutDash
   datasources: { label: "Datasources", icon: Database },
   approvals: { label: "Approvals", icon: ClipboardCheck },
   operations: { label: "Operations", icon: Wrench },
+  jobs: { label: "Jobs", icon: Workflow },
   monitoring: { label: "Monitoring", icon: Activity },
   security: { label: "Security", icon: Shield },
   audit: { label: "Audit", icon: FileText },

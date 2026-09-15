@@ -126,6 +126,10 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
     return this.inner.reclaimJobs(now);
   }
 
+  pruneJobs(before: string): Promise<number> {
+    return this.inner.pruneJobs(before);
+  }
+
   async getAllData(userId: string): Promise<Partial<StorageData>> {
     const data = await this.inner.getAllData(userId);
     if (!data.connections) return data;

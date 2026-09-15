@@ -20,12 +20,17 @@ const warn = mock(() => {});
 const errorLog = mock(() => {});
 mock.module("@/lib/logger", () => ({ logger: { warn, info: () => {}, debug: () => {}, error: errorLog } }));
 const counter = mock((_n: string, _l: Record<string, string>) => {});
-mock.module("@/lib/metrics/registry", () => ({ incrementCounter: counter }));
+const histogram = mock((_n: string, _l: Record<string, string>, _v: number) => {});
+mock.module("@/lib/metrics/registry", () => ({ incrementCounter: counter, observeHistogram: histogram }));
 
 const {
   DEFAULT_CONCURRENCY,
+  DEFAULT_RETENTION_DAYS,
   JobFailure,
+  PRUNE_EVERY_MS,
   RETRY_BACKOFF_MS,
+  pruneIfDue,
+  retentionDays,
   registerJobHandler,
   resetWorker,
   startWorker,
@@ -49,7 +54,14 @@ const queued = (id: string, kind: string, over: Partial<JobRecord> = {}): JobRec
 });
 const settle = () => new Promise((r) => setTimeout(r, 20));
 const saved: Record<string, string | undefined> = {};
-const ENV = ["DBPORTAL_ROLE", "JOBS_WORKER", "JOBS_LEASE_MS", "JOBS_CONCURRENCY", "JOBS_POLL_MS"];
+const ENV = [
+  "DBPORTAL_ROLE",
+  "JOBS_WORKER",
+  "JOBS_LEASE_MS",
+  "JOBS_CONCURRENCY",
+  "JOBS_POLL_MS",
+  "JOBS_RETENTION_DAYS",
+];
 
 describe("jobs worker", () => {
   beforeEach(() => {
@@ -63,6 +75,7 @@ describe("jobs worker", () => {
     audit.mockClear();
     warn.mockClear();
     counter.mockClear();
+    histogram.mockClear();
   });
   afterEach(() => {
     resetWorker();
@@ -258,5 +271,53 @@ describe("jobs worker", () => {
     stopWorker();
     store.reclaimJobs = failing;
     expect(errorLog).toHaveBeenCalled();
+  });
+
+  // The two latencies on the scrape (§4.40): the wait before a worker took the job, the run once it did.
+  test("a run observes how long the job waited and how long it ran, by kind", async () => {
+    registerJobHandler("ping", async () => ({}));
+    await store.putJob(queued("j1", "ping", { createdAt: new Date(Date.now() - 5_000).toISOString() }));
+    await workerPass();
+    await settle();
+    const names = histogram.mock.calls.map((c) => (c as unknown[])[0]);
+    expect(names).toEqual(["dbportal_job_wait_seconds", "dbportal_job_run_seconds"]);
+    const wait = histogram.mock.calls[0] as unknown[];
+    expect(wait[1]).toEqual({ kind: "ping" });
+    expect(wait[2] as number).toBeGreaterThanOrEqual(4.9);
+  });
+
+  // Retention (§4.40): settled jobs past JOBS_RETENTION_DAYS go, once an hour per process; 0 keeps everything.
+  test("retention reads the days, prunes settled jobs once an hour, and a refusing store is one warning", async () => {
+    expect(retentionDays()).toBe(DEFAULT_RETENTION_DAYS);
+    process.env.JOBS_RETENTION_DAYS = "abc";
+    expect(retentionDays()).toBe(DEFAULT_RETENTION_DAYS);
+    process.env.JOBS_RETENTION_DAYS = "2";
+    expect(retentionDays()).toBe(2);
+    const old = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    await store.putJob(queued("old-done", "ping", { status: "done", runAt: old, createdAt: old }));
+    await store.putJob(queued("old-queued", "ping", { runAt: old, createdAt: old }));
+    await store.putJob(queued("new-done", "ping", { status: "done" }));
+    const now = new Date();
+    expect(await pruneIfDue(now)).toBe(1);
+    expect([...store.jobs.keys()].sort()).toEqual(["new-done", "old-queued"]);
+    // Not again within the hour, then again past it.
+    await store.putJob(queued("old-failed", "ping", { status: "failed", runAt: old, createdAt: old }));
+    expect(await pruneIfDue(now)).toBe(0);
+    expect(await pruneIfDue(new Date(now.getTime() + PRUNE_EVERY_MS))).toBe(1);
+    process.env.JOBS_RETENTION_DAYS = "0";
+    await store.putJob(queued("kept", "ping", { status: "lost", runAt: old, createdAt: old }));
+    expect(await pruneIfDue(new Date(now.getTime() + 3 * PRUNE_EVERY_MS))).toBe(0);
+    expect(store.jobs.has("kept")).toBe(true);
+    process.env.JOBS_RETENTION_DAYS = "1";
+    const failing = store.pruneJobs;
+    store.pruneJobs = async () => {
+      throw new Error("store down");
+    };
+    warn.mockClear();
+    expect(await pruneIfDue(new Date(now.getTime() + 5 * PRUNE_EVERY_MS))).toBe(0);
+    expect(warn).toHaveBeenCalledWith("Job prune failed", expect.objectContaining({ error: "Error" }));
+    store.pruneJobs = failing;
+    serverStorage = false;
+    expect(await pruneIfDue(new Date(now.getTime() + 7 * PRUNE_EVERY_MS))).toBe(0);
   });
 });

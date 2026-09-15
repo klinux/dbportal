@@ -752,6 +752,15 @@ built. Each lands as its own section when done.
   own queries (by design, the person waits). The topology the six steps add up to - the
   three roles, what they share, how each scales, the perimeter - is
   [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) §7.
+  **Seventh step (2026-09-15): the queue watched.** A Jobs section in the admin
+  ([`JobsTab.tsx`](../src/components/admin/tabs/JobsTab.tsx)): what waits and runs now, what
+  settled over a window (1 h, 24 h, 7 d) by outcome and kind with the wait and the run as
+  p50/p95, the workers seen, the latest jobs filtered by status, and a ping that says how
+  long a worker took to answer. `GET /api/admin/jobs/stats` computes it from the latest
+  records ([`src/lib/jobs/stats.ts`](../src/lib/jobs/stats.ts)), the same for both store
+  providers; the worker observes `dbportal_job_wait_seconds` and `dbportal_job_run_seconds`
+  for the scrape, and prunes settled jobs past `JOBS_RETENTION_DAYS` (7) once an hour, so
+  the table and the statistics stay bounded.
 
 ## 5. Decisions already taken
 

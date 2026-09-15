@@ -48,4 +48,14 @@ export class FakeJobStore {
     }
     return out;
   }
+  async pruneJobs(before: string): Promise<number> {
+    let n = 0;
+    for (const [id, job] of this.jobs) {
+      if (job.status !== "queued" && job.status !== "running" && job.runAt < before) {
+        this.jobs.delete(id);
+        n++;
+      }
+    }
+    return n;
+  }
 }

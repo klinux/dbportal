@@ -1255,8 +1255,13 @@ Job queue (docs/CONTEXT.md §4.40). Admin: `GET /api/admin/jobs?status=&kind=&li
 running, done, failed, lost }, jobs: [{ id, kind, payload, status, attempts, maxAttempts, requestedBy, createdAt,
 runAt, leaseUntil?, worker?, startedAt?, finishedAt?, result?, error? }] }` newest first;
 `POST /api/admin/jobs/ping` — body `{ echo? }`, `202 { job }`, a job a worker answers with the time (`503` without
-server storage). `/api/metrics` exposes `dbportal_jobs_queued`, `dbportal_jobs_running` and `dbportal_jobs_total`
-by kind and outcome. A job that failed past its attempts or lost its lease for good is audited as `job`.
+server storage). `GET /api/admin/jobs/stats?hours=24` (1 to 720) → `{ since, hours, sample, queued, running, total,
+done, failed, lost, wait: { p50Ms, p95Ms, maxMs } | null, run: …, kinds: [{ kind, total, done, failed, lost, wait,
+run }], workers: [{ name, jobs, lastSeenAt }] }` over the settled jobs in the window (read from the latest 2000
+records; `sample` says how many). `/api/metrics` exposes `dbportal_jobs_queued`, `dbportal_jobs_running`,
+`dbportal_jobs_total` by kind and outcome, and the histograms `dbportal_job_wait_seconds` and
+`dbportal_job_run_seconds` by kind. Settled jobs are kept `JOBS_RETENTION_DAYS` (7; 0 keeps all) and pruned by the
+worker once an hour. A job that failed past its attempts or lost its lease for good is audited as `job`.
 
 Alerts on the trail (docs/CONTEXT.md §4.32). Admin: `GET /api/admin/trail-alerts` → `{ trailAlerts: { rules:
 { guardrail, production_export, backup_failed, seed_failed: [channel ids] }, exportRowsThreshold } }`;

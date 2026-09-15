@@ -240,6 +240,8 @@ export interface ServerStorageProvider {
   heartbeatJob(id: string, worker: string, leaseUntil: string): Promise<boolean>;
   /** Running jobs whose lease expired before `now`: back on the queue, or lost past maxAttempts. Returns what changed. */
   reclaimJobs(now: string): Promise<JobRecord[]>;
+  /** Delete jobs that settled (done, failed, lost) and were due before `before`; how many went. */
+  pruneJobs(before: string): Promise<number>;
   /** Get all collections for a user */
   getAllData(userId: string): Promise<Partial<StorageData>>;
   /** Get a single collection for a user */

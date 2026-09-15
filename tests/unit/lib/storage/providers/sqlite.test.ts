@@ -645,5 +645,14 @@ describe("SQLiteStorageProvider", () => {
         ["j2", "lost", undefined],
       ]);
     });
+
+    // Retention (§4.40): only settled jobs go, and only those due before the instant given.
+    test("pruneJobs deletes settled jobs due before the instant and answers the driver's change count", async () => {
+      await provider.initialize();
+      answers = [{ changes: 3 }];
+      expect(await provider.pruneJobs("BEFORE")).toBe(3);
+      expect(last().sql).toContain("DELETE FROM jobs WHERE status IN ('done', 'failed', 'lost') AND run_at < ?");
+      expect(last().run.mock.calls[0]).toEqual(["BEFORE"]);
+    });
   });
 });

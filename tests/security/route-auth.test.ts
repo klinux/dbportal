@@ -273,6 +273,8 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "serves the file of an export the session queued, read off the queue (GET, no POST export); opens no user database. Same session gate; tests/api/db/export-job.test.ts proves the 401",
   "admin/jobs":
     "counts and lists the job queue in the app's own storage backend (GET, no POST export); never opens a user database. Admin-gated by requireAdmin; tests/api/admin/jobs.test.ts proves the 403",
+  "admin/jobs/stats":
+    "the queue's statistics over a window, read from the app's own storage backend (GET, no POST export); never opens a user database. Same admin gate; tests/api/admin/jobs.test.ts proves the 403",
   "admin/jobs/ping":
     "enqueues a ping job in the app's own storage backend (POST); never opens a user database. Same admin gate; tests/api/admin/jobs.test.ts proves the 403",
   "admin/vault/kv":
@@ -507,6 +509,7 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/trail-alerts/store":
       "the trail alert rules, one document in the app's own storage backend; opens no user database",
     "@/lib/jobs/queue": "the job queue's front door over the app's own storage backend; opens no user database",
+    "@/lib/jobs/stats": "the queue's statistics computed from the records the front door lists; opens no user database",
     "@/lib/api/statement-size": "the size bound on a statement's text and its 413; a pure helper that opens nothing",
     "@/lib/export/request": "the export request read off the body and the worker's file found under EXPORT_DIR; opens no user database",
     "@/lib/seed-data/job": `a seed as a job (docs/CONTEXT.md §4.40): the queued run, the run read off the job, and the worker's side, which ${PROVIDER_NAMING_HELPER} (@/lib/db) - but the status route imports it for seedRunById alone, which reads the queue and opens nothing`,
