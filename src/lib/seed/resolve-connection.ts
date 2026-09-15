@@ -87,6 +87,17 @@ export async function resolveConnection(
       user: session.username,
     });
 
+    // A virtual datasource (§4.44) is its members, each resolved as this person would
+    // resolve it: the access rule, the Vault reference, the read-only pool. A member the
+    // person may not open is the same 403 it would be alone; nothing is attached before.
+    if (seedConn.type === "virtual") {
+      const memberConnections: ManagedConnection[] = [];
+      for (const id of seedConn.members ?? []) {
+        memberConnections.push(await resolveConnection({ connectionId: `seed:${id}` }, session));
+      }
+      return { ...seedConn, memberConnections };
+    }
+
     return withSshProfile(await withVaultCredentials(seedConn, session.username));
   }
 

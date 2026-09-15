@@ -63,6 +63,9 @@ const FIELD_OWNERSHIP: Record<keyof DatabaseConnection, FieldOwnership> = {
   requireTicket: "preserved",
   approvalsRequired: "preserved",
   exportRoles: "preserved",
+  // A virtual datasource's members (§4.44) are declared in the seed file for now; the
+  // sheet keeps what is stored until it grows a members editor.
+  members: "preserved",
   canExport: "preserved",
   serviceName: "edited",
   instanceName: "edited",

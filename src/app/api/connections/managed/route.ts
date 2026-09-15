@@ -37,7 +37,11 @@ export async function GET() {
     // `readOnly` is decided here, per session, so the sidebar can say it without the browser
     // learning the matrix; the server enforces it on every execution regardless.
     const sanitized = connections.map((conn) => ({
-      ...Object.fromEntries(Object.entries(conn).filter(([key]) => key !== "password" && key !== "connectionString")),
+      ...Object.fromEntries(
+        Object.entries(conn).filter(
+          ([key]) => key !== "password" && key !== "connectionString" && key !== "memberExportRules",
+        ),
+      ),
       readOnly: !canWrite(conn, session),
       // Whether a result may leave as a file (§4.22), decided here for the same reason.
       canExport: canExport(conn, session),

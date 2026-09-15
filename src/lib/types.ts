@@ -20,6 +20,9 @@ export type DatabaseType =
   | "postgres"
   | "mysql"
   | "sqlite"
+  // A virtual datasource (docs/CONTEXT.md §4.44): no engine of its own, a list of
+  // PostgreSQL and MySQL datasources opened as one through an embedded DuckDB session.
+  | "virtual"
   | "mongodb"
   | "redis"
   | "oracle"
@@ -213,6 +216,8 @@ export interface DatabaseConnection {
   approvalsRequired?: number;
   /** Who may export a result of this datasource as a file (docs/CONTEXT.md §4.22); absent means the environment's default. */
   exportRoles?: string[];
+  /** A virtual datasource's members (§4.44): ids of the datasources it opens as one. */
+  members?: string[];
   /** Decided per session by the server, like `readOnly`: whether this session may export (§4.22). */
   canExport?: boolean;
   serviceName?: string; // Oracle: service name (e.g. ORCL, XEPDB1)

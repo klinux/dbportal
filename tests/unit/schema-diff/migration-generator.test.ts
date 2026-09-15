@@ -950,6 +950,7 @@ describe("generateMigrationSQL: SQLite's grammar declares a foreign key only ins
     mongodb: "engine-has-no-foreign-key",
     redis: "engine-has-no-foreign-key",
     libredb: "engine-has-no-foreign-key",
+    virtual: "engine-has-no-foreign-key",
   };
 
   for (const [dialectId, entry] of Object.entries(GRAMMAR)) {
@@ -1034,6 +1035,7 @@ const MODIFIED_COLUMN_COVERAGE: Record<
   mssql: "has-own-branch",
   clickhouse: "has-own-branch",
   couchbase: { label: "Couchbase", reason: "schemaless JSON documents" },
+  virtual: { label: "Virtual", reason: "read-only: a virtual datasource alters nothing (§4.44)" },
   druid: { label: "Apache Druid", reason: "no ALTER TABLE" },
   // Measured on Trino 476 and NOT an "unsupported" guess: the PostgreSQL branch's own
   // text is a SYNTAX error here (`ALTER TABLE ... ALTER COLUMN id TYPE varchar` ->
@@ -1216,7 +1218,11 @@ describe("generateMigrationSQL: dialects that cannot modify a column", () => {
 
     test(`${dialect}: modified column emits a comment naming the limitation, never PostgreSQL DDL`, () => {
       const sql = generateMigrationSQL(makeModifiedTableDiff(), dialect as DatabaseType);
-      if (["couchbase", "druid", "elasticsearch", "opensearch", "mongodb", "redis", "libredb"].includes(dialect)) {
+      if (
+        ["virtual", "couchbase", "druid", "elasticsearch", "opensearch", "mongodb", "redis", "libredb"].includes(
+          dialect,
+        )
+      ) {
         expect(sql).toContain(`-- ${expected.label}: Cannot generate table DDL.`);
       } else {
         expect(sql).toContain(`-- ${expected.label}: Cannot alter column "name".`);
@@ -1238,6 +1244,7 @@ describe("generateMigrationSQL: dialects that cannot modify a column", () => {
  */
 const TRANSACTION_WRAPPER_COVERAGE: Record<DatabaseType, "BEGIN;" | "BEGIN TRANSACTION;" | false> = {
   postgres: "BEGIN;",
+  virtual: false,
   mysql: "BEGIN;",
   // Measured live via @duckdb/node-api 1.5.5-r.4 (DuckDB v1.5.5, in-process, no server
   // needed): `BEGIN;` opens a real transaction around DDL, so a `CREATE TABLE` issued
@@ -1282,9 +1289,17 @@ describe("generateMigrationSQL: transaction wrapper by dialect", () => {
         // about text that brackets a real statement, not an empty run of comments.
         if (
           fixture.emitsCreateTable &&
-          !["cassandra", "mongodb", "redis", "libredb", "couchbase", "druid", "elasticsearch", "opensearch"].includes(
-            dialect,
-          )
+          ![
+            "virtual",
+            "cassandra",
+            "mongodb",
+            "redis",
+            "libredb",
+            "couchbase",
+            "druid",
+            "elasticsearch",
+            "opensearch",
+          ].includes(dialect)
         ) {
           expect(sql).toMatch(/^CREATE TABLE /m);
         }

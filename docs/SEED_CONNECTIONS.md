@@ -148,6 +148,7 @@ connections:
 | `namedRoles` | No | — | Named roles (docs/CONTEXT.md §4.19): `{ id, name, members }`, referred to as `role:<id>` |
 | `runbooks` | No | — | Runbooks (docs/CONTEXT.md §4.20): `{ id, name, description?, datasource, sql, params? }` |
 | `connections` | Yes | — | Array of connection definitions (min 1) |
+| `connections[].members` | Virtual only | — | Two to eight ids of PostgreSQL or MySQL datasources of the same environment, opened as one (docs/CONTEXT.md §4.44) |
 | `connections[].id` | Yes | — | Unique slug: `[a-z0-9-]+`, max 64 chars |
 | `connections[].name` | Yes | — | Display name, max 128 chars |
 | `connections[].type` | Yes | — | Database type: `postgres`, `mysql`, `sqlite`, `libsql`, `duckdb`, `mongodb`, `redis`, `oracle`, `mssql`, `libredb`, `couchbase`, `clickhouse`, `druid`, `elasticsearch`, `opensearch`, `trino`, `cassandra` |
@@ -188,6 +189,39 @@ connections:
 1. Config file is read from disk (YAML/JSON)
 2. `${VARIABLE_NAME}` patterns are resolved from `process.env`
 3. If an env var is undefined, that connection is **skipped** (others continue working)
+
+### Virtual datasources
+
+A virtual datasource (docs/CONTEXT.md §4.44) is two to eight PostgreSQL or MySQL
+datasources of the same environment opened as one, so a statement joins them:
+
+```yaml
+connections:
+  - id: orders
+    type: postgres
+    environment: staging
+    roles: ["group:backend", "group:sre"]
+    # host, database, credential as usual
+  - id: crm
+    type: mysql
+    environment: staging
+    roles: ["group:backend"]
+  - id: orders-crm
+    name: "Orders x CRM (staging)"
+    type: virtual
+    members: [orders, crm]
+    roles: ["*"]
+```
+
+In the studio each member is a catalog named by its id: `orders.public.pedidos`,
+`crm.crm.clientes`. Who may open the virtual datasource is whoever may open **every**
+member, on top of its own `roles`; it writes for nobody (`writeRoles` is fixed to `[]`) and
+exports only where every member's export rule allows. It carries no address, credential,
+SSH profile or write setting of its own - the seed refuses them - and its members cannot be
+virtual themselves, of another environment, of another engine, or reached through an SSH
+profile. The session that joins them is an embedded DuckDB one, opened per person with the
+credentials that person resolves for each member, locked after the members are attached;
+[providers/virtual.md](providers/virtual.md) says what that lock was measured to refuse.
 
 ### Guardrails
 

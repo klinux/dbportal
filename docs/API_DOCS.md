@@ -1473,6 +1473,7 @@ interface DatabaseConnection {
   requireTicket?: boolean; // Writes need a ticket or incident reference (docs/CONTEXT.md §4.18)
   approvalsRequired?: number; // How many distinct reviewers a gated write needs (docs/CONTEXT.md §4.28): 1 or 2
   exportRoles?: string[];  // Who may export a result as a file (docs/CONTEXT.md §4.22); absent means the environment's default
+  members?: string[];      // A virtual datasource's members (docs/CONTEXT.md §4.44): ids of the datasources it opens as one
   canExport?: boolean;     // Decided per session by the server, like readOnly: whether this session may export (§4.22)
   serviceName?: string;    // Oracle: service name (e.g. ORCL, XEPDB1)
   instanceName?: string;   // MSSQL: named instance (e.g. SQLEXPRESS)

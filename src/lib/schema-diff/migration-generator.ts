@@ -53,6 +53,7 @@ function clickhouseDefaultKind(value: string): string {
  * this file spell their engine out the same way.
  */
 const NO_COLUMN_MODIFICATION: Partial<Record<DatabaseType, { label: string; reason: string }>> = {
+  virtual: { label: "Virtual", reason: "read-only: a virtual datasource alters nothing (§4.44)" },
   // Measured over Hrana on sqld 0.24.33, and the entry exists because the PostgreSQL
   // branch this id would otherwise inherit emits text libSQL cannot parse:
   // `ALTER TABLE t ALTER COLUMN c TYPE integer` is "unexpected end of input" and the
@@ -173,6 +174,8 @@ const NO_COLUMN_MODIFICATION: Partial<Record<DatabaseType, { label: string; reas
  * SQL Server is handled separately with BEGIN TRANSACTION.
  */
 const NO_TRANSACTION_WRAPPER: ReadonlySet<DatabaseType> = new Set<DatabaseType>([
+  // A virtual datasource (§4.44) is read-only: no migration is ever written for it.
+  "virtual",
   "oracle",
   "sqlite",
   "libsql",
@@ -192,6 +195,7 @@ const NO_TRANSACTION_WRAPPER: ReadonlySet<DatabaseType> = new Set<DatabaseType>(
 // Couchbase has index/collection DDL, but no CREATE/ALTER TABLE column grammar.
 // The reasons are already documented and tested by the modified-column path.
 const NO_TABLE_DDL: ReadonlySet<DatabaseType> = new Set<DatabaseType>([
+  "virtual",
   "mongodb",
   "redis",
   "libredb",

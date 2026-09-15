@@ -44,6 +44,8 @@ const ENGINE_FENCE_TAGS: Readonly<Record<DatabaseType, true>> = Object.freeze({
   // names the WRONG engine is worse here than a missing one, because `fenceTagEngine`
   // is what decides whether a plan's deliverable was written for this connection.
   duckdb: true,
+  // A virtual datasource (§4.44) takes the same SQL its members' join engine reads.
+  virtual: true,
   mongodb: true,
   redis: true,
   oracle: true,

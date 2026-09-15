@@ -568,6 +568,8 @@ const SQL_GRAMMARS: Partial<Record<DatabaseType, SqlGrammar>> = {
   mssql: MSSQL_GRAMMAR,
   sqlite: SQLITE_GRAMMAR,
   duckdb: DUCKDB_GRAMMAR,
+  // A virtual datasource (§4.44) is read through the embedded DuckDB session.
+  virtual: DUCKDB_GRAMMAR,
   // The SAME grammar object, and every one of its four facts was re-measured over
   // Hrana on sqld 0.24.33 rather than inherited: `SELECT 1 # x` is refused ("bad
   // variable name", so `#` is no comment), `SELECT [id] FROM probe_customers` parses

@@ -125,6 +125,7 @@ export type NamedRole = z.infer<typeof NamedRoleSchema>;
 // so a type-id missing here is not a compile error - it is a seed file the server
 // rejects with "invalid enum value" for a connection type the product supports.
 const SeedDatabaseType = z.enum([
+  "virtual",
   "postgres",
   "mysql",
   "sqlite",
@@ -252,7 +253,76 @@ export const SeedConnectionSchema = z.object({
   // schema fails SILENTLY when a field is missing: zod strips an unknown key, so a seed
   // file setting it would round-trip as `undefined` with no error anywhere.
   skipObjectScan: z.boolean().optional(),
+  /**
+   * A virtual datasource's members (§4.44): two to eight ids of PostgreSQL or MySQL
+   * datasources of the same environment, opened as one. Only on `type: virtual`, which
+   * carries no address of its own and is read-only for everyone.
+   */
+  members: z
+    .array(z.string().regex(/^[a-z0-9-]+$/))
+    .min(2)
+    .max(8)
+    .optional(),
+}).superRefine((conn, ctx) => {
+  const problem = virtualDeclarationError(conn);
+  if (problem) ctx.addIssue({ code: "custom", message: problem, path: ["members"] });
 });
+
+/** The fields a virtual datasource cannot carry: it has no engine to address and no write to allow. */
+export const VIRTUAL_FORBIDDEN_FIELDS = [
+  "host",
+  "port",
+  "database",
+  "user",
+  "password",
+  "connectionString",
+  "sshProfile",
+  "writeRoles",
+  "writeApproval",
+  "approverRoles",
+  "approvalsRequired",
+] as const;
+
+/** The engines a virtual datasource may join (§4.44): the ones the embedded engine attaches. */
+export const VIRTUAL_MEMBER_TYPES: ReadonlySet<string> = new Set(["postgres", "mysql"]);
+
+/** What is wrong with a virtual datasource's own declaration, or nothing. */
+export function virtualDeclarationError(conn: {
+  type: string;
+  members?: string[];
+  [key: string]: unknown;
+}): string | null {
+  if (conn.type !== "virtual") return conn.members !== undefined ? "members is only for type: virtual" : null;
+  if (!conn.members) return "A virtual datasource needs members";
+  if (new Set(conn.members).size !== conn.members.length) return "members must not repeat";
+  const carried = VIRTUAL_FORBIDDEN_FIELDS.filter((f) => conn[f] !== undefined);
+  if (carried.length > 0) return `A virtual datasource cannot set ${carried.join(", ")}`;
+  return null;
+}
+
+/**
+ * What is wrong with a virtual datasource among the others: a member missing, of an
+ * engine the embedded one cannot attach, of another environment, reached through a
+ * bastion, or virtual itself.
+ */
+export function virtualMembersError(
+  conn: { id: string; members?: string[]; environment?: string },
+  all: readonly { id: string; type: string; environment?: string; sshProfile?: string }[],
+  defaultEnvironment?: string,
+): string | null {
+  const env = conn.environment ?? defaultEnvironment;
+  for (const id of conn.members ?? []) {
+    const member = all.find((c) => c.id === id);
+    if (!member) return `Virtual datasource "${conn.id}" names a member that is not declared: ${id}`;
+    if (member.type === "virtual") return `Virtual datasource "${conn.id}" cannot include another virtual one: ${id}`;
+    if (!VIRTUAL_MEMBER_TYPES.has(member.type))
+      return `Virtual datasource "${conn.id}" can only join PostgreSQL and MySQL; ${id} is ${member.type}`;
+    if ((member.environment ?? defaultEnvironment) !== env)
+      return `Virtual datasource "${conn.id}" and its member ${id} must be in the same environment`;
+    if (member.sshProfile) return `Virtual datasource "${conn.id}" cannot include ${id}: it is reached through an SSH profile`;
+  }
+  return null;
+}
 
 export const SeedConfigSchema = z
   .object({
@@ -285,6 +355,13 @@ export const SeedConfigSchema = z
   })
   .refine((cfg) => new Set((cfg.channels ?? []).map((c) => c.id)).size === (cfg.channels ?? []).length, {
     message: "Channel IDs must be unique",
+  })
+  .superRefine((cfg, ctx) => {
+    for (const conn of cfg.connections) {
+      if (conn.type !== "virtual") continue;
+      const problem = virtualMembersError(conn, cfg.connections, cfg.defaults?.environment);
+      if (problem) ctx.addIssue({ code: "custom", message: problem, path: ["connections"] });
+    }
   });
 
 export type SeedConnection = z.infer<typeof SeedConnectionSchema>;
@@ -304,4 +381,8 @@ export interface ManagedConnection extends DatabaseConnection {
   exportRoles?: string[];
   sshProfile?: string;
   seedId: string;
+  /** A virtual datasource's export rules are its members' (§4.44): every one must allow. */
+  memberExportRules?: { environment?: string; exportRoles?: string[] }[];
+  /** A virtual datasource's members, resolved for the person opening it (§4.44). */
+  memberConnections?: ManagedConnection[];
 }

@@ -32,6 +32,9 @@ const SHIPPED: Readonly<Record<DatabaseType, true>> = Object.freeze({
   postgres: true,
   mysql: true,
   sqlite: true,
+  // A virtual datasource (§4.44) ships as a type-id because a connection has to say what
+  // it is; it is no engine, and the external count below leaves it out for that reason.
+  virtual: true,
   // libSQL (#424 Phase 5): its own provider, doc and integration test. A separate
   // driver from `sqlite` rather than a relative of it - the two share a dialect and
   // nothing else, since one holds a file handle and the other speaks HTTP.
@@ -94,6 +97,8 @@ const EXTERNAL: Readonly<Record<DatabaseType, boolean>> = Object.freeze({
   postgres: true,
   mysql: true,
   sqlite: true,
+  // Not an engine anyone runs: members opened as one (§4.44). Left out of every count.
+  virtual: false,
   libsql: true,
   // The user's own file, opened from a path they give us - the same reading as
   // `sqlite` below, and external for the same reason.

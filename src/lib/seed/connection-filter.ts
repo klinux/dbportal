@@ -16,9 +16,21 @@ function rolesMatch(connectionRoles: string[], userRoles: string[]): boolean {
   return connectionRoles.some((r) => userRoles.includes(r));
 }
 
+/** Who may open a virtual datasource (§4.44): whoever may open every member; a missing member closes it. */
+function virtualOpens(conn: SeedConnection, all: SeedConnection[], userRoles: string[]): boolean {
+  return (conn.members ?? []).every((id) => {
+    const member = all.find((c) => c.id === id);
+    return member !== undefined && rolesMatch(member.roles, userRoles);
+  });
+}
+
 export function filterByRoles(connections: SeedConnection[], userRoles: string[]): ManagedConnection[] {
   return connections
-    .filter((conn) => rolesMatch(conn.roles, userRoles))
+    .filter((conn) =>
+      conn.type === "virtual"
+        ? rolesMatch(conn.roles, userRoles) && virtualOpens(conn, connections, userRoles)
+        : rolesMatch(conn.roles, userRoles),
+    )
     .map((conn) => ({
       id: `seed:${conn.id}`,
       name: conn.name,
@@ -63,5 +75,17 @@ export function filterByRoles(connections: SeedConnection[], userRoles: string[]
       ...(conn.approvalsRequired !== undefined ? { approvalsRequired: conn.approvalsRequired } : {}),
       ...(conn.sshProfile !== undefined ? { sshProfile: conn.sshProfile } : {}),
       seedId: conn.id,
+      // A virtual datasource (§4.44) writes nothing, for anyone, and exports only where
+      // every member would: the rules travel with it so the one export gate can ask.
+      ...(conn.type === "virtual"
+        ? {
+            members: conn.members,
+            writeRoles: [],
+            memberExportRules: (conn.members ?? []).map((id) => {
+              const member = connections.find((c) => c.id === id);
+              return { environment: member?.environment ?? conn.environment, exportRoles: member?.exportRoles };
+            }),
+          }
+        : {}),
     }));
 }

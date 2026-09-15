@@ -25,6 +25,8 @@ const COLUMN_GRAMMAR: Record<DatabaseType, [string, string] | null> = {
   clickhouse: ['ADD COLUMN "extra" integer;', 'DROP COLUMN "old";'],
   trino: ['ADD COLUMN "extra" integer;', 'DROP COLUMN "old";'],
   couchbase: null,
+  // A virtual datasource (§4.44) is read-only; no DDL is ever generated for it.
+  virtual: null,
   druid: null,
   elasticsearch: null,
   opensearch: null,

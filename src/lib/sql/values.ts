@@ -27,6 +27,7 @@ const LITERAL_ESCAPE: Record<DatabaseType, LiteralEscape> = {
   // `SELECT 'a\b', length('a\b')` answers the three characters `a\b` - so a backslash
   // is data, and doubling it would add a second one to the value.
   duckdb: "standard",
+  virtual: "standard",
   oracle: "standard",
   mssql: "standard",
   // Druid quotes a string with single quotes and puts its backslash escapes in the

@@ -90,6 +90,11 @@ export async function createDatabaseProvider(
       return new SQLiteProvider(connection, options, execution);
     }
 
+    case "virtual": {
+      const { VirtualProvider } = await import("./providers/virtual");
+      return new VirtualProvider(connection, options, execution);
+    }
+
     case "duckdb": {
       const { DuckDBProvider } = await import("./providers/sql/duckdb");
       return new DuckDBProvider(connection, options, execution);
@@ -187,7 +192,7 @@ export async function createDatabaseProvider(
         // This list is NOT type-checked against the union - a new case above with no
         // entry here is silent - so it is kept in the same order as the cases and
         // tests/unit/db/factory.test.ts pins individual names in it by regex.
-        `Unknown database type: ${connection.type}. Supported types: postgres, mysql, sqlite, duckdb, libsql, oracle, mssql, clickhouse, druid, trino, cassandra, elasticsearch, opensearch, mongodb, couchbase, redis, libredb`,
+        `Unknown database type: ${connection.type}. Supported types: postgres, mysql, sqlite, virtual, duckdb, libsql, oracle, mssql, clickhouse, druid, trino, cassandra, elasticsearch, opensearch, mongodb, couchbase, redis, libredb`,
         connection.type,
       );
   }

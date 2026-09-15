@@ -506,6 +506,24 @@ const STANDS_ALONE: Record<DatabaseType, readonly string[]> = {
     "timestamp with time zone",
     "datetime",
   ],
+  // A virtual datasource's rows come out of the embedded DuckDB session (§4.44).
+  virtual: [
+    "character varying",
+    "varchar",
+    "nvarchar",
+    "character",
+    "char",
+    "nchar",
+    "text",
+    "binary",
+    "varbinary",
+    "blob",
+    "bytea",
+    "timestamp",
+    "timestamp without time zone",
+    "timestamp with time zone",
+    "datetime",
+  ],
   trino: ["varchar", "varbinary", "timestamp", "timestamp without time zone", "timestamp with time zone"],
   cassandra: ["varchar", "text", "blob", "decimal", "timestamp"],
   druid: NOTHING_STANDS_ALONE,
@@ -665,6 +683,7 @@ const BINARY_LITERAL: Record<DatabaseType, BinaryLiteral> = {
   // `0102DEADBEEF` with `octet_length(payload)` 6, and `unhex('')` inserts the
   // zero-length blob (`octet_length` 0). `0x0102` is a parser error here.
   duckdb: "unhex",
+  virtual: "unhex",
   clickhouse: "unhex",
   couchbase: "text",
 };

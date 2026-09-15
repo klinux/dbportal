@@ -334,7 +334,7 @@ export function assertReadOnlyStatementIsBounded(sql: string): void {
 // ============================================================================
 
 export class DuckDBProvider extends SQLBaseProvider {
-  private client: DuckDBClient | null = null;
+  protected client: DuckDBClient | null = null;
 
   /** True when this instance was opened under the agent read-only profile. */
   private readonly readOnlyProfile: boolean;

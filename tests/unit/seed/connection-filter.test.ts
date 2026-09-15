@@ -213,4 +213,46 @@ describe("filterByRoles: write approval", () => {
     expect(plain).not.toHaveProperty("writeApproval");
     expect(plain).not.toHaveProperty("approverRoles");
   });
+
+  // A virtual datasource (§4.44) opens for whoever opens every member; it writes for nobody
+  // and carries its members' export rules so the one export gate can ask them.
+  it("lists a virtual datasource only to a session that opens every member, read-only, with the members' export rules", () => {
+    const orders: SeedConnection = { ...baseConn, id: "orders", roles: ["*"], environment: "staging" };
+    const crm: SeedConnection = {
+      ...baseConn,
+      id: "crm",
+      type: "mysql",
+      roles: ["group:backend"],
+      exportRoles: ["group:backend"],
+      environment: "staging",
+    };
+    const virtual: SeedConnection = {
+      id: "orders-crm",
+      name: "Orders x CRM",
+      type: "virtual",
+      members: ["orders", "crm"],
+      roles: ["*"],
+      environment: "staging",
+    };
+    const all = [orders, crm, virtual];
+    expect(filterByRoles(all, ["*", "user"]).map((c) => c.seedId)).toEqual(["orders"]);
+    const listed = filterByRoles(all, ["*", "user", "group:backend"]);
+    expect(listed.map((c) => c.seedId)).toEqual(["orders", "crm", "orders-crm"]);
+    const managed = listed[2];
+    expect(managed.members).toEqual(["orders", "crm"]);
+    expect(managed.writeRoles).toEqual([]);
+    expect(managed.memberExportRules).toEqual([
+      { environment: "staging", exportRoles: undefined },
+      { environment: "staging", exportRoles: ["group:backend"] },
+    ]);
+    // A member that vanished from the declaration closes the virtual rather than opening a hole.
+    expect(filterByRoles([orders, virtual], ["*", "user", "group:backend"]).map((c) => c.seedId)).toEqual(["orders"]);
+    // Its own roles still apply first.
+    expect(
+      filterByRoles(
+        all.map((c) => (c.id === "orders-crm" ? { ...c, roles: ["admin"] } : c)),
+        ["*", "user", "group:backend"],
+      ).map((c) => c.seedId),
+    ).toEqual(["orders", "crm"]);
+  });
 });

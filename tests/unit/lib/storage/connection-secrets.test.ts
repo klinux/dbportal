@@ -104,6 +104,7 @@ describe("the classification is exhaustive by construction", () => {
         // the server publishes itself in `system.local.data_center`, so `public`.
         "localDataCenter",
         "managed",
+        "members",
         "name",
         "password",
         "port",

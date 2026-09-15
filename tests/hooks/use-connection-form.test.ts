@@ -1284,6 +1284,9 @@ describe("useConnectionForm", () => {
     cassandra: true,
     libsql: true,
     duckdb: true,
+    // A virtual datasource (§4.44) is declared with its members, which the sheet cannot
+    // pick yet: the seed file declares it, and the picker leaves it out until it can.
+    virtual: false,
   };
 
   test("dbTypes offers every database type a connection can carry", () => {

@@ -26,7 +26,9 @@ import type { DatabaseType } from "@/lib/types";
  * Imports nothing but the type union on purpose. It is read by the unauthenticated login
  * hero, and a provider module here would drag `oracledb`/`mssql` toward that bundle.
  */
-export const AGENT_EXECUTION_ENGINES: readonly DatabaseType[] = ["postgres", "sqlite", "duckdb"];
+// A virtual datasource (§4.44) reads through the DuckDB session's own read-only path, in a
+// locked session, so an agent may execute against one the way it does against DuckDB.
+export const AGENT_EXECUTION_ENGINES: readonly DatabaseType[] = ["postgres", "sqlite", "duckdb", "virtual"];
 
 /**
  * Names, joined the way a sentence joins them: `a`, `a and b`, `a, b and c`.

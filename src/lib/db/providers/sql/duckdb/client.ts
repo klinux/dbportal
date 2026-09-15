@@ -76,6 +76,8 @@ export interface DuckDBClient {
 
 export interface DuckDBOpenOptions {
   readOnly: boolean;
+  /** Instance settings beyond the read-only pair (§4.44: a memory ceiling, a thread count). */
+  config?: Record<string, string>;
 }
 
 // ============================================================================
@@ -171,10 +173,14 @@ export async function openDuckDBClient(path: string, options: DuckDBOpenOptions)
   let instance: DuckDBInstance;
   let connection: DuckDBConnection;
   try {
-    instance = await Instance.create(
-      path,
-      options.readOnly ? { access_mode: "READ_ONLY", enable_external_access: "false" } : {},
-    );
+    // Where the engine keeps its extensions (§4.44): the image bakes the ones it needs into a
+    // directory it names, since the runtime filesystem is read-only and has no network.
+    const extensions = process.env.DUCKDB_EXTENSION_DIR?.trim();
+    instance = await Instance.create(path, {
+      ...(extensions ? { extension_directory: extensions } : {}),
+      ...(options.readOnly ? { access_mode: "READ_ONLY", enable_external_access: "false" } : {}),
+      ...options.config,
+    });
     connection = await instance.connect();
   } catch (error) {
     throw describeOpenFailure(error, path, options.readOnly);

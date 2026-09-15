@@ -825,6 +825,42 @@ built. Each lands as its own section when done.
   partition is the split by kind. SQLite is single-instance and keeps one table. Verified
   on a real PostgreSQL in CI, the migration path included.
 
+- **4.44 Virtual datasources — in progress (asked 2026-09-15).** Two to eight PostgreSQL
+  or MySQL datasources of the same environment opened as one, so a statement joins
+  `orders.public.pedidos` with `crm.crm.clientes`. The design is the artifact the team
+  reviewed (an embedded DuckDB session per person that attaches every member read-only
+  under the credentials that person resolves, then locks itself); the prototype measured
+  first: a million rows joined with two hundred thousand across PostgreSQL and MySQL in
+  170 ms with the filters pushed down, the lock refusing every attach, load, file read and
+  setting change ([`docs/providers/virtual.md`](providers/virtual.md)).
+  **First step: declared, resolved, explored, read.** `type: virtual` with `members` in the
+  seed file and the admin API ([`src/lib/seed/types.ts`](../src/lib/seed/types.ts): the
+  declaration refuses an address, a credential, an SSH profile or a write rule; the config
+  refuses a member missing, virtual, of another engine or environment, or behind a
+  bastion). Who may open it is whoever may open every member, on top of its own roles
+  ([`connection-filter.ts`](../src/lib/seed/connection-filter.ts)); it writes for nobody
+  (`writeRoles: []`) and exports only where every member allows (`memberExportRules`,
+  read by the one `canExport`). `resolveConnection` resolves each member as the person,
+  a closed member the same 403 it would be alone. The provider
+  ([`src/lib/db/providers/virtual/index.ts`](../src/lib/db/providers/virtual/index.ts))
+  extends the DuckDB one: `:memory:` with a memory ceiling, the extensions loaded from
+  `DUCKDB_EXTENSION_DIR` (the image bakes `postgres` and `mysql` in), every member
+  attached `READ_ONLY` under its id, then `enable_external_access = false` and
+  `lock_configuration = true`. The session lives in a child process
+  ([`runner.mjs`](../src/lib/db/providers/virtual/runner.mjs), JSON lines over stdio, the
+  credentials on stdin): the extensions and the attaches are native code, a fault there is
+  a segfault, and one was seen in the studio on the first probe of a virtual datasource
+  beside the other embedded engines - in the child it ends one session, and the person is
+  told the session is gone. A statement is refused before the engine when it is not a
+  read, carries a DuckDB read-only word, or reaches `postgres_query` / `mysql_query`,
+  `SET`, `CREATE`, `DETACH`. The members are the explorer's catalogs, the first standing in
+  for the session default so first paint opens somewhere. A query on it runs where every
+  editor query runs today, in the studio's process, through the same route, policy, limits,
+  masking and audit. Verified on two real PostgreSQL databases in CI (a join with its
+  filter pushed down, the lock, the catalogs). Still to come: the admin sheet's members
+  editor, masking by member, an audit line per member, and export, runbooks and alerts on a
+  virtual datasource.
+
 ## 5. Decisions already taken
 
 - **TypeScript stays.** The 50k-line driver layer is the main asset; rewriting the backend

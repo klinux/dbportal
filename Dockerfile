@@ -114,6 +114,26 @@ COPY --from=builder /usr/src/app/node_modules/@libredb/libredb ./node_modules/@l
 COPY --from=builder /usr/src/app/node_modules/@duckdb ./node_modules/@duckdb
 COPY --from=builder /usr/src/app/node_modules/detect-libc ./node_modules/detect-libc
 
+# The DuckDB extensions a virtual datasource loads (docs/CONTEXT.md §4.44): fetched here,
+# at build time, into a directory the image names, because the runtime filesystem is
+# read-only and the pod has no network to the extension repository. `INSTALL` at runtime
+# would fail on both counts, and LOAD alone finds them here.
+# The virtual session runner (docs/CONTEXT.md §4.44) lives next to node_modules so its
+# import of @duckdb/node-api resolves, and outside the Next.js bundle, which cannot spawn
+# one of its own files by path.
+COPY src/lib/db/providers/virtual/runner.mjs ./lib/virtual-runner.mjs
+ENV DBPORTAL_VIRTUAL_RUNNER=/app/lib/virtual-runner.mjs
+ENV DUCKDB_EXTENSION_DIR=/app/duckdb-extensions
+RUN mkdir -p /app/duckdb-extensions && node -e "\
+  const { DuckDBInstance } = require('@duckdb/node-api'); \
+  (async () => { \
+    const db = await DuckDBInstance.create(':memory:', { extension_directory: '/app/duckdb-extensions' }); \
+    const c = await db.connect(); \
+    await c.run('INSTALL postgres'); await c.run('INSTALL mysql'); \
+    await c.run('LOAD postgres'); await c.run('LOAD mysql'); \
+    c.disconnectSync(); db.closeSync(); console.log('duckdb extensions: postgres, mysql'); \
+  })().catch((e) => { console.error(e); process.exit(1); })"
+
 # Copy the Oracle driver (#538). It is pure JavaScript in its default Thin mode,
 # which is why it was never copied before, but Thick mode
 # (ORACLE_CLIENT_LIB_DIR) makes node-oracledb load a native addon and that addon

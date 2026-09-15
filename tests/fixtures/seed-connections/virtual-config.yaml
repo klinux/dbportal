@@ -1,0 +1,30 @@
+version: "1"
+
+defaults:
+  environment: staging
+
+connections:
+  - id: "orders"
+    name: "Orders"
+    type: postgres
+    host: orders.internal
+    database: orders
+    user: app
+    password: "${ORDERS_PASS}"
+    roles: ["*"]
+
+  - id: "crm"
+    name: "CRM"
+    type: mysql
+    host: crm.internal
+    database: crm
+    user: app
+    password: "${CRM_PASS}"
+    roles: ["user", "group:backend"]
+    exportRoles: ["group:backend"]
+
+  - id: "orders-crm"
+    name: "Orders x CRM"
+    type: virtual
+    members: [orders, crm]
+    roles: ["*"]

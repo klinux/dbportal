@@ -333,12 +333,14 @@ describe("wire-compatibility registry", () => {
     for (const engine of WIRE_COMPATIBLE_ENGINES) expect(engine.via).not.toBe("duckdb");
   });
 
-  test("EXTERNAL_DATABASE_TYPES omits the embedded provider and nothing else", () => {
+  test("EXTERNAL_DATABASE_TYPES omits the embedded provider, the virtual datasource and nothing else", () => {
     // The login hero publishes this length as "database engines", so the one thing this
     // list may not contain is the embedded provider: libredb is a store this app carries,
     // not a database a user already runs and points us at. Every other shipped id belongs.
     expect(EXTERNAL_DATABASE_TYPES).not.toContain("libredb");
-    expect(EXTERNAL_DATABASE_TYPES.length).toBe(SHIPPED_DATABASE_TYPES.length - 1);
+    // Nor the virtual datasource (§4.44): members opened as one, not an engine anyone runs.
+    expect(EXTERNAL_DATABASE_TYPES).not.toContain("virtual");
+    expect(EXTERNAL_DATABASE_TYPES.length).toBe(SHIPPED_DATABASE_TYPES.length - 2);
     for (const type of EXTERNAL_DATABASE_TYPES) {
       expect(SHIPPED_DATABASE_TYPES).toContain(type);
     }
@@ -350,7 +352,7 @@ describe("wire-compatibility registry", () => {
     // provider is a driver we ship and not a product anyone connects to, so counting it
     // here overstated the claim by one.
     expect(connectableProductCount()).toBe(EXTERNAL_DATABASE_TYPES.length + WIRE_COMPATIBLE_ENGINES.length);
-    expect(connectableProductCount()).toBe(SHIPPED_DATABASE_TYPES.length + WIRE_COMPATIBLE_ENGINES.length - 1);
+    expect(connectableProductCount()).toBe(SHIPPED_DATABASE_TYPES.length + WIRE_COMPATIBLE_ENGINES.length - 2);
   });
 
   test("a query-only engine always carries a caveat saying so", () => {

@@ -120,4 +120,18 @@ describe("canApprove", () => {
     expect(canApprove({ approverRoles: ["group:dba"] }, { role: "user", groups: ["dba"] })).toBe(true);
     expect(canApprove({ approverRoles: ["group:dba"] }, { role: "admin" })).toBe(false);
   });
+
+  // A virtual datasource's export rule (§4.44) is every member's: one that refuses refuses all.
+  test("canExport with member rules asks every member", () => {
+    const session = { role: "user", username: "ana", groups: ["backend"] };
+    const rules = {
+      memberExportRules: [{ environment: "staging", exportRoles: ["group:backend"] }, { environment: "staging" }],
+    };
+    expect(canExport(rules, session)).toBe(true);
+    expect(canExport(rules, { role: "user", username: "bob" })).toBe(false);
+    expect(canExport({ memberExportRules: [{ environment: "production" }, { environment: "staging" }] }, session)).toBe(
+      false,
+    );
+    expect(canExport({ memberExportRules: [] }, session)).toBe(true);
+  });
 });

@@ -1,4 +1,4 @@
-import { type LucideIcon } from "lucide-react";
+import { type LucideIcon, Layers } from "lucide-react";
 import {
   PostgreSQLIcon,
   MySQLIcon,
@@ -53,6 +53,15 @@ export interface DatabaseUIConfig {
 export type ConnectionField = DatabaseUIConfig["connectionFields"][number];
 
 export const DB_UI_CONFIG: Record<DatabaseType, DatabaseUIConfig> = {
+  // A virtual datasource (§4.44) has no address: its members are declared, not typed.
+  virtual: {
+    icon: Layers,
+    color: "text-hue-purple",
+    label: "Virtual",
+    defaultPort: "",
+    showConnectionStringToggle: false,
+    connectionFields: [],
+  },
   postgres: {
     icon: PostgreSQLIcon,
     color: "text-hue-blue",

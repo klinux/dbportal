@@ -42,6 +42,8 @@ export interface AccessRules {
 export interface ExportRules {
   environment?: string;
   exportRoles?: string[];
+  /** A virtual datasource's members' rules (§4.44): every one must allow. */
+  memberExportRules?: { environment?: string; exportRoles?: string[] }[];
 }
 
 export const GROUP_PRINCIPAL_PREFIX = "group:";
@@ -110,6 +112,7 @@ export function canApprove(rules: { approverRoles?: readonly string[] }, session
  * except on production, where nothing leaves as a file until somebody says who may take it.
  */
 export function canExport(rules: ExportRules, session: AccessSession): boolean {
+  if (rules.memberExportRules !== undefined) return rules.memberExportRules.every((m) => canExport(m, session));
   if (rules.exportRoles !== undefined) return matchesAccess(rules.exportRoles, principalsOf(session));
   return rules.environment !== "production";
 }

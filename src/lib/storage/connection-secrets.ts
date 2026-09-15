@@ -38,6 +38,7 @@ export const CONNECTION_FIELDS: Record<keyof DatabaseConnection, FieldClass> = {
   requireTicket: "public",
   approvalsRequired: "public",
   exportRoles: "public",
+  members: "public",
   canExport: "public",
   serviceName: "public",
   instanceName: "public",

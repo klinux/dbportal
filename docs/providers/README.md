@@ -13,6 +13,7 @@ in lockstep with the code (see the tri-sync rule in [`../../CLAUDE.md`](../../CL
 | SQLite | `sqlite` | SQL (embedded) | `bun:sqlite` (Bun) / `node:sqlite` (Node) | SQL | [sqlite.md](./sqlite.md) |
 | libSQL | `libsql` | SQL (SQLite over a network) | none (HTTP: the Hrana protocol, `POST /v2/pipeline`) | SQL (SQLite) | [libsql.md](./libsql.md) |
 | DuckDB | `duckdb` | SQL (embedded, analytical) | `@duckdb/node-api` (native N-API addon) | SQL (DuckDB) | [duckdb.md](./duckdb.md) |
+| Virtual | `virtual` | PostgreSQL and MySQL members opened as one | the DuckDB driver above, its `postgres` and `mysql` extensions | SQL (DuckDB) | [virtual.md](./virtual.md) |
 | Redis | `redis` | Key-Value | `ioredis` | JSON | [redis.md](./redis.md) |
 | MongoDB | `mongodb` | Document | `mongodb` | JSON (MQL) | [mongodb.md](./mongodb.md) |
 | Couchbase | `couchbase` | Document | none (HTTP: Query + management REST) | SQL (SQL++) | [couchbase.md](./couchbase.md) |

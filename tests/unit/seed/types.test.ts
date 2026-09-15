@@ -419,4 +419,66 @@ describe("SeedConnectionSchema: write approval", () => {
     expect(SeedConnectionSchema.parse(base).guardrails).toBeUndefined();
     expect(SeedConnectionSchema.safeParse({ ...base, guardrails: "off" }).success).toBe(false);
   });
+
+  // A virtual datasource (docs/CONTEXT.md §4.44): members and nothing an engine would need.
+  describe("a virtual datasource", () => {
+    const virtual = {
+      id: "orders-crm",
+      name: "Orders x CRM",
+      type: "virtual",
+      members: ["orders", "crm"],
+      roles: ["*"],
+    };
+    const pg = (id: string, over: Record<string, unknown> = {}) => ({
+      id,
+      name: id,
+      type: "postgres",
+      host: "h",
+      roles: ["*"],
+      ...over,
+    });
+    const config = (connections: unknown[], defaults?: Record<string, unknown>) =>
+      SeedConfigSchema.safeParse({ version: "1", connections, ...(defaults ? { defaults } : {}) });
+
+    it("accepts two to eight distinct members and refuses an address, a credential or a write rule on it", () => {
+      expect(SeedConnectionSchema.safeParse(virtual).success).toBe(true);
+      expect(SeedConnectionSchema.safeParse({ ...virtual, members: ["orders"] }).success).toBe(false);
+      expect(SeedConnectionSchema.safeParse({ ...virtual, members: ["orders", "orders"] }).success).toBe(false);
+      expect(SeedConnectionSchema.safeParse({ ...virtual, members: undefined }).success).toBe(false);
+      for (const field of ["host", "password", "writeRoles", "sshProfile"]) {
+        const value = field === "writeRoles" ? ["admin"] : "x";
+        const result = SeedConnectionSchema.safeParse({ ...virtual, [field]: value });
+        expect(result.success).toBe(false);
+        expect(JSON.stringify(result.error?.issues)).toContain(field);
+      }
+      // members belongs to virtual alone.
+      expect(SeedConnectionSchema.safeParse(pg("orders", { members: ["a", "b"] })).success).toBe(false);
+    });
+
+    it("among the others: every member declared, PostgreSQL or MySQL, of the same environment, not virtual, not through a bastion", () => {
+      expect(config([pg("orders"), pg("crm", { type: "mysql" }), virtual]).success).toBe(true);
+      const refused = (connections: unknown[], word: string, defaults?: Record<string, unknown>) => {
+        const result = config(connections, defaults);
+        expect(result.success).toBe(false);
+        expect(JSON.stringify(result.error?.issues)).toContain(word);
+      };
+      refused([pg("orders"), virtual], "not declared");
+      refused(
+        [pg("orders"), pg("crm", { type: "sqlite", host: undefined, database: "x.db" }), virtual],
+        "PostgreSQL and MySQL",
+      );
+      refused([pg("orders", { environment: "production" }), pg("crm"), virtual], "same environment");
+      refused([pg("orders"), pg("crm"), { ...virtual, environment: "production" }], "same environment");
+      refused([pg("orders"), pg("crm", { sshProfile: "bastion" }), virtual], "SSH profile");
+      refused(
+        [pg("orders"), pg("crm"), virtual, { ...virtual, id: "nested", members: ["orders-crm", "orders"] }],
+        "another virtual",
+      );
+      // The default environment counts as the members' and the virtual's alike.
+      expect(config([pg("orders"), pg("crm"), virtual], { environment: "staging" }).success).toBe(true);
+      expect(
+        config([pg("orders", { environment: "staging" }), pg("crm"), virtual], { environment: "staging" }).success,
+      ).toBe(true);
+    });
+  });
 });

@@ -494,6 +494,31 @@ describe("createDatabaseProvider", () => {
       trino: { port: 8080, database: "tpch" },
       cassandra: { port: 9042, database: "probe", localDataCenter: "datacenter1" } as Partial<DatabaseConnection>,
       libredb: { database: "/tmp/test.libredb" },
+      // A virtual datasource (§4.44) is its resolved members; two PostgreSQL ones here.
+      virtual: {
+        memberConnections: [
+          {
+            id: "seed:a",
+            seedId: "a",
+            name: "A",
+            type: "postgres",
+            host: "h",
+            createdAt: new Date(),
+            managed: true,
+            roles: ["*"],
+          },
+          {
+            id: "seed:b",
+            seedId: "b",
+            name: "B",
+            type: "postgres",
+            host: "h",
+            createdAt: new Date(),
+            managed: true,
+            roles: ["*"],
+          },
+        ],
+      } as unknown as Partial<DatabaseConnection>,
     };
 
     const declaringTypes: string[] = [];
