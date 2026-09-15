@@ -295,5 +295,111 @@ src/
 - **Docker / Helm**: Multi-stage Bun build with standalone Next.js output; these channels resolve their bind address in the container entrypoint, preferring a dual-stack `::` that they verify by connecting an IPv4 client to a throwaway listener, and falling back to `0.0.0.0` where the namespace has no usable IPv6. `HOSTNAME` (chart: `config.bindAddress`) overrules that and is honoured verbatim. Canonical image `ghcr.io/klinux/dbportal`.
 - **Only those two.** The upstream native channels (npx launcher, Homebrew, deb/rpm, Snap, desktop apps) were removed in the snapshot — [docs/CONTEXT.md §6](CONTEXT.md).
 - **Health Check**: `GET /api/db/health`
-- **Stateless API**: API routes are stateless, suitable for horizontal scaling
+- **Stateless API**: API routes keep no state in the process beyond caches; what must be shared lives in the store, which is what lets the roles in [§7](#7-topology-three-roles-what-they-share-how-they-scale) run apart and scale.
 - **Environment**: Configured via `.env.local` (see CLAUDE.md for full variable list). Missing auth secrets are generated on first standalone boot — see [§4.7](#47-standalone-boot-flow-srcinstrumentationts).
+
+## 7. Topology: three roles, what they share, how they scale
+
+One image, three roles, decided per deployment by `DBPORTAL_ROLE`
+([`src/lib/config/role.ts`](../src/lib/config/role.ts); docs/CONTEXT.md §4.30 and §4.40).
+The proxy answers 404 to every path a role does not admit, before any handler runs.
+
+| Role | Answers | Called by | Runs the job queue | Runs the alert scheduler |
+|------|---------|-----------|--------------------|--------------------------|
+| `studio` | everything: pages, session routes, admin API, the execution routes | people, with a session (local accounts or OIDC) | yes by default (`JOBS_WORKER=auto`); `off` once workers run apart | yes, the only one |
+| `agent` | `/api/v1/*` (the bot API), `/api/mcp`, the probes, the scrape | programs, with a service token | never | no |
+| `worker` | the probes and the scrape | nobody | always | no |
+
+Each role is its **own Helm release** of the same chart (`role: studio|agent|worker`), with its
+own Deployment, Service and NetworkPolicy, all pointed at the same store. A single release with
+the default role is a complete install: the studio enqueues and executes its own jobs.
+
+```mermaid
+graph LR
+    People((People)) -->|Ingress or HTTPRoute, session| Studio[studio release]
+    Bots((Bots, MCP clients)) -->|Service token| Agent[agent release]
+    Studio --> Store[(PostgreSQL store<br/>state · audit · approvals · alerts · jobs)]
+    Agent --> Store
+    Worker[worker release] --> Store
+    Studio --> DS[(Datasources)]
+    Agent --> DS
+    Worker --> DS
+    Studio -.credentials at run time.-> Vault[Vault]
+    Agent -.-> Vault
+    Worker -.-> Vault
+    Worker -->|writes| Files[(RWX volume or bucket<br/>exports · backups)]
+    Studio -->|reads| Files
+    Prom[Prometheus] -.scrapes /api/metrics.-> Studio
+    Prom -.-> Agent
+    Prom -.-> Worker
+    Prom -->|dbportal_jobs_queued| KEDA[KEDA] -->|replicas| Worker
+```
+
+### 7.1 What the releases share
+
+- **The store** (`STORAGE_PROVIDER=postgres`): user state, the durable audit trail, approval
+  requests, alerts and channels, freeze windows, named roles, service tokens, and the `jobs`
+  table. It is the only channel between the roles; there is no message broker. A worker claims
+  a job with `FOR UPDATE SKIP LOCKED`, leases it, renews the lease from a heartbeat; an expired
+  lease puts the job back until its attempts run out ([`src/lib/jobs/`](../src/lib/jobs/)).
+- **The datasources**: the seed file (chart: the seed ConfigMap) and the secrets it references,
+  resolved at run time from the environment or from Vault. A job's payload carries the
+  *principals* of the session that asked (user, groups, named roles), never a credential; the
+  worker resolves the datasource the way that person would, so the access rule, the masking
+  and the export rule apply on the worker exactly as on the studio.
+- **Files a worker writes and the studio serves**: `EXPORT_DIR` and `BACKUP_DIR`, a
+  ReadWriteMany volume mounted on `/app/data` in both releases, or the bucket for backups
+  (`BACKUP_GCS_BUCKET`).
+- **The audit trail**: every role writes the same JSON line to stdout and, with server storage,
+  the same `audit_events` table ([`src/lib/audit.ts`](../src/lib/audit.ts)); the SIEM export and
+  the trail alerts read from there.
+
+### 7.2 How a request flows
+
+- **A person in the editor**: the studio runs the statement in the request, synchronously,
+  through policy, freeze windows, approval, masking and audit. By design: the person waits for
+  the result, and a queue would add latency for nothing.
+- **A bot, an alert, a seed, an export, a backup**: the route validates and applies the same
+  policy, enqueues a job, waits a short while (15 to 30 seconds by kind) and answers 202 with
+  the job's id when the worker has not finished; the client polls the job (the Studio, the
+  admin panels, the bot API, the MCP tool). The worker writes progress and the result on the
+  job. One attempt for anything that writes or runs a tool (an execution, a seed, a backup), so
+  a worker that dies mid-run marks the job lost rather than running it twice.
+- **The alert scheduler** runs in the studio only, hands each due alert to the queue and marks
+  it scheduled in the store, so a second studio replica does not hand the same alert over twice.
+
+### 7.3 How each role scales
+
+| Role | Scaler | Constraint |
+|------|--------|------------|
+| `studio` | the chart's HPA on CPU and memory (`autoscaling.enabled`) | a fixed `secrets.jwtSecret` so sessions hold across replicas; the store in PostgreSQL; the AI agent runtime is single-replica unless it runs on its Postgres world |
+| `worker` | KEDA on the queue's depth (`keda.enabled`): `dbportal_jobs_queued` from Prometheus, so many queued jobs per worker, down to zero replicas if wanted | the store in PostgreSQL; the files above shared |
+| `agent` | fixed replicas or the HPA | none of its own; it holds no session and executes nothing |
+
+### 7.4 Perimeter and segregation
+
+- **Entry points.** People reach the studio release through the Ingress or the HTTPRoute
+  ([HELM_CHART.md](HELM_CHART.md)). Programs get the agent release's Service and nothing else;
+  its tokens reach the datasources the token names, with the token's own rules. The worker has
+  no entry point beyond the metrics scrape.
+- **Network policy** (`networkPolicy.enabled`), per release: ingress only on the app's port;
+  egress to DNS, 443 and the common database ports, plus what `additionalEgress` adds (Vault,
+  a database on another port, an SSH bastion). Non-administrators may register webhook and
+  Slack channels only against hosts in `CALLBACK_ALLOWED_HOSTS`.
+- **Credentials.** A database credential lives in the seed file as an environment reference or
+  in Vault, is read when a connection is opened, and never sits in the store, in a job's
+  payload, in an audit line or in the browser. The store's own sensitive documents are
+  encrypted at rest with `STORAGE_ENCRYPTION_KEY`.
+- **What a compromise reaches.** A compromised agent pod holds service tokens' reach and no
+  session, no admin API, no store write beyond executions and audit. A compromised worker pod
+  holds what a job's principals reach, for the jobs it claims. A compromised studio pod holds
+  everything the studio holds; that is the release to guard hardest, and the reason the other
+  two exist.
+
+### 7.5 What still runs in one place
+
+- The interactive editor's queries, in the studio's process, by design.
+- The alert scheduler, in each studio replica; the store keeps it from double-handing an alert,
+  but there is no leader election.
+- The agent role uses the same datasource credentials as the studio, under the token's rules;
+  read-only credentials of its own would be the next layer of segregation (docs/CONTEXT.md §4.40).

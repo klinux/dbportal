@@ -130,7 +130,9 @@ enough to start. When the studio should only serve people, add a **third release
 the studio; with KEDA in the cluster, `keda.enabled` grows the workers on the queue's depth
 (chart README, "Workers, run apart and scaled on the queue"). Two things must then be
 shared: `BACKUP_DIR` and `EXPORT_DIR`, which a worker writes and the studio reads - one
-ReadWriteMany volume on `/app/data` in both releases, or the bucket for backups.
+ReadWriteMany volume on `/app/data` in both releases, or the bucket for backups. The whole
+picture - the three roles, what they share, how each scales, the perimeter - is
+[ARCHITECTURE.md](ARCHITECTURE.md) §7.
 
 ## 10. Day two
 

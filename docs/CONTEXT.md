@@ -749,7 +749,9 @@ built. Each lands as its own section when done.
   `JOBS_WORKER=off` on the studio release once workers run apart. The operator guide and
   the chart README carry the recipe and the one constraint: `EXPORT_DIR` and `BACKUP_DIR`
   shared between the releases, or the bucket. Still in the studio's process: the editor's
-  own queries (by design, the person waits).
+  own queries (by design, the person waits). The topology the six steps add up to - the
+  three roles, what they share, how each scales, the perimeter - is
+  [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) §7.
 
 ## 5. Decisions already taken
 
