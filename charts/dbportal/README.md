@@ -36,9 +36,12 @@ helm install libredb libredb/dbportal \
   --set secrets.adminPassword=MyAdmin123
 ```
 
-Once the chart is published to a registry, the same release installs as
-`helm install libredb <registry>/dbportal --version 0.1.3` (the chart version this tag
-carries; `bun run chart:check` keeps this line and `Chart.yaml` together).
+Once the chart is published to a registry, the same release installs with the chart
+version this tag carries (`bun run chart:check` keeps this line and `Chart.yaml` together):
+
+```bash
+helm install libredb <registry>/dbportal --version 0.1.3
+```
 
 ### Installing from a checkout
 
