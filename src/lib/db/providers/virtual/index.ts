@@ -7,6 +7,7 @@ import { findCodeWord } from "@/lib/sql/words";
 import { logger } from "@/lib/logger";
 import type { ManagedConnection } from "@/lib/seed/types";
 import { DuckDBProvider, assertReadOnlyStatementIsBounded, mapDuckDBError } from "../sql/duckdb";
+import type { DuckDBClient } from "../sql/duckdb/client";
 import { openVirtualClient } from "./client";
 
 /**
@@ -152,6 +153,10 @@ export class VirtualProvider extends DuckDBProvider {
   /** The session: opened in its own process, the extensions loaded, every member attached read-only, then locked. */
   public override async connect(): Promise<void> {
     if (this.client) return;
+    // Named before the open, not by the constant the open assigns: a child that dies while
+    // opening reports itself before that assignment exists, and a closure over the constant
+    // then throws a ReferenceError inside the child's exit handler - an uncaught exception.
+    let session: DuckDBClient | null = null;
     try {
       const client = await openVirtualClient(
         this.bootstrapStatements(),
@@ -166,13 +171,14 @@ export class VirtualProvider extends DuckDBProvider {
           // A child that died leaves no client behind: the provider cache sees a provider that
           // is not connected and opens a new session on the next request.
           onGone: () => {
-            if (this.client === client) {
+            if (session !== null && this.client === session) {
               this.client = null;
               this.setConnected(false);
             }
           },
         },
       );
+      session = client;
       this.client = client;
       this.setConnected(true);
       logger.debug("Virtual datasource session opened", {

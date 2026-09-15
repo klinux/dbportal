@@ -89,7 +89,13 @@ export async function openVirtualClient(
     gone = new VirtualSessionError(why);
     for (const waiting of pending.values()) waiting.reject(gone);
     pending.clear();
-    options.onGone?.(why);
+    // Told from the child's exit handler: whatever the callback does, it must not become an
+    // uncaught exception there.
+    try {
+      options.onGone?.(why);
+    } catch (error) {
+      logger.error("Virtual session onGone failed", error, { route: "db/virtual" });
+    }
   };
   child.on("exit", (code, signal) => {
     const why = signal ? `The virtual session ended with ${signal}` : `The virtual session ended (exit ${code ?? "?"})`;

@@ -83,8 +83,17 @@ describe("virtual session client", () => {
     expect((await client.run("SELECT 1")).rows).toEqual([]);
     client.close();
     await new Promise((r) => setTimeout(r, 200));
-    // A child that never answers and then exits is the open failing with the session ended.
+    // A child that never answers and then exits is the open failing with the session ended,
+    // and a gone callback that throws is one error line, never an uncaught exception.
     const deaf = () => spawn("sleep", ["0.3"], { stdio: ["pipe", "pipe", "pipe"] });
-    await expect(openVirtualClient([], {}, { spawnRunner: deaf })).rejects.toThrow(/ended/);
+    const throwing = () => {
+      throw new Error("callback broke");
+    };
+    await expect(openVirtualClient([], {}, { spawnRunner: deaf, onGone: throwing })).rejects.toThrow(/ended/);
+    expect(errorLog).toHaveBeenCalledWith(
+      "Virtual session onGone failed",
+      expect.any(Error),
+      expect.objectContaining({ route: "db/virtual" }),
+    );
   });
 });

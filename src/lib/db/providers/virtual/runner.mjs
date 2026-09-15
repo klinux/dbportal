@@ -37,7 +37,18 @@ function failure(id, error) {
 async function open(request) {
   instance = await DuckDBInstance.create(":memory:", request.config ?? {});
   connection = await instance.connect();
-  for (const sql of request.bootstrap ?? []) await connection.run(sql);
+  for (const sql of request.bootstrap ?? []) {
+    try {
+      await connection.run(sql);
+    } catch (error) {
+      // A developer's machine has no extension baked in: install it once, then load. The
+      // image has them and no network, so a failing LOAD there stays the error it is.
+      const load = /^LOAD (\w+)$/.exec(sql);
+      if (!load) throw error;
+      await connection.run(`INSTALL ${load[1]}`);
+      await connection.run(sql);
+    }
+  }
 }
 
 async function run(request) {

@@ -14,6 +14,7 @@ let failOn: string | null = null;
 let opened: { bootstrap: readonly string[]; config: Record<string, unknown> }[] = [];
 const closed = mock(() => {});
 let lastGone: ((why: string) => void) | undefined;
+let goneDuringOpen = false;
 mock.module("@/lib/db/providers/virtual/client", () => ({
   openVirtualClient: async (
     bootstrap: readonly string[],
@@ -22,6 +23,10 @@ mock.module("@/lib/db/providers/virtual/client", () => ({
   ) => {
     opened.push({ bootstrap, config });
     lastGone = options?.onGone;
+    if (goneDuringOpen) {
+      options?.onGone?.("The virtual session ended while opening");
+      throw new Error("The virtual session ended while opening");
+    }
     // The runner runs the bootstrap first; a statement that fails there is the open failing.
     for (const sql of bootstrap) {
       runs.push(sql);
@@ -91,6 +96,7 @@ describe("virtual provider", () => {
     runs.length = 0;
     opened = [];
     failOn = null;
+    goneDuringOpen = false;
     closed.mockClear();
   });
 
@@ -134,6 +140,18 @@ describe("virtual provider", () => {
     const provider = new VirtualProvider(virtual([member({ seedId: "orders" }), member({ seedId: "crm" })]));
     await expect(provider.connect()).rejects.toThrow();
     expect(provider.isConnected()).toBe(false);
+  });
+
+  // The child can die before the open resolves (an extension that does not load); the gone
+  // callback then runs before any client exists and must neither throw nor touch the provider.
+  test("a child gone while opening is told before the client exists, and the open fails cleanly", async () => {
+    goneDuringOpen = true;
+    const provider = new VirtualProvider(virtual([member({ seedId: "orders" }), member({ seedId: "crm" })]));
+    await expect(provider.connect()).rejects.toThrow("ended while opening");
+    expect(provider.isConnected()).toBe(false);
+    goneDuringOpen = false;
+    await provider.connect();
+    expect(provider.isConnected()).toBe(true);
   });
 
   test("a read runs; a write, a DuckDB read-only word or a pass-through function is refused before the engine", async () => {
