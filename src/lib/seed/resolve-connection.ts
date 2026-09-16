@@ -1,4 +1,5 @@
 import type { DatabaseConnection } from "@/lib/types";
+import { withStoredSecret } from "@/lib/datasources/store";
 import { getSeedConnectionById, getSeedConnectionByIdUnfiltered, type ManagedConnection } from "./index";
 import { logger } from "@/lib/logger";
 import { auditRoleDenial } from "@/lib/api/role-denial";
@@ -129,7 +130,8 @@ export async function resolveDraftConnection(
   }
   let resolved: DatabaseConnection;
   try {
-    resolved = resolveEnvPlaceholders(connection);
+    // An edit of a shared datasource is tested with the secret the store holds (§4.48).
+    resolved = resolveEnvPlaceholders(await withStoredSecret(connection));
   } catch (error) {
     throw new SeedConnectionError(error instanceof Error ? error.message : String(error), 400);
   }

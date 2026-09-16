@@ -903,6 +903,16 @@ built. Each lands as its own section when done.
   `ConnectionParameters` what it would use, so the two cannot disagree again. Not done: a CA
   for the store (`verify-full` against Cloud SQL's own CA) - the pool has no channel for a
   PEM yet.
+- **4.48 An edited datasource tested with the secret the store holds — done (found
+  2026-09-16).** The sheet never knows a shared datasource's password (it comes back as a
+  fact: `hasPassword`, `passwordVault`), so an edit was tested with a blank one, the engine
+  refused it ("client password must be a string"), and the change could not be saved at
+  all. `withStoredSecret` ([`src/lib/datasources/store.ts`](../src/lib/datasources/store.ts))
+  lends the stored password, connection string and client key to a draft that is still the
+  same datasource - the same id, engine, host, port, user and database - and to nothing
+  else, so a credential nobody may read cannot be pointed at another host through the test;
+  a draft that moves the datasource types the password again. `resolveDraftConnection`
+  applies it before the `${ENV}` and Vault references.
 - **4.45 Secrets the chart has no field for — done (asked 2026-09-16).** Deploying the
   three roles from one GitOps repository needed `METRICS_TOKEN`, `STORAGE_ENCRYPTION_KEY`,
   `VAULT_TOKEN` and the passwords a seed file refers to, and the chart offered `extraEnv`

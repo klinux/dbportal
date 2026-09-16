@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
+import type { DatabaseConnection } from "@/lib/types";
 
 /**
  * The shared datasource store (docs/CONTEXT.md §4.1 step B) against an in-memory stand-in
@@ -28,6 +29,7 @@ mock.module("@/lib/storage/factory", () => ({
 const {
   SharedDatasourceError,
   createSharedDatasource,
+  withStoredSecret,
   deleteSharedDatasource,
   isSharedStoreAvailable,
   listSharedDatasources,
@@ -127,6 +129,44 @@ describe("shared datasource store", () => {
     const replaced = await updateSharedDatasource("prod-orders", { ...valid, password: "new" }, "admin");
     expect(replaced.password).toBe("new");
     expect(replaced.ssl).toBeUndefined();
+  });
+
+  // §4.48: the sheet never knows the password, so an edit is tested with a blank one; the
+  // store lends the secret only to a draft that is still the same datasource.
+  it("lends the stored secret to a draft of the same datasource, and to nothing else", async () => {
+    await createSharedDatasource(
+      { ...valid, id: "orders", password: "vault:kv:secret/db/orders#password", ssl: { mode: "require", clientKey: "k" } },
+      "root",
+    );
+    const draft = {
+      ...valid,
+      id: "orders",
+      type: "postgres" as const,
+      password: "",
+      ssl: { mode: "require" as const },
+      createdAt: new Date(),
+    } as DatabaseConnection;
+    const lent = await withStoredSecret(draft);
+    expect(lent.password).toBe("vault:kv:secret/db/orders#password");
+    expect(lent.ssl).toEqual({ mode: "require", clientKey: "k" });
+    // The port compared as a value, however the form spelt it.
+    expect((await withStoredSecret({ ...draft, port: String(valid.port) as unknown as number })).password).toBe(
+      "vault:kv:secret/db/orders#password",
+    );
+    // A draft that moves the datasource, or types a secret, or names nothing stored, gets nothing.
+    for (const other of [
+      { ...draft, host: "elsewhere.internal" },
+      { ...draft, user: "other" },
+      { ...draft, port: 5433 },
+      { ...draft, password: "typed" },
+      { ...draft, connectionString: "postgresql://x" },
+      { ...draft, id: "unknown" },
+      { ...draft, id: "" },
+    ]) {
+      const kept = await withStoredSecret(other);
+      expect(kept.password).toBe(other.password);
+      expect(kept.ssl?.clientKey).toBeUndefined();
+    }
   });
 
   it("updates by the id in the path, whatever the body says", async () => {

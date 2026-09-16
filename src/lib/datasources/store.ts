@@ -185,6 +185,31 @@ export async function deleteSharedDatasource(id: string): Promise<SharedDatasour
   return existing;
 }
 
+/**
+ * The stored secret lent to a draft that re-tests a shared datasource without re-typing it
+ * (docs/CONTEXT.md §4.48): the sheet never knows the password, so an edit is tested with a
+ * blank one and failed at the engine before the change could be saved. Lent only while the
+ * draft is the same datasource - the same id, engine, host, port, user and database - so the
+ * stored credential cannot be pointed at another host by somebody who may not read it; a
+ * draft that moves the datasource types the password again. Nothing is lent when the draft
+ * carries a password or a connection string of its own.
+ */
+export async function withStoredSecret<T extends DatabaseConnection>(draft: T): Promise<T> {
+  if (!draft.id || draft.password || draft.connectionString) return draft;
+  const stored = (await listSharedDatasources()).find((r) => r.id === draft.id);
+  if (!stored) return draft;
+  const same = (["type", "host", "user", "database"] as const).every((k) => (stored[k] ?? "") === (draft[k] ?? ""));
+  if (!same || String(stored.port ?? "") !== String(draft.port ?? "")) return draft;
+  return {
+    ...draft,
+    ...(stored.password ? { password: stored.password } : {}),
+    ...(stored.connectionString ? { connectionString: stored.connectionString } : {}),
+    ...(draft.ssl && !draft.ssl.clientKey && stored.ssl?.clientKey
+      ? { ssl: { ...draft.ssl, clientKey: stored.ssl.clientKey } }
+      : {}),
+  };
+}
+
 /** What leaves the server: the record with every secret replaced by a fact about it. */
 export function toSharedDatasourceView(record: SharedDatasourceRecord): SharedDatasourceView {
   const { password, connectionString, ssl, ...rest } = record;
