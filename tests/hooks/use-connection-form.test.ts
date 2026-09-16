@@ -202,10 +202,9 @@ describe("useConnectionForm", () => {
   // the ids picked and no host, port, user or password, whatever their state holds.
   test("a virtual datasource carries its members and no address; an edited one shows them; closing clears them", async () => {
     const onConnect = mock((_connection: DatabaseConnection) => {});
-    const { result, rerender } = renderHook(
-      (props: Parameters<typeof useConnectionForm>[0]) => useConnectionForm(props),
-      { initialProps: { ...defaultProps, onConnect, onTestConnection: async () => ({ success: true }) } },
-    );
+    type Props = Parameters<typeof useConnectionForm>[0];
+    const initial: Props = { ...defaultProps, onConnect, onTestConnection: async () => ({ success: true }) };
+    const { result, rerender } = renderHook((props: Props) => useConnectionForm(props), { initialProps: initial });
     expect(result.current.members).toEqual([]);
     act(() => {
       result.current.setType("virtual");
