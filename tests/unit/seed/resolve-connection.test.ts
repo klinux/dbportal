@@ -194,6 +194,7 @@ describe("resolve-connection", () => {
   describe("Vault references", () => {
     const savedAddr = process.env.VAULT_ADDR;
     const savedToken = process.env.VAULT_TOKEN;
+    const savedRenew = process.env.VAULT_TOKEN_RENEW;
     type FetchLike = (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
     const fetchHolder = globalThis as unknown as { fetch: FetchLike };
     let fetchSpy: ReturnType<typeof spyOn<{ fetch: FetchLike }, "fetch">>;
@@ -204,6 +205,8 @@ describe("resolve-connection", () => {
       resetVaultCache();
       process.env.VAULT_ADDR = "https://vault.internal";
       process.env.VAULT_TOKEN = "s.token";
+      // The token's self-renewal is the client's own test; off here so every request counted is a secret's.
+      process.env.VAULT_TOKEN_RENEW = "off";
       fetchSpy = spyOn(fetchHolder, "fetch").mockImplementation(
         async () =>
           new Response(JSON.stringify({ lease_duration: 60, data: { username: "v-ana", password: "issued-pw" } }), {
@@ -222,6 +225,8 @@ describe("resolve-connection", () => {
       else process.env.VAULT_ADDR = savedAddr;
       if (savedToken === undefined) delete process.env.VAULT_TOKEN;
       else process.env.VAULT_TOKEN = savedToken;
+      if (savedRenew === undefined) delete process.env.VAULT_TOKEN_RENEW;
+      else process.env.VAULT_TOKEN_RENEW = savedRenew;
     });
 
     it("resolves a seed datasource's db reference for the session's person", async () => {

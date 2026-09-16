@@ -74,12 +74,15 @@ describe("resolveConnection with SSH profiles", () => {
   describe("a profile whose secret lives in Vault", () => {
     const savedAddr = process.env.VAULT_ADDR;
     const savedToken = process.env.VAULT_TOKEN;
+    const savedRenew = process.env.VAULT_TOKEN_RENEW;
     let fetchSpy: ReturnType<typeof spyOn<{ fetch: FetchLike }, "fetch">>;
     let errorSpy: ReturnType<typeof spyOn<Console, "error">>;
 
     beforeEach(() => {
       process.env.VAULT_ADDR = "https://vault.internal";
       process.env.VAULT_TOKEN = "s.token";
+      // The token's self-renewal is the client's own test; off here so every request counted is a secret's.
+      process.env.VAULT_TOKEN_RENEW = "off";
       fetchSpy = spyOn(fetchHolder, "fetch").mockImplementation(
         async () => new Response(JSON.stringify({ data: { data: { password: "bastion-pw" } } }), { status: 200 }),
       );
@@ -93,6 +96,8 @@ describe("resolveConnection with SSH profiles", () => {
       else process.env.VAULT_ADDR = savedAddr;
       if (savedToken === undefined) delete process.env.VAULT_TOKEN;
       else process.env.VAULT_TOKEN = savedToken;
+      if (savedRenew === undefined) delete process.env.VAULT_TOKEN_RENEW;
+      else process.env.VAULT_TOKEN_RENEW = savedRenew;
     });
 
     it("reads the kv reference and puts the value in the tunnel", async () => {
