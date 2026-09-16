@@ -880,7 +880,12 @@ built. Each lands as its own section when done.
   lifecycle rule. The client is shared ([`src/lib/gcs.ts`](../src/lib/gcs.ts): a token
   from the environment or the metadata server, an upload from a file or from memory, a
   download that is null for a missing object), and the backups' own wrapper keeps its
-  errors as before. Backups themselves can be switched off, `BACKUPS_ENABLED=false`, for a
+  errors as before. The credential, in order: `GOOGLE_OAUTH_ACCESS_TOKEN`; a service account
+  key in `GOOGLE_APPLICATION_CREDENTIALS`, the file's path or the JSON itself (a cluster
+  without Workload Identity, where the metadata server would hand out the node pool's
+  identity), signed into an RS256 JWT with `node:crypto` and exchanged at the key's
+  `token_uri` for an hour's token kept until five minutes before it expires, one exchange
+  at a time; else the metadata server. Backups themselves can be switched off, `BACKUPS_ENABLED=false`, for a
   fleet whose databases the cloud backs up: the panel says so, every backup route answers
   404. Still on the local directory when a bucket is set: nothing for exports; for backups,
   the list and the restore, which read the directory - the bucket only receives a copy.
