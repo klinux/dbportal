@@ -40,7 +40,7 @@ Once the chart is published to a registry, the same release installs with the ch
 version this tag carries (`bun run chart:check` keeps this line and `Chart.yaml` together):
 
 ```bash
-helm install libredb <registry>/dbportal --version 0.1.12
+helm install libredb <registry>/dbportal --version 0.1.13
 ```
 
 ### Installing from a checkout
