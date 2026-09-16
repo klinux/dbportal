@@ -60,7 +60,8 @@ by default, no seeding, no restore.
 
 - **Named roles** (Security → Roles): a name for a set of people and groups (`on-call`,
   `data-platform`) that datasources refer to as `role:<id>`. Change the members once, every
-  rule follows.
+  rule follows. The picker offers every person and group that has signed in, plus whatever a
+  rule already names; a group nobody has signed in with yet is typed as `group:<name>`.
 - **Service tokens** (Security → Service tokens): the identity a bot or an agent presents
   (`Authorization: Bearer dbp_…`), with a role, groups, a datasource allowlist and an
   optional "every request needs approval". The secret is shown once.

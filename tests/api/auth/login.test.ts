@@ -9,6 +9,10 @@ import { RFC6238_SECRET } from "../../helpers/rfc6238";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const mockLogin = mock(async (_role: string, _email?: string) => {});
 
+// The sign-in remembered for the principal picker (§4.49): asserted by what reaches it.
+const mockRemember = mock(async (_username: string) => {});
+mock.module("@/lib/principals-seen", () => ({ rememberSignIn: mockRemember }));
+
 mock.module("@/lib/auth", () => ({
   login: mockLogin,
   signJWT: mock(async () => "mock-token"),
@@ -211,6 +215,7 @@ describe("POST /api/auth/login", () => {
 
     expect(mockLogin).toHaveBeenCalledTimes(1);
     expect(mockLogin).toHaveBeenCalledWith("admin", "admin@libredb.org");
+    expect(mockRemember).toHaveBeenCalledWith("admin@libredb.org");
   });
 
   test("calls login() with role and email for user", async () => {

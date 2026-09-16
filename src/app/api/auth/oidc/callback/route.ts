@@ -1,4 +1,5 @@
 import { getBasePath, withBasePath } from "@/lib/config/base-path";
+import { rememberSignIn } from "@/lib/principals-seen";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { login } from "@/lib/auth";
@@ -92,7 +93,11 @@ export async function GET(request: Request) {
 
     // Create local JWT session (same as password login)
     const username = claims.email || claims.preferred_username || claims.sub || role;
-    await login(role, username, mapOIDCGroups(claims as Record<string, unknown>, oidcConfig.groupsClaim));
+    const groups = mapOIDCGroups(claims as Record<string, unknown>, oidcConfig.groupsClaim);
+    await login(role, username, groups);
+    // So the picker offers this person and their groups before anybody types them (§4.49).
+    // Never throws: the sign-in already happened.
+    await rememberSignIn(String(username), groups);
 
     // Clean up state cookie
     cookieStore.delete({ name: "oidc-state", path: getBasePath() || "/" });

@@ -51,6 +51,15 @@ export interface StorageData {
   alerts: AlertRecord[];
   /** Alerts on the trail (docs/CONTEXT.md §4.32): one document under `shared:channels`. */
   trail_alerts: TrailAlertsConfig;
+  /** The people and groups seen signing in (docs/CONTEXT.md §4.49), under `shared:principals`. */
+  seen_principals: SeenPrincipalRecord[];
+}
+
+/** A principal the identity provider sent at a sign-in: `user:<username>` or `group:<name>`. */
+export interface SeenPrincipalRecord {
+  id: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
 }
 
 /** Collection names that can be synced to server storage */

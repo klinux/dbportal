@@ -1,4 +1,5 @@
 import { login } from "@/lib/auth";
+import { rememberSignIn } from "@/lib/principals-seen";
 import { AuthConfigError } from "@/lib/auth-errors";
 import { getAuthUsers, findAuthUser } from "@/lib/local-auth";
 import { NextRequest, NextResponse } from "next/server";
@@ -190,6 +191,8 @@ export async function POST(request: NextRequest) {
 
     if (matched) {
       await login(matched.role, matched.email);
+      // So the picker offers this person before anybody types them (§4.49). Never throws.
+      await rememberSignIn(matched.email);
       resetRateLimit("login_client", clientKey);
       resetRateLimit("login_account", accountKey);
       // Isolated in its own try/catch, separate from login() above, matching logout and the OIDC

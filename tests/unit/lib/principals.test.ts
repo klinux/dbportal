@@ -2,8 +2,9 @@ import { describe, test, expect, mock } from "bun:test";
 
 /**
  * The known principals (docs/CONTEXT.md §4.37): the built-ins, every named role and its
- * members, every list of every datasource from both sources, every token's groups - each
- * once, with where it was seen first; a store that cannot be read costs its own entries only.
+ * members, every list of every datasource from both sources, every token's groups, every
+ * person and group seen signing in - each once, with where it was seen first; a store that
+ * cannot be read costs its own entries only.
  */
 let sharedFails = false;
 mock.module("@/lib/roles/store", () => ({
@@ -29,6 +30,18 @@ mock.module("@/lib/datasources/store", () => ({
 }));
 mock.module("@/lib/service-tokens/store", () => ({
   listServiceTokens: async () => [{ name: "slack-bot", groups: ["bots", "sre"] }],
+}));
+let seenFails = false;
+mock.module("@/lib/principals-seen", () => ({
+  listSeenPrincipals: async () => {
+    if (seenFails) throw new Error("disk");
+    return [
+      { id: "user:bob@example.test", firstSeenAt: "x", lastSeenAt: "x" },
+      { id: "group:devops", firstSeenAt: "x", lastSeenAt: "x" },
+      // Already named by a role above: kept with its first source.
+      { id: "group:sre", firstSeenAt: "x", lastSeenAt: "x" },
+    ];
+  },
 }));
 
 const { listKnownPrincipals, principalKind } = await import("@/lib/principals");
@@ -56,8 +69,15 @@ describe("known principals", () => {
       "group group:dba <- datasource orders",
       "group group:analysts <- datasource hr",
       "group group:bots <- token slack-bot",
+      "user user:bob@example.test <- signed in",
+      "group group:devops <- signed in",
     ]);
     sharedFails = true;
     expect((await listKnownPrincipals()).some((p) => p.id === "group:analysts")).toBe(false);
+    // The sign-ins that cannot be read cost their own entries only.
+    seenFails = true;
+    const without = await listKnownPrincipals();
+    expect(without.some((p) => p.id === "group:devops")).toBe(false);
+    expect(without.some((p) => p.id === "group:sre")).toBe(true);
   });
 });

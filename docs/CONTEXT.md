@@ -903,6 +903,16 @@ built. Each lands as its own section when done.
   `ConnectionParameters` what it would use, so the two cannot disagree again. Not done: a CA
   for the store (`verify-full` against Cloud SQL's own CA) - the pool has no channel for a
   PEM yet.
+- **4.49 The people and groups seen signing in — done (asked 2026-09-16).** The principal
+  picker (§4.37) offered only what somebody had already typed into a rule, so on a fresh
+  deployment behind an identity provider an administrator saw the two built-in roles and
+  nothing of their own users or groups. Every sign-in now remembers the person
+  (`user:<username>`) and each group the provider sent (`group:<name>`) in one document
+  under `shared:principals` ([`src/lib/principals-seen.ts`](../src/lib/principals-seen.ts)):
+  written only when the sign-in brings a principal the document lacks or has not seen for a
+  day, capped at 5 000 with the longest unseen going first, never failing the sign-in - the
+  store's trouble is a warning. `listKnownPrincipals` adds them with the source "signed in".
+  Still not a directory: a group nobody has signed in with is typed once and then known.
 - **4.48 An edited datasource tested with the secret the store holds — done (found
   2026-09-16).** The sheet never knows a shared datasource's password (it comes back as a
   fact: `hasPassword`, `passwordVault`), so an edit was tested with a blank one, the engine

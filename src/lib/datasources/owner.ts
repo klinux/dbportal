@@ -29,6 +29,8 @@ export const SHARED_ENVIRONMENTS_OWNER = "shared:environments";
 export const SHARED_CHANNELS_OWNER = "shared:channels";
 /** Alerts (docs/CONTEXT.md §4.29). */
 export const SHARED_ALERTS_OWNER = "shared:alerts";
+/** The people and groups seen signing in (docs/CONTEXT.md §4.49). */
+export const SHARED_PRINCIPALS_OWNER = "shared:principals";
 
 /** Every owner id no account may ever be. */
 export const RESERVED_OWNERS: readonly string[] = [
@@ -42,4 +44,5 @@ export const RESERVED_OWNERS: readonly string[] = [
   SHARED_ENVIRONMENTS_OWNER,
   SHARED_CHANNELS_OWNER,
   SHARED_ALERTS_OWNER,
+  SHARED_PRINCIPALS_OWNER,
 ];

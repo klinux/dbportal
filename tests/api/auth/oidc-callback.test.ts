@@ -58,6 +58,10 @@ mock.module("@/lib/oidc", () => ({
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const mockLogin = mock(async (_role: string, _username?: string, _groups?: string[]) => {});
 
+// The sign-in remembered for the principal picker (§4.49): asserted by what reaches it.
+const mockRemember = mock(async (_username: string, _groups?: readonly string[]) => {});
+mock.module("@/lib/principals-seen", () => ({ rememberSignIn: mockRemember }));
+
 mock.module("@/lib/auth", () => ({
   login: mockLogin,
   signJWT: mock(async () => "mock-token"),
@@ -116,6 +120,7 @@ describe("GET /api/auth/oidc/callback", () => {
     expect(mockDecryptState).toHaveBeenCalledWith("encrypted-state-cookie");
     expect(mockExchangeCode).toHaveBeenCalledTimes(1);
     expect(mockLogin).toHaveBeenCalledWith("user", "user@example.com", []);
+    expect(mockRemember).toHaveBeenCalledWith("user@example.com", []);
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toContain("/");
   });

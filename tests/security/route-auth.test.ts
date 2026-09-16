@@ -490,6 +490,8 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/api/environments": "the environment routes' error answer; reaches no provider",
     "@/lib/principals":
       "the principals already named in the seed file, the app's own storage backend and the tokens, gathered once; opens no user database",
+    "@/lib/principals-seen":
+      "the people and groups seen signing in, one document in the app's own storage backend; opens no user database",
     "@/lib/environments/store":
       "environments from the built-ins, the seed file and the app's own storage backend, merged by id; opens no user database",
     "@/lib/api/runbooks": "the runbook routes' error answer and id reader; reaches no provider",
