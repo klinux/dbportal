@@ -47,6 +47,9 @@ const eslintConfig = defineConfig([
     ".claude/**",
     ".loop/**",
     "next-env.d.ts",
+    // website/ is the Starlight documentation site (docs/CONTEXT.md §4.51): its own
+    // package, its own toolchain, and Astro files this config cannot parse.
+    "website/**",
   ]),
   {
     rules: {

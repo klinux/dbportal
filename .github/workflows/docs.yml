@@ -1,0 +1,52 @@
+name: Docs site
+
+# The documentation site (docs/CONTEXT.md §4.51): docs/*.md rendered with Starlight from
+# website/ and published on GitHub Pages at https://klinux.github.io/dbportal/. Runs on a
+# push to main that touches the docs, the README, SECURITY.md, the brand marks or the site
+# itself, and by hand.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "README.md"
+      - "SECURITY.md"
+      - "public/brand/**"
+      - "website/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+        working-directory: website
+      - run: bun run build
+        working-directory: website
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

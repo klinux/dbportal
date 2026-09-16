@@ -1,0 +1,18 @@
+{
+  "name": "dbportal-docs",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The documentation site: docs/*.md rendered with Starlight and published on GitHub Pages",
+  "scripts": {
+    "sync": "node scripts/sync-docs.mjs",
+    "dev": "node scripts/sync-docs.mjs && astro dev",
+    "build": "node scripts/sync-docs.mjs && astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.42.1",
+    "astro": "^7.3.3",
+    "sharp": "^0.34.0"
+  }
+}

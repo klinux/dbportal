@@ -1,0 +1,15 @@
+/* The brand accent on Starlight's tokens; everything else is the theme's own. */
+:root {
+  --sl-color-accent-low: #dbe6ff;
+  --sl-color-accent: #1f6feb;
+  --sl-color-accent-high: #0b3d91;
+}
+:root[data-theme="dark"] {
+  --sl-color-accent-low: #10243f;
+  --sl-color-accent: #4f8dff;
+  --sl-color-accent-high: #c9dcff;
+}
+.sl-markdown-content img {
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 0.5rem;
+}

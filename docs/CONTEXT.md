@@ -955,6 +955,16 @@ built. Each lands as its own section when done.
   the base tab component's dark variants survived the class merge and painted a border and
   a background, so [`admin-tabs.ts`](../src/lib/ui/admin-tabs.ts) overrides them by name and
   the list clips its own height, which was showing a scrollbar.
+- **4.51 The documentation site — done (asked 2026-09-16).** The docs were readable on
+  GitHub and nowhere else. [`website/`](../website/) is an Astro + Starlight site that
+  renders them: `scripts/sync-docs.mjs` copies `docs/**/*.md`, the README and SECURITY.md
+  into the site's content at build time - the first heading becomes the page's title, links
+  between documents become site paths, links into the source tree become GitHub links, the
+  screenshots and the brand marks are staged - and `.github/workflows/docs.yml` publishes
+  the build to GitHub Pages at <https://klinux.github.io/dbportal/> on every push to `main`
+  that touches them. The markdown in the repository stays the only source: nothing is
+  written in the site that also lives in `docs/`, and the generated copy is not committed.
+  The site's folder is outside the app's lint, typecheck and tests.
 - **4.45 Secrets the chart has no field for — done (asked 2026-09-16).** Deploying the
   three roles from one GitOps repository needed `METRICS_TOKEN`, `STORAGE_ENCRYPTION_KEY`,
   `VAULT_TOKEN` and the passwords a seed file refers to, and the chart offered `extraEnv`
