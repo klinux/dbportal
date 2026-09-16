@@ -87,6 +87,12 @@ interface ConnectionModalProps {
   passwordNote?: ReactNode;
   /** Offer the Vault KV browser that fills the connection fields (admin sheets only, docs/CONTEXT.md §4.39). */
   vaultPicker?: boolean;
+  /**
+   * The datasources a virtual one may open as members (docs/CONTEXT.md §4.44): every declared
+   * PostgreSQL and MySQL datasource, from the seed file and the store, with its environment.
+   * Absent where the form is not an admin's.
+   */
+  memberCandidates?: { id: string; name: string; type: DatabaseType; environment?: string }[];
 }
 
 export function ConnectionModal({
@@ -102,6 +108,7 @@ export function ConnectionModal({
   securityFields,
   passwordNote,
   vaultPicker = false,
+  memberCandidates,
 }: ConnectionModalProps) {
   const isMobile = useIsMobile();
   const {
@@ -171,6 +178,10 @@ export function ConnectionModal({
     sshProfile,
     setSshProfile,
 
+    // A virtual datasource's members (§4.44)
+    members,
+    setMembers,
+
     // Handlers
     handleTestConnection,
     handleConnect,
@@ -193,6 +204,17 @@ export function ConnectionModal({
   // Couchbase pins one bucket per connection (issue #262, decision 4), so the shared
   // `database` field holds a bucket name and the form must say so.
   const isCouchbase = type === "couchbase";
+  // A virtual datasource (§4.44) has no address, credential, SSL or tunnel of its own: it is
+  // two to eight declared PostgreSQL and MySQL datasources of one environment, opened as one.
+  const isVirtual = type === "virtual";
+  const eligibleMembers = (memberCandidates ?? []).filter(
+    (c) =>
+      (c.type === "postgres" || c.type === "mysql") &&
+      (c.environment ?? "local") === environment &&
+      c.id !== editConnection?.id,
+  );
+  const toggleMember = (id: string, on: boolean) =>
+    setMembers(on ? [...members.filter((m) => m !== id), id] : members.filter((m) => m !== id));
   // Trino pins one CATALOG the same way (issue #424 Phase 2). "Database" would be the
   // wrong word twice over: a Trino catalog is a whole external system (`hive`,
   // `iceberg`, `tpch`), and the field is the one thing a user cannot guess - a
@@ -246,7 +268,7 @@ export function ConnectionModal({
           <div className="flex items-center justify-between">
             <p className="text-xs text-fg-muted">{description}</p>
             <div className="flex items-center gap-1 shrink-0">
-              {vaultPicker && (
+              {vaultPicker && !isVirtual && (
                 <VaultSecretPicker
                   onPick={(picked) => {
                     if (picked.fields.host) setHost(picked.fields.host);
@@ -515,6 +537,47 @@ export function ConnectionModal({
                       />
                     </div>
                   </>
+                ) : isVirtual ? (
+                  <div className="space-y-2" data-testid="virtual-members">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Database strokeWidth={1.5} className="w-3 h-3 text-fg-muted" />
+                      <Label className="text-xs font-medium text-fg-muted">Members</Label>
+                    </div>
+                    <p className="text-xs text-fg-muted leading-relaxed">
+                      Two to eight PostgreSQL or MySQL datasources of this environment, opened as one: each
+                      becomes a catalog named by its id, so a statement joins them. Whoever may open every
+                      member may open this; it never writes.
+                    </p>
+                    {eligibleMembers.length === 0 ? (
+                      <p className="text-xs text-status-warning" data-testid="virtual-members-empty">
+                        No PostgreSQL or MySQL datasource is declared in this environment yet. Declare the members
+                        first, then come back.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                        {eligibleMembers.map((candidate) => (
+                          <label
+                            key={candidate.id}
+                            className="flex items-center gap-2 rounded-md border border-hairline bg-panel px-3 py-2 text-xs cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              className="accent-brand-solid"
+                              checked={members.includes(candidate.id)}
+                              onChange={(e) => toggleMember(candidate.id, e.target.checked)}
+                              aria-label={`Member ${candidate.name}`}
+                            />
+                            <span className="font-medium truncate">{candidate.name}</span>
+                            <span className="ml-auto font-mono text-[10px] text-fg-muted">{candidate.id}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    {members.length > 0 && members.length < 2 && (
+                      <p className="text-xs text-fg-muted">Pick at least one more: a virtual datasource joins two or more.</p>
+                    )}
+                    {members.length > 8 && <p className="text-xs text-status-danger">At most eight members.</p>}
+                  </div>
                 ) : isFileBased(type) ? (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 mb-1">
@@ -807,7 +870,7 @@ export function ConnectionModal({
             )}
 
             {/* SSL/TLS & SSH Panels - only for non-file-based providers */}
-            {!isFileBased(type) && (
+            {!isFileBased(type) && !isVirtual && (
               <div className="space-y-2">
                 {/* SSL/TLS Toggle */}
                 <button
@@ -1011,6 +1074,7 @@ export function ConnectionModal({
               onClick={handleConnect}
               disabled={
                 isTesting ||
+                (isVirtual && (members.length < 2 || members.length > 8)) ||
                 (getDBConfig(type).showConnectionStringToggle &&
                   mongoConnectionMode === "connectionString" &&
                   !connectionString.trim())

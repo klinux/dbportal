@@ -213,6 +213,9 @@ connections:
     roles: ["*"]
 ```
 
+The same datasource is declared from the admin sheet: engine "Virtual", then the members
+ticked from the PostgreSQL and MySQL datasources already declared in that environment.
+
 In the studio each member is a catalog named by its id: `orders.public.pedidos`,
 `crm.crm.clientes`. Who may open the virtual datasource is whoever may open **every**
 member, on top of its own `roles`; it writes for nobody (`writeRoles` is fixed to `[]`) and

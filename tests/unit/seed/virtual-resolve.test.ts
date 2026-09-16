@@ -12,8 +12,8 @@ process.env.SEED_CONFIG_PATH = path.join(FIXTURES, "virtual-config.yaml");
 process.env.ORDERS_PASS = "o-secret";
 process.env.CRM_PASS = "c-secret";
 
-import { resolveConnection, SeedConnectionError } from "@/lib/seed/resolve-connection";
-import { getManagedConnections } from "@/lib/seed";
+import { resolveConnection, resolveDraftConnection, SeedConnectionError } from "@/lib/seed/resolve-connection";
+import { getManagedConnections, type ManagedConnection } from "@/lib/seed";
 import { canExport, canWrite } from "@/lib/access";
 import { resetCache } from "@/lib/seed/config-loader";
 import { clearRateLimitState } from "@/lib/api/rate-limit";
@@ -52,6 +52,18 @@ describe("a virtual datasource, resolved", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(SeedConnectionError);
     }
+  });
+
+  // The sheet tests a virtual draft before saving it (§4.44): its members resolved as the
+  // declared ones are, so a member closed to the administrator closes the test too.
+  it("a virtual draft resolves its members for the administrator testing it", async () => {
+    const draft = { id: "draft", name: "Draft", type: "virtual" as const, environment: "staging" as const, createdAt: new Date() };
+    const resolved = await resolveDraftConnection({ ...draft, members: ["orders"] }, { role: "admin", username: "root" });
+    expect((resolved as ManagedConnection).memberConnections?.map((m) => [m.seedId, m.password])).toEqual([["orders", "o-secret"]]);
+    expect(resolved.host).toBeUndefined();
+    await expect(
+      resolveDraftConnection({ ...draft, members: ["orders", "crm"] }, { role: "admin", username: "root" }),
+    ).rejects.toMatchObject({ statusCode: 403 });
   });
 
   it("exports only where every member would: crm names a group, so a plain user may not", async () => {

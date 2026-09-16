@@ -115,6 +115,7 @@ const mockSetShowAdvanced = mock(() => {});
 const mockSetServiceName = mock(() => {});
 const mockSetInstanceName = mock(() => {});
 const mockSetSshProfile = mock(() => {});
+const mockSetMembers = mock((_members: string[]) => {});
 const mockHandleTestConnection = mock(async () => {});
 const mockHandleConnect = mock(async () => {});
 const mockHandlePasteConnectionString = mock(() => {});
@@ -183,6 +184,8 @@ function getDefaultForm() {
     setAuthSource: mockSetAuthSource,
     sshProfile: "",
     setSshProfile: mockSetSshProfile,
+    members: [] as string[],
+    setMembers: mockSetMembers,
     handleTestConnection: mockHandleTestConnection,
     handleConnect: mockHandleConnect,
     handlePasteConnectionString: mockHandlePasteConnectionString,
@@ -226,6 +229,8 @@ const MOCK_CONNECTION_FIELDS: Record<string, string[]> = {
   druid: ["host", "port", "user", "password"],
   elasticsearch: ["host", "port", "user", "password"],
   opensearch: ["host", "port", "user", "password"],
+  // A virtual datasource (§4.44) has no address at all.
+  virtual: [],
 };
 const mockFields = (type: string): string[] =>
   MOCK_CONNECTION_FIELDS[type] ?? ["host", "port", "user", "password", "database"];
@@ -305,6 +310,46 @@ describe("ConnectionModal", () => {
   });
 
   // ── 1. Does not render when isOpen=false ────────────────────────────────────
+
+  // A virtual datasource (§4.44): no host, credential, SSL or Vault picker - a members list
+  // of the declared PostgreSQL and MySQL datasources of the chosen environment, and a save
+  // that waits for two of them.
+  test("a virtual datasource offers the eligible members instead of an address, and saves with two or more", () => {
+    mockFormOverrides = { type: "virtual", environment: "staging" };
+    const memberCandidates = [
+      { id: "orders", name: "Orders", type: "postgres" as const, environment: "staging" },
+      { id: "crm", name: "CRM", type: "mysql" as const, environment: "staging" },
+      { id: "prod-orders", name: "Orders (prod)", type: "postgres" as const, environment: "production" },
+      { id: "cache", name: "Cache", type: "redis" as const, environment: "staging" },
+    ];
+    const { getByTestId, getByLabelText, queryByLabelText, queryByTestId, getByText, rerender } = render(
+      React.createElement(ConnectionModal, { ...createDefaultProps(), vaultPicker: true, memberCandidates }),
+    );
+    expect(getByTestId("virtual-members")).toBeDefined();
+    expect(queryByLabelText("Host & Instance")).toBeNull();
+    expect(queryByLabelText("Password")).toBeNull();
+    expect(queryByTestId("vault-secret-picker")).toBeNull();
+    // Only the same environment, only PostgreSQL and MySQL.
+    expect(getByLabelText("Member Orders")).toBeDefined();
+    expect(getByLabelText("Member CRM")).toBeDefined();
+    expect(queryByLabelText("Member Orders (prod)")).toBeNull();
+    expect(queryByLabelText("Member Cache")).toBeNull();
+    fireEvent.click(getByLabelText("Member Orders"));
+    expect(mockSetMembers).toHaveBeenCalledWith(["orders"]);
+    // One picked: the save waits and says why; two picked: it goes.
+    mockFormOverrides = { type: "virtual", environment: "staging", members: ["orders"] };
+    rerender(React.createElement(ConnectionModal, { ...createDefaultProps(), memberCandidates }));
+    expect(getByText(/Pick at least one more/)).toBeDefined();
+    expect((getByText("Establish Connection").closest("button") as HTMLButtonElement).disabled).toBe(true);
+    mockFormOverrides = { type: "virtual", environment: "staging", members: ["orders", "crm"] };
+    rerender(React.createElement(ConnectionModal, { ...createDefaultProps(), memberCandidates }));
+    expect((getByText("Establish Connection").closest("button") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(getByLabelText("Member CRM"));
+    expect(mockSetMembers).toHaveBeenLastCalledWith(["orders"]);
+    // Nothing eligible: said, rather than an empty list.
+    rerender(React.createElement(ConnectionModal, { ...createDefaultProps(), memberCandidates: [] }));
+    expect(getByTestId("virtual-members-empty")).toBeDefined();
+  });
 
   test("shows an optional query timeout with the default hint and forwards edits", () => {
     const { getByLabelText, getByText, rerender } = render(React.createElement(ConnectionModal, createDefaultProps()));

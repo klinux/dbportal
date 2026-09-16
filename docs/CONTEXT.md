@@ -867,9 +867,18 @@ built. Each lands as its own section when done.
   for the session default so first paint opens somewhere. A query on it runs where every
   editor query runs today, in the studio's process, through the same route, policy, limits,
   masking and audit. Verified on two real PostgreSQL databases in CI (a join with its
-  filter pushed down, the lock, the catalogs). Still to come: the admin sheet's members
-  editor, masking by member, an audit line per member, and export, runbooks and alerts on a
-  virtual datasource.
+  filter pushed down, the lock, the catalogs).
+  **Second step (2026-09-16): declared from the sheet.** The engine picker offers "Virtual";
+  in place of an address the form lists every declared PostgreSQL and MySQL datasource of
+  the chosen environment, from the seed file and the store, as a member to tick
+  ([`ConnectionModal.tsx`](../src/components/ConnectionModal.tsx), `memberCandidates`), and
+  the save waits for two to eight. The store applies the seed file's own rule to what is
+  saved (`virtualMembersError` over the seed file's connections and the store's other
+  records): a member must be declared, PostgreSQL or MySQL, of the same environment, not
+  another virtual one, not behind an SSH profile. Test Connection on the draft resolves the
+  members for the administrator, so a member closed to them closes the test. Still to come:
+  masking by member, an audit line per member, and export, runbooks and alerts on a virtual
+  datasource.
 - **4.46 Files that outlive the pod without a shared volume — done (asked 2026-09-16).**
   The deployment has no ReadWriteMany storage class, and without one an export written by
   one studio or worker is not there for the studio that serves the download. The bucket the

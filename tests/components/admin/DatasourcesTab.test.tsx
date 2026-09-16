@@ -307,6 +307,35 @@ describe("DatasourcesTab", () => {
     ).toBe(2);
   });
 
+  // A virtual datasource (§4.44) from the sheet: the modal is handed every PostgreSQL and
+  // MySQL datasource of both sources as a candidate member, and what it builds is posted
+  // with its members and nothing addressable.
+  test("the modal gets the member candidates, and a virtual datasource posts its members without an address", async () => {
+    const fetchMock = mockGlobalFetch({ "/api/admin/datasources": listing() });
+    const { getByText } = await renderLoaded();
+    fireEvent.click(getByText("New datasource"));
+    expect(capturedModalProps.memberCandidates).toEqual([
+      { id: "prod-orders", name: "Orders", type: "postgres", environment: "production" },
+      { id: "dev-shared", name: "Dev shared", type: "postgres", environment: "development" },
+    ]);
+    await act(async () => {
+      await (capturedModalProps.onConnect as (c: DatabaseConnection) => Promise<void>)({
+        id: "ignored",
+        name: "Orders x CRM",
+        type: "virtual",
+        members: ["prod-orders", "crm"],
+        environment: "production",
+        createdAt: new Date(0),
+      });
+    });
+    const post = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "POST")!;
+    const body = JSON.parse((post[1] as RequestInit).body as string);
+    expect(body).toMatchObject({ id: "orders-x-crm", type: "virtual", members: ["prod-orders", "crm"] });
+    expect(body).not.toHaveProperty("host");
+    expect(body).not.toHaveProperty("port");
+    expect(body).not.toHaveProperty("password");
+  });
+
   // docs/CONTEXT.md §4.4: the group names typed become `group:` principals in `roles`, the
   // write mode becomes `writeRoles` (nobody = []), and a rule the editor does not offer is
   // shown as custom, badged on the row, and kept as declared on save.

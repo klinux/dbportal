@@ -35,6 +35,8 @@ const DEFAULT_PORTS: Record<string, string> = {
 // list that omitted `user` while the provider authenticated with it. The real table is the
 // authority; tests/unit/lib/db-ui-config.test.ts derives it from the provider sources.
 const MOCK_CONNECTION_FIELDS: Record<string, string[]> = {
+  // A virtual datasource (§4.44) has no address at all: its members are picked.
+  virtual: [],
   trino: ["host", "port", "user", "password", "database", "schema"],
   sqlite: ["database"],
   libredb: ["database"],
@@ -195,6 +197,48 @@ describe("useConnectionForm", () => {
   });
 
   // ── setType Changes Database Type ──────────────────────────────────────────
+
+  // A virtual datasource (§4.44) is its members and nothing addressable: the form writes
+  // the ids picked and no host, port, user or password, whatever their state holds.
+  test("a virtual datasource carries its members and no address; an edited one shows them; closing clears them", async () => {
+    const onConnect = mock((_connection: DatabaseConnection) => {});
+    const { result, rerender } = renderHook(
+      (props: Parameters<typeof useConnectionForm>[0]) => useConnectionForm(props),
+      { initialProps: { ...defaultProps, onConnect, onTestConnection: async () => ({ success: true }) } },
+    );
+    expect(result.current.members).toEqual([]);
+    act(() => {
+      result.current.setType("virtual");
+      result.current.setMembers(["orders", "crm"]);
+    });
+    await act(async () => {
+      await result.current.handleConnect();
+    });
+    const conn = onConnect.mock.calls[0][0];
+    expect(conn.type).toBe("virtual");
+    expect(conn.members).toEqual(["orders", "crm"]);
+    expect(conn.host).toBeUndefined();
+    expect(conn.port).toBeUndefined();
+    expect(conn.user).toBeUndefined();
+    expect(conn.password).toBeUndefined();
+    // Editing one shows its members; editing another kind shows none.
+    const virtual: DatabaseConnection = {
+      id: "v",
+      name: "Orders x CRM",
+      type: "virtual",
+      members: ["orders", "crm"],
+      environment: "staging",
+      createdAt: new Date(),
+    };
+    rerender({ ...defaultProps, onConnect, editConnection: virtual });
+    expect(result.current.members).toEqual(["orders", "crm"]);
+    rerender({ ...defaultProps, onConnect, editConnection: { ...virtual, id: "p", type: "postgres", members: undefined } });
+    expect(result.current.members).toEqual([]);
+    // Closed with nothing to edit: the next dialog starts with no members.
+    act(() => result.current.setMembers(["orders", "crm"]));
+    rerender({ ...defaultProps, onConnect, isOpen: false });
+    expect(result.current.members).toEqual([]);
+  });
 
   test("setType changes database type", () => {
     const { result } = renderHook(() => useConnectionForm(defaultProps));
@@ -1284,9 +1328,8 @@ describe("useConnectionForm", () => {
     cassandra: true,
     libsql: true,
     duckdb: true,
-    // A virtual datasource (§4.44) is declared with its members, which the sheet cannot
-    // pick yet: the seed file declares it, and the picker leaves it out until it can.
-    virtual: false,
+    // A virtual datasource (§4.44): its members are picked from the declared datasources.
+    virtual: true,
   };
 
   test("dbTypes offers every database type a connection can carry", () => {

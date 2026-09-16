@@ -128,6 +128,15 @@ export async function resolveDraftConnection(
     auditRoleDenial({ route: CLIENT_CONNECTION_TARGET, user: session.username });
     throw new SeedConnectionError("Only administrators can test a connection draft", 403);
   }
+  // A virtual draft (§4.44) is its members, each resolved as the declared one is: what the
+  // sheet tests is that every member opens for this person and the session attaches them.
+  if (connection.type === "virtual") {
+    const memberConnections: ManagedConnection[] = [];
+    for (const id of connection.members ?? []) {
+      memberConnections.push(await resolveConnection({ connectionId: `seed:${id}` }, session));
+    }
+    return { ...connection, memberConnections } as DatabaseConnection;
+  }
   let resolved: DatabaseConnection;
   try {
     // An edit of a shared datasource is tested with the secret the store holds (§4.48).

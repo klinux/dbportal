@@ -1,6 +1,7 @@
 import { getStorageProvider, isServerStorageEnabled } from "@/lib/storage/factory";
 import { isVaultReference } from "@/lib/vault/credentials";
-import { SeedConnectionSchema, type SeedConnection } from "@/lib/seed/types";
+import { loadConfig } from "@/lib/seed/config-loader";
+import { SeedConnectionSchema, virtualMembersError, type SeedConnection } from "@/lib/seed/types";
 import { environmentIds } from "@/lib/environments/store";
 import type { DatabaseConnection } from "@/lib/types";
 import { SHARED_DATASOURCES_OWNER } from "./owner";
@@ -112,6 +113,19 @@ function validate(input: unknown): SeedConnection {
   return { ...result.data, managed: true };
 }
 
+/**
+ * A virtual datasource's members (§4.44) must be declared datasources - in the seed file or
+ * in this store, but not itself - PostgreSQL or MySQL, of the same environment, not reached
+ * through an SSH profile: the seed file's own rule, applied here to what the sheet saves.
+ */
+async function assertVirtualMembers(data: SeedConnection, records: SharedDatasourceRecord[]): Promise<void> {
+  if (data.type !== "virtual") return;
+  const config = await loadConfig();
+  const declared = [...(config?.connections ?? []), ...records.filter((r) => r.id !== data.id)];
+  const problem = virtualMembersError(data, declared, config?.defaults?.environment);
+  if (problem) throw new SharedDatasourceError(problem, 400);
+}
+
 /** The environment a datasource is filed under must be on the list (docs/CONTEXT.md §4.36). */
 async function assertKnownEnvironment(environment: string | undefined): Promise<void> {
   if (environment === undefined) return;
@@ -127,6 +141,7 @@ export async function createSharedDatasource(input: unknown, actor: string): Pro
   const data = validate(input);
   await assertKnownEnvironment(data.environment);
   const records = await readAll();
+  await assertVirtualMembers(data, records);
   if (records.some((r) => r.id === data.id)) {
     throw new SharedDatasourceError(`A datasource with id "${data.id}" already exists`, 409);
   }
@@ -159,6 +174,7 @@ export async function updateSharedDatasource(
   const records = await readAll();
   const existing = records.find((r) => r.id === id);
   if (!existing) throw new SharedDatasourceError(`Datasource "${id}" not found`, 404);
+  await assertVirtualMembers(data, records);
 
   const record: SharedDatasourceRecord = {
     ...data,

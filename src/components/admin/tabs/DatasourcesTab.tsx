@@ -134,6 +134,8 @@ interface StoreRow {
   authSource?: string;
   schema?: string;
   skipObjectScan?: boolean;
+  /** A virtual datasource's members (§4.44). */
+  members?: string[];
   hasPassword: boolean;
   passwordEnv?: string;
   passwordVault?: string;
@@ -148,6 +150,7 @@ interface ConfigRow {
   name: string;
   type: DatabaseType;
   environment?: ConnectionEnvironment;
+  members?: string[];
   group?: string;
   roles: string[];
   writeRoles?: string[];
@@ -223,6 +226,9 @@ export function toDatasourcePayload(
     schema: conn.schema,
     skipObjectScan: conn.skipObjectScan,
     ...(conn.sshProfile ? { sshProfile: conn.sshProfile } : {}),
+    // A virtual datasource (§4.44) carries its members and nothing addressable; the server
+    // refuses a host, credential or SSL on it, and the form writes none.
+    ...(conn.type === "virtual" ? { members: conn.members ?? [] } : {}),
     roles,
     ...(writeRoles !== undefined ? { writeRoles } : {}),
     ...(writeApproval ? { writeApproval: true } : {}),
@@ -304,6 +310,7 @@ function toEditConnection(row: StoreRow): DatabaseConnection {
     authSource: row.authSource,
     schema: row.schema,
     skipObjectScan: row.skipObjectScan,
+    members: row.members,
     createdAt: new Date(0),
     managed: true,
     seedId: row.id,
@@ -759,8 +766,10 @@ export function DatasourcesTab() {
                             </TableCell>
                             <TableCell className="text-xs font-mono text-fg-tertiary">
                               {row.source === "store"
-                                ? [row.host, row.port, row.database].filter(Boolean).length > 0
-                                  ? `${row.host ?? ""}${row.port ? `:${row.port}` : ""}${row.database ? `/${row.database}` : ""}`
+                                ? row.type === "virtual"
+                                  ? (row.members ?? []).join(" + ")
+                                  : [row.host, row.port, row.database].filter(Boolean).length > 0
+                                    ? `${row.host ?? ""}${row.port ? `:${row.port}` : ""}${row.database ? `/${row.database}` : ""}`
                                   : "—"
                                 : "declared in seed file"}
                             </TableCell>
@@ -869,6 +878,9 @@ export function DatasourcesTab() {
         sshProfiles={sshProfiles}
         securityFields={sharingFields}
         vaultPicker
+        memberCandidates={rows
+          .filter((row) => row.type === "postgres" || row.type === "mysql")
+          .map((row) => ({ id: row.id, name: row.name, type: row.type, environment: row.environment }))}
         passwordNote={
           <p className="text-xs text-fg-muted leading-relaxed" data-testid="datasource-secret-note">
             {secretNote}

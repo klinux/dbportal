@@ -63,9 +63,9 @@ const FIELD_OWNERSHIP: Record<keyof DatabaseConnection, FieldOwnership> = {
   requireTicket: "preserved",
   approvalsRequired: "preserved",
   exportRoles: "preserved",
-  // A virtual datasource's members (§4.44) are declared in the seed file for now; the
-  // sheet keeps what is stored until it grows a members editor.
-  members: "preserved",
+  // A virtual datasource's members (§4.44): the sheet's own field, picked from the
+  // datasources already declared.
+  members: "edited",
   canExport: "preserved",
   serviceName: "edited",
   instanceName: "edited",
@@ -222,6 +222,8 @@ export function useConnectionForm({
    * and is not behind the Advanced accordion.
    */
   const [skipObjectScan, setSkipObjectScan] = useState(false);
+  // A virtual datasource's members (§4.44): the ids of the datasources it opens as one.
+  const [members, setMembers] = useState<string[]>([]);
 
   // SSH Tunnel
   const [showSSH, setShowSSH] = useState(false);
@@ -286,6 +288,8 @@ export function useConnectionForm({
       // show an unticked box, or the previously edited connection's choice is saved onto
       // it and the catalog silently stops being read.
       setSkipObjectScan(editConnection.skipObjectScan === true);
+      // Overwritten for the same reason: a datasource that is not virtual has no members.
+      setMembers(editConnection.members ?? []);
       // SSL
       if (editConnection.ssl) {
         setSSLMode(editConnection.ssl.mode);
@@ -359,6 +363,7 @@ export function useConnectionForm({
         // A leftover choice would open the next connection with no object list and no
         // explanation, which reads as an engine that answered nothing.
         setSkipObjectScan(false);
+        setMembers([]);
       }
     }
   }
@@ -421,6 +426,8 @@ export function useConnectionForm({
       ...(addressedFields.has("database") ? { database } : {}),
       ...(addressedFields.has("schema") && schema ? { schema } : {}),
       ...(queryTimeout.trim() ? { queryTimeout: Number(queryTimeout) } : {}),
+      // A virtual datasource is its members and nothing else addressable (§4.44).
+      ...(type === "virtual" ? { members } : {}),
       createdAt: editConnection?.createdAt || new Date(),
       environment,
       color:
@@ -454,6 +461,7 @@ export function useConnectionForm({
     clientCert,
     clientKey,
     sshProfile,
+    members,
     sshEnabled,
     sshHost,
     sshPort,
@@ -717,6 +725,7 @@ export function useConnectionForm({
     "cassandra",
     "libsql",
     "duckdb",
+    "virtual",
   ];
   const dbTypes = selectableTypes.map((t) => {
     const cfg = getDBConfig(t);
@@ -791,6 +800,9 @@ export function useConnectionForm({
     setShowSSH,
     sshProfile,
     setSshProfile,
+    // A virtual datasource's members (§4.44)
+    members,
+    setMembers,
     sshEnabled,
     setSSHEnabled,
     sshHost,

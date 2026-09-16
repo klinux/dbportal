@@ -169,6 +169,35 @@ describe("shared datasource store", () => {
     }
   });
 
+  // §4.44 from the sheet: a virtual datasource's members are checked against what is declared
+  // - here the store's own records - by the seed file's rule.
+  it("a virtual datasource needs declared PostgreSQL or MySQL members of its environment", async () => {
+    await createSharedDatasource({ ...valid, id: "orders" }, "root");
+    await createSharedDatasource({ ...valid, id: "crm", type: "mysql", port: 3306 }, "root");
+    await createSharedDatasource({ ...valid, id: "dev-orders", environment: "development" }, "root");
+    await createSharedDatasource({ ...valid, id: "cache", type: "redis", port: 6379, database: undefined }, "root");
+    const virtual = { id: "orders-crm", name: "Orders x CRM", type: "virtual", environment: "production", roles: ["*"] };
+    const saved = await createSharedDatasource({ ...virtual, members: ["orders", "crm"] }, "root");
+    expect(saved.members).toEqual(["orders", "crm"]);
+    const refused = async (members: string[]) => {
+      try {
+        await createSharedDatasource({ ...virtual, id: "other", members }, "root");
+        return "";
+      } catch (err) {
+        expect((err as InstanceType<typeof SharedDatasourceError>).statusCode).toBe(400);
+        return (err as Error).message;
+      }
+    };
+    expect(await refused(["orders", "nowhere"])).toContain("not declared: nowhere");
+    expect(await refused(["orders", "cache"])).toContain("cache is redis");
+    expect(await refused(["orders", "dev-orders"])).toContain("same environment");
+    expect(await refused(["orders", "orders-crm"])).toContain("cannot include another virtual one");
+    // An update is checked the same way, and a virtual one cannot name itself.
+    expect(await status(updateSharedDatasource("orders-crm", { ...virtual, members: ["orders", "orders-crm"] }, "root"))).toBe(400);
+    const moved = await updateSharedDatasource("orders-crm", { ...virtual, members: ["crm", "orders"] }, "root");
+    expect(moved.members).toEqual(["crm", "orders"]);
+  });
+
   it("updates by the id in the path, whatever the body says", async () => {
     await createSharedDatasource(valid, "admin");
     const record = await updateSharedDatasource("prod-orders", { ...valid, id: "something-else" }, "admin");
