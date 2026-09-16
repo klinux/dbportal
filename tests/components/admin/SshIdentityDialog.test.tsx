@@ -86,6 +86,31 @@ describe("SshIdentityDialog", () => {
     expect(view.getByTestId("ssh-identity-state").textContent).toContain("A key is set");
   });
 
+  test("closing clears a typed key and passphrase, so the next opening starts clean", async () => {
+    const fetchMock = mockGlobalFetch({ "/api/me/ssh-identity": none });
+    let openState = true;
+    const onOpenChange = (next: boolean) => {
+      openState = next;
+    };
+    const view = render(<SshIdentityDialog open={openState} onOpenChange={onOpenChange} />);
+    await waitFor(() => {
+      if (view.queryByTestId("ssh-identity-loading")) throw new Error("still loading");
+    });
+    fireEvent.change(view.getByLabelText("Private key"), { target: { value: "-----BEGIN OPENSSH PRIVATE KEY-----\nk" } });
+    fireEvent.change(view.getByLabelText("Passphrase (optional)"), { target: { value: "pp" } });
+    fireEvent.keyDown(view.getByTestId("ssh-identity-dialog"), { key: "Escape" });
+    expect(openState).toBe(false);
+    // Reopened: the fields are empty, the identity read again.
+    view.rerender(<SshIdentityDialog open={false} onOpenChange={onOpenChange} />);
+    view.rerender(<SshIdentityDialog open onOpenChange={onOpenChange} />);
+    await waitFor(() => {
+      if (view.queryByTestId("ssh-identity-loading")) throw new Error("still loading");
+    });
+    expect((view.getByLabelText("Private key") as HTMLTextAreaElement).value).toBe("");
+    expect((view.getByLabelText("Passphrase (optional)") as HTMLInputElement).value).toBe("");
+    expect(fetchMock.mock.calls.filter((c) => !(c[1] as RequestInit | undefined)?.method).length).toBe(2);
+  });
+
   test("the server's refusal is shown in its own words, on load and on save", async () => {
     const { view } = await renderOpen((req) =>
       req.method === "PUT"

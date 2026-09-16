@@ -35,13 +35,11 @@ export function SshIdentityDialog({ open, onOpenChange }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Loaded on open; the typed secrets are cleared on close (below), never left in the
+  // textarea for the next opening. Nothing is set synchronously here - the answer arrives.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setIdentity(undefined);
-    setError(null);
-    setPrivateKey("");
-    setPassphrase("");
     void (async () => {
       try {
         const res = await appFetch("/api/me/ssh-identity");
@@ -50,6 +48,7 @@ export function SshIdentityDialog({ open, onOpenChange }: Props) {
         if (cancelled) return;
         setIdentity(body.identity);
         setUsername(body.identity?.username ?? "");
+        setError(null);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       }
@@ -58,6 +57,16 @@ export function SshIdentityDialog({ open, onOpenChange }: Props) {
       cancelled = true;
     };
   }, [open]);
+
+  const close = (next: boolean) => {
+    if (!next) {
+      setPrivateKey("");
+      setPassphrase("");
+      setError(null);
+      setIdentity(undefined);
+    }
+    onOpenChange(next);
+  };
 
   const save = async () => {
     setBusy(true);
@@ -104,7 +113,7 @@ export function SshIdentityDialog({ open, onOpenChange }: Props) {
   const canSave = username.trim().length > 0 && (privateKey.trim().length > 0 || !!identity?.hasPrivateKey);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-w-lg" data-testid="ssh-identity-dialog">
         <DialogHeader>
           <DialogTitle>Your SSH identity</DialogTitle>
