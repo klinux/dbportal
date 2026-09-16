@@ -293,11 +293,15 @@ describe("jobs worker", () => {
     expect(retentionDays()).toBe(DEFAULT_RETENTION_DAYS);
     process.env.JOBS_RETENTION_DAYS = "2";
     expect(retentionDays()).toBe(2);
-    const old = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    // Both ages relative to the clock this test prunes against: the helper's fixed default
+    // date is "new" only until the retention window has moved past it, which it did two
+    // days after the default was written.
+    const now = new Date();
+    const old = new Date(now.getTime() - 3 * 86_400_000).toISOString();
+    const fresh = now.toISOString();
     await store.putJob(queued("old-done", "ping", { status: "done", runAt: old, createdAt: old }));
     await store.putJob(queued("old-queued", "ping", { runAt: old, createdAt: old }));
-    await store.putJob(queued("new-done", "ping", { status: "done" }));
-    const now = new Date();
+    await store.putJob(queued("new-done", "ping", { status: "done", runAt: fresh, createdAt: fresh }));
     expect(await pruneIfDue(now)).toBe(1);
     expect([...store.jobs.keys()].sort()).toEqual(["new-done", "old-queued"]);
     // Not again within the hour, then again past it.
