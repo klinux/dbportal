@@ -932,6 +932,17 @@ built. Each lands as its own section when done.
   else, so a credential nobody may read cannot be pointed at another host through the test;
   a draft that moves the datasource types the password again. `resolveDraftConnection`
   applies it before the `${ENV}` and Vault references.
+- **4.50 The datasource list read a page at a time — done (asked 2026-09-16).** One tab per
+  environment was the first cut at a fleet of a hundred datasources; inside a tab the list
+  now shows 25 rows, "Show more" for the rest, and a filter over what a person knows a
+  datasource by - its name, id, host, database or a member's id - with the tab keeping the
+  total and a caption saying how many are shown of how many match
+  ([`DatasourcesTab.tsx`](../src/components/admin/tabs/DatasourcesTab.tsx), `rowMatches`,
+  `PAGE_SIZE`). Client-side: the admin API already returns the whole fleet in one read. The
+  same day the admin sub-tabs stopped rendering as a filled, rounded box on the dark theme:
+  the base tab component's dark variants survived the class merge and painted a border and
+  a background, so [`admin-tabs.ts`](../src/lib/ui/admin-tabs.ts) overrides them by name and
+  the list clips its own height, which was showing a scrollbar.
 - **4.45 Secrets the chart has no field for — done (asked 2026-09-16).** Deploying the
   three roles from one GitOps repository needed `METRICS_TOKEN`, `STORAGE_ENCRYPTION_KEY`,
   `VAULT_TOKEN` and the passwords a seed file refers to, and the chart offered `extraEnv`

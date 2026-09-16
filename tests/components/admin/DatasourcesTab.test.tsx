@@ -62,6 +62,8 @@ const {
   DatasourcesTab,
   slugifyDatasourceId,
   toDatasourcePayload,
+  PAGE_SIZE,
+  rowMatches,
   writeModeOf,
   groupNamesOf,
   parseGroupNames,
@@ -167,6 +169,35 @@ describe("DatasourcesTab", () => {
     // `roles: ["*"]` reads as both roles, the way the server applies it.
     expect(dev.getByText("Administrators")).not.toBeNull();
     expect(dev.getByText("Users")).not.toBeNull();
+  });
+
+  // A hundred datasources are read a page at a time: PAGE_SIZE rows, "Show more" for the
+  // rest, and a filter over the name, id, host, database or a member - the tab keeps the
+  // total, the caption says how many are shown of how many match.
+  test("an environment shows a page of rows, more on request, and only what the filter names", async () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({
+      ...storeRow,
+      id: `orders-${String(i).padStart(2, "0")}`,
+      name: `Orders ${String(i).padStart(2, "0")}`,
+      host: i === 7 ? "special.internal" : storeRow.host,
+    }));
+    mockGlobalFetch({ "/api/admin/datasources": listing({ datasources: many, declared: [] }) });
+    const { getByTestId, getByText, getByLabelText, queryByTestId, container } = await renderLoaded();
+    const rows = () => container.querySelectorAll('[data-testid^="datasource-row-"]').length;
+    expect(getByTestId("env-tab-production").textContent).toBe("Production(30)");
+    expect(rows()).toBe(PAGE_SIZE);
+    expect(getByTestId("env-count-production").textContent).toBe(`${PAGE_SIZE} of 30`);
+    fireEvent.click(getByText(`Show ${30 - PAGE_SIZE} more`));
+    expect(rows()).toBe(30);
+    // The filter reads the host too, and says what it narrowed from.
+    fireEvent.change(getByLabelText("Filter datasources"), { target: { value: "SPECIAL" } });
+    expect(rows()).toBe(1);
+    expect(queryByTestId("datasource-row-orders-07")).not.toBeNull();
+    expect(getByTestId("env-count-production").textContent).toBe("1 of 1 matching, 30 in all");
+    fireEvent.change(getByLabelText("Filter datasources"), { target: { value: "nothing-like-this" } });
+    expect(rows()).toBe(0);
+    expect(getByTestId("env-empty-production")).not.toBeNull();
+    expect(getByTestId("env-tab-production").textContent).toBe("Production(30)");
   });
 
   test("a tab whose environment empties on reload falls back to the first environment", async () => {
@@ -406,6 +437,18 @@ describe("DatasourcesTab", () => {
     });
     expect(mockToastError).toHaveBeenCalledWith("Choose at least one role or group that may open this datasource.");
     expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === "POST")).toBe(false);
+  });
+
+  test("rowMatches reads the name, id, host, database and members, case-insensitively", () => {
+    const row = { ...storeRow, members: ["crm"] } as Parameters<typeof rowMatches>[0];
+    expect(rowMatches(row, "")).toBe(true);
+    expect(rowMatches(row, "ORDERS")).toBe(true);
+    expect(rowMatches(row, "prod-")).toBe(true);
+    expect(rowMatches(row, "internal")).toBe(true);
+    expect(rowMatches(row, "crm")).toBe(true);
+    expect(rowMatches(row, "portal")).toBe(false);
+    expect(rowMatches({ ...configRow } as Parameters<typeof rowMatches>[0], "shared")).toBe(true);
+    expect(rowMatches({ ...configRow } as Parameters<typeof rowMatches>[0], "internal")).toBe(false);
   });
 
   test("a name with nothing to slug is refused", async () => {

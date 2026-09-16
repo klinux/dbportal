@@ -287,6 +287,23 @@ function environmentOf(row: Row): ConnectionEnvironment {
   return row.environment ?? "other";
 }
 
+/** Rows shown per environment before "Show more" is asked for. */
+export const PAGE_SIZE = 25;
+
+/** Whether a row is what the filter names: its name, id, host, database or a member's id. */
+export function rowMatches(row: Row, filter: string): boolean {
+  const needle = filter.trim().toLowerCase();
+  if (!needle) return true;
+  const haystack = [
+    row.name,
+    row.id,
+    row.source === "store" ? row.host : undefined,
+    row.source === "store" ? row.database : undefined,
+    ...(row.members ?? []),
+  ];
+  return haystack.some((v) => typeof v === "string" && v.toLowerCase().includes(needle));
+}
+
 /** A store row as the modal edits it. The password is never known here; blank keeps the stored one. */
 function toEditConnection(row: StoreRow): DatabaseConnection {
   return {
@@ -389,6 +406,11 @@ export function DatasourcesTab() {
   };
 
   const environments = useEnvironments();
+  // A fleet of a hundred datasources is read one environment at a time and, inside one, a
+  // page at a time: PAGE_SIZE rows, then as many more as are asked for, and a filter over
+  // what a person knows a datasource by - its name, id, host, database or members.
+  const [filter, setFilter] = useState("");
+  const [shown, setShown] = useState<Record<string, number>>({});
   const groups = useMemo(() => {
     const byEnvironment = new Map<ConnectionEnvironment, Row[]>();
     for (const row of rows) {
@@ -733,9 +755,26 @@ export function DatasourcesTab() {
               </TabsTrigger>
             ))}
           </TabsList>
-          {groups.map((group) => (
+          {groups.map((group) => {
+            const matching = group.rows.filter((row) => rowMatches(row, filter));
+            const limit = shown[group.environment] ?? PAGE_SIZE;
+            const visible = matching.slice(0, limit);
+            return (
             <TabsContent key={group.environment} value={group.environment} className="mt-4">
               <section className="space-y-2" data-testid={`env-group-${group.environment}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    placeholder="Filter by name, id, host or member…"
+                    aria-label="Filter datasources"
+                    className="h-8 max-w-xs text-xs"
+                  />
+                  <span className="text-xs text-fg-muted" data-testid={`env-count-${group.environment}`}>
+                    {visible.length} of {matching.length}
+                    {filter.trim() ? ` matching, ${group.rows.length} in all` : ""}
+                  </span>
+                </div>
                 <div className="rounded-xl border border-hairline overflow-hidden">
                   <Table>
                     <TableHeader>
@@ -749,7 +788,7 @@ export function DatasourcesTab() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {group.rows.map((row) => {
+                      {visible.map((row) => {
                         const engine = getDBConfig(row.type);
                         const Icon = engine.icon;
                         return (
@@ -857,9 +896,29 @@ export function DatasourcesTab() {
                     </TableBody>
                   </Table>
                 </div>
+                {matching.length > visible.length && (
+                  <div className="flex justify-center pt-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs"
+                      onClick={() =>
+                        setShown((prev) => ({ ...prev, [group.environment]: limit + PAGE_SIZE }))
+                      }
+                    >
+                      Show {Math.min(PAGE_SIZE, matching.length - visible.length)} more
+                    </Button>
+                  </div>
+                )}
+                {matching.length === 0 && (
+                  <p className="text-xs text-fg-muted px-1" data-testid={`env-empty-${group.environment}`}>
+                    Nothing here matches the filter.
+                  </p>
+                )}
               </section>
             </TabsContent>
-          ))}
+            );
+          })}
         </Tabs>
       )}
 
