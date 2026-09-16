@@ -165,6 +165,8 @@ Subchart secret name follows Bitnami convention: `<release-name>-postgresql` (no
 
 `existingSecretKeys` allows custom key name mapping for external secrets.
 
+`extraSecretEnv` (docs/CONTEXT.md §4.45) covers what the block above has no key for - `METRICS_TOKEN`, `STORAGE_ENCRYPTION_KEY`, `VAULT_TOKEN`, the `${DB_PASSWORD}` a seed file refers to: a map of environment variables rendered into `<release>-extra-env` (`templates/secret-extra-env.yaml`), attached with `envFrom` to every role Deployment after the ConfigMap, and hashed into the pod template so a rotated value rolls the pods. `extraEnv` would put the same values in the pod spec, which anyone who may read a Deployment reads. `tests/unit/helm-chart-extra-secret-env.test.ts` holds it, and that a default render is unchanged.
+
 ### 6. ConfigMap / Environment Variables
 
 Most non-sensitive configuration flows through a ConfigMap (the seed-connection vars are the exception — see the note below the table):

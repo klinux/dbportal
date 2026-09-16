@@ -35,6 +35,13 @@ template:
       {{- if and (get $tuning "document") (not (get $tuning "existingConfigMap")) }}
       checksum/agent-model-tuning: {{ include (print $root.Template.BasePath "/agent-tuning-configmap.yaml") $root | sha256sum }}
       {{- end }}
+      {{- /* The extra-env Secret, hashed for the reason the inline tuning document is:
+             a rotated METRICS_TOKEN or a new datasource password rewrites the Secret and
+             nothing else, and a pod reads envFrom once, at start. Conditional so an
+             install without the block gains no annotation and no restart. */}}
+      {{- if $root.Values.extraSecretEnv }}
+      checksum/extra-secret-env: {{ include (print $root.Template.BasePath "/secret-extra-env.yaml") $root | sha256sum }}
+      {{- end }}
       {{- with $root.Values.podAnnotations }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
@@ -97,6 +104,10 @@ template:
         envFrom:
           - configMapRef:
               name: {{ include "dbportal.configMapName" $root }}
+          {{- if $root.Values.extraSecretEnv }}
+          - secretRef:
+              name: {{ include "dbportal.fullname" $root }}-extra-env
+          {{- end }}
           {{- with $root.Values.extraEnvFrom }}
           {{- toYaml . | nindent 10 }}
           {{- end }}

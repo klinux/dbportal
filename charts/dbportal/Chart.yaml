@@ -2,7 +2,7 @@ apiVersion: v2
 name: dbportal
 description: Web-based SQL IDE for cloud-native teams supporting sixteen engines - PostgreSQL, MySQL, SQLite, DuckDB, Oracle, SQL Server, MongoDB, Redis, Couchbase, ClickHouse, Apache Druid, Elasticsearch, OpenSearch, Apache Trino, Apache Cassandra and libSQL
 type: application
-version: 0.1.7
+version: 0.1.8
 appVersion: "0.3.1"
 kubeVersion: ">=1.26.0-0"
 home: https://github.com/klinux/dbportal
@@ -113,7 +113,7 @@ annotations:
     - name: Source
       url: https://github.com/libredb/dbportal
   artifacthub.io/changes: |
-    - "Prefix default health probes with config.basePath for images built to run under a subpath"
+    - "Add extraSecretEnv, environment variables rendered into a Secret and attached to every role"
 dependencies:
   - name: postgresql
     version: "16.x.x"

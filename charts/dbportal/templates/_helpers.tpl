@@ -225,6 +225,8 @@ in any of these three places passes it unseen:
                              LLM_API_URL or LLM_PROVIDER (the one entry it does
                              look for is WORKFLOW_TARGET_WORLD, in
                              agentPostgresWorld, which is a different question)
+  - extraSecretEnv         - rendered into a Secret verbatim and, like extraEnv,
+                             not inspected
 
 None of the three is counted, and that is a deliberate trade rather than an
 oversight: counting what cannot be read would refuse to render every existing HA

@@ -617,6 +617,16 @@
       },
       "description": "Additional envFrom references (Kubernetes EnvFromSource objects)"
     },
+    "extraSecretEnv": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "description": "Environment variables rendered into the <release>-extra-env Secret and attached with envFrom to every role Deployment: for what has no values field of its own and must not sit in the pod spec (METRICS_TOKEN, STORAGE_ENCRYPTION_KEY, VAULT_TOKEN, a seed file's ${DB_PASSWORD}). Names must be valid environment variable names; a changed value rolls the pods"
+    },
     "postgresql": {
       "type": "object",
       "properties": {

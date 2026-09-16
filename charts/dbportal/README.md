@@ -40,7 +40,7 @@ Once the chart is published to a registry, the same release installs with the ch
 version this tag carries (`bun run chart:check` keeps this line and `Chart.yaml` together):
 
 ```bash
-helm install libredb <registry>/dbportal --version 0.1.7
+helm install libredb <registry>/dbportal --version 0.1.8
 ```
 
 ### Installing from a checkout
@@ -326,6 +326,7 @@ in any of these three places passes it unseen and a multi-replica release render
 | `secrets.existingSecret` | a Secret the chart does not create and cannot read |
 | `extraEnvFrom` | `envFrom` sources, whose keys are not visible to a template |
 | `extraEnv` | rendered verbatim and **not** inspected for `LLM_API_KEY`, `LLM_API_URL` or `LLM_PROVIDER` (the only entry it does look for is `WORKFLOW_TARGET_WORLD`, above) |
+| `extraSecretEnv` | rendered into a Secret verbatim and, like `extraEnv`, not inspected |
 
 Set `agent.enabled=false` by hand in any of those cases. The alternative — counting what cannot be
 read — would refuse to render every existing multi-replica install that keeps a JWT secret in an
@@ -612,6 +613,26 @@ helm install libredb libredb/dbportal \
 Rotating the key makes existing stored credentials unreadable — the connections survive and their
 passwords are omitted. See
 [docs/STORAGE.md](https://github.com/libredb/dbportal/blob/main/docs/STORAGE.md#credential-encryption-at-rest).
+
+### Secrets the chart has no field for
+
+`METRICS_TOKEN`, `STORAGE_ENCRYPTION_KEY`, `VAULT_TOKEN`, the `${ORDERS_DB_PASSWORD}` a seed file
+refers to: none has a `secrets.*` field, and `extraEnv` would write them into the pod spec, which
+anyone who may read a Deployment reads. `extraSecretEnv` renders them into one Secret,
+`<release>-extra-env`, that every role Deployment of the release attaches with `envFrom`:
+
+```yaml
+extraSecretEnv:
+  METRICS_TOKEN: "<path:kv/data/dbportal#metrics_token>"
+  STORAGE_ENCRYPTION_KEY: "<path:kv/data/dbportal#storage_encryption_key>"
+  ORDERS_DB_PASSWORD: "<path:kv/data/dbportal#orders_db_password>"
+```
+
+The values are base64-encoded the way the release's own Secret is, so a GitOps tool that resolves
+placeholders in rendered manifests (the Argo CD Vault plugin, whose placeholders the example shows)
+treats both alike. The Secret is hashed into the pod template, so a rotated value rolls the pods.
+Names must be environment variable names; the schema refuses anything else. A key set here and in
+`extraEnv` resolves to the `extraEnv` value, since an explicit `env` entry beats `envFrom`.
 
 ## External Secrets
 

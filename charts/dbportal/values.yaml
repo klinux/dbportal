@@ -607,6 +607,18 @@ extraEnvFrom: []
 #  - configMapRef:
 #      name: my-config
 
+# -- Environment variables kept in a Secret this chart renders, <release>-extra-env, and
+# attached with envFrom (docs/CONTEXT.md §4.45): for what has no values field of its own and
+# must not sit in the pod spec, where extraEnv would put it - METRICS_TOKEN,
+# STORAGE_ENCRYPTION_KEY, VAULT_TOKEN, the ${DB_PASSWORD} a seed file refers to. Every
+# role Deployment of the release gets it. Values are strings; the Secret is hashed into
+# the pod template, so a changed value rolls the pods. A GitOps tool that resolves
+# placeholders in rendered manifests (the Argo CD Vault plugin) sees these exactly as it
+# sees `secrets.*`. Empty renders no Secret.
+extraSecretEnv: {}
+#  METRICS_TOKEN: "<path:kv/data/dbportal#metrics_token>"
+#  ORDERS_DB_PASSWORD: "<path:kv/data/dbportal#orders_db_password>"
+
 # -- Seed connections: pre-configured database connections
 seedConnections:
   # -- Enable seed connections feature

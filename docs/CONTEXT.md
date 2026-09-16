@@ -860,6 +860,16 @@ built. Each lands as its own section when done.
   filter pushed down, the lock, the catalogs). Still to come: the admin sheet's members
   editor, masking by member, an audit line per member, and export, runbooks and alerts on a
   virtual datasource.
+- **4.45 Secrets the chart has no field for — done (asked 2026-09-16).** Deploying the
+  three roles from one GitOps repository needed `METRICS_TOKEN`, `STORAGE_ENCRYPTION_KEY`,
+  `VAULT_TOKEN` and the passwords a seed file refers to, and the chart offered `extraEnv`
+  for them, which writes a value into the pod spec that anyone who may read a Deployment
+  reads. `extraSecretEnv` is a map rendered into one Secret, `<release>-extra-env`
+  ([`templates/secret-extra-env.yaml`](../charts/dbportal/templates/secret-extra-env.yaml)),
+  attached with `envFrom` to every role Deployment after the ConfigMap and hashed into the
+  pod template so a rotated value rolls the pods; the values are base64-encoded as the
+  release's own Secret is, so a tool that resolves placeholders in rendered manifests (the
+  Argo CD Vault plugin) treats both alike. A default render is byte for byte what it was.
 
 ## 5. Decisions already taken
 
