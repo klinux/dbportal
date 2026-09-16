@@ -162,6 +162,11 @@ export const SshProfileSchema = z.object({
   passphrase: z.string().optional(),
   /** The bastion's host key as `ssh-keygen -lf` prints it; authoritative when set. */
   hostKeyFingerprint: z.string().max(120).optional(),
+  /**
+   * Open the bastion as the person when they have an SSH identity of their own (§4.9): their
+   * OS Login user and key in place of the profile's; the profile's credential otherwise.
+   */
+  personalIdentity: z.boolean().optional(),
 });
 
 export type SshProfile = z.infer<typeof SshProfileSchema>;

@@ -311,6 +311,18 @@ names cannot be deleted (409); a seed-file profile is read-only in the admin pag
 per-profile connection pooling across datasources — each datasource still opens its own
 tunnel to the same bastion.
 
+**Opened as the person (2026-09-16).** Bastions under OS Login give each person a user of
+their own, and a shared profile credential hid that from the bastion's log. A profile marked
+`personalIdentity: true` opens the bastion with the person's own identity when they have
+one - their SSH user name, private key and passphrase, kept as one sealed record under their
+own owner id in the server store ([`src/lib/ssh-identity/`](../src/lib/ssh-identity/),
+`GET/PUT/DELETE /api/me/ssh-identity`, the "SSH identity" dialog in the admin header) - and
+with the profile's credential otherwise, so nobody without a key is locked out. Administrators
+only may keep one today (the route decides; the store does not care), the key is typed once
+and never returned, a save or a removal is an `ssh_identity` audit line without the key, and
+the tunnel's log line names the SSH user it opened as. The same rule holds on a worker: the
+job carries the person, the worker reads their identity.
+
 ### 4.10 Executions from a bot — done
 
 A Slack bot (or any program) asks for a statement to run on a datasource for a person, and

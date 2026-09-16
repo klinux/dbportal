@@ -108,6 +108,8 @@ describe("AdminDashboard", () => {
       renderResult = render(<AdminDashboard>content</AdminDashboard>);
     });
     expect(renderResult!.queryByText("Logout")).not.toBeNull();
+    // §4.9: the administrator's own SSH identity is kept from the header.
+    expect(renderResult!.queryByText("SSH identity")).not.toBeNull();
   });
 
   test("editor button links to home", async () => {

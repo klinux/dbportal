@@ -10,6 +10,8 @@ export type AuditEventType =
   | "connection_test"
   | "query_execution"
   | "managed_connection"
+  /** A person's own SSH identity saved or removed (docs/CONTEXT.md §4.9); never the key. */
+  | "ssh_identity"
   /**
    * An agent-path operation: one event for the policy decision and, when that
    * decision allowed execution, one for its outcome. Distinct from

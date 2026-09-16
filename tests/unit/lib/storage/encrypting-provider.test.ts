@@ -275,6 +275,29 @@ describe("jobs pass through", () => {
   });
 });
 
+// docs/CONTEXT.md §4.9: a person's own SSH identity is one record with a tunnel's secrets,
+// sealed and opened the way the profiles are.
+describe("ssh_identity", () => {
+  const identity = { username: "ana_example_com", privateKey: "CANARY-IDENTITY-KEY", passphrase: "CANARY-PASS", updatedAt: "x" };
+
+  test("seals the key and passphrase on the way in and opens them on the way out", async () => {
+    let stored: unknown = null;
+    const inner = stubProvider({
+      setCollection: mock(async (_o: string, _c: string, value: unknown) => {
+        stored = value;
+      }) as never,
+      getCollection: mock(async () => stored) as never,
+    });
+    const wrapped = withCredentialEncryption(inner);
+    await wrapped.setCollection("ana@example.test", "ssh_identity", identity);
+    expect(JSON.stringify(stored)).not.toContain("CANARY-IDENTITY-KEY");
+    expect(JSON.stringify(stored)).not.toContain("CANARY-PASS");
+    expect(JSON.stringify(stored)).toContain("ana_example_com");
+    expect(await wrapped.getCollection("ana@example.test", "ssh_identity")).toEqual(identity);
+    expect(await withCredentialEncryption(stubProvider()).getCollection("ana@example.test", "ssh_identity")).toBeNull();
+  });
+});
+
 // docs/CONTEXT.md §4.9: the SSH profile collection is sealed on the way in and opened on the
 // way out exactly as `connections` is, so a bastion key never sits in the table in clear.
 describe("ssh_profiles", () => {

@@ -53,6 +53,19 @@ export interface StorageData {
   trail_alerts: TrailAlertsConfig;
   /** The people and groups seen signing in (docs/CONTEXT.md §4.49), under `shared:principals`. */
   seen_principals: SeenPrincipalRecord[];
+  /**
+   * A person's own SSH identity (docs/CONTEXT.md §4.9): the OS Login user and key a profile
+   * marked `personalIdentity` opens the bastion with. One document under the person's own
+   * owner id, its secrets sealed as a tunnel's are; deliberately not in STORAGE_COLLECTIONS.
+   */
+  ssh_identity: SshIdentityRecord;
+}
+
+export interface SshIdentityRecord {
+  username: string;
+  privateKey: string;
+  passphrase?: string;
+  updatedAt: string;
 }
 
 /** A principal the identity provider sent at a sign-in: `user:<username>` or `group:<name>`. */

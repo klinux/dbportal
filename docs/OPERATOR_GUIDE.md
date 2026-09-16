@@ -62,6 +62,9 @@ by default, no seeding, no restore.
   `data-platform`) that datasources refer to as `role:<id>`. Change the members once, every
   rule follows. The picker offers every person and group that has signed in, plus whatever a
   rule already names; a group nobody has signed in with yet is typed as `group:<name>`.
+- **SSH identity** (the admin header): an administrator's own OS Login user and key, used in
+  place of a profile's shared credential on the SSH profiles that ask for it
+  ("personal identity"), so the bastion's log names the person.
 - **Service tokens** (Security → Service tokens): the identity a bot or an agent presents
   (`Authorization: Bearer dbp_…`), with a role, groups, a datasource allowlist and an
   optional "every request needs approval". The secret is shown once.

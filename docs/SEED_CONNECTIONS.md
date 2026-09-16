@@ -322,6 +322,12 @@ connections:
     sshProfile: "prod-bastion"
 ```
 
+`personalIdentity: true` on a profile opens the bastion as the person when they have an SSH
+identity of their own (an administrator's OS Login user and key, kept from the admin header's
+"SSH identity" dialog), with the profile's host, port and pinned host key; anyone without one
+keeps using the profile's credential.
+
+
 Profiles may also be declared on the admin page (Security → SSH profiles), where they are
 stored in the server store with the password, key and passphrase sealed at rest like a
 datasource's own credentials. A profile named by any datasource cannot be deleted; one the

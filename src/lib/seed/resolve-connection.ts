@@ -99,7 +99,7 @@ export async function resolveConnection(
       return { ...seedConn, memberConnections };
     }
 
-    return withSshProfile(await withVaultCredentials(seedConn, session.username));
+    return withSshProfile(await withVaultCredentials(seedConn, session.username), session.username);
   }
 
   throw new SeedConnectionError("connectionId is required", 400);
@@ -144,7 +144,7 @@ export async function resolveDraftConnection(
   } catch (error) {
     throw new SeedConnectionError(error instanceof Error ? error.message : String(error), 400);
   }
-  return withSshProfile(await withVaultCredentials(resolved, session.username));
+  return withSshProfile(await withVaultCredentials(resolved, session.username), session.username);
 }
 
 /**
@@ -153,9 +153,9 @@ export async function resolveDraftConnection(
  * unknown profile or an unset variable is a 400 that says so; a Vault that does not answer
  * is the same 503 as for a credential.
  */
-async function withSshProfile<T extends DatabaseConnection>(conn: T): Promise<T> {
+async function withSshProfile<T extends DatabaseConnection>(conn: T, subject: string): Promise<T> {
   try {
-    return await applySshProfile(conn);
+    return await applySshProfile(conn, subject);
   } catch (error) {
     if (error instanceof SshProfileResolutionError) throw new SeedConnectionError(error.message, error.statusCode);
     if (error instanceof VaultError) {

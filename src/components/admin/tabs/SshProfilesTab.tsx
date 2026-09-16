@@ -45,6 +45,8 @@ interface Draft {
   privateKey: string;
   passphrase: string;
   hostKeyFingerprint: string;
+  /** Open the bastion as the person when they have an SSH identity of their own (§4.9). */
+  personalIdentity: boolean;
 }
 
 const EMPTY: Draft = {
@@ -58,6 +60,7 @@ const EMPTY: Draft = {
   privateKey: "",
   passphrase: "",
   hostKeyFingerprint: "",
+  personalIdentity: false,
 };
 
 /** The id a new profile gets from its name: the schema's `[a-z0-9-]` shape. */
@@ -84,6 +87,7 @@ export function toProfilePayload(draft: Draft, id: string) {
     ...(draft.authMethod === "privateKey" && draft.privateKey ? { privateKey: draft.privateKey } : {}),
     ...(draft.authMethod === "privateKey" && draft.passphrase ? { passphrase: draft.passphrase } : {}),
     ...(draft.hostKeyFingerprint.trim() ? { hostKeyFingerprint: draft.hostKeyFingerprint.trim() } : {}),
+    ...(draft.personalIdentity ? { personalIdentity: true } : {}),
   };
 }
 
@@ -136,6 +140,7 @@ export function SshProfilesTab() {
       privateKey: "",
       passphrase: "",
       hostKeyFingerprint: profile.hostKeyFingerprint ?? "",
+      personalIdentity: profile.personalIdentity === true,
     });
     setOpen(true);
   };
@@ -271,6 +276,11 @@ export function SshProfilesTab() {
                       <span className="ml-2 font-mono text-[10px] text-fg-muted">
                         {profile.passwordRef ?? profile.privateKeyRef}
                       </span>
+                    )}
+                    {profile.personalIdentity && (
+                      <Badge variant="secondary" className="ml-2 text-[10px]" title="Opened as the person when they have an SSH identity">
+                        personal identity
+                      </Badge>
                     )}
                   </TableCell>
                   <TableCell className="text-xs text-fg-muted">
@@ -446,6 +456,23 @@ export function SshProfilesTab() {
                   </div>
                 </>
               )}
+              <div className="space-y-1.5">
+                <Label htmlFor="ssh-personal" className="flex items-center gap-2 text-xs text-fg-tertiary cursor-pointer">
+                  <input
+                    id="ssh-personal"
+                    type="checkbox"
+                    className="accent-brand-solid"
+                    checked={draft.personalIdentity}
+                    onChange={(e) => setDraft({ ...draft, personalIdentity: e.target.checked })}
+                  />
+                  Open the bastion as the person when they have an SSH identity of their own
+                </Label>
+                <p className="text-xs text-fg-muted">
+                  An administrator&apos;s own OS Login user and key (dashboard header, &quot;SSH identity&quot;) replace
+                  the profile&apos;s for them, so the bastion&apos;s log names the person; everyone else keeps the
+                  credential above.
+                </p>
+              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="ssh-fingerprint" className="text-xs text-fg-tertiary">
                   Host key fingerprint (optional, pins the bastion)

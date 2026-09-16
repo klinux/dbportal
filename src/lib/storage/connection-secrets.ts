@@ -254,6 +254,19 @@ export function encryptSshProfiles<T extends Record<string, unknown>>(profiles: 
   });
 }
 
+/** A person's SSH identity (§4.9): one record, the same secret keys as a tunnel's. */
+export function encryptSshIdentity<T extends Record<string, unknown>>(identity: T): T {
+  const copy = { ...identity };
+  mapSecretFields(copy, SSH_TUNNEL_SECRET_KEYS, sealIfPlaintext);
+  return copy;
+}
+
+export function decryptSshIdentity<T extends Record<string, unknown>>(identity: T): { identity: T; undecryptable: number } {
+  const copy = { ...identity };
+  const undecryptable = mapSecretFields(copy, SSH_TUNNEL_SECRET_KEYS, openOrDrop);
+  return { identity: copy, undecryptable };
+}
+
 export function decryptSshProfiles<T extends Record<string, unknown>>(
   profiles: T[],
 ): { profiles: T[]; undecryptable: number } {

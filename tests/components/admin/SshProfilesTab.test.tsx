@@ -21,6 +21,7 @@ const stored = {
   source: "store",
   hasPassword: false,
   hasPrivateKey: true,
+  personalIdentity: true,
   hasPassphrase: true,
   privateKeyRef: "${BASTION_KEY}",
   hostKeyFingerprint: "SHA256:abc",
@@ -72,6 +73,8 @@ describe("SshProfilesTab", () => {
     expect(prod.getByText("private key")).not.toBeNull();
     expect(prod.getByText("${BASTION_KEY}")).not.toBeNull();
     expect(prod.getByText("pinned")).not.toBeNull();
+    // §4.9: a profile opened as the person says so on its row.
+    expect(prod.getByText("personal identity")).not.toBeNull();
     expect(prod.getByLabelText("Edit Production bastion")).not.toBeNull();
     expect(prod.getByLabelText("Delete Production bastion")).not.toBeNull();
 
@@ -112,6 +115,8 @@ describe("SshProfilesTab", () => {
     fireEvent.change(getByLabelText("Host key fingerprint (optional, pins the bastion)"), {
       target: { value: "SHA256:x" },
     });
+    // §4.9: opened as the person when they have an identity of their own; sent only when ticked.
+    fireEvent.click(getByLabelText(/Open the bastion as the person/));
     await act(async () => {
       fireEvent.click(getByText("Create profile"));
     });
@@ -127,6 +132,7 @@ describe("SshProfilesTab", () => {
       authMethod: "privateKey",
       privateKey: "${BASTION_KEY}",
       hostKeyFingerprint: "SHA256:x",
+      personalIdentity: true,
     });
     expect(mockToastSuccess).toHaveBeenCalledWith('SSH profile "Prod Bastion (EU)" created');
     // Reloaded after the save: the initial GET and one more.
@@ -190,6 +196,7 @@ describe("SshProfilesTab", () => {
           password: "pw",
           privateKey: "k",
           passphrase: "p",
+          personalIdentity: false,
           hostKeyFingerprint: "",
         },
         "n",

@@ -174,8 +174,10 @@ export async function createSSHTunnel(
         if (shared) {
           activeTunnels.set(connectionId, tunnelInfo);
         }
+        // The SSH user named, so the log answers "who did the bastion see" (§4.9).
         logger.info(`Tunnel created for ${connectionId}: 127.0.0.1:${address.port} -> ${remoteHost}:${remotePort}`, {
           connectionId,
+          sshUser: sshConfig.username,
         });
         resolve(tunnelInfo);
       });

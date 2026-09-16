@@ -224,6 +224,8 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "lists and creates SSH profiles in the app's own storage backend (STORAGE_PROVIDER); never opens a user database (GET/POST). Admin-gated by requireAdmin like admin/datasources; tests/api/admin/ssh-profiles.test.ts proves the 403",
   "admin/ssh-profiles/[id]":
     "updates and deletes one SSH profile in the same storage backend; never opens a user database (PUT/DELETE, no POST export). Same admin gate",
+  "me/ssh-identity":
+    "reads, saves and removes the caller's own SSH identity in the app's own storage backend; never opens a user database (GET/PUT/DELETE, no POST export). Admin-gated by requireAdmin; tests/api/me/ssh-identity.test.ts proves the 403",
   "health/live":
     "the liveness probe: answers that the process runs, and nothing else (GET, no POST export). Public by nature - a kubelet carries no credential - like db/health",
   "health/ready":
@@ -539,6 +541,8 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/executions/store": `the execution queue (docs/CONTEXT.md §4.10), and it ${PROVIDER_NAMING_HELPER} (@/lib/db) to run an approved statement - but only for a request that passed guardServiceRoute or a reviewer's session on approvals/[id]; the routes that import it are session- or token-gated above`,
     "@/lib/ssh-profiles/store":
       "the shared SSH profiles in the app's own storage backend and the seed file, and which datasources name them; opens no user database",
+    "@/lib/ssh-identity/store":
+      "a person's own SSH identity in the app's own storage backend, one sealed record under their owner id; opens no user database",
     "@/lib/masking/store":
       "the shared masking configuration in the app's own storage backend, and the pure masking rules applied to a result; opens no user database",
     "@/lib/approvals/store":

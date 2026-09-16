@@ -1,5 +1,12 @@
 import { logger } from "@/lib/logger";
-import { decryptConnections, decryptSshProfiles, encryptConnections, encryptSshProfiles } from "./connection-secrets";
+import {
+  decryptConnections,
+  decryptSshIdentity,
+  decryptSshProfiles,
+  encryptConnections,
+  encryptSshIdentity,
+  encryptSshProfiles,
+} from "./connection-secrets";
 import type {
   ApprovalQuery,
   ApprovalRequest,
@@ -32,6 +39,7 @@ import type { AuditEvent } from "@/lib/audit";
  */
 
 const CONNECTIONS: StorageCollection = "connections";
+const SSH_IDENTITY: StorageCollection = "ssh_identity";
 const SSH_PROFILES: StorageCollection = "ssh_profiles";
 
 /**
@@ -160,6 +168,11 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
       reportUndecryptable(undecryptable);
       return profiles as unknown as StorageData[K];
     }
+    if (collection === SSH_IDENTITY) {
+      const { identity, undecryptable } = decryptSshIdentity(value as unknown as Record<string, unknown>);
+      reportUndecryptable(undecryptable);
+      return identity as unknown as StorageData[K];
+    }
     if (collection !== CONNECTIONS) return value;
     // TypeScript cannot narrow StorageData[K] from a runtime comparison on K, so the two casts are
     // unavoidable; the runtime guard above is what makes them sound.
@@ -174,6 +187,13 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
         userId,
         collection,
         encryptSshProfiles(data as unknown as Record<string, unknown>[]) as unknown as StorageData[K],
+      );
+    }
+    if (collection === SSH_IDENTITY) {
+      return this.inner.setCollection(
+        userId,
+        collection,
+        encryptSshIdentity(data as unknown as Record<string, unknown>) as unknown as StorageData[K],
       );
     }
     if (collection !== CONNECTIONS) return this.inner.setCollection(userId, collection, data);
