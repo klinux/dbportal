@@ -4,6 +4,7 @@
  */
 
 import { Pool, type PoolClient, type PoolConfig as PgPoolConfig, type QueryConfig } from "pg";
+import { splitPgUrl, sslFromMode } from "@/lib/db/pg-ssl";
 import { SQLBaseProvider } from "./sql-base";
 import {
   type DatabaseConnection,
@@ -1611,9 +1612,11 @@ export class PostgresProvider extends SQLBaseProvider {
     };
 
     if (this.config.connectionString) {
+      // Without its TLS parameters: the driver reads them after `ssl` above and lets them
+      // win (§4.47); buildSSLConfig has already read the URL's own sslmode.
       return {
         ...baseConfig,
-        connectionString: this.config.connectionString,
+        connectionString: splitPgUrl(this.config.connectionString).url,
       };
     }
 
@@ -1647,6 +1650,13 @@ export class PostgresProvider extends SQLBaseProvider {
       if (connSSL.clientKey) ssl.key = connSSL.clientKey;
 
       return ssl as PgPoolConfig["ssl"];
+    }
+
+    // A connection string's own sslmode, read as libpq reads it (§4.47): `require` encrypts
+    // without checking the chain, the verify-* modes check it against the runtime's roots.
+    if (this.config.connectionString) {
+      const fromUrl = sslFromMode(splitPgUrl(this.config.connectionString).mode);
+      if (fromUrl !== null) return fromUrl;
     }
 
     // Auto-detect for cloud providers

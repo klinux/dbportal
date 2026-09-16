@@ -690,6 +690,21 @@ describe("PostgresProvider", () => {
       expect(provider.isConnected()).toBe(false);
     });
 
+    // §4.47: a connection string's own sslmode is read here and the URL reaches the driver
+    // without it. `disable` connects plain to this TLS-less server; `require` asks for TLS
+    // and is refused by the server, which is the driver honouring our decision, not the URL's.
+    test("a connection string's sslmode is honoured: disable connects, require asks for TLS", async () => {
+      const cfg = makePgConfig();
+      const base = `postgresql://${cfg.user}:${cfg.password}@${cfg.host}:${cfg.port}/${cfg.database}`;
+      provider = new PostgresProvider(makePgConfig({ connectionString: `${base}?sslmode=disable` }));
+      await provider.connect();
+      expect(provider.isConnected()).toBe(true);
+      expect((await provider.query("SELECT 1 AS one")).rows).toEqual([{ one: 1 }]);
+      await provider.disconnect();
+      const tls = new PostgresProvider(makePgConfig({ connectionString: `${base}?sslmode=require` }));
+      await expect(tls.connect()).rejects.toThrow(/SSL/i);
+    });
+
     test("double connect is idempotent", async () => {
       provider = new PostgresProvider(makePgConfig());
       await provider.connect();

@@ -340,6 +340,43 @@ describe("PostgresStorageProvider", () => {
     await cloudProvider.close();
   });
 
+  // §4.47: `pg` parses the URL it is given AFTER the explicit `ssl` and lets the URL win, and
+  // its reading of `sslmode=require` verifies the chain - so a Cloud SQL store on the
+  // documented URL failed with "unable to verify the first certificate". The URL handed to
+  // the driver carries no TLS parameter, and the driver's own parser is the witness.
+  test("the URL reaches the driver without its sslmode, so the explicit ssl decides", async () => {
+    const { default: ConnectionParameters } = await import("pg/lib/connection-parameters");
+    const cases: [string, false | { rejectUnauthorized: boolean }][] = [
+      ["postgresql://u:p@10.0.0.5:5432/test?sslmode=require", { rejectUnauthorized: false }],
+      ["postgresql://u:p@10.0.0.5:5432/test?sslmode=verify-full", { rejectUnauthorized: true }],
+      ["postgresql://u:p@10.0.0.5:5432/test?sslmode=no-verify&application_name=x", { rejectUnauthorized: false }],
+      ["postgresql://u:p@localhost:5432/test?ssl=false", false],
+      ["postgresql://u:p@10.0.0.5:5432/test?ssl=true", { rejectUnauthorized: false }],
+    ];
+    for (const [url, ssl] of cases) {
+      mockPoolConstructor.mockClear();
+      const provider = new PostgresStorageProvider(url);
+      await provider.initialize();
+      const poolConfig = (mockPoolConstructor.mock.calls as unknown[][])[0]?.[0] as {
+        connectionString: string;
+        ssl?: unknown;
+      };
+      expect(poolConfig.connectionString).not.toContain("sslmode");
+      expect(poolConfig.connectionString).not.toContain("ssl=");
+      expect(poolConfig.ssl).toEqual(ssl);
+      // What the real driver would use, given exactly this config.
+      expect(new ConnectionParameters(poolConfig as never).ssl).toEqual(ssl);
+      await provider.close();
+    }
+    // The other parameters survive the trim.
+    mockPoolConstructor.mockClear();
+    const provider = new PostgresStorageProvider("postgresql://u:p@10.0.0.5:5432/test?sslmode=require&application_name=x");
+    await provider.initialize();
+    const kept = (mockPoolConstructor.mock.calls as unknown[][])[0]?.[0] as { connectionString: string };
+    expect(kept.connectionString).toBe("postgresql://u:p@10.0.0.5:5432/test?application_name=x");
+    await provider.close();
+  });
+
   // D26: `verify-system` is this product's own mode name, and STORAGE_POSTGRES_URL is read
   // for libpq's sslmode - so a URL naming it used to fall through every branch and land on
   // the non-local default, `rejectUnauthorized: false`. Someone who typed the verifying mode

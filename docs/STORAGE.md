@@ -289,14 +289,16 @@ STORAGE_POSTGRES_URL=postgresql://user:pass@your-pg-host:5432/your_db?sslmode=re
 STORAGE_POSTGRES_URL=postgresql://user:pass@your-pg-host:5432/your_db?sslmode=verify-system
 ```
 
-> **`sslmode=require` here encrypts but does not verify** (`rejectUnauthorized: false`) — this pool
-> has no channel for a CA certificate, so a verifying default would break every deployment whose
-> storage database presents a self-signed certificate. `sslmode=verify-system` is the connection
-> form's own mode name (`SSLMode` in [`src/lib/types.ts`](../src/lib/types.ts)), not a libpq one, and
-> it is the one value this reader treats as "verify the chain against the runtime's trust store" —
-> which is what a managed provider's publicly-signed certificate needs. Before D26 it fell through
-> every branch and landed on the non-local default, `rejectUnauthorized: false`: the opposite of what
-> it says.
+> **`sslmode` is read as libpq reads it** (docs/CONTEXT.md §4.47): `require` (and `prefer`,
+> `allow`, `no-verify`) encrypts without checking the chain - the mode for a managed database
+> whose certificate is signed by its own CA, such as Cloud SQL - and `verify-ca`, `verify-full`
+> and `verify-system` check it against the runtime's trust store, which is what a
+> publicly-signed certificate needs. This pool has no channel for a CA PEM. The URL reaches
+> the `pg` driver without its `sslmode`: the driver reads the URL after the explicit setting
+> and lets the URL win, and its own reading of `require` verifies - which is how a Cloud SQL
+> store on the documented URL once failed with "unable to verify the first certificate".
+> `verify-system` is the connection form's own mode name (`SSLMode` in
+> [`src/lib/types.ts`](../src/lib/types.ts)), kept for URLs written in its vocabulary.
 
 ### Verify
 

@@ -889,6 +889,20 @@ built. Each lands as its own section when done.
   fleet whose databases the cloud backs up: the panel says so, every backup route answers
   404. Still on the local directory when a bucket is set: nothing for exports; for backups,
   the list and the restore, which read the directory - the bucket only receives a copy.
+- **4.47 A PostgreSQL URL's `sslmode`, decided here — done (found 2026-09-16).** The store on
+  Cloud SQL, on the documented `?sslmode=require`, failed with "unable to verify the first
+  certificate": `pg` parses the URL it is given after the explicit `ssl` config and lets the
+  URL win, and pg-connection-string reads `require` as "verify" (with a deprecation warning
+  about adopting libpq's meaning one day). The same held for a datasource declared by
+  connection string. [`src/lib/db/pg-ssl.ts`](../src/lib/db/pg-ssl.ts) splits the TLS
+  parameters off the URL handed to the driver and reads the mode as libpq does - `disable`
+  plain; `allow`, `prefer`, `require`, `no-verify` encrypted and unchecked; `verify-ca`,
+  `verify-full`, `verify-system` checked against the runtime's roots - for the store
+  ([`providers/postgres.ts`](../src/lib/storage/providers/postgres.ts)) and for the datasource
+  driver when the form's own SSL block is empty. The store's unit test asks the driver's own
+  `ConnectionParameters` what it would use, so the two cannot disagree again. Not done: a CA
+  for the store (`verify-full` against Cloud SQL's own CA) - the pool has no channel for a
+  PEM yet.
 - **4.45 Secrets the chart has no field for — done (asked 2026-09-16).** Deploying the
   three roles from one GitOps repository needed `METRICS_TOKEN`, `STORAGE_ENCRYPTION_KEY`,
   `VAULT_TOKEN` and the passwords a seed file refers to, and the chart offered `extraEnv`
