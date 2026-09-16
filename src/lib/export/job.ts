@@ -12,15 +12,25 @@ import { logger } from "@/lib/logger";
 import { maskResult } from "@/lib/masking/store";
 import { withNamedRoles } from "@/lib/roles/store";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
-import { exportDir, ExportRequestError, type ExportJobPayload, type ExportResult } from "./request";
+import { uploadToGcs } from "@/lib/gcs";
+import {
+  EXPORT_OBJECT_PREFIX,
+  exportBucket,
+  exportDir,
+  ExportRequestError,
+  type ExportJobPayload,
+  type ExportResult,
+} from "./request";
 
 /**
  * An export as a job (docs/CONTEXT.md §4.22, §4.40): the worker runs the statement again
  * on a read-only pool, bounded, the rows leave masked exactly as the grid gets them, the
- * file is written by the same writers as before into EXPORT_DIR under the job's id, and
- * two lines go on the trail - the execution and the `data_export`. The rule is checked
- * again here, as the route checked it, because the worker is what opens the datasource.
- * Files older than EXPORT_RETENTION_HOURS are removed after each export.
+ * file is written by the same writers as before into EXPORT_DIR under the job's id - or,
+ * with EXPORT_GCS_BUCKET set, into the bucket, which is what lets a studio that is not the
+ * worker serve it (§4.46) - and two lines go on the trail - the execution and the
+ * `data_export`. The rule is checked again here, as the route checked it, because the
+ * worker is what opens the datasource. Files older than EXPORT_RETENTION_HOURS are removed
+ * from the directory after each export; the bucket's lifecycle rule does the same there.
  */
 export const EXPORT_MAX_ROWS = 100_000;
 export const DEFAULT_EXPORT_RETENTION_HOURS = 24;
@@ -89,10 +99,18 @@ export async function runExport(payload: ExportJobPayload, jobId: string): Promi
     csvDelimiter: payload.csvDelimiter,
   });
   const content = file.mimeType.startsWith("text/csv") ? `${BOM}${file.content}` : file.content;
-  const dir = exportDir();
-  await mkdir(dir, { recursive: true });
-  const target = path.join(dir, `${jobId}.${file.extension}`);
-  await writeFile(target, content, "utf8");
+  const bucket = exportBucket();
+  let target: string;
+  if (bucket) {
+    const object = `${EXPORT_OBJECT_PREFIX}${jobId}.${file.extension}`;
+    await uploadToGcs(bucket, object, { content });
+    target = `gs://${bucket}/${object}`;
+  } else {
+    const dir = exportDir();
+    await mkdir(dir, { recursive: true });
+    target = path.join(dir, `${jobId}.${file.extension}`);
+    await writeFile(target, content, "utf8");
+  }
   emitAuditEvent({
     type: "data_export",
     action: payload.format,
@@ -104,7 +122,7 @@ export async function runExport(payload: ExportJobPayload, jobId: string): Promi
     rows: served.rows.length,
     ...(payload.ip ? { ip: payload.ip } : {}),
   });
-  await pruneExports();
+  if (!bucket) await pruneExports();
   return {
     file: target,
     extension: file.extension,

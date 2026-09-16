@@ -353,7 +353,8 @@ graph LR
   and the export rule apply on the worker exactly as on the studio.
 - **Files a worker writes and the studio serves**: `EXPORT_DIR` and `BACKUP_DIR`, a
   ReadWriteMany volume mounted on `/app/data` in both releases, or the bucket for backups
-  (`BACKUP_GCS_BUCKET`).
+  (`BACKUP_GCS_BUCKET`, `EXPORT_GCS_BUCKET`), which is the shape for a cluster with no
+  ReadWriteMany storage class.
 - **The audit trail**: every role writes the same JSON line to stdout and, with server storage,
   the same `audit_events` table ([`src/lib/audit.ts`](../src/lib/audit.ts)); the SIEM export and
   the trail alerts read from there.

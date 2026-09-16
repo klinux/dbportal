@@ -1,5 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { downloadFromGcs, parseGcsUri } from "@/lib/gcs";
 import type { AccessSession } from "@/lib/access";
 import { readBoundParams } from "@/lib/api/bound-params";
 import type { CsvDelimiter } from "@/lib/export/csv";
@@ -91,10 +92,31 @@ export function exportDir(): string {
   return process.env.EXPORT_DIR?.trim() || path.join(process.cwd(), "data", "exports");
 }
 
+/**
+ * The bucket exports are kept in instead of EXPORT_DIR (docs/CONTEXT.md §4.46): what a
+ * deployment of several studios and workers with no volume they all mount sets. Objects go
+ * under `exports/`; the bucket's own lifecycle rule is their retention.
+ */
+export function exportBucket(): string | null {
+  return process.env.EXPORT_GCS_BUCKET?.trim() || null;
+}
+export const EXPORT_OBJECT_PREFIX = "exports/";
+
 /** The file of a finished export job, read back for the download; null while the job has no result. */
 export async function exportFileOf(job: JobRecord): Promise<{ result: ExportResult; content: Buffer } | null> {
   const result = job.result as unknown as ExportResult | undefined;
   if (job.status !== "done" || !result?.file) return null;
+  const inBucket = parseGcsUri(result.file);
+  if (inBucket) {
+    // Only an object a worker wrote under the export prefix of the configured bucket is ever served.
+    if (inBucket.bucket !== exportBucket() || !inBucket.object.startsWith(EXPORT_OBJECT_PREFIX)) return null;
+    try {
+      const content = await downloadFromGcs(inBucket.bucket, inBucket.object);
+      return content ? { result, content } : null;
+    } catch {
+      return null;
+    }
+  }
   // Only a file the worker wrote under the export directory is ever served.
   const file = path.resolve(result.file);
   if (!file.startsWith(path.resolve(exportDir()) + path.sep)) return null;

@@ -32,6 +32,8 @@ export interface BackupOutcome {
 }
 
 export interface BackupsState {
+  /** False when the deployment switched backups off (BACKUPS_ENABLED=false); absent on older servers. */
+  enabled?: boolean;
   supported: boolean;
   tool: boolean;
   restoreAllowed: boolean;
@@ -206,6 +208,8 @@ export function BackupsPanel({ datasourceId, datasourceName }: { datasourceId: s
           <p className="text-xs text-fg-muted" data-testid="backups-loading">
             Loading…
           </p>
+        ) : state.enabled === false ? (
+          <p className="text-xs text-fg-muted">Backups are switched off on this deployment.</p>
         ) : !state.supported ? (
           <p className="text-xs text-fg-muted">Backups are offered for PostgreSQL datasources only.</p>
         ) : !state.tool ? (

@@ -870,6 +870,20 @@ built. Each lands as its own section when done.
   filter pushed down, the lock, the catalogs). Still to come: the admin sheet's members
   editor, masking by member, an audit line per member, and export, runbooks and alerts on a
   virtual datasource.
+- **4.46 Files that outlive the pod without a shared volume — done (asked 2026-09-16).**
+  The deployment has no ReadWriteMany storage class, and without one an export written by
+  one studio or worker is not there for the studio that serves the download. The bucket the
+  backups already used is the answer: `EXPORT_GCS_BUCKET` keeps an export as an object
+  under `exports/<job id>` ([`src/lib/export/job.ts`](../src/lib/export/job.ts)), the job's
+  result names it as `gs://…`, and `exportFileOf` serves only an object under that prefix
+  of that bucket, as it served only a file under `EXPORT_DIR`; retention is the bucket's
+  lifecycle rule. The client is shared ([`src/lib/gcs.ts`](../src/lib/gcs.ts): a token
+  from the environment or the metadata server, an upload from a file or from memory, a
+  download that is null for a missing object), and the backups' own wrapper keeps its
+  errors as before. Backups themselves can be switched off, `BACKUPS_ENABLED=false`, for a
+  fleet whose databases the cloud backs up: the panel says so, every backup route answers
+  404. Still on the local directory when a bucket is set: nothing for exports; for backups,
+  the list and the restore, which read the directory - the bucket only receives a copy.
 - **4.45 Secrets the chart has no field for — done (asked 2026-09-16).** Deploying the
   three roles from one GitOps repository needed `METRICS_TOKEN`, `STORAGE_ENCRYPTION_KEY`,
   `VAULT_TOKEN` and the passwords a seed file refers to, and the chart offered `extraEnv`

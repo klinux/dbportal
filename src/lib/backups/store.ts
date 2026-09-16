@@ -53,6 +53,14 @@ export function gcsBucket(): string | null {
 export function backupSupported(type: string): boolean {
   return type === "postgres";
 }
+/**
+ * Whether this deployment offers backups at all: BACKUPS_ENABLED=false switches them off,
+ * for a fleet whose databases are backed up by the cloud they run on. Off, the panel says
+ * so and every backup route answers 404.
+ */
+export function backupsEnabled(): boolean {
+  return !["false", "0", "no", "off"].includes((process.env.BACKUPS_ENABLED ?? "").trim().toLowerCase());
+}
 
 export function restoreAllowed(connection: Pick<ManagedConnection, "environment">): boolean {
   return connection.environment !== "production";
@@ -142,6 +150,7 @@ export async function listBackups(datasourceId: string): Promise<BackupFile[]> {
 }
 
 export function requireSupported(connection: ManagedConnection): void {
+  if (!backupsEnabled()) throw new BackupError("Backups are switched off on this deployment", 404);
   if (!backupSupported(connection.type))
     throw new BackupError(
       `Backups are offered for PostgreSQL datasources only; "${connection.name}" is ${connection.type}`,

@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 import { readObjectBody, requireAdmin } from "@/lib/api/admin-datasources";
 import { answerBackupError, answerBackupJob } from "@/lib/api/backups";
 import { BACKUP_WAIT_MS, enqueueBackup, openBackupJob } from "@/lib/backups/job";
-import { backupSupported, gcsBucket, listBackups, restoreAllowed, toolAvailable } from "@/lib/backups/store";
+import {
+  backupSupported,
+  backupsEnabled,
+  gcsBucket,
+  listBackups,
+  restoreAllowed,
+  toolAvailable,
+} from "@/lib/backups/store";
 import { waitForJob } from "@/lib/jobs/queue";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 
@@ -25,8 +32,10 @@ export async function GET(request: Request) {
     const datasourceId = datasourceIdOf(new URL(request.url).searchParams.get("datasourceId"));
     if (!datasourceId) return NextResponse.json({ error: "datasourceId is required" }, { status: 400 });
     const connection = await resolveConnection({ connectionId: `seed:${datasourceId}` }, gate.session);
-    const supported = backupSupported(connection.type);
+    const enabled = backupsEnabled();
+    const supported = enabled && backupSupported(connection.type);
     return NextResponse.json({
+      enabled,
       supported,
       tool: supported ? await toolAvailable() : false,
       restoreAllowed: restoreAllowed(connection),

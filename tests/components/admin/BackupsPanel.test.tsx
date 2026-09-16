@@ -63,6 +63,13 @@ describe("BackupsPanel", () => {
     expect((view.getByText("Back up now").closest("button") as HTMLButtonElement).disabled).toBe(true);
     cleanup();
     restoreGlobalFetch();
+    // Switched off on the deployment: said before the engine is, and the button stays off.
+    mockGlobalFetch({ "/api/admin/backups": { ok: true, json: { ...ready, enabled: false, supported: false } } });
+    view = await renderLoaded();
+    expect(view.getByText(/switched off on this deployment/)).not.toBeNull();
+    expect((view.getByText("Back up now").closest("button") as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+    restoreGlobalFetch();
     mockGlobalFetch({ "/api/admin/backups": { ok: true, json: { ...ready, tool: false } } });
     view = await renderLoaded();
     expect(view.getByText(/pg_dump is not installed/)).not.toBeNull();

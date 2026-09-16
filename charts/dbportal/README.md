@@ -432,7 +432,8 @@ helm install libredb libredb/dbportal \
 - Files a worker writes - exports under `EXPORT_DIR`, backups under `BACKUP_DIR` - are
   served by the studio, so with `persistence.enabled` the data volume must be
   `ReadWriteMany` (the chart refuses otherwise); or keep persistence off and send backups to
-  a bucket with `BACKUP_GCS_BUCKET`. The image has `pg_dump`, so backups run wherever a
+  a bucket with `EXPORT_GCS_BUCKET` and `BACKUP_GCS_BUCKET` (or switch backups off with
+  `BACKUPS_ENABLED=false` where the cloud backs the databases up). The image has `pg_dump`, so backups run wherever a
   worker is. `workers.enabled` also needs the queue in PostgreSQL.
 
 The other shape still holds: a release that is itself one role (`role: worker` or

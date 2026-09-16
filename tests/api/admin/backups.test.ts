@@ -110,6 +110,7 @@ describe("/api/admin/backups", () => {
     const res = await GET(new Request(`${url}?datasourceId=orders`));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
+      enabled: true,
       supported: true,
       tool: true,
       restoreAllowed: true,
@@ -130,6 +131,16 @@ describe("/api/admin/backups", () => {
     expect(prod).toMatchObject({ restoreAllowed: false, bucket: true, tool: false, job: null });
     expect((await GET(new Request(url))).status).toBe(400);
     expect((await GET(new Request(`${url}?datasourceId=ghost`))).status).toBe(404);
+  });
+
+  test("backups switched off answer enabled=false and unsupported, without asking for the tool", async () => {
+    process.env.BACKUPS_ENABLED = "false";
+    try {
+      const body = await (await GET(new Request(`${url}?datasourceId=orders`))).json();
+      expect(body).toMatchObject({ enabled: false, supported: false, tool: false, backups: [], job: null });
+    } finally {
+      delete process.env.BACKUPS_ENABLED;
+    }
   });
 
   test("an unsupported engine lists nothing and does not ask for the tool or the queue", async () => {

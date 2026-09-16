@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach, afterAll } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterAll, spyOn } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -124,6 +124,35 @@ describe("export job", () => {
       details: "2 rows",
       rows: 2,
     });
+  });
+
+  // The production shape of several studios and workers with no volume they all mount: the
+  // file goes to the bucket under the job's id, the result names the object, and nothing is
+  // written or pruned on this pod's disk.
+  test("with EXPORT_GCS_BUCKET the file is an object in the bucket and the directory is left alone", async () => {
+    process.env.EXPORT_GCS_BUCKET = "exports-bucket";
+    process.env.GOOGLE_OAUTH_ACCESS_TOKEN = "ya29.test";
+    type FetchLike = (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+    const holder = globalThis as unknown as { fetch: FetchLike };
+    const fetchSpy = spyOn(holder, "fetch").mockImplementation(async () => new Response("{}", { status: 200 }));
+    try {
+      const result = await runExport(payload(), "job-b");
+      expect(result).toMatchObject({ file: "gs://exports-bucket/exports/job-b.csv", extension: "csv", rows: 2 });
+      const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toContain("/b/exports-bucket/o?uploadType=media&name=exports%2Fjob-b.csv");
+      expect(String(init.body)).toContain("***-**-6789");
+      expect(existsSync(join(dir, "job-b.csv"))).toBe(false);
+      expect(audited().find((e) => e.type === "data_export")).toMatchObject({ rows: 2 });
+      // A bucket that refuses is the job's failure, and the export is not on the trail as done.
+      audit.mockClear();
+      fetchSpy.mockImplementation(async () => new Response("denied", { status: 403 }));
+      await expect(runExport(payload(), "job-c")).rejects.toThrow("The bucket answered HTTP 403");
+      expect(audited().find((e) => e.type === "data_export")).toBeUndefined();
+    } finally {
+      fetchSpy.mockRestore();
+      delete process.env.EXPORT_GCS_BUCKET;
+      delete process.env.GOOGLE_OAUTH_ACCESS_TOKEN;
+    }
   });
 
   test("a JSON file carries no byte order mark, the datasource's own cap bounds it and is said when reached, a failed run is the engine's error", async () => {

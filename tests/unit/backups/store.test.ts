@@ -40,8 +40,17 @@ const logError = mock(() => {});
 mock.module("@/lib/logger", () => ({ logger: { error: logError, warn: () => {}, info: () => {}, debug: () => {} } }));
 
 const { BackupError } = await import("@/lib/backups/errors");
-const { backupSupported, createBackup, listBackups, resetToolCheck, restoreAllowed, restoreBackup, toolAvailable } =
-  await import("@/lib/backups/store");
+const {
+  backupSupported,
+  backupsEnabled,
+  createBackup,
+  listBackups,
+  requireSupported,
+  resetToolCheck,
+  restoreAllowed,
+  restoreBackup,
+  toolAvailable,
+} = await import("@/lib/backups/store");
 
 const connection = {
   id: "seed:orders",
@@ -143,6 +152,32 @@ describe("backups store", () => {
     });
     expect(await status(createBackup(connection as never, "root"))).toBe(502);
     expect((audit.mock.calls.at(-1) as unknown[])[0]).toMatchObject({ action: "uploaded", result: "failure" });
+  });
+
+  // A fleet whose databases the cloud backs up switches the feature off; every route then says so.
+  test("BACKUPS_ENABLED=false switches backups off: a 404 before the engine is even looked at", async () => {
+    const saved = process.env.BACKUPS_ENABLED;
+    try {
+      expect(backupsEnabled()).toBe(true);
+      process.env.BACKUPS_ENABLED = "yes";
+      expect(backupsEnabled()).toBe(true);
+      process.env.BACKUPS_ENABLED = "false";
+      expect(backupsEnabled()).toBe(false);
+      const off = (() => {
+        try {
+          requireSupported(connection as never);
+          return null;
+        } catch (e) {
+          return e as InstanceType<typeof BackupError>;
+        }
+      })();
+      expect(off?.statusCode).toBe(404);
+      expect(off?.message).toContain("switched off");
+      expect(await status(createBackup(connection as never, "root"))).toBe(404);
+    } finally {
+      if (saved === undefined) delete process.env.BACKUPS_ENABLED;
+      else process.env.BACKUPS_ENABLED = saved;
+    }
   });
 
   test("an engine without a tool, a missing pg_dump, and a tool that fails or times out are refused with the right status; stderr stays in the log", async () => {
