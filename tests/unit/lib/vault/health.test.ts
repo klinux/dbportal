@@ -1,4 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { logger } from "@/lib/logger";
+import { resetVaultTransport } from "@/lib/vault/client";
 import { HEALTH_TIMEOUT_MS, vaultHealthy } from "@/lib/vault/health";
 
 /**
@@ -8,7 +10,16 @@ import { HEALTH_TIMEOUT_MS, vaultHealthy } from "@/lib/vault/health";
  */
 type FetchLike = (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 const holder = globalThis as unknown as { fetch: FetchLike };
-const VARS = ["VAULT_ADDR", "VAULT_TOKEN", "VAULT_TOKEN_FILE", "VAULT_NAMESPACE"];
+const VARS = [
+  "VAULT_ADDR",
+  "VAULT_TOKEN",
+  "VAULT_TOKEN_FILE",
+  "VAULT_NAMESPACE",
+  "VAULT_SKIP_VERIFY",
+  "VAULT_CACERT",
+  "VAULT_ROLE_ID",
+  "VAULT_SECRET_ID",
+];
 const saved: Record<string, string | undefined> = {};
 let fetchSpy: ReturnType<typeof spyOn<{ fetch: FetchLike }, "fetch">>;
 
@@ -21,6 +32,7 @@ describe("vaultHealthy", () => {
     process.env.VAULT_ADDR = "https://vault.internal:8200/";
     process.env.VAULT_TOKEN = "s.never-sent";
     fetchSpy = spyOn(holder, "fetch").mockImplementation(async () => new Response("{}", { status: 200 }));
+    resetVaultTransport();
   });
 
   afterEach(() => {
@@ -57,6 +69,29 @@ describe("vaultHealthy", () => {
       throw new TypeError("fetch failed");
     });
     expect(await vaultHealthy()).toBe("failed");
+  });
+
+  // The probe reaches the same Vault the credentials do, so it must trust it the same way.
+  test("the TLS setting of the client reaches the probe's request", async () => {
+    const warn = spyOn(logger, "warn").mockImplementation(() => {});
+    try {
+      process.env.VAULT_SKIP_VERIFY = "true";
+      expect(await vaultHealthy()).toBe("ok");
+      const init = (fetchSpy.mock.calls[0] as unknown as [string, RequestInit & { dispatcher?: unknown }])[1];
+      expect(init.dispatcher).toBeDefined();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // The probe needs no token, so an AppRole deployment is probed without a login.
+  test("an AppRole configuration is probed without logging in", async () => {
+    delete process.env.VAULT_TOKEN;
+    process.env.VAULT_ROLE_ID = "r";
+    process.env.VAULT_SECRET_ID = "s";
+    expect(await vaultHealthy()).toBe("ok");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect((fetchSpy.mock.calls[0] as unknown as [string])[0]).toContain("/sys/health");
   });
 
   test("a configuration the client refuses (no token at all) is failed, not a throw", async () => {

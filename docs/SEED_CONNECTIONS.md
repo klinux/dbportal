@@ -353,7 +353,15 @@ connections:
 
 The server talks to Vault with `VAULT_ADDR` and `VAULT_TOKEN` (or `VAULT_TOKEN_FILE`, what
 the Kubernetes injector and Vault Agent leave behind - re-read on every call), optionally
-`VAULT_NAMESPACE`, with a `VAULT_TIMEOUT_MS` (default 5 s) on every request. A reference
+`VAULT_NAMESPACE`, with a `VAULT_TIMEOUT_MS` (default 5 s) on every request. The token is
+renewed by the server itself (`auth/token/renew-self`, at half of each lease), so a periodic
+token (`vault token create -policy=dbportal -period=24h -orphan`) lives as long as the server
+does; `VAULT_TOKEN_RENEW=off` leaves it to whoever supplied it. Instead of a token,
+`VAULT_ROLE_ID` and `VAULT_SECRET_ID` log in with an AppRole (`VAULT_APPROLE_MOUNT`, default
+`approle`) and log in again at 80% of the token's lease or when Vault refuses it; a secret id
+created with `secret_id_ttl=0` and `secret_id_num_uses=0` does not expire. For a Vault on an
+internal name, `VAULT_CACERT` (a PEM file, or the PEM text) names the CA to trust and
+`VAULT_SKIP_VERIFY=true` turns verification off, for the Vault requests only. A reference
 the server cannot resolve refuses that request with a 503 that names the datasource and
 never what Vault said (that goes to the server log); a malformed reference is a 400.
 References pass the seed loader untouched, so a datasource with one is listed even while

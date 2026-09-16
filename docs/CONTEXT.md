@@ -196,8 +196,18 @@ browser ([`src/lib/vault/`](../src/lib/vault/), docs/SEED_CONNECTIONS.md "Vault 
   the pool before Vault revokes the old user. The cache lives on `globalThis`
   (`Symbol.for("dbportal.vault-cache")`) for the same reason the audit sink does.
 - Deliberately not done: lease renewal (`sys/leases/renew`) — re-issuing is one code path
-  and Vault revokes the old user on its own; and Vault auth methods beyond a token (AppRole,
-  Kubernetes) — the injector/agent already turns those into a token file.
+  and Vault revokes the old user on its own.
+- **Added 2026-09-16, for a deployment without an injector:** the token is renewed by the
+  server itself (`auth/token/renew-self` at half of each lease, so a periodic token lives as
+  long as the server; a 400/403 is a token Vault does not renew and is not asked again;
+  `VAULT_TOKEN_RENEW=off` for a token an injector renews); or an AppRole (`VAULT_ROLE_ID`,
+  `VAULT_SECRET_ID`, `VAULT_APPROLE_MOUNT`) logged in at first use and again at 80% of the
+  token's lease or on a 403, one login at a time, the session on `globalThis`
+  (`Symbol.for("dbportal.vault-session")`); and, for a Vault on an internal name, the Vault
+  CLI's own `VAULT_CACERT` (a PEM file or the PEM text) and `VAULT_SKIP_VERIFY`, carried by an
+  undici dispatcher on the Vault requests alone, never the process-wide switch. The
+  readiness probe goes through the same dispatcher and needs no token. Kubernetes auth is
+  still left to the injector.
 
 ### 4.6 Approval flow — done
 

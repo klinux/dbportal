@@ -95,6 +95,8 @@ describe("resolveVaultReferences", () => {
     now = 1_000_000;
     process.env.VAULT_ADDR = "https://vault.internal";
     process.env.VAULT_TOKEN = "s.token";
+    // Self-renewal is the client's own test; off here so every request counted is a credential's.
+    process.env.VAULT_TOKEN_RENEW = "off";
     delete process.env.VAULT_KV_TTL_MS;
     fetchSpy = spyOn(fetchHolder, "fetch").mockImplementation(async (url) => vaultAnswers(String(url)));
     logSpy = spyOn(console, "log").mockImplementation(() => {});

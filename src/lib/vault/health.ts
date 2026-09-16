@@ -1,4 +1,4 @@
-import { getVaultConfig, isVaultConfigured } from "./client";
+import { getVaultConfig, isVaultConfigured, vaultDispatcher } from "./client";
 
 /**
  * Whether Vault answers (docs/CONTEXT.md §4.13), for the readiness probe: `sys/health`
@@ -13,11 +13,13 @@ export async function vaultHealthy(): Promise<CheckOutcome> {
   if (!isVaultConfigured()) return "skipped";
   try {
     const config = getVaultConfig();
+    const dispatcher = vaultDispatcher(config.tls);
     const res = await fetch(`${config.addr}/v1/sys/health?standbyok=true&perfstandbyok=true`, {
       signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
       cache: "no-store",
       ...(config.namespace ? { headers: { "X-Vault-Namespace": config.namespace } } : {}),
-    });
+      ...(dispatcher ? { dispatcher } : {}),
+    } as RequestInit);
     // 200 active, 429 standby (accepted above), 473 performance standby; anything else is sealed or down.
     return res.ok ? "ok" : "failed";
   } catch {

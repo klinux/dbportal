@@ -24,6 +24,8 @@ describe("vault kv browser", () => {
   beforeEach(() => {
     process.env.VAULT_ADDR = "https://vault.internal:8200";
     process.env.VAULT_TOKEN = "s.token";
+    // Self-renewal is the client's own test; off here so the LIST is the first request.
+    process.env.VAULT_TOKEN_RENEW = "off";
     delete process.env.VAULT_KV_MOUNT;
     fetchSpy = spyOn(holder, "fetch");
   });
