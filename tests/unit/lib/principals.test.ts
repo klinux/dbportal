@@ -20,6 +20,8 @@ mock.module("@/lib/seed/config-loader", () => ({
   }),
 }));
 mock.module("@/lib/datasources/store", () => ({
+  // The draft test's loan of a stored secret (§4.48) is not this file's subject: a draft passes through.
+  withStoredSecret: async (draft: unknown) => draft,
   listSharedDatasources: async () => {
     if (sharedFails) throw new Error("disk");
     return [{ id: "hr", roles: ["admin"], exportRoles: ["group:analysts", "nonsense"] }];

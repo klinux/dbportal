@@ -33,6 +33,8 @@ mock.module("@/lib/seed/config-loader", () => ({
   loadConfig: async () => ({ version: "1", connections: [{ id: "prod", name: "Prod", environment: "production" }] }),
 }));
 mock.module("@/lib/datasources/store", () => ({
+  // The draft test's loan of a stored secret (§4.48) is not this file's subject: a draft passes through.
+  withStoredSecret: async (draft: unknown) => draft,
   listSharedDatasources: async () => [{ id: "stage", name: "Stage", environment: "staging" }],
 }));
 const deliver = mock(async (_c: unknown, _m: unknown) => true);

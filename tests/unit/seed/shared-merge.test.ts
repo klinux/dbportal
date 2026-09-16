@@ -17,6 +17,8 @@ process.env.RUNTIME_PASS = "runtime-secret";
 let shared: unknown[] = [];
 let storeFails = false;
 mock.module("@/lib/datasources/store", () => ({
+  // The draft test's loan of a stored secret (§4.48) is not this file's subject: a draft passes through.
+  withStoredSecret: async (draft: unknown) => draft,
   listSharedDatasources: async () => {
     if (storeFails) throw new Error("storage down");
     return shared;
