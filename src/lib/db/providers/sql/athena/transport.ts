@@ -234,6 +234,15 @@ export interface AthenaWorkgroupInfo {
   /** The workgroup's own result location, if it configures one. */
   outputLocation: string | null;
   /**
+   * Whether the service keeps this workgroup's results in storage it owns.
+   *
+   * "Managed query results": the service stores and expires the result itself, and
+   * a workgroup with this on cannot carry a result location - so a statement in it
+   * needs no S3 prefix from anybody, and a location the connection names must not be
+   * sent. This is what makes a connection with no `outputLocation` a complete one.
+   */
+  managedResults: boolean;
+  /**
    * Whether the workgroup's settings override what a statement carries.
    *
    * Load-bearing for the connection's own `outputLocation`: when this is true the

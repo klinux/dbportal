@@ -813,8 +813,8 @@ export function ConnectionModal({
                             className="h-10 bg-panel border-hairline focus:border-brand-tint/50 transition-all text-xs font-mono"
                           />
                           <p className="text-xs text-fg-muted">
-                            Where every result is written. Needed unless the workgroup enforces its own; the bucket's
-                            policy decides who may read what lands there.
+                            Where every result is written. Needed unless the workgroup configures its own or stores
+                            results itself; the bucket's policy decides who may read what lands there.
                           </p>
                         </div>
                       </div>

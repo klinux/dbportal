@@ -864,10 +864,32 @@ describe("AthenaSdkTransport workgroup", () => {
       state: "ENABLED",
       engineVersion: "Athena engine version 3",
       outputLocation: "s3://wg-results/",
+      managedResults: false,
       enforcesConfiguration: true,
       bytesScannedCutoff: 10_000_000_000,
     });
     expect(client.of(GetWorkGroupCommand)[0].input).toEqual({ WorkGroup: "primary" });
+  });
+
+  // A workgroup keeping its results in the service's own storage carries no result
+  // location, and the seam says which of the two it is rather than leaving a null to
+  // be read as "nowhere to write".
+  test("reports a workgroup whose results the service stores itself", async () => {
+    const { transport } = makeTransport({
+      workgroup: {
+        WorkGroup: {
+          Name: "managed",
+          State: "ENABLED",
+          Configuration: { ManagedQueryResultsConfiguration: { Enabled: true } },
+        },
+        $metadata: METADATA,
+      },
+    });
+
+    const info = await transport.describeWorkgroup();
+
+    expect(info.managedResults).toBe(true);
+    expect(info.outputLocation).toBeNull();
   });
 
   test("falls back to the connection's own workgroup name and nulls when the answer is bare", async () => {
@@ -878,6 +900,7 @@ describe("AthenaSdkTransport workgroup", () => {
       state: null,
       engineVersion: null,
       outputLocation: null,
+      managedResults: false,
       enforcesConfiguration: false,
       bytesScannedCutoff: null,
     });

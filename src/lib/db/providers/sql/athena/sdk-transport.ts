@@ -571,6 +571,7 @@ export class AthenaSdkTransport implements AthenaTransport {
       state: textOf(workgroup?.State),
       engineVersion: textOf(configuration?.EngineVersion?.EffectiveEngineVersion),
       outputLocation: textOf(configuration?.ResultConfiguration?.OutputLocation),
+      managedResults: configuration?.ManagedQueryResultsConfiguration?.Enabled === true,
       enforcesConfiguration: configuration?.EnforceWorkGroupConfiguration === true,
       bytesScannedCutoff: reported(configuration?.BytesScannedCutoffPerQuery),
     };

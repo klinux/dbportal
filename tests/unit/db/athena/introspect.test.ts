@@ -41,6 +41,7 @@ const WORKGROUP: AthenaWorkgroupInfo = {
   state: "ENABLED",
   engineVersion: "Athena engine version 3",
   outputLocation: "s3://lake-results/",
+  managedResults: false,
   enforcesConfiguration: false,
   bytesScannedCutoff: null,
 };

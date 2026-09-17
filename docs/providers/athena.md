@@ -262,7 +262,7 @@ red.
 | `password` | No | The **secret access key**. Both empty means the SDK's own credential chain - an instance or task role |
 | `database` | No | The Athena database unqualified names resolve against, and the container the tree opens. A statement may still name any database in full |
 | `workgroup` | No | Defaults to `primary`, which every account has. Carries the per-statement scan ceiling and, when it enforces its configuration, the result location |
-| `outputLocation` | No | `s3://bucket/prefix/` - where every result is written. Needed unless the workgroup configures one; a missing trailing slash is added |
+| `outputLocation` | No | `s3://bucket/prefix/` - where every result is written. Needed unless the workgroup configures one or stores results itself ([§4.3](#43-the-result-location)); a missing trailing slash is added |
 | `queryTimeout` | No | The deadline every statement runs under; the job is stopped when it fires. The shared default is 60 s |
 
 No `host`, no `port`, no `ssl` and no `sshTunnel`: the SDK reaches the regional endpoint over TLS
@@ -282,13 +282,25 @@ one.
 
 ### 4.3 The result location
 
-Every statement writes its answer to S3 under either the location the connection names or the one
-the workgroup configures; the service refuses a statement with neither. `connect()` therefore
-refuses, as a configuration error, a connection that names no location against a workgroup that
-configures none - at the form, rather than on the first statement. When the workgroup **enforces**
-its configuration (`EnforceWorkGroupConfiguration`), the service ignores the location a statement
-names and writes to the workgroup's; the seam carries that flag, and the object the result actually
-landed in is on every statement's execution report (`stats.resultLocation`).
+Every statement's answer has to land somewhere, and the service knows three places: the location
+the connection names, the location the workgroup configures, and - **managed query results** - the
+service's own storage, where it keeps and expires the result itself and the workgroup carries no
+location at all. A statement with none of the three is refused by the service, so `connect()`
+refuses that one configuration as a configuration error - at the form, rather than on the first
+statement - and accepts the other three.
+
+The three do not combine freely. A workgroup that stores results itself cannot take a location on a
+statement, so a connection that names one against such a workgroup runs **as if it had named
+none**: the probe learns the flag and the connection's transport is rebuilt without the location.
+When the workgroup **enforces** its configuration (`EnforceWorkGroupConfiguration`), the service
+ignores the location a statement names and writes to the workgroup's. Either way the object the
+result actually landed in, when there is one, is on the statement's execution report
+(`stats.resultLocation`); with managed results it is null, because there is no object of yours.
+
+This is also why a client like Superset can look as if it needed no bucket: PyAthena takes the
+prefix as `s3_staging_dir` on the SQLAlchemy URI, and a URI without it works exactly when the
+workgroup configures a location or stores results itself - the same three places, resolved the
+same way.
 
 The bucket's own policy decides who may read what lands there. A result is the data the statement
 returned, so the prefix deserves the same access rules as the data itself, and a lifecycle rule to

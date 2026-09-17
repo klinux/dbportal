@@ -125,7 +125,7 @@ connections:
     region: us-east-1         # Required: the whole address, the SDK derives the endpoint
     database: analytics       # The Athena database unqualified names resolve against
     workgroup: reporting      # Optional, defaults to `primary`
-    outputLocation: "s3://lake-results/athena/"   # Where every result lands, unless the workgroup enforces one
+    outputLocation: "s3://lake-results/athena/"   # Where every result lands, unless the workgroup has one or stores results itself
     user: "${ATHENA_ACCESS_KEY_ID}"        # The ACCESS KEY PAIR, or leave both out for the
     password: "${ATHENA_SECRET_ACCESS_KEY}" # instance or task role the server runs with
     roles: ["*"]

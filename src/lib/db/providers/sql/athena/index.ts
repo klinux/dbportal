@@ -297,11 +297,20 @@ export class AthenaProvider extends SQLBaseProvider {
    * settles two things a first statement would otherwise fail on with a worse
    * sentence - a disabled workgroup, and a connection with nowhere to write
    * results. Denied by POLICY, the probe falls back to the one statement.
+   *
+   * The probe also decides which transport the connection keeps: a workgroup that
+   * keeps its results in the service's own storage cannot take a result location
+   * on a statement, so a location the connection names is dropped for it rather
+   * than sent, and the connection runs as if it had named none.
    */
   public async connect(): Promise<void> {
-    const transport = new AthenaSdkTransport(this.settings, this.deps);
+    let transport = new AthenaSdkTransport(this.settings, this.deps);
     try {
-      await this.probe(transport);
+      const managed = await this.probe(transport);
+      if (managed && this.settings.outputLocation !== undefined) {
+        await transport.close();
+        transport = new AthenaSdkTransport({ ...this.settings, outputLocation: undefined }, this.deps);
+      }
     } catch (error) {
       const failure = this.describeConnectFailure(error);
       this.setError(failure);
@@ -312,14 +321,15 @@ export class AthenaProvider extends SQLBaseProvider {
     this.setConnected(true);
   }
 
-  private async probe(transport: AthenaTransport): Promise<void> {
+  /** Whether the workgroup keeps its results in the service's own storage. */
+  private async probe(transport: AthenaTransport): Promise<boolean> {
     let workgroup;
     try {
       workgroup = await transport.describeWorkgroup();
     } catch (error) {
       if (!(error instanceof AthenaTransportError) || error.code !== PERMISSION_DENIED_CODE) throw error;
       await transport.query(CONNECT_PROBE_SQL, { signal: AbortSignal.timeout(this.queryTimeout) });
-      return;
+      return false;
     }
 
     if (workgroup.state !== null && workgroup.state !== "ENABLED") {
@@ -328,12 +338,16 @@ export class AthenaProvider extends SQLBaseProvider {
         this.type,
       );
     }
-    if (this.settings.outputLocation === undefined && workgroup.outputLocation === null) {
+    // Three ways a statement has somewhere to land: the connection's location, the
+    // workgroup's, or the service's own storage. None of the three is the one
+    // configuration the service refuses every statement in.
+    if (this.settings.outputLocation === undefined && workgroup.outputLocation === null && !workgroup.managedResults) {
       throw new DatabaseConfigError(
-        `Workgroup "${workgroup.name}" configures no result location and the connection names none, so the service would have nowhere to write a result. Set Output Location on the connection (s3://bucket/prefix/), or configure one on the workgroup.`,
+        `Workgroup "${workgroup.name}" configures no result location and the connection names none, so the service would have nowhere to write a result. Set Output Location on the connection (s3://bucket/prefix/), configure one on the workgroup, or turn on managed query results for it.`,
         this.type,
       );
     }
+    return workgroup.managedResults;
   }
 
   public async disconnect(): Promise<void> {

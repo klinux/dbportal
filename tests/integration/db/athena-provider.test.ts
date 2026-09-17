@@ -287,6 +287,39 @@ describe("AthenaProvider lifecycle", () => {
     await expect(makeProvider(fixture({ workgroup: bare })).provider.connect()).resolves.toBeUndefined();
   });
 
+  // "Managed query results": the service keeps the result in storage it owns, the
+  // workgroup carries no location, and a location the connection names must not be
+  // sent - so the connection runs as if it had named none.
+  test("accepts a workgroup that stores its results itself, and stops sending the connection's location to it", async () => {
+    const managed = {
+      WorkGroup: {
+        Name: "primary",
+        State: "ENABLED" as const,
+        Configuration: { ManagedQueryResultsConfiguration: { Enabled: true } },
+      },
+      $metadata: METADATA,
+    };
+
+    const bare = await connected(fixture({ workgroup: managed }), { outputLocation: undefined });
+    await bare.provider.query("SELECT 1");
+    expect("ResultConfiguration" in bare.client.of(StartQueryExecutionCommand)[0].input).toBe(false);
+
+    const located = await connected(fixture({ workgroup: managed }));
+    await located.provider.query("SELECT 1");
+    expect("ResultConfiguration" in located.client.of(StartQueryExecutionCommand)[0].input).toBe(false);
+    expect(located.provider.isConnected()).toBe(true);
+  });
+
+  test("keeps sending the connection's location to a workgroup that does not store results itself", async () => {
+    const { provider, client } = await connected();
+
+    await provider.query("SELECT 1");
+
+    expect(client.of(StartQueryExecutionCommand)[0].input.ResultConfiguration).toEqual({
+      OutputLocation: "s3://lake-results/athena/",
+    });
+  });
+
   test("accepts a workgroup whose state the service did not report", async () => {
     const stateless = { WorkGroup: { Name: "primary" }, $metadata: METADATA };
 
