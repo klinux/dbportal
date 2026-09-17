@@ -85,6 +85,29 @@ const NAMED_CITATIONS = [
     methods: ["getCapabilities", "getLabels"],
   },
   {
+    doc: "docs/providers/athena.md",
+    source: "src/lib/db/providers/sql/athena/index.ts",
+    // Every `name(` the doc cites that index.ts declares as a class member, in declaration order.
+    methods: [
+      "getCapabilities",
+      "getLabels",
+      "prepareQuery",
+      "validate",
+      "connect",
+      "disconnect",
+      "query",
+      "cancelQuery",
+      "mapAthenaError",
+      "listContainers",
+      "countObjects",
+      "listObjects",
+      "describeObject",
+      "describeObjects",
+      "getPerformanceMetrics",
+      "getIndexStats",
+    ],
+  },
+  {
     doc: "docs/providers/mysql.md",
     source: "src/lib/db/providers/sql/mysql.ts",
     methods: [

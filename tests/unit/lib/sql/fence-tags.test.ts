@@ -27,6 +27,7 @@ describe("fenceTagEngine", () => {
       "clickhouse",
       "druid",
       "trino",
+      "athena",
       "cassandra",
       "duckdb",
     ] satisfies DatabaseType[];

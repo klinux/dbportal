@@ -123,6 +123,28 @@ describe("filterByRoles: engine-specific fields", () => {
 
     expect(managed.schema).toBe("default");
   });
+
+  it("carries an Athena connection's region, workgroup and result location through to the managed connection", () => {
+    // The region is the whole address: dropped here, a seeded connection is one the
+    // provider refuses to construct, and the mapping fails no gate on its own.
+    const [managed] = filterByRoles(
+      [
+        {
+          ...baseConn,
+          type: "athena",
+          database: "analytics",
+          region: "us-east-1",
+          workgroup: "reporting",
+          outputLocation: "s3://lake-results/athena/",
+        },
+      ],
+      ["user"],
+    );
+
+    expect(managed.region).toBe("us-east-1");
+    expect(managed.workgroup).toBe("reporting");
+    expect(managed.outputLocation).toBe("s3://lake-results/athena/");
+  });
 });
 
 describe("filterByRoles", () => {

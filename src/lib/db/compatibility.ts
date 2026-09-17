@@ -49,6 +49,11 @@ const SHIPPED: Readonly<Record<DatabaseType, true>> = Object.freeze({
   clickhouse: true,
   druid: true,
   trino: true,
+  // Amazon Athena. A serverless service rather than a server: the "shipped" claim
+  // rests on the SDK transport and a mocked service, and the doc records what still
+  // awaits a live pass. No relative is recorded below - nothing else speaks the
+  // Athena API.
+  athena: true,
   // Apache Cassandra (#424 Phase 4). ScyllaDB speaks the same CQL wire and is
   // recorded as a relative below: the gate-4 probe ran on 2026-08-21/22 and measured
   // eight of this provider's thirteen surfaces answering, with the five that read
@@ -108,6 +113,7 @@ const EXTERNAL: Readonly<Record<DatabaseType, boolean>> = Object.freeze({
   clickhouse: true,
   druid: true,
   trino: true,
+  athena: true,
   cassandra: true,
   elasticsearch: true,
   opensearch: true,

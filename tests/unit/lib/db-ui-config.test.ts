@@ -24,6 +24,7 @@ const ALL_TYPES: DatabaseType[] = [
   "cassandra",
   "libsql",
   "duckdb",
+  "athena",
 ];
 
 describe("db-ui-config", () => {

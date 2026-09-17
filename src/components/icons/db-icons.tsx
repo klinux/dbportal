@@ -247,6 +247,35 @@ export const TrinoIcon: React.FC<IconProps> = ({ className, ...props }) => (
 );
 
 /**
+ * Athena, drawn as what the service is: a query over files.
+ *
+ * The AWS service icon is a magnifier over a stack of data, and that is the read
+ * kept here - three stacked bars for the S3 objects and a magnifying glass over their
+ * lower right. Nothing else in this set pairs a lens with a stack, which is what makes
+ * it identifiable at the 14px (`w-3.5`) size the sidebar renders a DB icon at; a
+ * more literal rendering of the service's own mark would need the fill colour that a
+ * `currentColor` icon cannot carry.
+ */
+export const AthenaIcon: React.FC<IconProps> = ({ className, ...props }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    {...props}
+  >
+    <path d="M4 6h12" />
+    <path d="M4 10h12" />
+    <path d="M4 14h6" />
+    <circle cx="15" cy="15" r="3.5" />
+    <path d="M17.6 17.6L21 21" />
+  </svg>
+);
+
+/**
  * Elastic's banded-disc mark, reduced to its seams.
  *
  * Read off the official logo's own geometry (`Elasticsearch_logo.svg`, the five

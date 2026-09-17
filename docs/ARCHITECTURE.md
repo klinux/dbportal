@@ -4,7 +4,7 @@ This document outlines the architectural patterns, tech stack, and system design
 
 ## System Overview
 
-dbportal is a hybrid, cloud-native database management tool that provides an IDE-like experience in the browser. It supports **17 database backends** via a Strategy Pattern abstraction: PostgreSQL, MySQL, SQLite, libSQL, DuckDB, Oracle, SQL Server, MongoDB, Couchbase, ClickHouse, Apache Druid, Apache Trino, Apache Cassandra, Elasticsearch, OpenSearch, Redis, LibreDB. The count is the `SHIPPED` record in [`src/lib/db/compatibility.ts`](../src/lib/db/compatibility.ts), which is exhaustive over `DatabaseType`; `elasticsearch` and `opensearch` are two ids served by one provider module.
+dbportal is a hybrid, cloud-native database management tool that provides an IDE-like experience in the browser. It supports **18 database backends** via a Strategy Pattern abstraction: PostgreSQL, MySQL, SQLite, libSQL, DuckDB, Oracle, SQL Server, MongoDB, Couchbase, ClickHouse, Apache Druid, Apache Trino, Amazon Athena, Apache Cassandra, Elasticsearch, OpenSearch, Redis, LibreDB. The count is the `SHIPPED` record in [`src/lib/db/compatibility.ts`](../src/lib/db/compatibility.ts), which is exhaustive over `DatabaseType`; `elasticsearch` and `opensearch` are two ids served by one provider module.
 
 It runs as a **standalone Next.js app** — one process serving the UI and the API. The upstream snapshot also shipped as an embeddable npm package; that build was removed (see [docs/CONTEXT.md §6](CONTEXT.md)), and what remains of it is described in [§4.6](#46-workspace-abstraction).
 
@@ -51,6 +51,7 @@ graph TD
         SQL --> Druid[(Apache Druid)]
         SQL --> Search[(Elasticsearch / OpenSearch)]
         SQL --> Trino[(Apache Trino)]
+        SQL --> Athena[(Amazon Athena)]
         SQL --> Cassandra[(Apache Cassandra)]
         SQL --> LibSQL[(libSQL)]
         SQL --> DuckDB[(DuckDB)]
@@ -114,6 +115,7 @@ classDiagram
     SQLBaseProvider <|-- DruidProvider
     SQLBaseProvider <|-- SearchProvider
     SQLBaseProvider <|-- TrinoProvider
+    SQLBaseProvider <|-- AthenaProvider
     SQLBaseProvider <|-- CassandraProvider
     SQLBaseProvider <|-- LibSQLProvider
     SQLBaseProvider <|-- DuckDBProvider
@@ -261,7 +263,7 @@ src/
 └── lib/
     ├── db/                  # Database provider module
     │   ├── providers/
-    │   │   ├── sql/         # postgres, mysql, sqlite (+ sqlite-driver runtime adapter), oracle, mssql, clickhouse/ (transport seam + SQL over HTTP), druid/ (transport seam + SQL over POST /druid/v2/sql), search/ (transport seam + SQL over HTTP; elasticsearch and opensearch, two ids one module), trino/ (transport seam + SQL over the Trino client protocol), cassandra/ (transport seam + CQL over the native protocol via cassandra-driver), libsql/ (transport seam + SQLite's dialect over the Hrana protocol), duckdb/ (driver seam + an embedded analytical engine over @duckdb/node-api)
+    │   │   ├── sql/         # postgres, mysql, sqlite (+ sqlite-driver runtime adapter), oracle, mssql, clickhouse/ (transport seam + SQL over HTTP), druid/ (transport seam + SQL over POST /druid/v2/sql), search/ (transport seam + SQL over HTTP; elasticsearch and opensearch, two ids one module), trino/ (transport seam + SQL over the Trino client protocol), athena/ (transport seam + the job loop over @aws-sdk/client-athena, the catalog through the metadata API), cassandra/ (transport seam + CQL over the native protocol via cassandra-driver), libsql/ (transport seam + SQLite's dialect over the Hrana protocol), duckdb/ (driver seam + an embedded analytical engine over @duckdb/node-api)
     │   │   ├── document/    # mongodb, couchbase/ (transport seam + SQL++ over REST)
     │   │   ├── keyvalue/    # redis
     │   │   └── embedded/    # libredb (built-in embedded provider for the sample connection)

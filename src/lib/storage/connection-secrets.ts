@@ -49,6 +49,12 @@ export const CONNECTION_FIELDS: Record<keyof DatabaseConnection, FieldClass> = {
   // A DATABASE NAME (`admin`), not a credential. The password that authenticates
   // against it is the secret, and it is classified above.
   authSource: "public",
+  // Athena's three settings are ADDRESSES: a region code, a workgroup name, and an S3
+  // prefix whose bucket policy decides who may read it. The credential that reaches
+  // them is the key pair in `user`/`password`, classified above.
+  region: "public",
+  workgroup: "public",
+  outputLocation: "public",
   schema: "public",
   queryTimeout: "public",
   // A display preference: whether this browser reads the catalog when the connection
@@ -261,7 +267,9 @@ export function encryptSshIdentity<T extends Record<string, unknown>>(identity: 
   return copy;
 }
 
-export function decryptSshIdentity<T extends Record<string, unknown>>(identity: T): { identity: T; undecryptable: number } {
+export function decryptSshIdentity<T extends Record<string, unknown>>(
+  identity: T,
+): { identity: T; undecryptable: number } {
   const copy = { ...identity };
   const undecryptable = mapSecretFields(copy, SSH_TUNNEL_SECRET_KEYS, openOrDrop);
   return { identity: copy, undecryptable };

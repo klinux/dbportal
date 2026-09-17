@@ -173,6 +173,12 @@ export function ConnectionModal({
     setLocalDataCenter,
     authSource,
     setAuthSource,
+    region,
+    setRegion,
+    workgroup,
+    setWorkgroup,
+    outputLocation,
+    setOutputLocation,
 
     // SSH (docs/CONTEXT.md §4.9): the profile reference, nothing typed per datasource
     sshProfile,
@@ -236,9 +242,15 @@ export function ConnectionModal({
   // JWT here. A field labelled Password invites a password no libSQL server has,
   // which is why this one is relabelled rather than left to be guessed at.
   const isLibSQL = type === "libsql";
-  const passwordFieldLabel = isLibSQL ? "Auth Token" : "Password";
+  // Athena has no user name and no password: the credential is an ACCESS KEY PAIR,
+  // whose id travels in the user field and whose secret in the password field, and
+  // both may be left empty to use the credentials the runtime carries. The two boxes
+  // are relabelled so nobody types an IAM user name into one.
+  const isAthena = type === "athena";
+  const userFieldLabel = isAthena ? "Access Key ID" : "Username";
+  const passwordFieldLabel = isLibSQL ? "Auth Token" : isAthena ? "Secret Access Key" : "Password";
   const databaseFieldLabel = isCouchbase ? "Bucket" : isTrino ? "Catalog" : isCassandra ? "Keyspace" : "Database";
-  const databaseFieldPlaceholder = isTrino ? "tpch" : isCassandra ? "probe" : "db";
+  const databaseFieldPlaceholder = isTrino ? "tpch" : isCassandra ? "probe" : isAthena ? "analytics" : "db";
   const connectionUriPlaceholder = isCouchbase
     ? "couchbase://localhost:8091/travel-sample  or  couchbases://cb.<id>.cloud.couchbase.com/..."
     : isLibSQL
@@ -544,9 +556,9 @@ export function ConnectionModal({
                       <Label className="text-xs font-medium text-fg-muted">Members</Label>
                     </div>
                     <p className="text-xs text-fg-muted leading-relaxed">
-                      Two to eight PostgreSQL or MySQL datasources of this environment, opened as one: each
-                      becomes a catalog named by its id, so a statement joins them. Whoever may open every
-                      member may open this; it never writes.
+                      Two to eight PostgreSQL or MySQL datasources of this environment, opened as one: each becomes a
+                      catalog named by its id, so a statement joins them. Whoever may open every member may open this;
+                      it never writes.
                     </p>
                     {eligibleMembers.length === 0 ? (
                       <p className="text-xs text-status-warning" data-testid="virtual-members-empty">
@@ -574,7 +586,9 @@ export function ConnectionModal({
                       </div>
                     )}
                     {members.length > 0 && members.length < 2 && (
-                      <p className="text-xs text-fg-muted">Pick at least one more: a virtual datasource joins two or more.</p>
+                      <p className="text-xs text-fg-muted">
+                        Pick at least one more: a virtual datasource joins two or more.
+                      </p>
                     )}
                     {members.length > 8 && <p className="text-xs text-status-danger">At most eight members.</p>}
                   </div>
@@ -596,31 +610,38 @@ export function ConnectionModal({
                   </div>
                 ) : (
                   <>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Globe strokeWidth={1.5} className="w-3 h-3 text-fg-muted" />
-                        <Label htmlFor="host" className="text-xs font-mediumr text-fg-muted">
-                          Host & Instance
-                        </Label>
+                    {/*
+                      Only when the engine has a host to name. Athena is reached through a region the
+                      SDK derives the endpoint from, so a Host box there would collect a value
+                      `buildConnection` discards - the trap this gate exists for.
+                    */}
+                    {takesConnectionField(type, "host") && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Globe strokeWidth={1.5} className="w-3 h-3 text-fg-muted" />
+                          <Label htmlFor="host" className="text-xs font-mediumr text-fg-muted">
+                            Host & Instance
+                          </Label>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                          <Input
+                            id="host"
+                            value={host}
+                            onChange={(e) => setHost(e.target.value)}
+                            placeholder="localhost"
+                            autoComplete="off"
+                            className="md:col-span-3 h-10 bg-panel border-hairline focus:border-brand-tint/50 transition-all text-xs"
+                          />
+                          <Input
+                            id="port"
+                            value={port}
+                            onChange={(e) => setPort(e.target.value)}
+                            autoComplete="off"
+                            className="h-10 bg-panel border-hairline focus:border-brand-tint/50 transition-all text-xs font-mono"
+                          />
+                        </div>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                        <Input
-                          id="host"
-                          value={host}
-                          onChange={(e) => setHost(e.target.value)}
-                          placeholder="localhost"
-                          autoComplete="off"
-                          className="md:col-span-3 h-10 bg-panel border-hairline focus:border-brand-tint/50 transition-all text-xs"
-                        />
-                        <Input
-                          id="port"
-                          value={port}
-                          onChange={(e) => setPort(e.target.value)}
-                          autoComplete="off"
-                          className="h-10 bg-panel border-hairline focus:border-brand-tint/50 transition-all text-xs font-mono"
-                        />
-                      </div>
-                    </div>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/*
@@ -633,14 +654,14 @@ export function ConnectionModal({
                           <div className="flex items-center gap-2 mb-1">
                             <Key strokeWidth={1.5} className="w-3 h-3 text-fg-muted" />
                             <Label htmlFor="user" className="text-xs font-mediumr text-fg-muted">
-                              Username
+                              {userFieldLabel}
                             </Label>
                           </div>
                           <Input
                             id="user"
                             value={user}
                             onChange={(e) => setUser(e.target.value)}
-                            placeholder="user"
+                            placeholder={isAthena ? "AKIA..." : "user"}
                             autoComplete="off"
                             className="h-10 bg-panel border-hairline focus:border-brand-tint/50 transition-all text-xs"
                           />
@@ -685,6 +706,12 @@ export function ConnectionModal({
                             as an unauthenticated user.
                           </p>
                         )}
+                        {isAthena && (
+                          <p className="text-xs text-fg-muted">
+                            A long-term key pair (AKIA...). Leave both empty to use the credentials the server runs
+                            with, such as an instance or task role.
+                          </p>
+                        )}
                         {passwordNote}
                       </div>
                     </div>
@@ -721,6 +748,75 @@ export function ConnectionModal({
                             keyspace in full.
                           </p>
                         )}
+                        {isAthena && (
+                          <p className="text-xs text-fg-muted">
+                            The Athena database unqualified names resolve against. Optional: a statement can still name
+                            any database in full.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/*
+                    Athena's own three settings, in the open: the region is the whole
+                    address (the service has no host), and without a result location
+                    here or on the workgroup no statement can run at all.
+                  */}
+                    {isAthena && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Server strokeWidth={1.5} className="w-3 h-3 text-fg-muted" />
+                            <Label htmlFor="region" className="text-xs font-medium text-fg-muted">
+                              Region
+                            </Label>
+                          </div>
+                          <Input
+                            id="region"
+                            value={region}
+                            onChange={(e) => setRegion(e.target.value)}
+                            placeholder="us-east-1"
+                            className="h-10 bg-panel border-hairline focus:border-brand-tint/50 transition-all text-xs font-mono"
+                          />
+                          <p className="text-xs text-fg-muted">Required: the AWS region the service is called in.</p>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Server strokeWidth={1.5} className="w-3 h-3 text-fg-muted" />
+                            <Label htmlFor="workgroup" className="text-xs font-medium text-fg-muted">
+                              Workgroup
+                            </Label>
+                          </div>
+                          <Input
+                            id="workgroup"
+                            value={workgroup}
+                            onChange={(e) => setWorkgroup(e.target.value)}
+                            placeholder="primary"
+                            className="h-10 bg-panel border-hairline focus:border-brand-tint/50 transition-all text-xs font-mono"
+                          />
+                          <p className="text-xs text-fg-muted">
+                            Defaults to primary. The workgroup carries the per-query scan limit.
+                          </p>
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Database strokeWidth={1.5} className="w-3 h-3 text-fg-muted" />
+                            <Label htmlFor="outputLocation" className="text-xs font-medium text-fg-muted">
+                              Output Location
+                            </Label>
+                          </div>
+                          <Input
+                            id="outputLocation"
+                            value={outputLocation}
+                            onChange={(e) => setOutputLocation(e.target.value)}
+                            placeholder="s3://my-bucket/athena-results/"
+                            className="h-10 bg-panel border-hairline focus:border-brand-tint/50 transition-all text-xs font-mono"
+                          />
+                          <p className="text-xs text-fg-muted">
+                            Where every result is written. Needed unless the workgroup enforces its own; the bucket's
+                            policy decides who may read what lands there.
+                          </p>
+                        </div>
                       </div>
                     )}
 

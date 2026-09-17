@@ -182,6 +182,12 @@ function getDefaultForm() {
     setSchema: mock(() => {}),
     authSource: "",
     setAuthSource: mockSetAuthSource,
+    region: "",
+    setRegion: mock(() => {}),
+    workgroup: "",
+    setWorkgroup: mock(() => {}),
+    outputLocation: "",
+    setOutputLocation: mock(() => {}),
     sshProfile: "",
     setSshProfile: mockSetSshProfile,
     members: [] as string[],
@@ -222,6 +228,7 @@ mock.module("@/hooks/use-connection-form", () => ({
 // the authority and tests/unit/lib/db-ui-config.test.ts derives it from the providers.
 const MOCK_CONNECTION_FIELDS: Record<string, string[]> = {
   trino: ["host", "port", "user", "password", "database", "schema"],
+  athena: ["user", "password", "database", "region", "workgroup", "outputLocation"],
   sqlite: ["database"],
   libredb: ["database"],
   duckdb: ["database"],
@@ -1102,6 +1109,64 @@ describe("ConnectionModal", () => {
     fireEvent.change(dataCentre, { target: { value: "eu-west-1" } });
 
     expect(mockSetLocalDataCenter).toHaveBeenCalledWith("eu-west-1");
+  });
+
+  // ── 34d. Athena has no host and no password: a region and a key pair ─────
+  //
+  // The service is reached through the AWS SDK, which derives the endpoint from
+  // the region, and the credential is an access key pair rather than a user name
+  // and password. The two shared boxes are relabelled so nobody types an IAM user
+  // name into one, and the three settings of its own are rendered in the open.
+
+  test("Athena relabels the credential boxes and asks for its region, workgroup and result location", () => {
+    mockFormOverrides = { type: "athena" };
+    const { queryByText, container } = render(React.createElement(ConnectionModal, createDefaultProps()));
+
+    expect(queryByText("Access Key ID")).not.toBeNull();
+    expect(queryByText("Secret Access Key")).not.toBeNull();
+    expect(queryByText("Username")).toBeNull();
+    expect(queryByText(/instance or task role/)).not.toBeNull();
+    expect((container.querySelector("#user") as HTMLInputElement).placeholder).toBe("AKIA...");
+    expect((container.querySelector("#database") as HTMLInputElement).placeholder).toBe("analytics");
+    expect(queryByText(/The Athena database unqualified names resolve against/)).not.toBeNull();
+
+    const region = container.querySelector("#region") as HTMLInputElement | null;
+    const workgroup = container.querySelector("#workgroup") as HTMLInputElement | null;
+    const outputLocation = container.querySelector("#outputLocation") as HTMLInputElement | null;
+    expect(region!.placeholder).toBe("us-east-1");
+    expect(workgroup!.placeholder).toBe("primary");
+    expect(outputLocation!.placeholder).toBe("s3://my-bucket/athena-results/");
+    // No host and no port: the SDK derives the endpoint from the region.
+    expect(container.querySelector("#host")).toBeNull();
+  });
+
+  test("editing the Athena settings reaches the form state", () => {
+    const setRegion = mock(() => {});
+    const setWorkgroup = mock(() => {});
+    const setOutputLocation = mock(() => {});
+    mockFormOverrides = { type: "athena", setRegion, setWorkgroup, setOutputLocation };
+    const { container } = render(React.createElement(ConnectionModal, createDefaultProps()));
+
+    fireEvent.change(container.querySelector("#region")!, { target: { value: "sa-east-1" } });
+    fireEvent.change(container.querySelector("#workgroup")!, { target: { value: "reporting" } });
+    fireEvent.change(container.querySelector("#outputLocation")!, { target: { value: "s3://b/p/" } });
+
+    expect(setRegion).toHaveBeenCalledWith("sa-east-1");
+    expect(setWorkgroup).toHaveBeenCalledWith("reporting");
+    expect(setOutputLocation).toHaveBeenCalledWith("s3://b/p/");
+  });
+
+  test("no other type carries the Athena fields or labels", () => {
+    for (const type of ["postgres", "trino", "cassandra"] as const) {
+      mockFormOverrides = { type };
+      const { container, queryByText, unmount } = render(React.createElement(ConnectionModal, createDefaultProps()));
+
+      expect(container.querySelector("#region")).toBeNull();
+      expect(container.querySelector("#workgroup")).toBeNull();
+      expect(container.querySelector("#outputLocation")).toBeNull();
+      expect(queryByText("Access Key ID")).toBeNull();
+      unmount();
+    }
   });
 
   test("no other type carries the Cassandra fields", () => {

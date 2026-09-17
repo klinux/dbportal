@@ -45,6 +45,7 @@
  *   message. That is the one maintenance operation this engine has.
  */
 
+import { offsetBeforeLimit } from "../offset-before-limit";
 import { SQLBaseProvider } from "../sql-base";
 import {
   AuthenticationError,
@@ -168,14 +169,6 @@ const SCHEMA_REFRESH_PATTERN = "\\b(CREATE|DROP|ALTER|COMMENT|RENAME)\\b";
  * SESSION"` with an empty column declaration and no error at all.
  */
 const SESSION_SCOPED_OPERATIONS = new Set(["SET SESSION", "RESET SESSION", "USE", "PREPARE", "DEALLOCATE"]);
-
-/** Every index at which `needle` occurs in `haystack`, left to right. */
-function occurrencesOf(haystack: string, needle: string): number[] {
-  const found: number[] = [];
-  for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + 1)) found.push(at);
-
-  return found;
-}
 
 /**
  * The neutral transport result as the grid's row contract.
@@ -430,31 +423,11 @@ export class TrinoProvider extends SQLBaseProvider {
    * be cut), and the exact text it emitted is known here from the numbers it
    * reports.
    *
-   * Which occurrence to rewrite is decided by RECONSTRUCTION rather than by
-   * position, and that is not defensive: the limiter deliberately inserts the
-   * clause BEFORE any trailing comment (#280), so `lastIndexOf` finds the text
-   * inside the comment on a statement that quotes its own bound, and `indexOf`
-   * finds a subquery's. Exactly one occurrence is the appended one, because
-   * removing it - together with the single space the limiter put in front of it -
-   * is what yields the original statement back.
+   * The transposition itself lives in `../offset-before-limit.ts`, shared with the
+   * Athena provider whose engine is a Trino fork with the same clause order.
    */
   public override prepareQuery(query: string, options: QueryPrepareOptions = {}): PreparedQuery {
-    const prepared = super.prepareQuery(query, options);
-    if (!prepared.wasLimited || prepared.offset === 0) return prepared;
-
-    const emitted = `LIMIT ${prepared.limit} OFFSET ${prepared.offset}`;
-    const transposed = `OFFSET ${prepared.offset} LIMIT ${prepared.limit}`;
-    const source = query.trim();
-    // Non-null because the limiter built this string by inserting `emitted` into
-    // `source`, so one occurrence always reconstructs it.
-    const at = occurrencesOf(prepared.query, emitted).findLast(
-      (index) => prepared.query.slice(0, index - 1) + prepared.query.slice(index + emitted.length) === source,
-    )!;
-
-    return {
-      ...prepared,
-      query: prepared.query.slice(0, at) + transposed + prepared.query.slice(at + emitted.length),
-    };
+    return offsetBeforeLimit(query, super.prepareQuery(query, options));
   }
 
   // ==========================================================================

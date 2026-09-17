@@ -1,5 +1,5 @@
 import type { DatabaseType } from "@/lib/types";
-import { isBareIdentifier, quoteIdentifier } from "@/lib/sql/identifier";
+import { isBareIdentifier, quoteDdlIdentifier, quoteIdentifier } from "@/lib/sql/identifier";
 import { quoteLiteral } from "@/lib/sql/values";
 import { asBytes, binaryText } from "./binary";
 import { cellOf, resolveColumns, toCsv, type CsvDelimiter } from "./csv";
@@ -161,6 +161,13 @@ const DIALECT_TYPES: Partial<Record<DatabaseType, Partial<Record<InferredKind, s
   // character type, and `DOUBLE PRECISION`, `BIGINT`, `BOOLEAN` and `TIMESTAMP` are
   // all accepted as they are (measured, `DOUBLE PRECISION` is stored as `double`).
   trino: { text: "VARCHAR", binary: "VARBINARY" },
+  // Athena reads a CREATE TABLE with Hive's DDL parser, whose spellings are Hive's:
+  // `string`, `binary` and `double`, with `TEXT`, `VARBINARY` and `DOUBLE PRECISION`
+  // absent from that grammar. From the documented DDL grammar, NOT measured - the
+  // provider has no live fixture - and what is emitted is portable SQL meant to run
+  // elsewhere in any case: an Athena CREATE TABLE also needs a LOCATION nobody here
+  // can name.
+  athena: { text: "string", binary: "binary", numeric: "double" },
   // CQL has no `DOUBLE PRECISION`: measured on Cassandra 5.0.9, `CREATE TABLE … (c
   // DOUBLE PRECISION)` is `SyntaxException: no viable alternative at input
   // 'PRECISION'`, while `DOUBLE`, `TEXT`, `BIGINT`, `BOOLEAN`, `TIMESTAMP` and `BLOB`
@@ -525,6 +532,9 @@ const STANDS_ALONE: Record<DatabaseType, readonly string[]> = {
     "datetime",
   ],
   trino: ["varchar", "varbinary", "timestamp", "timestamp without time zone", "timestamp with time zone"],
+  // Unmeasured, so nothing stands alone: every bare name is re-spelled portably, for
+  // the reason the seven rows below give.
+  athena: NOTHING_STANDS_ALONE,
   cassandra: ["varchar", "text", "blob", "decimal", "timestamp"],
   druid: NOTHING_STANDS_ALONE,
   elasticsearch: NOTHING_STANDS_ALONE,
@@ -652,6 +662,9 @@ const BINARY_LITERAL: Record<DatabaseType, BinaryLiteral> = {
   // and a standalone Druid takes no INSERT at all (that needs the MSQ extension), so
   // what is emitted for it is portable SQL meant to run elsewhere.
   trino: "standard-hex",
+  // Athena's DML is Trino's, whose binary literal is `X'…'`; from the documented
+  // grammar rather than a measurement, and the file is portable SQL in any case.
+  athena: "standard-hex",
   druid: "standard-hex",
   // Neither endpoint parses INSERT at all, so what is emitted for them is portable SQL
   // for somewhere else; their SQL reads its literals the way MySQL's does.
@@ -848,6 +861,9 @@ export function buildResultExport(format: ResultExportFormat, source: ResultExpo
   // and it is the only thing standing between an aliased column (`count(*) AS "n, m"`)
   // and a statement that no longer parses.
   const quotedColumns = columns.map((column) => quoteIdentifier(column, dialect));
+  // The DDL half quotes for the DDL parser, which on Athena is a different one from
+  // the DML parser's: backticks there, double quotes in the INSERT above.
+  const ddlColumns = columns.map((column) => quoteDdlIdentifier(column, dialect));
 
   if (format === "sql-insert") {
     if (rows.length === 0) return sql(NOTHING_TO_EXPORT.rows);
@@ -862,7 +878,7 @@ export function buildResultExport(format: ResultExportFormat, source: ResultExpo
     return sql(statements.join("\n"));
   }
 
-  const definitions = columns.map((column, index) => `  ${quotedColumns[index]} ${sqlTypeOf(column, rows, source)}`);
+  const definitions = columns.map((column, index) => `  ${ddlColumns[index]} ${sqlTypeOf(column, rows, source)}`);
   // Cassandra-only: measured on 5.0.9, a CQL `CREATE TABLE` with a column list and no
   // key is `InvalidRequest ... No PRIMARY KEY specifed for table (exactly one
   // required)`, so the plain column list every other dialect gets here cannot run at
@@ -871,7 +887,7 @@ export function buildResultExport(format: ResultExportFormat, source: ResultExpo
   // replays beats a file that fails to parse. The comment says so above the statement,
   // rather than in the column list, so it survives being read on its own.
   if (dialect === "cassandra") {
-    definitions.push(`  PRIMARY KEY (${quotedColumns[0]})`);
+    definitions.push(`  PRIMARY KEY (${ddlColumns[0]})`);
     return sql(`${CASSANDRA_PRIMARY_KEY_NOTE}CREATE TABLE ${tableName} (\n${definitions.join(",\n")}\n);`);
   }
   return sql(`CREATE TABLE ${tableName} (\n${definitions.join(",\n")}\n);`);

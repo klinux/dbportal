@@ -84,7 +84,17 @@ export type DatabaseType =
   // MotherDuck (`md:`), Quack and DuckLake are NOT this id and have no row anywhere
   // yet: each is a different connection story than a local path, and #424 publishes
   // no name it has not connected to.
-  | "duckdb";
+  | "duckdb"
+  // Amazon Athena. A SERVERLESS query engine over the AWS Glue Data Catalog and S3:
+  // there is no host and no port, a connection names a REGION, a WORKGROUP and the
+  // S3 prefix results are written to, and reaches the service over the AWS SDK with
+  // an access key pair carried as `user`/`password` - or with none, in which case
+  // the runtime's own credential chain (an instance or task role) is used. Its
+  // engine is a Trino fork, which is why it shares Trino's grammar row, and its
+  // catalog is read through the service's metadata API rather than with
+  // statements, because every statement here is a billed job that writes its
+  // answer to S3.
+  | "athena";
 
 /**
  * An environment's id (docs/CONTEXT.md §4.36): the five built-ins, or one an administrator
@@ -245,6 +255,27 @@ export interface DatabaseConnection {
    * is a field of its own rather than a reuse of `database`.
    */
   authSource?: string;
+  /**
+   * Athena: the AWS region the service is called in (`us-east-1`).
+   *
+   * The service has no host to name - the SDK derives the endpoint from the region -
+   * so this is the one addressing field the engine has, and it is required. A field
+   * of its own rather than a reuse of `host`, because a host is a thing an SSH tunnel
+   * reaches and TLS verifies, and a region is neither.
+   */
+  region?: string;
+  /**
+   * Athena: the workgroup statements run in. Defaults to `primary`, which every
+   * account has. A workgroup carries the per-statement scan ceiling and, when it
+   * enforces its configuration, the result location too.
+   */
+  workgroup?: string;
+  /**
+   * Athena: the S3 prefix every result is written to (`s3://bucket/prefix/`). Optional
+   * when the workgroup configures one; the service refuses a statement with neither.
+   * A location and not a credential: the bucket's own policy decides who may read it.
+   */
+  outputLocation?: string;
   /**
    * Read no catalog when this connection opens.
    *

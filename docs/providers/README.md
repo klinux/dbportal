@@ -22,6 +22,7 @@ in lockstep with the code (see the tri-sync rule in [`../../CLAUDE.md`](../../CL
 | Elasticsearch | `elasticsearch` | SQL (search) | none (HTTP: `_sql` + REST) | SQL (Elasticsearch SQL) | [elasticsearch.md](./elasticsearch.md) |
 | OpenSearch | `opensearch` | SQL (search) | none (HTTP: `_plugins/_sql` + REST) | SQL (OpenSearch SQL plugin) | [opensearch.md](./opensearch.md) |
 | Apache Trino | `trino` | SQL (federated query engine) | none (HTTP: the client protocol, `POST /v1/statement`) | SQL (Trino) | [trino.md](./trino.md) |
+| Amazon Athena | `athena` | SQL (serverless query service) | `@aws-sdk/client-athena` (pure JS) | SQL (Trino's dialect) | [athena.md](./athena.md) |
 | Apache Cassandra | `cassandra` | SQL (wide-column) | `cassandra-driver` (pure JS) | SQL-shaped (CQL) | [cassandra.md](./cassandra.md) |
 | LibreDB | `libredb` | Embedded (Key-Value) | `@libredb/libredb` | JSON (command grammar) | [libredb.md](./libredb.md) |
 
@@ -268,6 +269,7 @@ provider's integration pass.
 | OpenSearch | `opensearch` | localhost | **9201** | *none* | *none* | *none* | — |
 | Apache Trino | `trino` | localhost | 8080 | *none* | *none* | `tpch` (catalog) | — |
 | Apache Cassandra | `cassandra` | localhost | 9042 | *none* | *none* | `probe` (keyspace) | — |
+| Amazon Athena | *no service* (a managed AWS service) | — | — | an access key id, or *none* for the runtime's role | the secret access key | an Athena database, plus a region and a result location | — |
 | SQLite | *no service* | — | — | — | — | a file path on the dbportal host | — |
 | LibreDB | *no service* | — | — | — | — | a directory on the dbportal host | — |
 
@@ -413,6 +415,7 @@ in the table above:
 | Elasticsearch | `elasticsearch` | 9200 |
 | OpenSearch | `opensearch` | **9200** |
 | Apache Trino | `trino` | 8080 |
+| Amazon Athena | *no service* | — (the SDK reaches `athena.<region>.amazonaws.com`) |
 
 > **OpenSearch is 9200 here, not 9201.** The 9201 in the table above is a *host* port published to
 > dodge a collision with the `elasticsearch` service. Inside the network there is no collision, so the

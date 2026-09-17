@@ -71,6 +71,9 @@ const FIELD_OWNERSHIP: Record<keyof DatabaseConnection, FieldOwnership> = {
   instanceName: "edited",
   localDataCenter: "edited",
   authSource: "edited",
+  region: "edited",
+  workgroup: "edited",
+  outputLocation: "edited",
   // The checkbox owns it, so unticking it has to CLEAR it. `preserved` would make the
   // box unticked on screen while the saved connection still skipped its scan.
   skipObjectScan: "edited",
@@ -214,6 +217,12 @@ export function useConnectionForm({
   // MongoDB's auth database. In the open for the same reason as the field above: it is
   // what the ordinary deployment (users in `admin`) cannot connect without.
   const [authSource, setAuthSource] = useState("");
+  // Athena's three settings, in the open like the two above: the region is the whole
+  // address, and without a result location on the connection or the workgroup no
+  // statement can run.
+  const [region, setRegion] = useState("");
+  const [workgroup, setWorkgroup] = useState("");
+  const [outputLocation, setOutputLocation] = useState("");
   /**
    * Read no catalog when this connection opens (#765).
    *
@@ -284,6 +293,10 @@ export function useConnectionForm({
       // Overwritten for the same reason: a connection that names no auth database must
       // show an empty field, not the last one edited.
       setAuthSource(editConnection.authSource || "");
+      // Overwritten for the same reason as the fields above.
+      setRegion(editConnection.region || "");
+      setWorkgroup(editConnection.workgroup || "");
+      setOutputLocation(editConnection.outputLocation || "");
       // Overwritten, not set only when true: a connection that reads its catalog has to
       // show an unticked box, or the previously edited connection's choice is saved onto
       // it and the catalog silently stops being read.
@@ -360,6 +373,12 @@ export function useConnectionForm({
         // A leftover auth database sends the next connection's credentials to a
         // database that may not hold them, which reads as a wrong password.
         setAuthSource("");
+        // A leftover region would call the next Athena connection in the wrong
+        // region, and a leftover result location would write its results into
+        // another connection's bucket.
+        setRegion("");
+        setWorkgroup("");
+        setOutputLocation("");
         // A leftover choice would open the next connection with no object list and no
         // explanation, which reads as an engine that answered nothing.
         setSkipObjectScan(false);
@@ -450,6 +469,9 @@ export function useConnectionForm({
       ...(type === "mssql" && instanceName ? { instanceName } : {}),
       ...(type === "cassandra" && localDataCenter ? { localDataCenter } : {}),
       ...(type === "mongodb" && authSource ? { authSource } : {}),
+      ...(type === "athena" && region ? { region } : {}),
+      ...(type === "athena" && workgroup ? { workgroup } : {}),
+      ...(type === "athena" && outputLocation ? { outputLocation } : {}),
       // Written only when it says something, like every other optional field here: a
       // stored `false` is noise on every connection ever saved.
       ...(skipObjectScan ? { skipObjectScan } : {}),
@@ -487,6 +509,9 @@ export function useConnectionForm({
     instanceName,
     localDataCenter,
     authSource,
+    region,
+    workgroup,
+    outputLocation,
     skipObjectScan,
   ]);
 
@@ -726,6 +751,7 @@ export function useConnectionForm({
     "libsql",
     "duckdb",
     "virtual",
+    "athena",
   ];
   const dbTypes = selectableTypes.map((t) => {
     const cfg = getDBConfig(t);
@@ -792,6 +818,12 @@ export function useConnectionForm({
     setLocalDataCenter,
     authSource,
     setAuthSource,
+    region,
+    setRegion,
+    workgroup,
+    setWorkgroup,
+    outputLocation,
+    setOutputLocation,
     skipObjectScan,
     setSkipObjectScan,
 

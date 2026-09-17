@@ -58,7 +58,7 @@ defaults:                    # Optional — merges managed/environment/ssl only
 connections:
   - id: "analytics-pg"       # Required, unique, lowercase slug [a-z0-9-]
     name: "Analytics DB"      # Required, display name in UI
-    type: postgres            # Required: postgres|mysql|sqlite|libsql|duckdb|mongodb|redis|oracle|mssql|libredb|couchbase|clickhouse|druid|elasticsearch|opensearch|trino|cassandra
+    type: postgres            # Required: postgres|mysql|sqlite|libsql|duckdb|mongodb|redis|oracle|mssql|libredb|couchbase|clickhouse|druid|elasticsearch|opensearch|trino|athena|cassandra
     host: "${PG_HOST}"
     port: 5432
     database: analytics
@@ -119,6 +119,21 @@ connections:
     # connection that works without one.
     # No `connectionString`: jdbc:trino:// is not a form this build parses.
 
+  - id: "lake"
+    name: "Lake"
+    type: athena
+    region: us-east-1         # Required: the whole address, the SDK derives the endpoint
+    database: analytics       # The Athena database unqualified names resolve against
+    workgroup: reporting      # Optional, defaults to `primary`
+    outputLocation: "s3://lake-results/athena/"   # Where every result lands, unless the workgroup enforces one
+    user: "${ATHENA_ACCESS_KEY_ID}"        # The ACCESS KEY PAIR, or leave both out for the
+    password: "${ATHENA_SECRET_ACCESS_KEY}" # instance or task role the server runs with
+    roles: ["*"]
+    environment: production
+    # No host, no port, no ssl: the SDK reaches athena.<region>.amazonaws.com over TLS
+    # on its own. A temporary key (ASIA...) is refused - it needs a session token the
+    # record has no field for.
+
   - id: "events-ring"
     name: "Cassandra Ring"
     type: cassandra
@@ -151,13 +166,16 @@ connections:
 | `connections[].members` | Virtual only | — | Two to eight ids of PostgreSQL or MySQL datasources of the same environment, opened as one (docs/CONTEXT.md §4.44) |
 | `connections[].id` | Yes | — | Unique slug: `[a-z0-9-]+`, max 64 chars |
 | `connections[].name` | Yes | — | Display name, max 128 chars |
-| `connections[].type` | Yes | — | Database type: `postgres`, `mysql`, `sqlite`, `libsql`, `duckdb`, `mongodb`, `redis`, `oracle`, `mssql`, `libredb`, `couchbase`, `clickhouse`, `druid`, `elasticsearch`, `opensearch`, `trino`, `cassandra` |
-| `connections[].host` | No | — | Hostname or IP |
+| `connections[].type` | Yes | — | Database type: `postgres`, `mysql`, `sqlite`, `libsql`, `duckdb`, `mongodb`, `redis`, `oracle`, `mssql`, `libredb`, `couchbase`, `clickhouse`, `druid`, `elasticsearch`, `opensearch`, `trino`, `athena`, `cassandra` |
+| `connections[].host` | No | — | Hostname or IP (Athena has none: it is addressed by `region`) |
 | `connections[].port` | No | — | Port number (1-65535) |
 | `connections[].database` | No | — | Database name (Couchbase: the bucket. Druid has one catalog and ignores it. Trino: the **catalog**) |
 | `connections[].schema` | No | — | Trino session schema, used to resolve unqualified table names inside the configured catalog |
-| `connections[].user` | No | — | Username |
-| `connections[].password` | No | — | Password (use `${ENV_VAR}` syntax) |
+| `connections[].region` | Athena | — | The AWS region the service is called in (`us-east-1`); required by that provider |
+| `connections[].workgroup` | No | `primary` | Athena: the workgroup statements run in |
+| `connections[].outputLocation` | No | — | Athena: `s3://bucket/prefix/` results are written to; needed unless the workgroup enforces one |
+| `connections[].user` | No | — | Username (Athena: the access key id) |
+| `connections[].password` | No | — | Password (use `${ENV_VAR}` syntax; Athena: the secret access key) |
 | `connections[].connectionString` | No | — | Full connection string (use `${ENV_VAR}`). Druid and Trino have no URI form this build parses — those connections need `host` and are addressed by host and port only |
 | `connections[].roles` | Yes | — | Who may open: `*`, `admin`, `user`, `group:<name>`, `role:<id>` |
 | `connections[].exportRoles` | No | — | Who may export a result as a file (docs/CONTEXT.md §4.22); absent: everyone outside production, nobody on production |

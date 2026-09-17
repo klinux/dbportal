@@ -580,6 +580,15 @@ services:
       retries: 10
 
   # ---------------------------------------------------------------------------------------
+  # Amazon Athena has NO service here, and that is not an oversight.
+  #
+  # It is a MANAGED AWS SERVICE with no image: there is nothing to start and nothing
+  # listening on a port. The provider's tests replay hand-built payloads shaped by the SDK's
+  # own model types (tests/helpers/athena-fake.ts), and a live pass needs an AWS account with
+  # a workgroup, a result bucket and an IAM principal - see docs/providers/athena.md §11.3.
+  # ---------------------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------------------
   # DuckDB (issue #424) has NO service here, and that is not an oversight.
   #
   # It is an EMBEDDED engine: the driver is a native N-API addon this app loads into its own

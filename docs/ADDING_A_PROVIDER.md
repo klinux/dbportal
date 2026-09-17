@@ -759,7 +759,8 @@ transport, and it is a separate type-id when it comes. See [trino.md](./provider
 | Candidate | Verdict |
 |---|---|
 | **PrestoDB** | Shipped-adjacent: the `trino` transport already builds its headers from a dialect prefix, so this is a descriptor, a doc and an integration test. A separate type-id, because `version()` and the fault vocabulary differ |
-| **Snowflake / BigQuery / Databricks SQL** | REST SQL APIs exist and the data model fits; auth is the wall (key-pair JWT, service-account signing, OAuth) and that is where the no-dependency promise ends |
+| **Amazon Athena** | **Shipped**, and the first provider to take the SDK route the row below warns about: SigV4 is where the no-dependency promise ends, and the official client also resolves credentials from the runtime's own chain, which nothing hand-written could. The seam still holds - one file imports the package - and the catalog is read through the service's metadata API rather than with billed statements. See [athena.md](./providers/athena.md) |
+| **Snowflake / BigQuery / Databricks SQL** | REST SQL APIs exist and the data model fits; auth is the wall (key-pair JWT, service-account signing, OAuth) and that is where the no-dependency promise ends. Athena shows the shape a vendor-SDK provider takes when the wall is real |
 | **CouchDB, ArangoDB, SurrealDB, Qdrant, Weaviate** | All HTTP, all non-SQL or only partially SQL. Feasible, but each needs its own query grammar the way MongoDB and LibreDB do |
 
 Contributions are welcome for any of these. Open an issue with the rubric score first, so the design

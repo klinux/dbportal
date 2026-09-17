@@ -14,7 +14,8 @@ import type { DatabaseType } from "@/lib/types";
 // The shared quoter, which also escapes an embedded closing quote character — this
 // file used to carry its own copy that did not, so a schema object named with one
 // produced SQL that ended the quoted span early (PR #289 review).
-import { quoteIdentifier as escapeIdentifier } from "@/lib/sql/identifier";
+// The DDL quote, which on Athena is not the DML one: see `quoteDdlIdentifier`.
+import { quoteDdlIdentifier as escapeIdentifier } from "@/lib/sql/identifier";
 import type { SchemaDiff, TableDiff, ColumnDiff } from "./types";
 
 /**
@@ -93,6 +94,15 @@ const NO_COLUMN_MODIFICATION: Partial<Record<DatabaseType, { label: string; reas
     label: "Trino",
     reason:
       "Whether a column can be retyped is the connector's answer, not Trino's; run the change in the system the catalog points at.",
+  },
+  // Athena has two column grammars and neither is portable: a Hive table retypes a
+  // column with `ALTER TABLE ... CHANGE COLUMN old new type`, an Iceberg table with its
+  // own set-data-type form, and which one applies is a property of the table the diff
+  // does not record. From the documented DDL grammars, not measured.
+  athena: {
+    label: "Athena",
+    reason:
+      "Whether a column can be retyped depends on the table format (Hive CHANGE COLUMN, or the Iceberg column type change); write the change by hand for the format the table has.",
   },
   // Measured 2026-08-19: `ALTER TABLE probe_orders ADD COLUMN x INT` and
   // `... MODIFY COLUMN customer TEXT` are refused by both grammars - Elasticsearch
@@ -189,6 +199,8 @@ const NO_TRANSACTION_WRAPPER: ReadonlySet<DatabaseType> = new Set<DatabaseType>(
   "elasticsearch",
   "opensearch",
   "trino",
+  // Athena's DDL is one job per statement with no transaction around it.
+  "athena",
 ]);
 
 // These engines cannot apply a relational table diff through SQL. In particular,
@@ -212,10 +224,20 @@ const NO_PORTABLE_INDEX_DDL: Partial<Record<DatabaseType, string>> = {
   clickhouse:
     "ClickHouse: Cannot generate index DDL. The diff does not record the index kind, expression or granularity; write the index change by hand.",
   trino: "Trino: Cannot generate index DDL. Indexes belong to the connector's underlying system, not Trino SQL.",
+  athena:
+    "Athena: Cannot generate index DDL. Athena has no index object; a partition or an Iceberg sort order is the nearest thing, and neither is one.",
 };
 const NO_FOREIGN_KEYS: Partial<Record<DatabaseType, string>> = {
   clickhouse: "ClickHouse",
   trino: "Trino",
+  athena: "Athena",
+};
+
+// The engines whose CREATE TABLE has no primary-key constraint at all, each with the
+// comment the generated file carries in its place.
+const NO_PRIMARY_KEY: Partial<Record<DatabaseType, string>> = {
+  trino: "-- Trino: Cannot declare a primary key. Trino SQL has no primary-key constraint.",
+  athena: "-- Athena: Cannot declare a primary key. Athena SQL has no primary-key constraint.",
 };
 
 // Object names are untrusted metadata. Quoting protects SQL identifiers, but a
@@ -331,7 +353,8 @@ function generateCreateTable(table: TableDiff, dialect: DatabaseType): string {
 
   lines.push(`CREATE TABLE ${id} (`);
   lines.push(colDefs.join(",\n"));
-  if (pkCols.length > 0 && dialect !== "trino") {
+  const primaryKeyRefusal = NO_PRIMARY_KEY[dialect];
+  if (pkCols.length > 0 && primaryKeyRefusal === undefined) {
     lines.push(`,  PRIMARY KEY (${pkCols.join(", ")})`);
   }
   if (keyIsTableConstraint) {
@@ -353,8 +376,8 @@ function generateCreateTable(table: TableDiff, dialect: DatabaseType): string {
     });
   }
   lines.push(");");
-  if (pkCols.length > 0 && dialect === "trino") {
-    lines.push("-- Trino: Cannot declare a primary key. Trino SQL has no primary-key constraint.");
+  if (pkCols.length > 0 && primaryKeyRefusal !== undefined) {
+    lines.push(primaryKeyRefusal);
   }
 
   // Indexes
@@ -470,6 +493,13 @@ function generateAlterTable(table: TableDiff, dialect: DatabaseType): string {
       if (dialect === "oracle") {
         lines.push(`ALTER TABLE ${id} ADD (${definition});`);
       } else {
+        if (dialect === "athena") {
+          // Hive's DDL parser takes a parenthesised, plural `ADD COLUMNS`, and Athena's
+          // Iceberg tables accept the same spelling. From the documented grammar, not
+          // measured.
+          lines.push(`ALTER TABLE ${id} ADD COLUMNS (${definition});`);
+          return;
+        }
         const keyword = dialect === "cassandra" || dialect === "mssql" ? "ADD" : "ADD COLUMN";
         lines.push(`ALTER TABLE ${id} ${keyword} ${definition};`);
       }
@@ -486,6 +516,12 @@ function generateAlterTable(table: TableDiff, dialect: DatabaseType): string {
       } else {
         // Same measurement in the other direction: `DROP COLUMN extra` is "mismatched
         // input 'extra' expecting EOF" on CQL, while `DROP extra` succeeds.
+        // Athena spells it the standard way for an Iceberg table and has no drop at
+        // all for a Hive table, whose columns are rewritten with REPLACE COLUMNS. The
+        // statement is emitted for the format that takes it, with the other named.
+        if (dialect === "athena") {
+          lines.push("-- Athena: DROP COLUMN applies to Iceberg tables only; a Hive table takes REPLACE COLUMNS.");
+        }
         const keyword = dialect === "cassandra" ? "DROP" : "DROP COLUMN";
         lines.push(`ALTER TABLE ${id} ${keyword} ${escapeIdentifier(col.columnName, dialect)};`);
       }

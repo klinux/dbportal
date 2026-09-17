@@ -48,10 +48,10 @@ runs the bots' and agents' requests through the same rules.
 
 - Browser SQL IDE (Monaco) with schema explorer, ER diagrams, schema diff,
   EXPLAIN, charts, monitoring dashboard and maintenance actions.
-- 16 engines: PostgreSQL, MySQL, Oracle, SQL Server, SQLite, libSQL, DuckDB,
+- 17 engines: PostgreSQL, MySQL, Oracle, SQL Server, SQLite, libSQL, DuckDB,
   MongoDB, Redis, Couchbase, ClickHouse, Druid, Elasticsearch, OpenSearch,
-  Trino, Cassandra — plus wire-compatible relatives (MariaDB, TimescaleDB,
-  CockroachDB, Valkey, ScyllaDB, …).
+  Trino, Athena, Cassandra — plus wire-compatible relatives (MariaDB,
+  TimescaleDB, CockroachDB, Valkey, ScyllaDB, …).
 - OIDC single sign-on (Keycloak, Okta, Entra ID, Auth0, …) with role mapping
   from claims; local accounts with TOTP as the fallback.
 - SSL/TLS and SSH tunnels for every networked engine.

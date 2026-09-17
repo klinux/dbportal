@@ -59,11 +59,18 @@ src/lib/db/
 │   │   │   ├── transport.ts    #   CassandraTransport seam + neutral result + fault categories
 │   │   │   ├── driver-transport.ts # The one file that imports cassandra-driver
 │   │   │   └── introspect.ts   #   system_schema + system_views -> schema and monitoring
-│   │   └── trino/              # Apache Trino Strategy (SQL over the client protocol, no driver)
-│   │       ├── index.ts        #   TrinoProvider
-│   │       ├── transport.ts    #   TrinoTransport seam + error categories + the dialect descriptor
-│   │       ├── http-transport.ts # The one HTTP implementation (fetch); the nextUri page loop
-│   │       └── introspect.ts   #   information_schema tree + system.runtime/metadata + jmx monitoring
+│   │   ├── trino/              # Apache Trino Strategy (SQL over the client protocol, no driver)
+│   │   │   ├── index.ts        #   TrinoProvider
+│   │   │   ├── transport.ts    #   TrinoTransport seam + error categories + the dialect descriptor
+│   │   │   ├── http-transport.ts # The one HTTP implementation (fetch); the nextUri page loop
+│   │   │   └── introspect.ts   #   information_schema tree + system.runtime/metadata + jmx monitoring
+│   │   └── athena/             # Amazon Athena Strategy (a job per statement over the AWS SDK)
+│   │       ├── index.ts        #   AthenaProvider
+│   │       ├── transport.ts    #   AthenaTransport seam + neutral catalog shapes + error categories
+│   │       ├── sdk-transport.ts #  The one file that imports @aws-sdk/client-athena; the poll loop
+│   │       ├── settings.ts     #   The connection record read once, refused before any request
+│   │       ├── objects.ts      #   The object surface's pure derivations
+│   │       └── introspect.ts   #   Workgroup + execution history -> monitoring
 │   ├── document/               # Document Database Providers
 │   │   ├── mongodb.ts          # MongoDB Strategy
 │   │   └── couchbase/          # Couchbase Strategy (SQL++ over REST, no driver)
@@ -98,6 +105,7 @@ BaseDatabaseProvider (abstract)
 │   ├── ElasticsearchProvider               │
 │   ├── OpenSearchProvider                  │
 │   ├── TrinoProvider                       │
+│   ├── AthenaProvider                      │
 │   └── CassandraProvider                   │
 ├── MongoDBProvider ────────────────────────┤ Document Database
 ├── CouchbaseProvider ──────────────────────┤ Document Database (SQL++ over REST)
@@ -159,7 +167,7 @@ QueryEditor                      /api/db/query
 
 ## Supported Databases
 
-Seventeen type-ids are supported by sixteen provider modules — `elasticsearch` and `opensearch` share
+Eighteen type-ids are supported by seventeen provider modules — `elasticsearch` and `opensearch` share
 one, `providers/sql/search/`. The count is derived from the exhaustive `SHIPPED` record in
 [`src/lib/db/compatibility.ts`](../src/lib/db/compatibility.ts) rather than written here twice. For
 the per-provider reference (driver, pooling, query format,
@@ -182,6 +190,7 @@ monitoring, limitations, …) see the prime docs in **[`docs/providers/`](./prov
 | Elasticsearch | `elasticsearch` | Search (SQL, read-only) | [providers/elasticsearch.md](./providers/elasticsearch.md) |
 | OpenSearch | `opensearch` | Search (SQL, read-only) | [providers/opensearch.md](./providers/opensearch.md) |
 | Apache Trino | `trino` | SQL (federated query engine) | [providers/trino.md](./providers/trino.md) |
+| Amazon Athena | `athena` | SQL (serverless query service) | [providers/athena.md](./providers/athena.md) |
 | Apache Cassandra | `cassandra` | SQL-shaped (CQL, wide-column) | [providers/cassandra.md](./providers/cassandra.md) |
 | LibreDB | `libredb` | Embedded (key-value) | [providers/libredb.md](./providers/libredb.md) |
 
@@ -362,7 +371,7 @@ Provider-specific behaviour — pooling model, SSL/encryption, pagination, monit
 maintenance operations, and known limitations — is documented per provider under
 [`docs/providers/`](./providers/README.md). Start there for anything specific to PostgreSQL, MySQL,
 Oracle, SQL Server, SQLite, libSQL, DuckDB, Redis, MongoDB, Couchbase, ClickHouse, Apache Druid,
-Elasticsearch, OpenSearch, Apache Trino, Apache Cassandra, or LibreDB.
+Elasticsearch, OpenSearch, Apache Trino, Amazon Athena, Apache Cassandra, or LibreDB.
 
 Not every provider has every feature, and the docs record the absences rather than glossing over
 them. Druid is the sharpest case: its SQL has no `UPDATE`, no `DELETE` and no `CREATE TABLE`, no
@@ -391,6 +400,15 @@ statement at all. `getPerformanceMetrics()` reports `queriesPerSecond` and omits
 for the same reason the search providers omit theirs: there are no transactions, no buffer pool, no
 locks and no checkpoints to measure. The one operation it can genuinely perform is `kill`, verified
 end to end. See [providers/trino.md](./providers/trino.md).
+
+Athena is Trino's dialect on a serverless service, and its absences follow from that: there is no
+process to report an uptime for, no connection to count, no bytes it holds and no statistics it
+computes for a Hive table, so `uptime` and `databaseSize` say `N/A`, `getPerformanceMetrics()` answers
+`{}`, and the tables panel reads the row counts a Glue crawler or a writing engine left in the
+catalog's own property bag - or says, in words, that none did. What it adds is the one figure an
+Athena user watches: every statement's execution report carries the bytes it scanned, which is the
+bill. The catalog is read through the service's metadata API rather than with statements, because
+every statement is a billed job that writes its answer to S3. See [providers/athena.md](./providers/athena.md).
 
 ## Security Considerations
 

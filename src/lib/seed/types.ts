@@ -143,6 +143,7 @@ const SeedDatabaseType = z.enum([
   "cassandra",
   "libsql",
   "duckdb",
+  "athena",
 ]);
 
 /**
@@ -197,81 +198,91 @@ export const FreezeWindowSchema = z
 
 export type FreezeWindow = z.infer<typeof FreezeWindowSchema>;
 
-export const SeedConnectionSchema = z.object({
-  id: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9-]+$/, "ID must be lowercase alphanumeric with hyphens"),
-  name: z.string().min(1).max(128),
-  type: SeedDatabaseType,
-  host: z.string().optional(),
-  port: z.number().int().min(1).max(65535).optional(),
-  database: z.string().optional(),
-  user: z.string().optional(),
-  password: z.string().optional(),
-  connectionString: z.string().optional(),
-  environment: ConnectionEnvironmentSchema.optional(),
-  group: z.string().max(64).optional(),
-  color: z
-    .string()
-    .regex(/^#[0-9A-Fa-f]{6}$/)
-    .optional(),
-  roles: z.array(AllowedRoleSchema).min(1, "At least one role is required"),
-  // Who may WRITE (docs/CONTEXT.md §4.4). Absent: everyone who can open. Empty: nobody -
-  // the datasource is read-only for every session, administrators included.
-  writeRoles: z.array(AllowedRoleSchema).optional(),
-  /** Writes run only inside an approved write window (docs/CONTEXT.md §4.6). */
-  writeApproval: z.boolean().optional(),
-  /** Who may grant one; administrators when absent. */
-  approverRoles: z.array(AllowedRoleSchema).optional(),
-  /** Two distinct reviewers before a gated write runs (§4.28); one when absent. */
-  approvalsRequired: z.union([z.literal(1), z.literal(2)]).optional(),
-  /** Whether DELETE/UPDATE without WHERE, DROP and TRUNCATE need a reviewer even from a writer (§4.15). On unless `false`. */
-  guardrails: z.boolean().optional(),
-  /** Rows, milliseconds and running statements per person a datasource allows (§4.16). */
-  limits: LimitsSchema.optional(),
-  /** Writes must name a ticket or incident (§4.18). */
-  requireTicket: z.boolean().optional(),
-  /** Who may export a result as a file (§4.22); absent: everyone who can open, nobody on production. */
-  exportRoles: z.array(AllowedRoleSchema).optional(),
-  /** The SSH profile (a bastion declared once) this datasource is reached through (§4.9). */
-  sshProfile: z.string().optional(),
-  managed: z.boolean().optional(),
-  ssl: SSLConfigSchema,
-  serviceName: z.string().optional(),
-  instanceName: z.string().optional(),
-  // Cassandra only, and REQUIRED by that driver rather than optional to it: a seeded
-  // Cassandra connection without it cannot open at all. Optional here because the
-  // other thirteen type-ids have no use for the field; the provider is what refuses a
-  // connection that omits it.
-  localDataCenter: z.string().optional(),
-  // MongoDB only: the database its credentials live in (`admin` in the ordinary
-  // deployment). Optional because the driver falls back to the database being opened,
-  // which is right only when the two are the same.
-  authSource: z.string().optional(),
-  schema: z.string().optional(),
-  // Read no catalog when this connection opens (#765). Declarable in the seed file
-  // because the deployment that ships a 40,000-object owner is the one that knows, and
-  // a managed connection is read-only in the UI, so nobody could tick the box there.
-  // Unlike the maps in `connection-secrets.ts` and `use-connection-payload.ts`, this
-  // schema fails SILENTLY when a field is missing: zod strips an unknown key, so a seed
-  // file setting it would round-trip as `undefined` with no error anywhere.
-  skipObjectScan: z.boolean().optional(),
-  /**
-   * A virtual datasource's members (§4.44): two to eight ids of PostgreSQL or MySQL
-   * datasources of the same environment, opened as one. Only on `type: virtual`, which
-   * carries no address of its own and is read-only for everyone.
-   */
-  members: z
-    .array(z.string().regex(/^[a-z0-9-]+$/))
-    .min(2)
-    .max(8)
-    .optional(),
-}).superRefine((conn, ctx) => {
-  const problem = virtualDeclarationError(conn);
-  if (problem) ctx.addIssue({ code: "custom", message: problem, path: ["members"] });
-});
+export const SeedConnectionSchema = z
+  .object({
+    id: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z0-9-]+$/, "ID must be lowercase alphanumeric with hyphens"),
+    name: z.string().min(1).max(128),
+    type: SeedDatabaseType,
+    host: z.string().optional(),
+    port: z.number().int().min(1).max(65535).optional(),
+    database: z.string().optional(),
+    user: z.string().optional(),
+    password: z.string().optional(),
+    connectionString: z.string().optional(),
+    environment: ConnectionEnvironmentSchema.optional(),
+    group: z.string().max(64).optional(),
+    color: z
+      .string()
+      .regex(/^#[0-9A-Fa-f]{6}$/)
+      .optional(),
+    roles: z.array(AllowedRoleSchema).min(1, "At least one role is required"),
+    // Who may WRITE (docs/CONTEXT.md §4.4). Absent: everyone who can open. Empty: nobody -
+    // the datasource is read-only for every session, administrators included.
+    writeRoles: z.array(AllowedRoleSchema).optional(),
+    /** Writes run only inside an approved write window (docs/CONTEXT.md §4.6). */
+    writeApproval: z.boolean().optional(),
+    /** Who may grant one; administrators when absent. */
+    approverRoles: z.array(AllowedRoleSchema).optional(),
+    /** Two distinct reviewers before a gated write runs (§4.28); one when absent. */
+    approvalsRequired: z.union([z.literal(1), z.literal(2)]).optional(),
+    /** Whether DELETE/UPDATE without WHERE, DROP and TRUNCATE need a reviewer even from a writer (§4.15). On unless `false`. */
+    guardrails: z.boolean().optional(),
+    /** Rows, milliseconds and running statements per person a datasource allows (§4.16). */
+    limits: LimitsSchema.optional(),
+    /** Writes must name a ticket or incident (§4.18). */
+    requireTicket: z.boolean().optional(),
+    /** Who may export a result as a file (§4.22); absent: everyone who can open, nobody on production. */
+    exportRoles: z.array(AllowedRoleSchema).optional(),
+    /** The SSH profile (a bastion declared once) this datasource is reached through (§4.9). */
+    sshProfile: z.string().optional(),
+    managed: z.boolean().optional(),
+    ssl: SSLConfigSchema,
+    serviceName: z.string().optional(),
+    instanceName: z.string().optional(),
+    // Cassandra only, and REQUIRED by that driver rather than optional to it: a seeded
+    // Cassandra connection without it cannot open at all. Optional here because the
+    // other thirteen type-ids have no use for the field; the provider is what refuses a
+    // connection that omits it.
+    localDataCenter: z.string().optional(),
+    // MongoDB only: the database its credentials live in (`admin` in the ordinary
+    // deployment). Optional because the driver falls back to the database being opened,
+    // which is right only when the two are the same.
+    authSource: z.string().optional(),
+    // Athena only: the region is REQUIRED by the provider (the service has no host to
+    // derive it from), the workgroup defaults to `primary`, and the result location is
+    // needed unless the workgroup enforces one. Optional here for the reason the fields
+    // above are: the other type-ids have no use for them, and the provider refuses a
+    // connection that omits what it needs.
+    region: z.string().optional(),
+    workgroup: z.string().optional(),
+    outputLocation: z.string().optional(),
+    schema: z.string().optional(),
+    // Read no catalog when this connection opens (#765). Declarable in the seed file
+    // because the deployment that ships a 40,000-object owner is the one that knows, and
+    // a managed connection is read-only in the UI, so nobody could tick the box there.
+    // Unlike the maps in `connection-secrets.ts` and `use-connection-payload.ts`, this
+    // schema fails SILENTLY when a field is missing: zod strips an unknown key, so a seed
+    // file setting it would round-trip as `undefined` with no error anywhere.
+    skipObjectScan: z.boolean().optional(),
+    /**
+     * A virtual datasource's members (§4.44): two to eight ids of PostgreSQL or MySQL
+     * datasources of the same environment, opened as one. Only on `type: virtual`, which
+     * carries no address of its own and is read-only for everyone.
+     */
+    members: z
+      .array(z.string().regex(/^[a-z0-9-]+$/))
+      .min(2)
+      .max(8)
+      .optional(),
+  })
+  .superRefine((conn, ctx) => {
+    const problem = virtualDeclarationError(conn);
+    if (problem) ctx.addIssue({ code: "custom", message: problem, path: ["members"] });
+  });
 
 /** The fields a virtual datasource cannot carry: it has no engine to address and no write to allow. */
 export const VIRTUAL_FORBIDDEN_FIELDS = [
@@ -324,7 +335,8 @@ export function virtualMembersError(
       return `Virtual datasource "${conn.id}" can only join PostgreSQL and MySQL; ${id} is ${member.type}`;
     if ((member.environment ?? defaultEnvironment) !== env)
       return `Virtual datasource "${conn.id}" and its member ${id} must be in the same environment`;
-    if (member.sshProfile) return `Virtual datasource "${conn.id}" cannot include ${id}: it is reached through an SSH profile`;
+    if (member.sshProfile)
+      return `Virtual datasource "${conn.id}" cannot include ${id}: it is reached through an SSH profile`;
   }
   return null;
 }

@@ -492,6 +492,8 @@ describe("createDatabaseProvider", () => {
       clickhouse: { port: 8123, database: "demo" },
       druid: { port: 8888 },
       trino: { port: 8080, database: "tpch" },
+      // The region is the whole address and the provider refuses to construct without it.
+      athena: { region: "us-east-1", database: "analytics" } as Partial<DatabaseConnection>,
       cassandra: { port: 9042, database: "probe", localDataCenter: "datacenter1" } as Partial<DatabaseConnection>,
       libredb: { database: "/tmp/test.libredb" },
       // A virtual datasource (§4.44) is its resolved members; two PostgreSQL ones here.

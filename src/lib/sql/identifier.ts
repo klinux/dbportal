@@ -67,6 +67,19 @@ export function quoteIdentifier(name: string, dialect: DatabaseType | undefined)
  * quoting such a guess would change its case semantics, while interpolating an
  * arbitrary string would let it carry statement text.
  */
+/**
+ * An identifier quoted for a DDL statement, which is not always the same quote.
+ *
+ * Athena reads its two statement families with two parsers: DML (SELECT, INSERT) is
+ * Trino's, where an identifier is double-quoted exactly as `quoteIdentifier` says,
+ * while DDL (CREATE TABLE, ALTER TABLE) is Hive's, where a double-quoted name is a
+ * syntax error and the quote is the backtick. Every other dialect here reads both
+ * families with one parser, so this is `quoteIdentifier` for all of them.
+ */
+export function quoteDdlIdentifier(name: string, dialect: DatabaseType | undefined): string {
+  return dialect === "athena" ? `\`${name.replace(/`/g, "``")}\`` : quoteIdentifier(name, dialect);
+}
+
 export function isBareIdentifier(name: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*)*$/.test(name);
 }

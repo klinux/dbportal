@@ -24,6 +24,8 @@ const COLUMN_GRAMMAR: Record<DatabaseType, [string, string] | null> = {
   cassandra: ['ADD "extra" integer;', 'DROP "old";'],
   clickhouse: ['ADD COLUMN "extra" integer;', 'DROP COLUMN "old";'],
   trino: ['ADD COLUMN "extra" integer;', 'DROP COLUMN "old";'],
+  // Hive's DDL parser: backticked names and a parenthesised, plural ADD COLUMNS.
+  athena: ["ADD COLUMNS (`extra` integer);", "DROP COLUMN `old`;"],
   couchbase: null,
   // A virtual datasource (§4.44) is read-only; no DDL is ever generated for it.
   virtual: null,

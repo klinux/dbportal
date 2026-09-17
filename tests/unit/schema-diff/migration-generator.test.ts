@@ -944,6 +944,7 @@ describe("generateMigrationSQL: SQLite's grammar declares a foreign key only ins
     couchbase: "engine-has-no-foreign-key",
     druid: "engine-has-no-foreign-key",
     trino: "engine-has-no-foreign-key",
+    athena: "engine-has-no-foreign-key",
     elasticsearch: "engine-has-no-foreign-key",
     opensearch: "engine-has-no-foreign-key",
     cassandra: "engine-has-no-foreign-key",
@@ -1044,6 +1045,7 @@ const MODIFIED_COLUMN_COVERAGE: Record<
   // connector does not support setting column types". So there is no one statement a
   // portable migration could carry.
   trino: { label: "Trino", reason: "the connector" },
+  athena: { label: "Athena", reason: "the table format" },
   // Neither grammar has ALTER at all (measured on Elasticsearch 9.1.4 and OpenSearch
   // 3.8.0), and a mapping's existing field cannot be retyped even outside SQL, so the
   // comment sends the user to a reindex rather than to a statement.
@@ -1272,6 +1274,7 @@ const TRANSACTION_WRAPPER_COVERAGE: Record<DatabaseType, "BEGIN;" | "BEGIN TRANS
   elasticsearch: false, // `BEGIN` is not in the grammar (NO_COLUMN_MODIFICATION's measured statement list; docs/providers/elasticsearch.md §9)
   opensearch: false, // same, measured separately on OpenSearch 3.8.0 (docs/providers/opensearch.md §9)
   trino: false, // connector-dependent at best; no portable BEGIN/COMMIT (NO_COLUMN_MODIFICATION)
+  athena: false, // one job per statement, no transaction around a DDL
 };
 
 // Both creation and modification paths must use the same wrapper policy.

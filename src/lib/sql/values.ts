@@ -45,6 +45,12 @@ const LITERAL_ESCAPE: Record<DatabaseType, LiteralEscape> = {
   // the value. Trino spells its backslash escapes in the separate `U&'fo\\+0000F6'`
   // form, exactly as Druid does.
   trino: "standard",
+  // Athena's DML parser is Trino's, so the reading above is inherited: doubling is the
+  // escape and a backslash is data. Documented rather than measured - the provider has
+  // no live fixture - and the fail-safe direction either way, because a doubled quote
+  // is refused by no engine here and a backslash escape would silently lose a
+  // character on this one.
+  athena: "standard",
   // Measured on Cassandra 5.0.9 (2026-08-20), both directions. Doubling is the
   // escape: `… WHERE name = 'O''Brien'` runs and matches nothing, so the literal
   // closed at the doubled pair. A backslash is DATA: `… WHERE name = 'a\\b'` runs,

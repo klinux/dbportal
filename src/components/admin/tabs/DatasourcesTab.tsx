@@ -132,6 +132,9 @@ interface StoreRow {
   instanceName?: string;
   localDataCenter?: string;
   authSource?: string;
+  region?: string;
+  workgroup?: string;
+  outputLocation?: string;
   schema?: string;
   skipObjectScan?: boolean;
   /** A virtual datasource's members (§4.44). */
@@ -223,6 +226,9 @@ export function toDatasourcePayload(
     instanceName: conn.instanceName,
     localDataCenter: conn.localDataCenter,
     authSource: conn.authSource,
+    region: conn.region,
+    workgroup: conn.workgroup,
+    outputLocation: conn.outputLocation,
     schema: conn.schema,
     skipObjectScan: conn.skipObjectScan,
     ...(conn.sshProfile ? { sshProfile: conn.sshProfile } : {}),
@@ -325,6 +331,9 @@ function toEditConnection(row: StoreRow): DatabaseConnection {
     instanceName: row.instanceName,
     localDataCenter: row.localDataCenter,
     authSource: row.authSource,
+    region: row.region,
+    workgroup: row.workgroup,
+    outputLocation: row.outputLocation,
     schema: row.schema,
     skipObjectScan: row.skipObjectScan,
     members: row.members,
@@ -760,163 +769,161 @@ export function DatasourcesTab() {
             const limit = shown[group.environment] ?? PAGE_SIZE;
             const visible = matching.slice(0, limit);
             return (
-            <TabsContent key={group.environment} value={group.environment} className="mt-4">
-              <section className="space-y-2" data-testid={`env-group-${group.environment}`}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Input
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                    placeholder="Filter by name, id, host or member…"
-                    aria-label="Filter datasources"
-                    className="h-8 max-w-xs text-xs"
-                  />
-                  <span className="text-xs text-fg-muted" data-testid={`env-count-${group.environment}`}>
-                    {visible.length} of {matching.length}
-                    {filter.trim() ? ` matching, ${group.rows.length} in all` : ""}
-                  </span>
-                </div>
-                <div className="rounded-xl border border-hairline overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">Name</TableHead>
-                        <TableHead className="text-xs">Engine</TableHead>
-                        <TableHead className="text-xs">Target</TableHead>
-                        <TableHead className="text-xs">Roles</TableHead>
-                        <TableHead className="text-xs">Source</TableHead>
-                        <TableHead className="text-xs text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {visible.map((row) => {
-                        const engine = getDBConfig(row.type);
-                        const Icon = engine.icon;
-                        return (
-                          <TableRow key={`${row.source}:${row.id}`} data-testid={`datasource-row-${row.id}`}>
-                            <TableCell className="text-xs">
-                              <div className="font-medium text-fg-secondary">{row.name}</div>
-                              <div className="font-mono text-[10px] text-fg-muted">{row.id}</div>
-                            </TableCell>
-                            <TableCell className="text-xs">
-                              <span className="inline-flex items-center gap-1.5">
-                                <Icon className={`h-3.5 w-3.5 ${engine.color}`} aria-hidden="true" />
-                                {engine.label}
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-xs font-mono text-fg-tertiary">
-                              {row.source === "store"
-                                ? row.type === "virtual"
-                                  ? (row.members ?? []).join(" + ")
-                                  : [row.host, row.port, row.database].filter(Boolean).length > 0
-                                    ? `${row.host ?? ""}${row.port ? `:${row.port}` : ""}${row.database ? `/${row.database}` : ""}`
-                                  : "—"
-                                : "declared in seed file"}
-                            </TableCell>
-                            <TableCell className="text-xs">
-                              <div className="flex flex-wrap gap-1">
-                                {rolesOf(row).map((role) => (
-                                  <Badge key={role} variant="outline" className="text-[10px]">
-                                    {ROLE_LABELS[role]}
-                                  </Badge>
-                                ))}
-                                {groupNamesOf(row.roles).map((group) => (
-                                  <Badge key={`group:${group}`} variant="outline" className="text-[10px] font-mono">
-                                    {group}
-                                  </Badge>
-                                ))}
-                                {row.writeRoles !== undefined && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[10px]"
-                                    title={row.writeRoles.join(", ") || "nobody"}
-                                  >
-                                    {writeModeOf(row.writeRoles) === "none" ? "read-only" : "writes restricted"}
-                                  </Badge>
-                                )}
-                                {row.sshProfile && (
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] font-mono"
-                                    title="Reached through an SSH profile"
-                                  >
-                                    ssh:{row.sshProfile}
-                                  </Badge>
-                                )}
-                                {row.writeApproval && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[10px]"
-                                    title="Writes need a reviewer's window"
-                                  >
-                                    approval
-                                  </Badge>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-xs">
-                              {row.source === "config" ? (
-                                <Badge variant="secondary" className="text-[10px] gap-1">
-                                  <FileCode2 className="h-3 w-3" /> seed file
-                                </Badge>
-                              ) : (
-                                <span className="text-fg-muted" title={`Last change by ${row.updatedBy}`}>
-                                  {new Date(row.updatedAt).toLocaleDateString()} · {row.updatedBy}
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {row.source === "store" ? (
-                                <div className="flex justify-end gap-1">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 w-7 p-0"
-                                    aria-label={`Edit ${row.name}`}
-                                    onClick={() => openEdit(row)}
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 w-7 p-0 text-danger hover:text-danger-bright"
-                                    aria-label={`Delete ${row.name}`}
-                                    onClick={() => setPendingDelete(row)}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                </div>
-                              ) : (
-                                <span className="text-[10px] text-fg-muted">read-only</span>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-                {matching.length > visible.length && (
-                  <div className="flex justify-center pt-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs"
-                      onClick={() =>
-                        setShown((prev) => ({ ...prev, [group.environment]: limit + PAGE_SIZE }))
-                      }
-                    >
-                      Show {Math.min(PAGE_SIZE, matching.length - visible.length)} more
-                    </Button>
+              <TabsContent key={group.environment} value={group.environment} className="mt-4">
+                <section className="space-y-2" data-testid={`env-group-${group.environment}`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      value={filter}
+                      onChange={(e) => setFilter(e.target.value)}
+                      placeholder="Filter by name, id, host or member…"
+                      aria-label="Filter datasources"
+                      className="h-8 max-w-xs text-xs"
+                    />
+                    <span className="text-xs text-fg-muted" data-testid={`env-count-${group.environment}`}>
+                      {visible.length} of {matching.length}
+                      {filter.trim() ? ` matching, ${group.rows.length} in all` : ""}
+                    </span>
                   </div>
-                )}
-                {matching.length === 0 && (
-                  <p className="text-xs text-fg-muted px-1" data-testid={`env-empty-${group.environment}`}>
-                    Nothing here matches the filter.
-                  </p>
-                )}
-              </section>
-            </TabsContent>
+                  <div className="rounded-xl border border-hairline overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Name</TableHead>
+                          <TableHead className="text-xs">Engine</TableHead>
+                          <TableHead className="text-xs">Target</TableHead>
+                          <TableHead className="text-xs">Roles</TableHead>
+                          <TableHead className="text-xs">Source</TableHead>
+                          <TableHead className="text-xs text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {visible.map((row) => {
+                          const engine = getDBConfig(row.type);
+                          const Icon = engine.icon;
+                          return (
+                            <TableRow key={`${row.source}:${row.id}`} data-testid={`datasource-row-${row.id}`}>
+                              <TableCell className="text-xs">
+                                <div className="font-medium text-fg-secondary">{row.name}</div>
+                                <div className="font-mono text-[10px] text-fg-muted">{row.id}</div>
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                <span className="inline-flex items-center gap-1.5">
+                                  <Icon className={`h-3.5 w-3.5 ${engine.color}`} aria-hidden="true" />
+                                  {engine.label}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-xs font-mono text-fg-tertiary">
+                                {row.source === "store"
+                                  ? row.type === "virtual"
+                                    ? (row.members ?? []).join(" + ")
+                                    : [row.host, row.port, row.database].filter(Boolean).length > 0
+                                      ? `${row.host ?? ""}${row.port ? `:${row.port}` : ""}${row.database ? `/${row.database}` : ""}`
+                                      : "—"
+                                  : "declared in seed file"}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                <div className="flex flex-wrap gap-1">
+                                  {rolesOf(row).map((role) => (
+                                    <Badge key={role} variant="outline" className="text-[10px]">
+                                      {ROLE_LABELS[role]}
+                                    </Badge>
+                                  ))}
+                                  {groupNamesOf(row.roles).map((group) => (
+                                    <Badge key={`group:${group}`} variant="outline" className="text-[10px] font-mono">
+                                      {group}
+                                    </Badge>
+                                  ))}
+                                  {row.writeRoles !== undefined && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px]"
+                                      title={row.writeRoles.join(", ") || "nobody"}
+                                    >
+                                      {writeModeOf(row.writeRoles) === "none" ? "read-only" : "writes restricted"}
+                                    </Badge>
+                                  )}
+                                  {row.sshProfile && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] font-mono"
+                                      title="Reached through an SSH profile"
+                                    >
+                                      ssh:{row.sshProfile}
+                                    </Badge>
+                                  )}
+                                  {row.writeApproval && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px]"
+                                      title="Writes need a reviewer's window"
+                                    >
+                                      approval
+                                    </Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {row.source === "config" ? (
+                                  <Badge variant="secondary" className="text-[10px] gap-1">
+                                    <FileCode2 className="h-3 w-3" /> seed file
+                                  </Badge>
+                                ) : (
+                                  <span className="text-fg-muted" title={`Last change by ${row.updatedBy}`}>
+                                    {new Date(row.updatedAt).toLocaleDateString()} · {row.updatedBy}
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {row.source === "store" ? (
+                                  <div className="flex justify-end gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0"
+                                      aria-label={`Edit ${row.name}`}
+                                      onClick={() => openEdit(row)}
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0 text-danger hover:text-danger-bright"
+                                      aria-label={`Delete ${row.name}`}
+                                      onClick={() => setPendingDelete(row)}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-fg-muted">read-only</span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {matching.length > visible.length && (
+                    <div className="flex justify-center pt-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => setShown((prev) => ({ ...prev, [group.environment]: limit + PAGE_SIZE }))}
+                      >
+                        Show {Math.min(PAGE_SIZE, matching.length - visible.length)} more
+                      </Button>
+                    </div>
+                  )}
+                  {matching.length === 0 && (
+                    <p className="text-xs text-fg-muted px-1" data-testid={`env-empty-${group.environment}`}>
+                      Nothing here matches the filter.
+                    </p>
+                  )}
+                </section>
+              </TabsContent>
             );
           })}
         </Tabs>

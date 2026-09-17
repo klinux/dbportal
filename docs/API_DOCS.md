@@ -26,12 +26,12 @@
 
 ## Overview
 
-dbportal provides a RESTful API for database management operations. The API supports PostgreSQL, MySQL, SQLite, libSQL, DuckDB, Oracle, SQL Server, MongoDB, Couchbase, ClickHouse, Apache Druid, Elasticsearch, OpenSearch, Apache Trino, Apache Cassandra and Redis.
+dbportal provides a RESTful API for database management operations. The API supports PostgreSQL, MySQL, SQLite, libSQL, DuckDB, Oracle, SQL Server, MongoDB, Couchbase, ClickHouse, Apache Druid, Elasticsearch, OpenSearch, Apache Trino, Amazon Athena, Apache Cassandra and Redis.
 
 ### Key Features
 
 - **JWT Authentication** - Secure token-based authentication stored in HTTP-only cookies
-- **Multi-Database Support** - Sixteen engines: PostgreSQL, MySQL, SQLite, libSQL, DuckDB, Oracle, SQL Server, MongoDB, Couchbase, ClickHouse, Apache Druid, Elasticsearch, OpenSearch, Apache Trino, Apache Cassandra, Redis
+- **Multi-Database Support** - Seventeen engines: PostgreSQL, MySQL, SQLite, libSQL, DuckDB, Oracle, SQL Server, MongoDB, Couchbase, ClickHouse, Apache Druid, Elasticsearch, OpenSearch, Apache Trino, Amazon Athena, Apache Cassandra, Redis
 - **AI-Powered Insights** - EXPLAIN explanations, query-safety analysis and schema docs, streamed
 - **Real-time Health Monitoring** - Database metrics and performance insights
 
@@ -588,6 +588,22 @@ carries a plain statement. Four things differ from the other SQL providers:
   **not** stop the work on the cluster.
 - Full reference: [`docs/providers/trino.md`](providers/trino.md).
 
+##### Amazon Athena Query Format
+
+Athena speaks Trino's SQL dialect on a serverless service, so the `sql` field carries a plain
+statement. What differs from the other SQL providers:
+
+- **A statement is a job.** It is submitted, polled to a terminal state and read page by page; the
+  request returns when the job has. The connection's `queryTimeout` is the deadline, and when it
+  fires the job is **stopped**, because an abandoned job runs on and is billed for what it scans.
+- **`database` is the Athena database** unqualified names resolve against; a statement may still
+  name any database in full. The catalog is `AwsDataCatalog`.
+- **DML and DDL are read by different parsers.** A `SELECT` quotes identifiers with double quotes;
+  a `CREATE TABLE` or `ALTER TABLE` needs backticks.
+- **`OFFSET` comes before `LIMIT`**, and the limiter's clause is transposed for you.
+- `POST /api/db/cancel` works: the job is stopped by its execution id.
+- Full reference: [`docs/providers/athena.md`](providers/athena.md).
+
 ---
 
 ##### Apache Cassandra Query Format
@@ -786,6 +802,8 @@ is not refused: its target is a session or query id that neither half describes 
 `kill`), so the request passes through.
 
 A `druid` connection fails the second check whatever the `type` is, with `{ "error": "Maintenance operations not supported for this database" }`: no maintenance operation is reachable from Druid SQL, so its supported set is empty by design. Compaction and retention are Coordinator and task concerns, and Druid publishes no catalog of running queries, so there is no id for `kill` to name.
+
+An `athena` connection is the same set of one: `kill` stops a job by its query execution id, while every other operation describes storage that lives in S3 and statistics that live in the Glue catalog.
 
 A `trino` connection passes it for `kill` and fails it for everything else, which is the difference between an empty supported set and a set of one: `CALL system.runtime.kill_query` really terminates a statement (verified end to end - the target then fails `ADMINISTRATIVELY_KILLED`), while vacuum, reindex, optimize, check and analyze all describe work that belongs to the connector behind a catalog rather than to the engine.
 
@@ -1479,6 +1497,9 @@ interface DatabaseConnection {
   instanceName?: string;   // MSSQL: named instance (e.g. SQLEXPRESS)
   localDataCenter?: string; // Cassandra only, and REQUIRED there: the driver refuses to connect without it (`datacenter1` on a stock single node)
   authSource?: string; // MongoDB only: the database the credentials live in (`?authSource=admin`). Not the database being opened - without it the driver checks the user against that one, which fails as a credentials error
+  region?: string;         // Athena: the AWS region, the whole address (required by that provider; the SDK derives the endpoint from it)
+  workgroup?: string;      // Athena: the workgroup statements run in, default `primary`
+  outputLocation?: string; // Athena: s3://bucket/prefix/ every result is written to; needed unless the workgroup enforces one
   skipObjectScan?: boolean; // read no catalog when this connection opens: zero reads on connect, so the editor is usable immediately and the object tree offers a load action instead of scanning (#765, an Oracle owner with 43,512 tables froze the browser on connect)
   managed?: boolean;       // true = admin-controlled, read-only in UI
   readOnly?: boolean;      // the server's answer for THIS session: it may open the datasource but not write to it (docs/SEED_CONNECTIONS.md, `writeRoles`)
@@ -1487,7 +1508,7 @@ interface DatabaseConnection {
   agentPassword?: string;  // password for agentUser; secret-classified, sealed at rest by connection-secrets
 }
 
-type DatabaseType = 'postgres' | 'mysql' | 'sqlite' | 'libsql' | 'duckdb' | 'mongodb' | 'redis' | 'oracle' | 'mssql' | 'libredb' | 'couchbase' | 'clickhouse' | 'druid' | 'elasticsearch' | 'opensearch' | 'trino' | 'cassandra';
+type DatabaseType = 'postgres' | 'mysql' | 'sqlite' | 'libsql' | 'duckdb' | 'mongodb' | 'redis' | 'oracle' | 'mssql' | 'libredb' | 'couchbase' | 'clickhouse' | 'druid' | 'elasticsearch' | 'opensearch' | 'trino' | 'athena' | 'cassandra';
 type ConnectionEnvironment = 'production' | 'staging' | 'development' | 'local' | 'other';
 ```
 

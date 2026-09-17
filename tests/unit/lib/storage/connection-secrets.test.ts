@@ -94,6 +94,10 @@ describe("the classification is exhaustive by construction", () => {
         "connectionString",
         "createdAt",
         "database",
+        // Athena's three settings: a region code, a workgroup name and an S3 prefix,
+        // all addresses and none a credential, so `public`.
+        "outputLocation",
+        "region",
         "schema",
         "environment",
         "group",
@@ -129,6 +133,7 @@ describe("the classification is exhaustive by construction", () => {
         "sshTunnel",
         "type",
         "user",
+        "workgroup",
       ].sort(),
     );
   });

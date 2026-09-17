@@ -14,6 +14,7 @@ import {
   ElasticsearchIcon,
   OpenSearchIcon,
   TrinoIcon,
+  AthenaIcon,
   CassandraIcon,
   LibSQLIcon,
   DuckDBIcon,
@@ -46,6 +47,12 @@ export interface DatabaseUIConfig {
     // MongoDB only: the database its credentials live in, which the driver otherwise
     // assumes is the one being opened.
     | "authSource"
+    // Athena only: the service has no host, so the region is its whole address; the
+    // workgroup and the S3 result location are the two settings a statement cannot
+    // run without one of.
+    | "region"
+    | "workgroup"
+    | "outputLocation"
   )[];
 }
 
@@ -291,6 +298,31 @@ export const DB_UI_CONFIG: Record<DatabaseType, DatabaseUIConfig> = {
     // fails the CONNECT rather than the first statement. The form labels it
     // "Keyspace" - see ConnectionModal.tsx.
     connectionFields: ["host", "port", "user", "password", "database", "localDataCenter"],
+  },
+  athena: {
+    icon: AthenaIcon,
+    // AWS draws every analytics service in its purple (#8C4FFF); purple-400 is Redis's,
+    // and the distinct-colour assertion in tests/unit/lib/db-ui-config.test.ts rules a
+    // duplicate out, so the alternate purple shade is the nearest free one.
+    color: "text-hue-purple-alt",
+    // The product's own name, without the vendor word: "Athena" is how the console
+    // and the SDK spell it, and "Amazon Athena" is the marketing form.
+    label: "Athena",
+    // No port at all: the SDK derives the endpoint from the region, and nothing on the
+    // connection names a host. An empty string is what the two file-based engines
+    // declare for the same absence.
+    defaultPort: "",
+    // No URI to paste. The JDBC and ODBC drivers take `jdbc:awsathena://...` with the
+    // settings as properties, which the shared parser does not read, and no `athena://`
+    // convention exists outside them.
+    showConnectionStringToggle: false,
+    // `user` and `password` hold the ACCESS KEY PAIR - the id and the secret - which the
+    // form labels as such; both empty means the runtime's own credentials. `database` is
+    // the Athena database unqualified names resolve against, the level the tree browses.
+    // The three fields of its own are required or near it: a region is the address, a
+    // workgroup defaults to `primary`, and a result location is needed unless the
+    // workgroup enforces one.
+    connectionFields: ["user", "password", "database", "region", "workgroup", "outputLocation"],
   },
   libredb: {
     icon: LibreDBIcon,

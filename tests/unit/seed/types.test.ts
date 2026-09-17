@@ -106,6 +106,7 @@ describe("SeedConnectionSchema", () => {
       "druid",
       "trino",
       "cassandra",
+      "athena",
     ];
     for (const type of allTypes) {
       const result = SeedConnectionSchema.safeParse({ ...validConn, type });
@@ -480,5 +481,41 @@ describe("SeedConnectionSchema: write approval", () => {
         config([pg("orders", { environment: "staging" }), pg("crm"), virtual], { environment: "staging" }).success,
       ).toBe(true);
     });
+  });
+});
+
+describe("SeedConnectionSchema: Athena's settings", () => {
+  // zod strips an unknown key silently, so a field absent from the schema would
+  // round-trip as `undefined` with no error anywhere; this is the guard.
+  it("accepts a seeded connection that names its region, workgroup and result location", () => {
+    const result = SeedConnectionSchema.safeParse({
+      id: "lake",
+      name: "Lake",
+      type: "athena",
+      database: "analytics",
+      region: "us-east-1",
+      workgroup: "reporting",
+      outputLocation: "s3://lake-results/athena/",
+      roles: ["*"],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.region).toBe("us-east-1");
+      expect(result.data.workgroup).toBe("reporting");
+      expect(result.data.outputLocation).toBe("s3://lake-results/athena/");
+    }
+  });
+
+  it("rejects a region that is not a string", () => {
+    const result = SeedConnectionSchema.safeParse({
+      id: "lake",
+      name: "Lake",
+      type: "athena",
+      region: 1,
+      roles: ["*"],
+    });
+
+    expect(result.success).toBe(false);
   });
 });

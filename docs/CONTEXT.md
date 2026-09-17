@@ -971,6 +971,24 @@ built. Each lands as its own section when done.
   needs no headless browser. On a wide screen the content column starts at the sidebar
   and the table of contents sits in a rail beside it, where Starlight would centre the
   column and park the table of contents at the far edge.
+- **4.52 Amazon Athena as a datasource — done, unverified live (asked 2026-09-17).** The
+  eighteenth type-id, `athena`, and the first provider reached through a vendor SDK rather
+  than `fetch`: SigV4 is where the no-dependency rule ends, and `@aws-sdk/client-athena` also
+  resolves credentials from the runtime's own chain, so a connection with no key pair runs as
+  the pod's role. A statement is a job - submitted, polled to a terminal state, its rows read
+  page by page, and STOPPED on every exit path, because an abandoned job scans on and bills
+  on. The catalog is read through the metadata API (`ListDatabases`, `ListTableMetadata`)
+  rather than with `information_schema` statements, because every statement writes an
+  object to S3; one listing per database is cached for thirty seconds and cleared by DDL, and
+  a database over 10,000 tables is badged as a floor. Three connection fields of its own -
+  `region`, `workgroup`, `outputLocation` - the key pair in `user`/`password`, no host and no
+  port; every spelling the service would refuse is refused at the form. Athena reads DDL with
+  Hive's parser (backticks) and DML with Trino's (double quotes), so `quoteDdlIdentifier`
+  exists for the migration generator and the SQL-DDL export. Explain is off until the JSON
+  plan is measured live; the doc's §13 lists every assumption a live pass has to settle,
+  since Athena has no container fixture. The transposition of `LIMIT`/`OFFSET` moved into
+  `offset-before-limit.ts`, shared with Trino. See
+  [`docs/providers/athena.md`](providers/athena.md).
 - **4.45 Secrets the chart has no field for — done (asked 2026-09-16).** Deploying the
   three roles from one GitOps repository needed `METRICS_TOKEN`, `STORAGE_ENCRYPTION_KEY`,
   `VAULT_TOKEN` and the passwords a seed file refers to, and the chart offered `extraEnv`

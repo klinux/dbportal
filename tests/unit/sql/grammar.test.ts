@@ -404,6 +404,8 @@ const GRAMMAR_COVERAGE: Record<DatabaseType, "established" | "default"> = {
   // Probed 2026-08-20 against Trino 476 - see the TRINO_GRAMMAR comments in
   // `grammar.ts` for the statement behind each of the four facts.
   trino: "established",
+  // Trino's grammar object, shared rather than copied (src/lib/sql/grammar.ts).
+  athena: "established",
   // All four facts probed 2026-08-20 against Apache Cassandra 5.0.9 over the native
   // protocol, before any provider code existed. See CASSANDRA_GRAMMAR in
   // `grammar.ts` for the statement behind each one - and for the fifth fact this
@@ -452,6 +454,7 @@ const SQL_TEXT_COVERAGE: Record<DatabaseType, boolean> = {
   // SQL, and nothing but: the editor text is what goes to `POST /v1/statement`, and
   // the provider extends SQLBaseProvider.
   trino: true,
+  athena: true,
   // CQL is SQL-SHAPED and the answer here is about SHAPE, not about vocabulary. What
   // the editor holds is a statement built of SELECT/INSERT/UPDATE/DELETE keywords,
   // `'…'` literals with doubled quotes, `"…"` quoted names and `--` / `/* */`

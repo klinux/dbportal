@@ -38,6 +38,7 @@ const MOCK_CONNECTION_FIELDS: Record<string, string[]> = {
   // A virtual datasource (§4.44) has no address at all: its members are picked.
   virtual: [],
   trino: ["host", "port", "user", "password", "database", "schema"],
+  athena: ["user", "password", "database", "region", "workgroup", "outputLocation"],
   sqlite: ["database"],
   libredb: ["database"],
   duckdb: ["database"],
@@ -231,7 +232,11 @@ describe("useConnectionForm", () => {
     };
     rerender({ ...defaultProps, onConnect, editConnection: virtual });
     expect(result.current.members).toEqual(["orders", "crm"]);
-    rerender({ ...defaultProps, onConnect, editConnection: { ...virtual, id: "p", type: "postgres", members: undefined } });
+    rerender({
+      ...defaultProps,
+      onConnect,
+      editConnection: { ...virtual, id: "p", type: "postgres", members: undefined },
+    });
     expect(result.current.members).toEqual([]);
     // Closed with nothing to edit: the next dialog starts with no members.
     act(() => result.current.setMembers(["orders", "crm"]));
@@ -1329,6 +1334,7 @@ describe("useConnectionForm", () => {
     duckdb: true,
     // A virtual datasource (§4.44): its members are picked from the declared datasources.
     virtual: true,
+    athena: true,
   };
 
   test("dbTypes offers every database type a connection can carry", () => {
@@ -1724,6 +1730,87 @@ describe("useConnectionForm", () => {
     );
     const body = JSON.parse(testCall![1]!.body as string);
     expect(body.localDataCenter).toBeUndefined();
+  });
+
+  // ── buildConnection with Athena's region, workgroup and result location ──
+
+  test("buildConnection includes the Athena region, workgroup and result location", async () => {
+    const fetchMock = mockGlobalFetch({
+      "/api/db/test-connection": { ok: true, json: { success: true, latency: 20 } },
+    });
+
+    const { result } = renderHook(() => useConnectionForm(defaultProps));
+
+    act(() => {
+      result.current.setType("athena");
+      result.current.setRegion("us-east-1");
+      result.current.setWorkgroup("reporting");
+      result.current.setOutputLocation("s3://lake-results/athena/");
+    });
+
+    await act(async () => {
+      await result.current.handleTestConnection();
+    });
+
+    const testCall = fetchMock.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes("/api/db/test-connection"),
+    );
+    const body = JSON.parse(testCall![1]!.body as string);
+    expect(body.region).toBe("us-east-1");
+    expect(body.workgroup).toBe("reporting");
+    expect(body.outputLocation).toBe("s3://lake-results/athena/");
+  });
+
+  test("Athena's settings typed for another engine are not sent, and an empty one is not sent for Athena", async () => {
+    const fetchMock = mockGlobalFetch({
+      "/api/db/test-connection": { ok: true, json: { success: true, latency: 20 } },
+    });
+
+    const { result } = renderHook(() => useConnectionForm(defaultProps));
+
+    act(() => {
+      result.current.setType("postgres");
+      result.current.setRegion("us-east-1");
+      result.current.setWorkgroup("reporting");
+      result.current.setOutputLocation("s3://lake-results/athena/");
+    });
+
+    await act(async () => {
+      await result.current.handleTestConnection();
+    });
+
+    const postgresCall = fetchMock.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes("/api/db/test-connection"),
+    );
+    const postgresBody = JSON.parse(postgresCall![1]!.body as string);
+    expect(postgresBody.region).toBeUndefined();
+    expect(postgresBody.workgroup).toBeUndefined();
+    expect(postgresBody.outputLocation).toBeUndefined();
+  });
+
+  test("editing an Athena connection shows its settings, and closing clears them", async () => {
+    const editConnection: DatabaseConnection = {
+      id: "lake",
+      name: "Lake",
+      type: "athena",
+      region: "eu-central-1",
+      workgroup: "reporting",
+      outputLocation: "s3://lake-results/",
+      createdAt: new Date(),
+    };
+    const { result, rerender } = renderHook((props: typeof defaultProps) => useConnectionForm(props), {
+      initialProps: { ...defaultProps, editConnection } as typeof defaultProps,
+    });
+
+    expect(result.current.region).toBe("eu-central-1");
+    expect(result.current.workgroup).toBe("reporting");
+    expect(result.current.outputLocation).toBe("s3://lake-results/");
+
+    rerender({ ...defaultProps, isOpen: false });
+
+    expect(result.current.region).toBe("");
+    expect(result.current.workgroup).toBe("");
+    expect(result.current.outputLocation).toBe("");
   });
 
   // ── The no-scan escape hatch (#765) ────────────────────────────────────

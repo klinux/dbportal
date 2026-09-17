@@ -581,6 +581,11 @@ const SQL_GRAMMARS: Partial<Record<DatabaseType, SqlGrammar>> = {
   elasticsearch: ELASTICSEARCH_GRAMMAR,
   opensearch: OPENSEARCH_GRAMMAR,
   trino: TRINO_GRAMMAR,
+  // The SAME grammar object: Athena's engine is a Trino fork and reads a statement's
+  // comments, quotes and brackets the way Trino does. Inherited rather than measured
+  // (the provider has no live fixture), and shared rather than copied so a divergence,
+  // if one is ever measured, has to be written down as its own grammar.
+  athena: TRINO_GRAMMAR,
   cassandra: CASSANDRA_GRAMMAR,
 };
 
