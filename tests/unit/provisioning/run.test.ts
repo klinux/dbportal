@@ -47,12 +47,19 @@ mock.module("@/lib/vault/credentials", () => ({
   resetVaultCache,
   resolveVaultReferences: async (conn: Record<string, unknown>) => {
     if (vaultResolution) return vaultResolution(conn);
-    return { ...conn, password: typeof conn.password === "string" && conn.password.startsWith("vault:") ? "from-vault" : conn.password };
+    return {
+      ...conn,
+      password: typeof conn.password === "string" && conn.password.startsWith("vault:") ? "from-vault" : conn.password,
+    };
   },
 }));
 
 let storeRecords: Record<string, unknown>[] = [];
-const updateSharedDatasource = mock(async (id: string, input: Record<string, unknown>, actor: string) => ({ ...input, id, updatedBy: actor }));
+const updateSharedDatasource = mock(async (id: string, input: Record<string, unknown>, actor: string) => ({
+  ...input,
+  id,
+  updatedBy: actor,
+}));
 mock.module("@/lib/datasources/store", () => ({
   listSharedDatasources: async () => storeRecords,
   updateSharedDatasource,
@@ -64,6 +71,7 @@ let connectFails = false;
 let refuse: (sql: string) => string | null = () => null;
 const ran: Statement[] = [];
 let disconnected = 0;
+const tunnelled: Record<string, unknown>[] = [];
 const answers = {
   who: [{ database: "shop", bootstrap: "app", version: 150004, can_create_role: true }],
   schemas: [{ name: "public" }, { name: "sales" }],
@@ -100,6 +108,15 @@ mock.module("@/lib/db/factory", () => ({
     };
   },
   removeProvider,
+  // The one-shot tunnel scope (#457), as the factory offers it: pass-through here, the
+  // tunnel itself being the factory's concern; the test below pins that it is used.
+  withOneShotTunnel: async (
+    connection: Record<string, unknown>,
+    run: (c: Record<string, unknown>) => Promise<unknown>,
+  ) => {
+    tunnelled.push(connection);
+    return run({ ...connection, host: connection.sshTunnel ? "127.0.0.1" : connection.host });
+  },
 }));
 
 const { ProvisionError } = await import("@/lib/provisioning/errors");
@@ -162,6 +179,7 @@ beforeEach(() => {
   connectFails = false;
   refuse = () => null;
   ran.length = 0;
+  tunnelled.length = 0;
   disconnected = 0;
   answers.roles = [];
 });
@@ -182,6 +200,10 @@ describe("inspectAccount", () => {
     expect(String(openedWith?.id)).toMatch(/^provision:seed:shop-prod:\d+$/);
     expect(disconnected).toBe(1);
     expect(report.inventory.bootstrapUser).toBe("app");
+    // Opened inside the one-shot tunnel scope, so a datasource behind SSH is reached the
+    // way its own pool reaches it; the provider is built with what the scope hands back.
+    expect(tunnelled).toHaveLength(1);
+    expect(tunnelled[0]).toMatchObject({ user: "app" });
     expect(report.plan.blockers).toEqual([]);
     expect(report.destination).toEqual({ kind: "vault", mount: "dbportal", path: "datasources/shop-prod" });
     // Nothing ran but the reads.
@@ -290,7 +312,11 @@ describe("provisionAccount", () => {
     expect(ran.find((s) => s.sql.startsWith("CREATE ROLE"))?.sql).toContain(`PASSWORD '${written[2].password}'`);
     expect(resetVaultCache).toHaveBeenCalledTimes(1);
 
-    const [id, swapped, actor] = updateSharedDatasource.mock.calls[0] as unknown as [string, Record<string, unknown>, string];
+    const [id, swapped, actor] = updateSharedDatasource.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+      string,
+    ];
     expect(id).toBe("shop-prod");
     expect(actor).toBe("root@example.test");
     expect(swapped).toMatchObject({
@@ -304,7 +330,12 @@ describe("provisionAccount", () => {
 
     expect(audit).toHaveBeenCalledTimes(1);
     const event = audit.mock.calls[0][0];
-    expect(event).toMatchObject({ type: "datasource_account", action: "provision", target: "shop-prod", result: "success" });
+    expect(event).toMatchObject({
+      type: "datasource_account",
+      action: "provision",
+      target: "shop-prod",
+      result: "success",
+    });
     expect(JSON.stringify(event)).not.toContain(written[2].password);
     expect(JSON.stringify(report)).not.toContain(written[2].password);
     expect(disconnected).toBe(1);
@@ -353,7 +384,7 @@ describe("provisionAccount", () => {
 
     expect(err).toBeInstanceOf(ProvisionError);
     expect(err.statusCode).toBe(409);
-    expect(err.message).toContain("owned by \"migrations\"");
+    expect(err.message).toContain('owned by "migrations"');
     expect(ran.some((s) => !s.sql.startsWith("SELECT"))).toBe(false);
     expect(writeKvSecret).not.toHaveBeenCalled();
     expect(audit).not.toHaveBeenCalled();

@@ -32,17 +32,28 @@
 import { randomBytes } from "node:crypto";
 import { emitAuditEvent } from "@/lib/audit";
 import { listSharedDatasources, updateSharedDatasource } from "@/lib/datasources/store";
-import { createDatabaseProvider, removeProvider } from "@/lib/db/factory";
+import { createDatabaseProvider, removeProvider, withOneShotTunnel } from "@/lib/db/factory";
 import { applicationNameFor } from "@/lib/db/application-name";
 import type { DatabaseProvider } from "@/lib/db/types";
 import { getSeedConnectionByIdUnfiltered } from "@/lib/seed";
 import { resolveEnvPlaceholders } from "@/lib/seed/credential-resolver";
 import type { DatabaseConnection } from "@/lib/types";
 import { isVaultConfigured, VaultError, writeKvSecret } from "@/lib/vault/client";
-import { isVaultReference, parseVaultReference, resetVaultCache, resolveVaultReferences } from "@/lib/vault/credentials";
+import {
+  isVaultReference,
+  parseVaultReference,
+  resetVaultCache,
+  resolveVaultReferences,
+} from "@/lib/vault/credentials";
 import { ProvisionError } from "./errors";
 import { readInventory } from "./inventory";
-import { buildPlan, type PlannedStatement, type ProvisionInventory, type ProvisionPlan, type ProvisionRequest } from "./plan";
+import {
+  buildPlan,
+  type PlannedStatement,
+  type ProvisionInventory,
+  type ProvisionPlan,
+  type ProvisionRequest,
+} from "./plan";
 
 /** The one call's own credential, typed by the admin and never stored. */
 export interface BootstrapCredential {
@@ -88,7 +99,12 @@ export interface ProvisionReport {
   readonly completed: boolean;
   readonly destination: SecretDestination;
   /** The references a seed-file datasource has to be pointed at by hand. */
-  readonly references?: { readonly user: string; readonly password: string; readonly agentUser?: string; readonly agentPassword?: string };
+  readonly references?: {
+    readonly user: string;
+    readonly password: string;
+    readonly agentUser?: string;
+    readonly agentPassword?: string;
+  };
 }
 
 const DEFAULT_MOUNT = "dbportal";
@@ -116,7 +132,8 @@ async function resolvedDatasource(
   try {
     return { declared, resolved: await resolveVaultReferences(resolveEnvPlaceholders(declared), actor) };
   } catch (error) {
-    if (error instanceof VaultError) throw new ProvisionError(`The stored credential could not be read: ${error.message}`, 502);
+    if (error instanceof VaultError)
+      throw new ProvisionError(`The stored credential could not be read: ${error.message}`, 502);
     throw error;
   }
 }
@@ -133,7 +150,11 @@ function mountOf(declared: DatabaseConnection): string | null {
   return null;
 }
 
-async function destinationFor(datasourceId: string, declared: DatabaseConnection, requested?: string): Promise<SecretDestination> {
+async function destinationFor(
+  datasourceId: string,
+  declared: DatabaseConnection,
+  requested?: string,
+): Promise<SecretDestination> {
   const inStore = (await listSharedDatasources()).some((record) => record.id === datasourceId);
   if (!isVaultConfigured()) {
     if (!inStore) {
@@ -150,12 +171,18 @@ async function destinationFor(datasourceId: string, declared: DatabaseConnection
   return inStore ? { kind: "vault", mount, path } : { kind: "seed-file", mount, path };
 }
 
-/** A provider for this call alone: built, connected, and disconnected by the caller. */
-async function openBootstrap(
+/**
+ * Run `work` against a provider built for this call alone: through the datasource's SSH
+ * tunnel when it has one (the one-shot scope of #457, because nothing caches this
+ * provider and nothing would ever close a pooled tunnel), connected here and
+ * disconnected here whatever `work` does.
+ */
+async function withBootstrap<T>(
   declared: DatabaseConnection,
   bootstrap: BootstrapCredential | undefined,
   actor: string,
-): Promise<DatabaseProvider> {
+  work: (provider: DatabaseProvider) => Promise<T>,
+): Promise<T> {
   const connection: DatabaseConnection = {
     ...declared,
     // A DBA's credential for this call, or the datasource's own.
@@ -164,19 +191,29 @@ async function openBootstrap(
     // carries a credential the datasource's own pool must not inherit.
     id: `provision:${declared.id}:${Date.now()}`,
   };
-  const provider = await createDatabaseProvider(connection, { applicationName: applicationNameFor(actor) });
-  try {
-    await provider.connect();
-  } catch (error) {
-    throw new ProvisionError(
-      `The bootstrap credential could not open the database: ${error instanceof Error ? error.message : String(error)}`,
-      502,
-    );
-  }
-  return provider;
+  return withOneShotTunnel(connection, async (effective) => {
+    const provider = await createDatabaseProvider(effective, { applicationName: applicationNameFor(actor) });
+    try {
+      await provider.connect();
+    } catch (error) {
+      throw new ProvisionError(
+        `The bootstrap credential could not open the database: ${error instanceof Error ? error.message : String(error)}`,
+        502,
+      );
+    }
+    try {
+      return await work(provider);
+    } finally {
+      await provider.disconnect();
+    }
+  });
 }
 
-async function inspectWith(provider: DatabaseProvider, input: InspectInput, secrets: { password: string; agentPassword: string }) {
+async function inspectWith(
+  provider: DatabaseProvider,
+  input: InspectInput,
+  secrets: { password: string; agentPassword: string },
+) {
   const inventory = await readInventory(provider, input.datasourceId, input.request.schemas);
   return { inventory, plan: buildPlan(input.datasourceId, input.request, inventory, secrets) };
 }
@@ -185,14 +222,11 @@ async function inspectWith(provider: DatabaseProvider, input: InspectInput, secr
 export async function inspectAccount(input: InspectInput): Promise<InspectReport> {
   const { declared, resolved } = await resolvedDatasource(input.datasourceId, input.actor);
   const destination = await destinationFor(input.datasourceId, declared, input.vaultMount);
-  const provider = await openBootstrap(resolved, input.bootstrap, input.actor);
-  try {
+  return withBootstrap(resolved, input.bootstrap, input.actor, async (provider) => {
     // Placeholder secrets: the shown plan masks them, and nothing runs here.
     const { inventory, plan } = await inspectWith(provider, input, { password: "x", agentPassword: "x" });
     return { inventory, plan, destination };
-  } finally {
-    await provider.disconnect();
-  }
+  });
 }
 
 /** Run the plan, keep the password, swap the datasource. */
@@ -200,16 +234,14 @@ export async function provisionAccount(input: InspectInput): Promise<ProvisionRe
   const { declared, resolved } = await resolvedDatasource(input.datasourceId, input.actor);
   const destination = await destinationFor(input.datasourceId, declared, input.vaultMount);
   const secrets = { password: generatePassword(), agentPassword: generatePassword() };
-  const provider = await openBootstrap(resolved, input.bootstrap, input.actor);
-  let plan: ProvisionPlan;
   const statements: StatementOutcome[] = [];
   let completed = true;
-  try {
-    plan = (await inspectWith(provider, input, secrets)).plan;
-    if (plan.blockers.length > 0) {
-      throw new ProvisionError(`The plan cannot run yet: ${plan.blockers.join(" ")}`, 409);
+  const plan = await withBootstrap(resolved, input.bootstrap, input.actor, async (provider) => {
+    const inspected = await inspectWith(provider, input, secrets);
+    if (inspected.plan.blockers.length > 0) {
+      throw new ProvisionError(`The plan cannot run yet: ${inspected.plan.blockers.join(" ")}`, 409);
     }
-    for (const statement of plan.statements) {
+    for (const statement of inspected.plan.statements) {
       const base = { shown: statement.shown, purpose: statement.purpose, account: statement.account };
       if (!completed) {
         statements.push({ ...base, outcome: "skipped" });
@@ -224,9 +256,8 @@ export async function provisionAccount(input: InspectInput): Promise<ProvisionRe
         if (!statement.optional) completed = false;
       }
     }
-  } finally {
-    await provider.disconnect();
-  }
+    return inspected.plan;
+  });
 
   const audit = (result: "success" | "failure", details: string): void => {
     emitAuditEvent({
@@ -243,7 +274,13 @@ export async function provisionAccount(input: InspectInput): Promise<ProvisionRe
   if (!completed) {
     const refused = statements.find((s) => s.outcome === "refused" && s.error !== undefined);
     audit("failure", `${input.request.profile}; stopped at: ${refused?.purpose ?? "unknown"}`);
-    return { roleName: plan.roleName, agentRoleName: input.request.agent ? plan.agentRoleName : null, statements, completed, destination };
+    return {
+      roleName: plan.roleName,
+      agentRoleName: input.request.agent ? plan.agentRoleName : null,
+      statements,
+      completed,
+      destination,
+    };
   }
 
   const references = await keepSecret(input, plan, secrets, destination);
@@ -298,7 +335,9 @@ async function keepSecret(
   const references = {
     user: `vault:kv:${mount}/${path}#user`,
     password: `vault:kv:${mount}/${path}#password`,
-    ...(agent ? { agentUser: `vault:kv:${mount}/${path}#agent_user`, agentPassword: `vault:kv:${mount}/${path}#agent_password` } : {}),
+    ...(agent
+      ? { agentUser: `vault:kv:${mount}/${path}#agent_user`, agentPassword: `vault:kv:${mount}/${path}#agent_password` }
+      : {}),
   };
   if (destination.kind === "vault") {
     await swapDatasource(input, references);
@@ -316,7 +355,8 @@ async function swapDatasource(
 ): Promise<void> {
   const record = (await listSharedDatasources()).find((candidate) => candidate.id === input.datasourceId);
   // `destinationFor` established the record exists; a deletion in between is the one way here.
-  if (!record) throw new ProvisionError(`Datasource "${input.datasourceId}" was deleted while its account was provisioned`, 409);
+  if (!record)
+    throw new ProvisionError(`Datasource "${input.datasourceId}" was deleted while its account was provisioned`, 409);
   await updateSharedDatasource(
     input.datasourceId,
     { ...record, ...credential, connectionString: undefined },
