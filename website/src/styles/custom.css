@@ -13,3 +13,33 @@
   border: 1px solid var(--sl-color-hairline);
   border-radius: 0.5rem;
 }
+
+/*
+ * Starlight centres the content column between the sidebar and the page edge on wide
+ * screens and parks the table of contents in the leftover half, which on a wide monitor
+ * reads as a page pushed away from its own sidebar. The column starts at the sidebar
+ * instead, the table of contents takes a fixed rail beside it, and long tables scroll in
+ * place rather than being cut. `!important` because Starlight's own rules are scoped with
+ * a higher specificity than a global stylesheet can reach.
+ */
+:root {
+  --sl-content-width: 60rem;
+}
+@media (min-width: 72rem) {
+  /* The content column at the sidebar's edge, the table of contents right after it. */
+  [data-has-sidebar][data-has-toc] .main-pane {
+    --sl-content-margin-inline: 0 auto !important;
+    width: min(calc(100% - var(--sl-sidebar-width) - 16rem), calc(var(--sl-content-width) + 3rem)) !important;
+  }
+  .right-sidebar-container {
+    width: max(16rem, calc(100% - var(--sl-sidebar-width) - var(--sl-content-width) - 3rem)) !important;
+  }
+  .right-sidebar {
+    max-width: 22rem;
+  }
+}
+.sl-markdown-content table {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
