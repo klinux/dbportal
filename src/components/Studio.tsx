@@ -17,6 +17,7 @@ import { QuerySafetyDialog } from "@/components/QuerySafetyDialog";
 import { DataProfiler } from "@/components/DataProfiler";
 import { CodeGenerator } from "@/components/CodeGenerator";
 import { TestDataGenerator } from "@/components/TestDataGenerator";
+import { testDataRefusal } from "@/lib/seed-data/policy";
 import { CreateTableModal } from "@/components/CreateTableModal";
 import { SaveQueryModal } from "@/components/SaveQueryModal";
 import {
@@ -576,11 +577,14 @@ export default function Studio() {
    * Maintenance is withheld from a non-admin because the page it opens is the admin one; the
    * other five are the same for every role, exactly as the flat explorer had them.
    */
+  // Withheld on a production datasource and on a read-only session, by the same rule the
+  // admin's seed panel applies: an absent handler is an item the tree does not draw.
+  const testDataAllowed = testDataRefusal(conn.activeConnection) === null;
   const objectActions: TreeRowActionHandlers = {
     onGenerateSelect: (object) => tabMgr.handleGenerateSelect(object.path),
     onProfileObject: (object) => setProfilerPath(object.path),
     onGenerateCode: (object) => setCodeGenPath(object.path),
-    onGenerateTestData: (object) => setTestDataPath(object.path),
+    onGenerateTestData: testDataAllowed ? (object) => setTestDataPath(object.path) : undefined,
     onOpenMaintenance: isAdmin ? (object) => openMaintenance("tables", object.path) : undefined,
     onCreateObject: () => setIsCreateTableModalOpen(true),
   };
@@ -788,7 +792,7 @@ export default function Studio() {
                       metadata={metadata}
                       onProfileTable={(path) => setProfilerPath(path)}
                       onGenerateCode={(path) => setCodeGenPath(path)}
-                      onGenerateTestData={(path) => setTestDataPath(path)}
+                      onGenerateTestData={testDataAllowed ? (path) => setTestDataPath(path) : undefined}
                     />
                   ) : (
                     <div className="flex flex-col items-center justify-center h-full text-fg-muted">
@@ -991,7 +995,7 @@ export default function Studio() {
         databaseType={conn.activeConnection?.type}
       />
       <TestDataGenerator
-        isOpen={testDataPath !== null}
+        isOpen={testDataPath !== null && testDataAllowed}
         onClose={() => setTestDataPath(null)}
         tablePath={testDataPath ?? []}
         tableSchema={objectAtPath(conn.schema, testDataPath)}

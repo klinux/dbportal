@@ -865,6 +865,28 @@ describe("Studio", () => {
     expect(queryByTestId("createtablemodal")).not.toBeNull();
   });
 
+  // The admin's seed panel never seeds production; this menu offered to. The gate is the
+  // one rule both read (`src/lib/seed-data/policy.ts`), and an absent handler is an item
+  // the tree does not draw - on both explorers this shell mounts.
+  test("a production datasource is handed no test-data action, in either explorer", () => {
+    connMgrOverride = { activeConnection: { ...pgConn, environment: "production" as const } };
+    const { queryByTestId } = render(<Studio />);
+
+    expect(sidebarActions().onGenerateTestData).toBeUndefined();
+    expect(capturedSchemaExplorerProps.onGenerateTestData).toBeUndefined();
+    expect(queryByTestId("testdatagenerator")).toBeNull();
+    // The neighbouring actions are untouched: only the one that writes is withheld.
+    expect(sidebarActions().onGenerateCode).toBeDefined();
+  });
+
+  test("a read-only session is handed no test-data action either", () => {
+    connMgrOverride = { activeConnection: { ...pgConn, environment: "staging" as const, readOnly: true } };
+    render(<Studio />);
+
+    expect(sidebarActions().onGenerateTestData).toBeUndefined();
+    expect(capturedSchemaExplorerProps.onGenerateTestData).toBeUndefined();
+  });
+
   test("a non-admin is handed no maintenance action, because the page it opens is the admin one", () => {
     authOverride = { isAdmin: false };
     connMgrOverride = { activeConnection: pgConn };

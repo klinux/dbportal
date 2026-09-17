@@ -989,6 +989,15 @@ built. Each lands as its own section when done.
   since Athena has no container fixture. The transposition of `LIMIT`/`OFFSET` moved into
   `offset-before-limit.ts`, shared with Trino. See
   [`docs/providers/athena.md`](providers/athena.md).
+- **4.53 "Generate Test Data" withheld on production — done (asked 2026-09-17).** The
+  admin's seed panel has refused a production datasource since it shipped
+  (`seedAllowed`), but the studio's row menu never read the environment, so an operator
+  with write rights on production was offered a button that composes and runs INSERTs of
+  invented rows. `src/lib/seed-data/policy.ts` is now the one rule both surfaces import:
+  production, and a session the server decided may not write, get no handler, so neither
+  explorer draws the item and the generator never mounts. The gate is a UI one, stated as
+  such - a generated INSERT is an ordinary statement, and what protects production from
+  one is the write policy the query route enforces (roles, approvals, tickets, freezes).
 - **4.45 Secrets the chart has no field for — done (asked 2026-09-16).** Deploying the
   three roles from one GitOps repository needed `METRICS_TOKEN`, `STORAGE_ENCRYPTION_KEY`,
   `VAULT_TOKEN` and the passwords a seed file refers to, and the chart offered `extraEnv`

@@ -10,6 +10,7 @@ import { SeedDataError } from "./errors";
 import { copyTable, type CopySource } from "./copy";
 import { valueFor, type Pools } from "./generators";
 import { MAX_ROWS_PER_TABLE, orderTables } from "./plan";
+import { PRODUCTION_SEED_REFUSAL } from "./policy";
 
 /**
  * The seed job (docs/CONTEXT.md §4.23): the tables in dependency order, each filled in
@@ -68,7 +69,7 @@ export function getSeedRun(id: string): SeedRun | null {
 
 export function seedAllowed(connection: Pick<ManagedConnection, "environment" | "type">): string | null {
   if (connection.type !== "postgres") return "Seeding from the schema is available on PostgreSQL datasources only";
-  if (connection.environment === "production") return "A production datasource is never seeded";
+  if (connection.environment === "production") return PRODUCTION_SEED_REFUSAL;
   return null;
 }
 

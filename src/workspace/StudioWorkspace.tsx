@@ -13,6 +13,7 @@ import { QuerySafetyDialog } from "@/components/QuerySafetyDialog";
 import { DataProfiler } from "@/components/DataProfiler";
 import { CodeGenerator } from "@/components/CodeGenerator";
 import { TestDataGenerator } from "@/components/TestDataGenerator";
+import { testDataRefusal } from "@/lib/seed-data/policy";
 import { SaveQueryModal } from "@/components/SaveQueryModal";
 import { StudioTabBar, QueryToolbar, BottomPanel } from "@/components/studio/index";
 import type { MaskingConfig } from "@/lib/data-masking";
@@ -331,11 +332,15 @@ export function StudioWorkspace({
    * anyway. Memoising this for real means memoising what it closes over first, in both
    * shells, which is a change to those hooks rather than to this line.
    */
+  // The feature flag says whether this host mounts the generator; the policy says whether
+  // this datasource may take invented rows - production and read-only sessions may not,
+  // by the rule the admin's seed panel applies.
+  const testDataAllowed = features.testDataGenerator && testDataRefusal(conn.activeConnection) === null;
   const objectActions: TreeRowActionHandlers = {
     onGenerateSelect: (object) => tabMgr.handleGenerateSelect(object.path),
     onProfileObject: features.codeGenerator ? (object) => setProfilerPath(object.path) : undefined,
     onGenerateCode: features.codeGenerator ? (object) => setCodeGenPath(object.path) : undefined,
-    onGenerateTestData: features.testDataGenerator ? (object) => setTestDataPath(object.path) : undefined,
+    onGenerateTestData: testDataAllowed ? (object) => setTestDataPath(object.path) : undefined,
   };
 
   // === No-op callbacks for disabled features ===
@@ -586,7 +591,7 @@ export function StudioWorkspace({
       {/* Test Data Generator */}
       {features.testDataGenerator && (
         <TestDataGenerator
-          isOpen={testDataPath !== null}
+          isOpen={testDataPath !== null && testDataAllowed}
           onClose={() => setTestDataPath(null)}
           tablePath={testDataPath ?? []}
           tableSchema={objectAtPath(conn.schema, testDataPath)}

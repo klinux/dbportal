@@ -822,6 +822,25 @@ describe("StudioWorkspace", () => {
     expect(queryByTestId("testdatagenerator")).not.toBeNull();
   });
 
+  // The same rule the admin's seed panel applies: a production datasource, or a session
+  // the server decided may not write, is handed no test-data action even when the host
+  // enabled the feature.
+  test("a production datasource is handed no test-data action even with the feature on by default", () => {
+    connAdapterOverride = { activeConnection: { ...dbConn, environment: "production" as const } };
+    const { queryByTestId } = renderWorkspace();
+
+    expect(sidebarActions().onGenerateTestData).toBeUndefined();
+    expect(queryByTestId("testdatagenerator")).toBeNull();
+    expect(sidebarActions().onGenerateCode).toBeDefined();
+  });
+
+  test("a read-only session is handed no test-data action either", () => {
+    connAdapterOverride = { activeConnection: { ...dbConn, readOnly: true } };
+    renderWorkspace();
+
+    expect(sidebarActions().onGenerateTestData).toBeUndefined();
+  });
+
   test("each modal opens on the object that was CLICKED, where two containers share one label", () => {
     connAdapterOverride = { schema: [otherUsersTable, usersTable] };
     renderWorkspace();
