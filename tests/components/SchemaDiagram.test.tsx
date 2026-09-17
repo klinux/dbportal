@@ -1215,7 +1215,7 @@ describe("SchemaDiagram", () => {
       // The exported file carries no page behind it, so the capture paints its
       // own ground — and it must be the ground of the theme the diagram was
       // read in. No `dark` class on the document here, so this is light.
-      expect(options.backgroundColor).toBe("#f4f4f5");
+      expect(options.backgroundColor).toBe("#f4f6f8");
       // Desired scale is 2 for sharp output; capPixelRatio clamps it against
       // browser canvas limits for huge diagrams (mocked bounds are small).
       expect(options.scale).toBe(2);
@@ -1294,7 +1294,7 @@ describe("SchemaDiagram", () => {
         });
 
         const [, options] = mockSnapdom.mock.calls[0] as unknown as [HTMLElement, Record<string, unknown>];
-        expect(options.backgroundColor).toBe("#050505");
+        expect(options.backgroundColor).toBe("#0b0e14");
       } finally {
         document.documentElement.classList.remove("dark");
         spy.restore();
@@ -1326,7 +1326,7 @@ describe("SchemaDiagram", () => {
         });
 
         const [, options] = mockSnapdom.mock.calls[0] as unknown as [HTMLElement, Record<string, unknown>];
-        expect(options.backgroundColor).toBe("#050505");
+        expect(options.backgroundColor).toBe("#0b0e14");
       } finally {
         document.documentElement.classList.remove("dark");
         spy.restore();
@@ -1383,8 +1383,8 @@ describe("SchemaDiagram", () => {
       const svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>users</text></svg>';
       const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
-      expect(await svgDataUrlToBlob(dataUrl, EXPORT_BACKGROUND.light).text()).toContain('fill="#f4f4f5"');
-      expect(await svgDataUrlToBlob(dataUrl, EXPORT_BACKGROUND.dark).text()).toContain('fill="#050505"');
+      expect(await svgDataUrlToBlob(dataUrl, EXPORT_BACKGROUND.light).text()).toContain('fill="#f4f6f8"');
+      expect(await svgDataUrlToBlob(dataUrl, EXPORT_BACKGROUND.dark).text()).toContain('fill="#0b0e14"');
     });
 
     test("failed PNG export surfaces a destructive toast instead of failing silently", async () => {

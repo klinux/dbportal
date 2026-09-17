@@ -45,7 +45,7 @@ describe("svgDataUrlToBlob", () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><text>users</text></svg>';
     const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
     const text = await svgDataUrlToBlob(dataUrl).text();
-    expect(text).toMatch(/^<svg[^>]*><rect width="100%" height="100%" fill="#050505"\/><text>/);
+    expect(text).toMatch(/^<svg[^>]*><rect width="100%" height="100%" fill="#0b0e14"\/><text>/);
   });
 
   test("rejects non-SVG data URLs", () => {

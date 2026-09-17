@@ -17,8 +17,8 @@ export const MAX_CANVAS_AREA = 268_435_456;
  * these values match `--studio-canvas`, which is what the diagram sits on.
  */
 export const EXPORT_BACKGROUND = {
-  dark: "#050505",
-  light: "#f4f4f5",
+  dark: "#0b0e14",
+  light: "#f4f6f8",
 } as const;
 const EXPORT_PADDING = 32;
 // Desired capture sharpness; capPixelRatio clamps it for huge diagrams.

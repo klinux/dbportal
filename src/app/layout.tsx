@@ -1,12 +1,5 @@
 import { withBasePath } from "@/lib/config/base-path";
-import { GeistMono } from "geist/font/mono";
-// Self-hosted Geist (the `geist` package wraps next/font/local around the woff2
-// files it ships). next/font/google would fetch fonts.googleapis.com at BUILD
-// time, so `next build` failed in offline or egress-restricted environments;
-// the rendered output is identical since Next self-hosts either way. The CSS
-// variable names must stay --font-geist-sans/mono: globals.css maps them to
-// --font-sans/--font-mono.
-import { GeistSans } from "geist/font/sans";
+import { mono, sans } from "@/app/fonts";
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -66,7 +59,7 @@ export default function RootLayout({
         one theme. It is now owned by ThemeProvider, which writes it onto <html>
         (`attribute="class"`) and restores the user's choice before paint.
       */}
-      <body suppressHydrationWarning className={`${GeistSans.variable} ${GeistMono.variable} antialiased font-sans`}>
+      <body suppressHydrationWarning className={`${sans.variable} ${mono.variable} antialiased font-sans`}>
         <ThemeProvider>
           {children}
           {/* No `theme` prop: Toaster reads next-themes itself, so it follows. */}

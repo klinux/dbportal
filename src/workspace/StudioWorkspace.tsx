@@ -55,34 +55,34 @@ const SchemaDiagram = React.lazy(
  */
 const STUDIO_SCOPED_CSS = `
 [data-studio-workspace] {
-  /* Light theme — monochrome (white/black/gray) */
+  /* Light theme — docs/DESIGN.md: canvas, ink, signal blue, 1px borders */
   --background: #ffffff;
-  --foreground: #09090b;
+  --foreground: #0b0e14;
   --card: #ffffff;
-  --card-foreground: #09090b;
+  --card-foreground: #0b0e14;
   --popover: #ffffff;
-  --popover-foreground: #09090b;
-  --primary: #18181b;
-  --primary-foreground: #fafafa;
-  --secondary: #f4f4f5;
-  --secondary-foreground: #18181b;
-  --muted: #f4f4f5;
-  --muted-foreground: #52525b;
-  --accent: #f4f4f5;
-  --accent-foreground: #18181b;
-  --destructive: #dc2626;
-  --destructive-foreground: #fafafa;
-  --border: #e4e4e7;
-  --input: #e4e4e7;
-  --ring: #71717a;
-  --radius: 0.5rem;
+  --popover-foreground: #0b0e14;
+  --primary: #1f6feb;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f6f8;
+  --secondary-foreground: #0b0e14;
+  --muted: #f4f6f8;
+  --muted-foreground: #5c6672;
+  --accent: #f4f6f8;
+  --accent-foreground: #0b0e14;
+  --destructive: #c0342e;
+  --destructive-foreground: #ffffff;
+  --border: #d7dde4;
+  --input: #c3cbd4;
+  --ring: #1f6feb;
+  --radius: 10px;
   --chart-1: #18181b;
   --chart-2: #3f3f46;
   --chart-3: #52525b;
   --chart-4: #71717a;
   --chart-5: #a1a1aa;
 
-  /* Font — Geist (inherited from host or fallback to system) */
+  /* Font — IBM Plex Sans (inherited from host or fallback to system) */
   font-family: var(--font-geist-sans, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -93,25 +93,25 @@ const STUDIO_SCOPED_CSS = `
    Higher specificity than the base rule, so the class alone decides. */
 .dark [data-studio-workspace],
 [data-studio-workspace].dark {
-  --background: #09090b;
-  --foreground: #fafafa;
-  --card: #09090b;
-  --card-foreground: #fafafa;
-  --popover: #09090b;
-  --popover-foreground: #fafafa;
-  --primary: #fafafa;
-  --primary-foreground: #09090b;
-  --secondary: #27272a;
-  --secondary-foreground: #fafafa;
-  --muted: #27272a;
-  --muted-foreground: #a1a1aa;
-  --accent: #27272a;
-  --accent-foreground: #fafafa;
-  --destructive: #dc2626;
-  --destructive-foreground: #fafafa;
-  --border: #27272a;
-  --input: #27272a;
-  --ring: #d4d4d8;
+  --background: #0b0e14;
+  --foreground: #e8ecf1;
+  --card: #11151d;
+  --card-foreground: #e8ecf1;
+  --popover: #11151d;
+  --popover-foreground: #e8ecf1;
+  --primary: #1f6feb;
+  --primary-foreground: #ffffff;
+  --secondary: #151a23;
+  --secondary-foreground: #e8ecf1;
+  --muted: #151a23;
+  --muted-foreground: #9aa5b2;
+  --accent: #151a23;
+  --accent-foreground: #e8ecf1;
+  --destructive: #c0342e;
+  --destructive-foreground: #ffffff;
+  --border: #232a36;
+  --input: #232a36;
+  --ring: #4e96ff;
   --chart-1: #e4e4e7;
   --chart-2: #a1a1aa;
   --chart-3: #71717a;

@@ -77,39 +77,37 @@ describe("every token reference resolves to a declaration", () => {
 });
 
 /**
- * Tokenising a component was allowed to change how it looks in LIGHT — that was
- * the point — but never in dark, where the token values were chosen to reproduce
- * the literals the components already carried. These are the values that were
- * argued over one at a time; pinning them is what makes "no-op in dark" checkable
- * rather than a claim in a commit message.
+ * The dark palette is docs/DESIGN.md's (docs/CONTEXT.md §5, rebrand layer 3): the app
+ * background and editor ground, the top bar, the two structural borders and the three text
+ * steps it names. Pinned by value so a retune of one theme is a decision somebody made,
+ * not a side effect of editing the other.
  */
-describe("the dark palette still reproduces the pre-token literals", () => {
+describe("the dark palette is the handoff's", () => {
   const value = (token: string) => new RegExp(`${token}:\\s*([^;]+);`).exec(block(stripComments(theme), ".dark"))?.[1];
 
   test("the surface ramp", () => {
-    expect(value("--studio-canvas")).toBe("#050505");
-    expect(value("--studio-surface")).toBe("#0a0a0a");
-    expect(value("--studio-panel")).toBe("rgb(24 24 27 / 0.5)");
+    expect(value("--studio-canvas")).toBe("#0b0e14");
+    expect(value("--studio-surface")).toBe("#0e121a");
+    expect(value("--studio-panel")).toBe("rgb(14 18 26 / 0.6)");
   });
 
-  test("the hairlines", () => {
-    expect(value("--studio-hairline")).toBe("rgb(255 255 255 / 0.05)");
-    expect(value("--studio-hairline-strong")).toBe("rgb(255 255 255 / 0.1)");
+  test("the hairlines are the two structural borders", () => {
+    expect(value("--studio-hairline")).toBe("#1a202a");
+    expect(value("--studio-hairline-strong")).toBe("#232a36");
   });
 
   test("the text ramp", () => {
-    expect(value("--studio-fg")).toBe("#e4e4e7");
-    expect(value("--studio-fg-muted")).toBe("#71717a");
+    expect(value("--studio-fg")).toBe("#e8ecf1");
+    expect(value("--studio-fg-tertiary")).toBe("#a7b1be");
+    expect(value("--studio-fg-muted")).toBe("#9aa5b2");
   });
 
   /**
-   * The one that regressed. Routed through the text ramp, the editor thumb went
-   * #262626 → #52525b and its hover #404040 → #71717a — a chrome detail promoted
-   * to the brightest thing on a quiet panel, in a PR whose contract was that dark
-   * does not move.
+   * Its own pair, off the text ramp: a chrome detail routed through the ramp once
+   * became the brightest thing on a quiet panel.
    */
-  test("the editor scrollbar", () => {
-    expect(value("--studio-scrollbar")).toBe("#262626");
-    expect(value("--studio-scrollbar-hover")).toBe("#404040");
+  test("the editor scrollbar stays a chrome detail", () => {
+    expect(value("--studio-scrollbar")).toBe("#2a3340");
+    expect(value("--studio-scrollbar-hover")).toBe("#3c4655");
   });
 });

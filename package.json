@@ -107,7 +107,6 @@
     "elkjs": "^0.12.0",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^13.2.0",
-    "geist": "^1.7.2",
     "input-otp": "^1.5.0",
     "ioredis": "^5.11.1",
     "jose": "^6.2.12",

@@ -58,17 +58,17 @@ export interface ChartTheme {
 const THEMES: Record<EffectiveTheme, ChartTheme> = {
   dark: {
     series: SERIES.dark,
-    grid: "#222222",
-    axis: "#666666",
-    ink: "#d4d4d8",
-    exportBackground: "#080808",
+    grid: "#1a202a",
+    axis: "#6b7683",
+    ink: "#c9d1db",
+    exportBackground: "#0b0e14",
   },
   light: {
     series: SERIES.light,
-    grid: "#e4e4e7",
-    axis: "#52525b",
-    ink: "#27272a",
-    exportBackground: "#fafafa",
+    grid: "#d7dde4",
+    axis: "#5c6672",
+    ink: "#2a3340",
+    exportBackground: "#ffffff",
   },
 };
 
@@ -93,18 +93,18 @@ export function chartTheme(mode: EffectiveTheme): ChartTheme {
  */
 const TOOLTIP: Record<EffectiveTheme, React.CSSProperties> = {
   dark: {
-    backgroundColor: "#18181b",
-    border: "1px solid rgb(255 255 255 / 0.1)",
-    borderRadius: "8px",
+    backgroundColor: "#151a23",
+    border: "1px solid #232a36",
+    borderRadius: "6px",
     fontSize: 12,
-    color: "#a1a1aa",
+    color: "#a7b1be",
   },
   light: {
     backgroundColor: "#ffffff",
-    border: "1px solid rgb(9 9 11 / 0.14)",
-    borderRadius: "8px",
+    border: "1px solid #c3cbd4",
+    borderRadius: "6px",
     fontSize: 12,
-    color: "#3f3f46",
+    color: "#4a5563",
   },
 };
 

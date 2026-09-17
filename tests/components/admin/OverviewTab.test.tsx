@@ -752,13 +752,13 @@ describe("OverviewTab", () => {
 
   test("the query-volume tooltip is dark-on-dark in the dark theme", async () => {
     const { bg, color } = await tooltipStyleUnderTheme("dark");
-    expect(bg).toBe("#18181b");
-    expect(color).toBe("#a1a1aa");
+    expect(bg).toBe("#151a23");
+    expect(color).toBe("#a7b1be");
   });
 
   test("and light-on-white in the light theme", async () => {
     const { bg, color } = await tooltipStyleUnderTheme("light");
     expect(bg).toBe("#ffffff");
-    expect(color).toBe("#3f3f46");
+    expect(color).toBe("#4a5563");
   });
 });

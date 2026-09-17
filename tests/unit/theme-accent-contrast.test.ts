@@ -181,21 +181,24 @@ function worstGround(palettes: Map<string, string>, token: string, ownTint: stri
 }
 
 /**
- * The contract, one row per token: which Tailwind step each palette reproduces, and
- * which tint the token is washed over when it sits on its own colour.
+ * The contract, one row per token: the value each palette declares, and which tint the
+ * token is washed over when it sits on its own colour.
  *
- * The dark column is the whole of "dark does not move" — every one of these is the
- * literal a component carried before this migration.
+ * Since the rebrand's third layer (docs/CONTEXT.md §5) these are docs/DESIGN.md's colours,
+ * not Tailwind steps: signal blue and its dark counterpart, the committed / pending /
+ * denied text colours and their dark versions. A light text step sits one shade under the
+ * handoff's chip text where the chip text alone would not clear AA over the token's own
+ * wash at 25% - the ground the "clears AA" sweep below measures.
  */
 const TEXT_TOKENS: ReadonlyArray<{ token: string; light: string; dark: string; tint: string }> = [
-  { token: "--studio-brand", light: "blue-700", dark: "blue-400", tint: "--studio-brand-tint" },
-  { token: "--studio-brand-bright", light: "blue-800", dark: "blue-300", tint: "--studio-brand-tint" },
-  { token: "--studio-warning", light: "amber-800", dark: "amber-400", tint: "--studio-warning-tint" },
-  { token: "--studio-warning-bright", light: "amber-900", dark: "amber-300", tint: "--studio-warning-tint" },
-  { token: "--studio-success", light: "emerald-800", dark: "emerald-400", tint: "--studio-success-tint" },
-  { token: "--studio-success-bright", light: "emerald-900", dark: "emerald-300", tint: "--studio-success-tint" },
-  { token: "--studio-danger", light: "red-800", dark: "red-400", tint: "--studio-danger-tint" },
-  { token: "--studio-danger-bright", light: "red-900", dark: "red-300", tint: "--studio-danger-tint" },
+  { token: "--studio-brand", light: "#1450b0", dark: "#4e96ff", tint: "--studio-brand-tint" },
+  { token: "--studio-brand-bright", light: "#0f3f8f", dark: "#8ab8ff", tint: "--studio-brand-tint" },
+  { token: "--studio-warning", light: "#855400", dark: "#f0c476", tint: "--studio-warning-tint" },
+  { token: "--studio-warning-bright", light: "#6a4300", dark: "#f7d99a", tint: "--studio-warning-tint" },
+  { token: "--studio-success", light: "#106647", dark: "#7fd3ac", tint: "--studio-success-tint" },
+  { token: "--studio-success-bright", light: "#0c4f37", dark: "#a8e6c9", tint: "--studio-success-tint" },
+  { token: "--studio-danger", light: "#a32b26", dark: "#ef928e", tint: "--studio-danger-tint" },
+  { token: "--studio-danger-bright", light: "#862320", dark: "#f5b3b0", tint: "--studio-danger-tint" },
 ];
 
 /**
@@ -305,10 +308,10 @@ describe("the pairing from the issue", () => {
   });
 });
 
-describe("the dark palette reproduces the literals the components carried", () => {
-  for (const { token, dark: step } of TEXT_TOKENS) {
-    test(`${token} is still ${step}`, () => {
-      expect(value(dark, token)).toBe(toHex(tailwindStep(palette, step)));
+describe("the dark palette is the handoff's, and the identity hues the literals the components carried", () => {
+  for (const { token, dark: hex } of TEXT_TOKENS) {
+    test(`${token} is ${hex}`, () => {
+      expect(value(dark, token)).toBe(hex);
     });
   }
 
@@ -378,9 +381,9 @@ describe("the dark palette reproduces the literals the components carried", () =
 });
 
 describe("the light values are the ones that were selected", () => {
-  for (const { token, light: step } of TEXT_TOKENS) {
-    test(`${token} is ${step}`, () => {
-      expect(value(light, token)).toBe(toHex(tailwindStep(palette, step)));
+  for (const { token, light: hex } of TEXT_TOKENS) {
+    test(`${token} is ${hex}`, () => {
+      expect(value(light, token)).toBe(hex);
     });
   }
 
@@ -404,8 +407,16 @@ describe("a filled control keeps its label", () => {
   const WHITE = parseColor("#ffffff").rgb;
   const label = (token: string) => contrast(rgb(light, token), WHITE);
 
-  test("the two roles that carry a white label clear AA, resting and on hover", () => {
-    for (const token of ["--studio-brand-solid", "--studio-brand-solid-active", "--studio-danger-solid"]) {
+  test("the state roles that carry a white label clear AA, resting and on hover", () => {
+    for (const token of [
+      "--studio-brand-solid",
+      "--studio-brand-solid-hover",
+      "--studio-brand-solid-active",
+      "--studio-danger-solid",
+      "--studio-danger-solid-hover",
+      "--studio-warning-solid",
+      "--studio-success-solid",
+    ]) {
       expect([token, label(token) >= AA]).toEqual([token, true]);
     }
   });
@@ -433,16 +444,17 @@ describe("a filled control keeps its label", () => {
    * them clears AA against white, and that is the convention the app already had.
    * The resting state is what a label has to survive.
    */
-  test("the roles whose white label is still under AA are exactly the two that already were", () => {
+  /**
+   * The handoff's pending and committed colours clear AA under white, so the two state
+   * roles that used to fail here no longer do; the teal "AI Describe" button keeps its
+   * identity hue and its deferral.
+   */
+  test("the roles whose white label is still under AA are exactly the ones that were deferred", () => {
     const resting = [...light.keys()].filter((token) => /-solid$/.test(token));
     expect(resting.length).toBeGreaterThan(4);
     // Names, not ratios: a rounded number pinned here would fail on a rendering
     // change that moves nothing anyone can see.
-    expect(resting.filter((token) => label(token) < AA)).toEqual([
-      "--studio-warning-solid",
-      "--studio-success-solid",
-      "--studio-hue-teal-solid",
-    ]);
+    expect(resting.filter((token) => label(token) < AA)).toEqual(["--studio-hue-teal-solid"]);
   });
 });
 
@@ -459,8 +471,6 @@ const FADED_LIGHT_ONLY = [
   "--studio-hue-cyan/80",
   "--studio-hue-emerald/90",
   "--studio-hue-yellow/90",
-  "--studio-success/80",
-  "--studio-success/90",
   "--studio-warning/80",
   "--studio-warning/90",
 ];
@@ -492,6 +502,9 @@ const FADED_BOTH = [
   "--studio-hue-rose/90",
   "--studio-hue-yellow/70",
   "--studio-success/50",
+  // Since the handoff's committed green (rebrand layer 3): the faded success step that light
+  // used to lose alone now fails in both palettes, by the same small margin.
+  "--studio-success/80",
   "--studio-warning/60",
   "--studio-warning/70",
 ];

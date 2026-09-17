@@ -18,26 +18,28 @@
  */
 
 :root {
+  /* docs/DESIGN.md: canvas, ink, signal blue, the 1px borders (docs/CONTEXT.md §5, layer 3). */
   --background: #ffffff;
-  --foreground: #0a0a0a;
+  --foreground: #0b0e14;
   --card: #ffffff;
-  --card-foreground: #0a0a0a;
+  --card-foreground: #0b0e14;
   --popover: #ffffff;
-  --popover-foreground: #0a0a0a;
-  --primary: #171717;
-  --primary-foreground: #fafafa;
-  --secondary: #f5f5f5;
-  --secondary-foreground: #171717;
-  --muted: #f5f5f5;
-  --muted-foreground: #737373;
-  --accent: #f5f5f5;
-  --accent-foreground: #171717;
-  --destructive: #ef4444;
-  --destructive-foreground: #fafafa;
-  --border: #e5e5e5;
-  --input: #e5e5e5;
-  --ring: #0a0a0a;
-  --radius: 0.5rem;
+  --popover-foreground: #0b0e14;
+  --primary: #1f6feb;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f6f8;
+  --secondary-foreground: #0b0e14;
+  --muted: #f4f6f8;
+  --muted-foreground: #5c6672;
+  --accent: #f4f6f8;
+  --accent-foreground: #0b0e14;
+  --destructive: #c0342e;
+  --destructive-foreground: #ffffff;
+  --border: #d7dde4;
+  --input: #c3cbd4;
+  --ring: #1f6feb;
+  /* 10px surfaces; the @theme block below derives 4px chips and 6px controls from it. */
+  --radius: 10px;
   --chart-1: #e76e50;
   --chart-2: #2a9d90;
   --chart-3: #274754;
@@ -46,25 +48,25 @@
 }
 
 .dark {
-  --background: #09090b;
-  --foreground: #fafafa;
-  --card: #0a0a0a;
-  --card-foreground: #fafafa;
-  --popover: #0a0a0a;
-  --popover-foreground: #fafafa;
-  --primary: #fafafa;
-  --primary-foreground: #171717;
-  --secondary: #27272a;
-  --secondary-foreground: #fafafa;
-  --muted: #27272a;
-  --muted-foreground: #a1a1aa;
-  --accent: #27272a;
-  --accent-foreground: #fafafa;
-  --destructive: #7f1d1d;
-  --destructive-foreground: #fafafa;
-  --border: #27272a;
-  --input: #27272a;
-  --ring: #d4d4d8;
+  --background: #0b0e14;
+  --foreground: #e8ecf1;
+  --card: #11151d;
+  --card-foreground: #e8ecf1;
+  --popover: #11151d;
+  --popover-foreground: #e8ecf1;
+  --primary: #1f6feb;
+  --primary-foreground: #ffffff;
+  --secondary: #151a23;
+  --secondary-foreground: #e8ecf1;
+  --muted: #151a23;
+  --muted-foreground: #9aa5b2;
+  --accent: #151a23;
+  --accent-foreground: #e8ecf1;
+  --destructive: #c0342e;
+  --destructive-foreground: #ffffff;
+  --border: #232a36;
+  --input: #232a36;
+  --ring: #4e96ff;
   --chart-1: #3b82f6;
   --chart-2: #22c55e;
   --chart-3: #f59e0b;
@@ -98,10 +100,19 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  /* docs/DESIGN.md: 4px chips and badges, 6px controls, 10px surfaces, 12px app frames. */
+  --radius-sm: 4px;
+  --radius-md: 6px;
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: 12px;
+  /* "No shadows anywhere. Structure is 1px borders only." - every shadow utility paints none. */
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow-md: 0 0 #0000;
+  --shadow-lg: 0 0 #0000;
+  --shadow-xl: 0 0 #0000;
+  --shadow-2xl: 0 0 #0000;
 }
 
 @layer base {

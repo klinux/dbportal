@@ -933,7 +933,7 @@ describe("DataCharts", () => {
     document.documentElement.classList.add("dark");
     try {
       const options = await exportPngOptions();
-      expect(options.backgroundColor).toBe("#080808");
+      expect(options.backgroundColor).toBe("#0b0e14");
       expect(options.scale).toBe(2);
       expect(options.embedFonts).toBe(false);
     } finally {
@@ -943,7 +943,7 @@ describe("DataCharts", () => {
 
   test("exports onto the light ground when light is in force", async () => {
     const options = await exportPngOptions();
-    expect(options.backgroundColor).toBe("#fafafa");
+    expect(options.backgroundColor).toBe("#ffffff");
   });
 
   test("failed PNG export surfaces an error toast", async () => {

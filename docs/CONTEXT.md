@@ -1017,6 +1017,23 @@ built. Each lands as its own section when done.
       `USER_EMAIL` are unset the old `@libredb.org` addresses still log in (`legacyEmail`).
     - Chart `charts/dbportal` (helper names, labels, tag prefix `dbportal-`), health
       `service: "dbportal"`, Trino `X-Trino-Source: dbportal`, container lib path.
+  - *Layer 4 — the design tokens* (done 2026-09-16): the studio still painted LibreDB's
+    zinc neutrals, Tailwind's blue-600 and the Geist faces; `docs/DESIGN.md` is now what the
+    app paints. [`src/styles/theme.css`](../src/styles/theme.css) carries the handoff's
+    neutrals (canvas `#F4F6F8` / `#0B0E14`, ink `#0B0E14`, the `#D7DDE4` / `#C3CBD4` and
+    `#1A202A` / `#232A36` borders, the two text ramps), the signal blue `#1F6FEB` with its
+    hover and dark `#4E96FF`, and the committed / pending / denied triples for the three
+    state roles - a text step one shade under the handoff's chip text where the token is
+    also painted over its own wash at 25% and has to clear AA there
+    (`tests/unit/theme-accent-contrast.test.ts` measures every one). The identity hues -
+    which engine, which panel - are not in the handoff and keep their Tailwind steps.
+    `globals.css` and the embedded workspace carry the same values on the shadcn tokens,
+    radii are 4 / 6 / 10 / 12 px and every shadow utility paints none ("structure is 1px
+    borders only"); the charts' neutrals, the Monaco themes and the diagram export ground
+    follow. IBM Plex Sans and Mono are self-hosted from `src/app/fonts/` (SIL OFL) under the
+    CSS variable names the Geist faces had, so nothing embedding the studio renames. The
+    dark contract in the token tests changed with it: they pin the handoff's values now,
+    not the pre-token literals. Still Tailwind's: the seventeen engine hues.
   - *Never*: the `libredb` engine type and the `@libredb/libredb` package.
 - **Out of scope:** desktop apps, marketplace listings, npm library packaging, extending the
   AI agent.

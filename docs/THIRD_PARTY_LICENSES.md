@@ -12,5 +12,14 @@ unmodified. Its license text ships with the package at `node_modules/elkjs/LICEN
 is at the repository linked above. The distributed bundle is therefore MIT plus EPL-2.0, not pure
 MIT.
 
+## Fonts
+
+| Face | License | Shipped at |
+| --- | --- | --- |
+| [IBM Plex Sans and IBM Plex Mono](https://github.com/IBM/plex) | [SIL Open Font License 1.1](https://openfontlicense.org/) | `src/app/fonts/*.woff2` (latin subset, from the `@fontsource` packaging), licence text beside them in `src/app/fonts/LICENSE-IBM-Plex.txt` |
+
+The OFL permits bundling and redistribution with software; the faces are not sold on their own
+and are not modified. They are the typefaces `docs/DESIGN.md` names.
+
 See `docs/BACKLOG.md` entry C8 for the broader, not-yet-generated NOTICE this file is a manual
 precursor to.

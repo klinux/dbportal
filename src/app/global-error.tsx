@@ -10,8 +10,8 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: "#09090b",
-          color: "#fafafa",
+          backgroundColor: "#0b0e14",
+          color: "#e8ecf1",
           fontFamily: "system-ui, -apple-system, sans-serif",
         }}
       >
@@ -25,7 +25,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
             onClick={reset}
             style={{
               padding: "10px 24px",
-              backgroundColor: "#3b82f6",
+              backgroundColor: "#1f6feb",
               color: "#fff",
               border: "none",
               borderRadius: 8,

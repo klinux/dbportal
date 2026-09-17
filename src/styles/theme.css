@@ -23,36 +23,40 @@
  * ramp inverts around `fg-muted` (zinc-500), which reads correctly on both grounds
  * and is therefore the hinge the two palettes share.
  *
- * The dark values are the literals the components carried before the token layer
- * existed (`bg-[#0a0a0a]`, `border-white/5`, `text-zinc-500`, …), reproduced
- * exactly — switching a component to a token must not change how it looks in dark.
+ * The neutrals, the brand and the three state roles are the values docs/DESIGN.md
+ * declares (docs/CONTEXT.md §5, rebrand layer 3): canvas `#F4F6F8` / `#0B0E14`, ink
+ * `#0B0E14`, signal blue `#1F6FEB`, the committed / pending / denied triples. Where a
+ * state's text is a step darker than the handoff's chip text, it is because the token is
+ * also painted over its own wash at up to 25% and has to clear AA there too
+ * (tests/unit/theme-accent-contrast.test.ts measures it). The identity hues — which
+ * engine, which panel — are not in the handoff and keep their Tailwind steps.
  */
 
 :root {
   /* ── Surfaces (light) ─────────────────────────────────────────────────── */
-  --studio-canvas: #f4f4f5;
-  --studio-sunken: #f0f0f1;
-  --studio-surface: #fafafa;
+  --studio-canvas: #f4f6f8;
+  --studio-sunken: #eef1f4;
+  --studio-surface: #ffffff;
   --studio-raised: #ffffff;
   --studio-overlay: #ffffff;
   /* Translucent card ground — the `bg-zinc-900/50` of the dark theme. */
-  --studio-panel: rgb(255 255 255 / 0.6);
+  --studio-panel: rgb(255 255 255 / 0.7);
 
   /* ── Hairlines ────────────────────────────────────────────────────────── */
-  --studio-hairline: rgb(9 9 11 / 0.08);
-  --studio-hairline-strong: rgb(9 9 11 / 0.14);
+  --studio-hairline: #d7dde4;
+  --studio-hairline-strong: #c3cbd4;
   /*
    * Above the hairlines: the edge of a control the user is meant to SEE — a
    * checkbox, a selected card, an outline button — and the heavier fill that
    * goes with it. `edge-hover` is its hover step.
    */
-  --studio-edge: rgb(9 9 11 / 0.22);
-  --studio-edge-hover: rgb(9 9 11 / 0.38);
+  --studio-edge: #c3cbd4;
+  --studio-edge-hover: #98a3b0;
 
   /* ── Interactive fills (hover / selected / inset) ─────────────────────── */
-  --studio-fill-subtle: rgb(9 9 11 / 0.025);
-  --studio-fill: rgb(9 9 11 / 0.05);
-  --studio-fill-strong: rgb(9 9 11 / 0.09);
+  --studio-fill-subtle: rgb(11 14 20 / 0.03);
+  --studio-fill: rgb(11 14 20 / 0.05);
+  --studio-fill-strong: rgb(11 14 20 / 0.09);
 
   /*
    * ── Scrollbar ──────────────────────────────────────────────────────────
@@ -62,18 +66,18 @@
    * chrome detail into the brightest thing on a quiet panel. These are the
    * values the editor already used, kept exactly.
    */
-  --studio-scrollbar: #d4d4d8;
-  --studio-scrollbar-hover: #a1a1aa;
+  --studio-scrollbar: #c3cbd4;
+  --studio-scrollbar-hover: #98a3b0;
 
   /* ── Text ramp ────────────────────────────────────────────────────────── */
-  --studio-fg-bright: #09090b;
-  --studio-fg: #18181b;
-  --studio-fg-secondary: #27272a;
-  --studio-fg-tertiary: #3f3f46;
-  --studio-fg-muted: #71717a;
-  --studio-fg-subtle: #a1a1aa;
+  --studio-fg-bright: #0b0e14;
+  --studio-fg: #161b24;
+  --studio-fg-secondary: #2a3340;
+  --studio-fg-tertiary: #4a5563;
+  --studio-fg-muted: #5c6672;
+  --studio-fg-subtle: #6e7a8a;
   /* Below the ramp: decoration and hints — separator dots, empty-state subtext. */
-  --studio-fg-faint: #d4d4d8;
+  --studio-fg-faint: #c3cbd4;
 
   /*
    * ── Accents: state ────────────────────────────────────────────────────
@@ -96,35 +100,35 @@
    * Every value here was selected by measurement, not by eye, and
    * `tests/unit/theme-accent-contrast.test.ts` re-measures it on every run.
    */
-  --studio-brand: #1447e6;
-  --studio-brand-bright: #193cb8;
-  --studio-brand-tint: #2b7fff;
-  --studio-brand-solid: #155dfc;
-  --studio-brand-solid-hover: #2b7fff;
+  --studio-brand: #1450b0;
+  --studio-brand-bright: #0f3f8f;
+  --studio-brand-tint: #1f6feb;
+  --studio-brand-solid: #1f6feb;
+  --studio-brand-solid-hover: #1655b8;
   /*
    * The three standalone error pages hover the other way — they darken rather than
    * lighten. Flattening them onto `-solid-hover` inverted the direction AND took
    * white-on-hover from 6.8:1 to 3.8:1, so they keep a step of their own.
    */
-  --studio-brand-solid-active: #1447e6;
+  --studio-brand-solid-active: #0f3f8f;
 
-  --studio-warning: #973c00;
-  --studio-warning-bright: #7b3306;
-  --studio-warning-tint: #fe9a00;
-  --studio-warning-solid: #e17100;
-  --studio-warning-solid-hover: #fe9a00;
+  --studio-warning: #855400;
+  --studio-warning-bright: #6a4300;
+  --studio-warning-tint: #f0c476;
+  --studio-warning-solid: #9a6200;
+  --studio-warning-solid-hover: #7a4e00;
 
-  --studio-success: #006045;
-  --studio-success-bright: #004f3b;
-  --studio-success-tint: #00bc7d;
-  --studio-success-solid: #009966;
-  --studio-success-solid-hover: #00bc7d;
+  --studio-success: #106647;
+  --studio-success-bright: #0c4f37;
+  --studio-success-tint: #7fd3ac;
+  --studio-success-solid: #147d58;
+  --studio-success-solid-hover: #106647;
 
-  --studio-danger: #9f0712;
-  --studio-danger-bright: #82181a;
-  --studio-danger-tint: #fb2c36;
-  --studio-danger-solid: #e7000b;
-  --studio-danger-solid-hover: #fb2c36;
+  --studio-danger: #a32b26;
+  --studio-danger-bright: #862320;
+  --studio-danger-tint: #e9807b;
+  --studio-danger-solid: #c0342e;
+  --studio-danger-solid-hover: #a32b26;
 
   /*
    * ── Accents: identity ─────────────────────────────────────────────────
@@ -203,16 +207,16 @@
 
 .dark {
   /* ── Surfaces (dark) ──────────────────────────────────────────────────── */
-  --studio-canvas: #050505;
-  --studio-sunken: #080808;
-  --studio-surface: #0a0a0a;
-  --studio-raised: #0d0d0d;
-  --studio-overlay: #111111;
-  --studio-panel: rgb(24 24 27 / 0.5);
+  --studio-canvas: #0b0e14;
+  --studio-sunken: #07090d;
+  --studio-surface: #0e121a;
+  --studio-raised: #0f131b;
+  --studio-overlay: #0f131b;
+  --studio-panel: rgb(14 18 26 / 0.6);
 
   /* ── Hairlines ────────────────────────────────────────────────────────── */
-  --studio-hairline: rgb(255 255 255 / 0.05);
-  --studio-hairline-strong: rgb(255 255 255 / 0.1);
+  --studio-hairline: #1a202a;
+  --studio-hairline-strong: #232a36;
   --studio-edge: rgb(255 255 255 / 0.2);
   --studio-edge-hover: rgb(255 255 255 / 0.4);
 
@@ -222,17 +226,17 @@
   --studio-fill-strong: rgb(255 255 255 / 0.1);
 
   /* ── Scrollbar ────────────────────────────────────────────────────────── */
-  --studio-scrollbar: #262626;
-  --studio-scrollbar-hover: #404040;
+  --studio-scrollbar: #2a3340;
+  --studio-scrollbar-hover: #3c4655;
 
   /* ── Text ramp ────────────────────────────────────────────────────────── */
   --studio-fg-bright: #ffffff;
-  --studio-fg: #e4e4e7;
-  --studio-fg-secondary: #d4d4d8;
-  --studio-fg-tertiary: #a1a1aa;
-  --studio-fg-muted: #71717a;
-  --studio-fg-subtle: #52525b;
-  --studio-fg-faint: #3f3f46;
+  --studio-fg: #e8ecf1;
+  --studio-fg-secondary: #c9d1db;
+  --studio-fg-tertiary: #a7b1be;
+  --studio-fg-muted: #9aa5b2;
+  --studio-fg-subtle: #6b7683;
+  --studio-fg-faint: #3a4452;
 
   /*
    * ── Accents ───────────────────────────────────────────────────────────
@@ -243,35 +247,35 @@
    * Tailwind palette rather than against transcribed hexes, so a Tailwind upgrade
    * that restyles `blue-400` reports itself as the dark-mode change it is.
    */
-  --studio-brand: #51a2ff;
-  --studio-brand-bright: #8ec5ff;
-  --studio-brand-tint: #2b7fff;
-  --studio-brand-solid: #155dfc;
-  --studio-brand-solid-hover: #2b7fff;
+  --studio-brand: #4e96ff;
+  --studio-brand-bright: #8ab8ff;
+  --studio-brand-tint: #1f6feb;
+  --studio-brand-solid: #1f6feb;
+  --studio-brand-solid-hover: #1655b8;
   /*
    * The three standalone error pages hover the other way — they darken rather than
    * lighten. Flattening them onto `-solid-hover` inverted the direction AND took
    * white-on-hover from 6.8:1 to 3.8:1, so they keep a step of their own.
    */
-  --studio-brand-solid-active: #1447e6;
+  --studio-brand-solid-active: #0f3f8f;
 
-  --studio-warning: #ffb900;
-  --studio-warning-bright: #ffd230;
-  --studio-warning-tint: #fe9a00;
-  --studio-warning-solid: #e17100;
-  --studio-warning-solid-hover: #fe9a00;
+  --studio-warning: #f0c476;
+  --studio-warning-bright: #f7d99a;
+  --studio-warning-tint: #f0c476;
+  --studio-warning-solid: #9a6200;
+  --studio-warning-solid-hover: #7a4e00;
 
-  --studio-success: #00d492;
-  --studio-success-bright: #5ee9b5;
-  --studio-success-tint: #00bc7d;
-  --studio-success-solid: #009966;
-  --studio-success-solid-hover: #00bc7d;
+  --studio-success: #7fd3ac;
+  --studio-success-bright: #a8e6c9;
+  --studio-success-tint: #7fd3ac;
+  --studio-success-solid: #147d58;
+  --studio-success-solid-hover: #106647;
 
-  --studio-danger: #ff6467;
-  --studio-danger-bright: #ffa2a2;
-  --studio-danger-tint: #fb2c36;
-  --studio-danger-solid: #e7000b;
-  --studio-danger-solid-hover: #fb2c36;
+  --studio-danger: #ef928e;
+  --studio-danger-bright: #f5b3b0;
+  --studio-danger-tint: #e9807b;
+  --studio-danger-solid: #c0342e;
+  --studio-danger-solid-hover: #a32b26;
 
   --studio-hue-blue: #51a2ff;
   --studio-hue-blue-alt: #8ec5ff;
