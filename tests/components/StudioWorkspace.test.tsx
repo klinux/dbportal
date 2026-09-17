@@ -492,7 +492,7 @@ describe("StudioWorkspace", () => {
     const style = document.getElementById("studio-workspace-theme");
     expect(style).not.toBeNull();
     expect(style?.textContent).toContain("[data-studio-workspace]");
-    expect(style?.textContent).toContain("--background: #09090b");
+    expect(style?.textContent).toContain("--background: #0b0e14");
     unmount();
     expect(document.getElementById("studio-workspace-theme")).toBeNull();
   });
