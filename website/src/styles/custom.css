@@ -29,10 +29,11 @@
   /* The content column at the sidebar's edge, the table of contents right after it. */
   [data-has-sidebar][data-has-toc] .main-pane {
     --sl-content-margin-inline: 0 auto !important;
-    width: min(calc(100% - var(--sl-sidebar-width) - 16rem), calc(var(--sl-content-width) + 3rem)) !important;
+    /* 100% here is the frame beside the left sidebar, already without it. */
+    width: min(calc(100% - 16rem), calc(var(--sl-content-width) + 3rem)) !important;
   }
   .right-sidebar-container {
-    width: max(16rem, calc(100% - var(--sl-sidebar-width) - var(--sl-content-width) - 3rem)) !important;
+    width: max(16rem, calc(100% - var(--sl-content-width) - 3rem)) !important;
   }
   .right-sidebar {
     max-width: 22rem;
@@ -42,4 +43,49 @@
   display: block;
   overflow-x: auto;
   max-width: 100%;
+}
+
+/*
+ * A drawn diagram sits in the same frame as a screenshot. Narrower than the column it is
+ * shown as is; wider, it keeps its own size and scrolls sideways (the `not-content` class
+ * keeps Starlight's 100% cap off the SVG). The fence's source stays hidden until drawn,
+ * and a click opens the diagram full-screen.
+ */
+pre.mermaid {
+  display: block;
+  padding: 1rem;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 0.5rem;
+  background: var(--sl-color-bg);
+  overflow-x: auto;
+  cursor: zoom-in;
+  /* The page's face, not the code block's: mermaid measures the labels with it. */
+  font-family: var(--sl-font);
+}
+pre.mermaid:not([data-processed]) {
+  visibility: hidden;
+  min-height: 8rem;
+}
+pre.mermaid svg {
+  display: block;
+  margin-inline: auto;
+}
+dialog.mermaid-zoom {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 2rem;
+  border: 0;
+  background: var(--sl-color-bg);
+  overflow: auto;
+  cursor: zoom-out;
+}
+dialog.mermaid-zoom::backdrop {
+  background: var(--sl-color-bg);
+}
+dialog.mermaid-zoom svg {
+  display: block;
+  margin: auto;
 }

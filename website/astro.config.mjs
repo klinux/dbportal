@@ -15,10 +15,13 @@ export default defineConfig({
     starlight({
       title: "dbportal",
       description: "A shared database portal: datasources declared once, single sign-on, every execution attributed to a person.",
+      favicon: "/brand/app-icon.svg",
       logo: { light: "./public/brand/lockup.svg", dark: "./public/brand/lockup-dark.svg", replacesTitle: true },
       social: [{ icon: "github", label: "GitHub", href: "https://github.com/klinux/dbportal" }],
       editLink: { baseUrl: "https://github.com/klinux/dbportal/edit/main/" },
       customCss: ["./src/styles/custom.css"],
+      // Draws the ```mermaid fences (sync-docs turns them into <pre class="mermaid">).
+      components: { Head: "./src/components/Head.astro" },
       // The docs fence .env examples as ```env; Shiki knows that grammar as dotenv.
       expressiveCode: { shiki: { langAlias: { env: "dotenv" } } },
       sidebar: [

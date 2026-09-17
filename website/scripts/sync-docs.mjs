@@ -116,6 +116,16 @@ function rewriteLinks(body, fromRel) {
     .replace(/\b(src|href|srcset)="([^"]+)"/g, (m, attr, target) => `${attr}="${rewriteTarget(target, fromRel)}"`);
 }
 
+/**
+ * A ```mermaid fence becomes `<pre class="mermaid">` holding the diagram's source, escaped:
+ * the browser draws it (src/components/Head.astro) instead of Starlight highlighting it as
+ * code, and the build needs no headless browser.
+ */
+function drawMermaid(body) {
+  const escape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return body.replace(/^```mermaid\n([\s\S]*?)^```\s*$/gm, (m, source) => `<pre class="mermaid not-content" title="Open at full size">${escape(source.trimEnd())}</pre>\n`);
+}
+
 function escapeYaml(s) {
   return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
@@ -146,7 +156,7 @@ for (const [rel, placed] of pages) {
   ].join("\n");
   const target = path.join(OUT, placed.dir, placed.file);
   mkdirSync(path.dirname(target), { recursive: true });
-  writeFileSync(target, front + rewriteLinks(body, rel));
+  writeFileSync(target, front + drawMermaid(rewriteLinks(body, rel)));
 }
 
 // 3. The images the pages reach for.

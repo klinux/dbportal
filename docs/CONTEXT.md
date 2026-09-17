@@ -964,7 +964,13 @@ built. Each lands as its own section when done.
   the build to GitHub Pages at <https://klinux.github.io/dbportal/> on every push to `main`
   that touches them. The markdown in the repository stays the only source: nothing is
   written in the site that also lives in `docs/`, and the generated copy is not committed.
-  The site's folder is outside the app's lint, typecheck and tests.
+  The site's folder is outside the app's lint, typecheck and tests. A ```mermaid fence is
+  drawn, not highlighted: the sync turns it into `<pre class="mermaid">` and a script in
+  the page's head (`website/src/components/Head.astro`, the `mermaid` package) draws it in
+  the browser, redrawn when the theme flips and opened full-screen on a click, so the build
+  needs no headless browser. On a wide screen the content column starts at the sidebar
+  and the table of contents sits in a rail beside it, where Starlight would centre the
+  column and park the table of contents at the far edge.
 - **4.45 Secrets the chart has no field for — done (asked 2026-09-16).** Deploying the
   three roles from one GitOps repository needed `METRICS_TOKEN`, `STORAGE_ENCRYPTION_KEY`,
   `VAULT_TOKEN` and the passwords a seed file refers to, and the chart offered `extraEnv`

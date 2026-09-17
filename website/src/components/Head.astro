@@ -1,0 +1,93 @@
+---
+/**
+ * Starlight's Head, plus the script that draws the ```mermaid fences sync-docs turned
+ * into `<pre class="mermaid">`. Drawn in the browser so the build needs no headless
+ * browser. A diagram narrower than the column is shown as is; a wider one keeps its own
+ * size and scrolls sideways (one only a little wider shrinks to fit), and a click opens
+ * any of them full-screen. Redrawn when
+ * the theme flips so the diagram matches the page; one drawing at a time, since the
+ * theme script and this one both run at load.
+ */
+import Default from "@astrojs/starlight/components/Head.astro";
+---
+
+<Default><slot /></Default>
+
+<script>
+  import mermaid from "mermaid";
+
+  const blocks = () => Array.from(document.querySelectorAll<HTMLElement>("pre.mermaid"));
+  const isDark = () =>
+    document.documentElement.dataset.theme === "dark" ||
+    (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
+
+  let drawing: Promise<void> | null = null;
+  let again = false;
+
+  async function drawOnce() {
+    const pres = blocks();
+    for (const pre of pres) {
+      if (pre.dataset.source === undefined) pre.dataset.source = pre.textContent ?? "";
+      pre.textContent = pre.dataset.source;
+      pre.removeAttribute("data-processed");
+    }
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: isDark() ? "dark" : "neutral",
+      fontFamily: "var(--sl-font)",
+      flowchart: { useMaxWidth: false },
+      sequence: { useMaxWidth: false },
+      class: { useMaxWidth: false },
+      er: { useMaxWidth: false },
+      state: { useMaxWidth: false },
+    });
+    await mermaid.run({ nodes: pres, suppressErrors: true });
+    // A little wider than the column shrinks to fit; much wider keeps its size and scrolls.
+    for (const pre of pres) {
+      const svg = pre.querySelector("svg");
+      if (!svg) continue;
+      const natural = Number(svg.getAttribute("width")) || svg.getBoundingClientRect().width;
+      const column = pre.clientWidth - 32;
+      if (natural > column && natural <= column * 1.5) {
+        svg.style.width = "100%";
+        svg.style.height = "auto";
+      }
+    }
+  }
+
+  function draw() {
+    if (blocks().length === 0) return;
+    if (drawing) {
+      again = true;
+      return;
+    }
+    drawing = drawOnce().finally(() => {
+      drawing = null;
+      if (again) {
+        again = false;
+        draw();
+      }
+    });
+  }
+
+  function zoom(pre: HTMLElement) {
+    const svg = pre.querySelector("svg");
+    if (!svg) return;
+    const dialog = document.createElement("dialog");
+    dialog.className = "mermaid-zoom";
+    dialog.append(svg.cloneNode(true));
+    dialog.addEventListener("click", () => dialog.close());
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+  }
+
+  draw();
+  new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+  document.addEventListener("click", (event) => {
+    const pre = (event.target as Element).closest<HTMLElement>("pre.mermaid[data-processed]");
+    if (pre) zoom(pre);
+  });
+</script>
