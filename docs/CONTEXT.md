@@ -998,6 +998,86 @@ built. Each lands as its own section when done.
   explorer draws the item and the generator never mounts. The gate is a UI one, stated as
   such - a generated INSERT is an ordinary statement, and what protects production from
   one is the write policy the query route enforces (roles, approvals, tickets, freezes).
+- **4.54 A database account of the portal's own, provisioned from the sheet — planned
+  (asked 2026-09-17).** Today the credential a datasource reaches the database with is the
+  application's own, read from Vault: the portal inherits a power that is not its own, and
+  nobody can audit or revoke the portal's access separately from the app's. The intended
+  design, PostgreSQL first because that is what the deployments have, MySQL after:
+  - **Where.** In the datasource sheet, once "Test connection" has passed with a BOOTSTRAP
+    credential (the DBA's, or the app's own - the one in Vault today), an action
+    "Provision the portal's account". The admin picks a profile and the schemas, sees the
+    **whole plan as SQL** before anything runs - the discipline the seed panel already
+    keeps - and confirms. The bootstrap credential is used once and discarded: it reaches
+    neither the store, nor the audit trail, nor a log line.
+  - **Two profiles, not "the permissions the portal needs".** *Read*: `USAGE` on the
+    chosen schemas, `SELECT ON ALL TABLES` and `ALTER DEFAULT PRIVILEGES` for the tables
+    to come, plus `pg_monitor` so the monitoring panels answer. *Read and write*: the
+    same plus `INSERT`, `UPDATE`, `DELETE`, never DDL. `kill` needs `pg_signal_backend`
+    and is in both; `VACUUM`/`ANALYZE` need ownership and are NOT promised - the plan
+    says which maintenance operations will stay refused. The role is
+    `dbportal_<datasource id>` with a generated 32-byte password; the same action creates
+    `dbportal_<id>_agent` (read profile) into the `agentUser` field the agent's read-only
+    execution profile (#328) already takes.
+  - **Then the swap.** The password is written to Vault under the mount the deployment
+    already uses, at `<mount>/datasources/<id>` with keys `user` and `password`, and the
+    datasource's credential becomes a `vault:kv:` reference to it. The portal's Vault
+    policy grows one capability: `create`/`update` on that prefix and nothing else. An
+    audit event `datasource.account_provisioned` carries role name, schemas, profile and
+    the statements that ran - never the password. **Rotate** is the same action with
+    `ALTER ROLE ... PASSWORD` and a Vault write; nothing restarts, because the reference
+    is resolved when the connection opens. **Decommission** on delete offers to `DROP
+    ROLE` and remove the Vault key, so orphan accounts do not pile up. A **drift check**
+    on the datasource's health compares the role's grants with the plan that was
+    recorded and names what changed.
+  - **What runs how.** Statement by statement through the bootstrap connection, each
+    reported, stopping at the first refusal with the role left in the state the report
+    shows (a half-provisioned role is a fact the admin must see, not something to tidy
+    silently); the plan is re-runnable, every statement idempotent (`CREATE ROLE` guarded
+    by `pg_roles`, grants are).
+  - **Cloud SQL for PostgreSQL, where the deployments are, and what its role model
+    costs.** Measured against Google's own documentation on 2026-09-17: the `postgres`
+    user is NOT a superuser - it holds `CREATEROLE`, `CREATEDB` and `LOGIN` through
+    `cloudsqlsuperuser`, and "you can't create database users that have superuser
+    privileges". Every user created through the console, gcloud or the API is a member of
+    `cloudsqlsuperuser` with those same attributes; a role created with `CREATE ROLE` in
+    SQL gets only what the statement says. Three consequences shape the plan:
+    1. **Create the portal's role in SQL, never through the Cloud SQL API**, or it arrives
+       as a `cloudsqlsuperuser` with `CREATEROLE` and `CREATEDB` - the opposite of least
+       privilege.
+    2. **Ownership is the wall, and the bootstrap must be the OWNER.** PostgreSQL lets a
+       role grant on an object only as its owner (or with grant option, or as a member of
+       the owner), and `ALTER DEFAULT PRIVILEGES` applies to objects a named role will
+       create - so it must run `FOR ROLE <owner>`, which again needs membership. Being a
+       member of `cloudsqlsuperuser` does not make `postgres` a member of the app's role,
+       so `postgres` cannot grant on tables the app owns; `GRANT app_role TO postgres`
+       repairs that on PostgreSQL 15 and earlier (a `CREATEROLE` may grant membership in
+       any non-superuser role) and needs `ADMIN OPTION` on the app role from 16 on, which
+       the docs do not promise. The plan therefore reads the owners of every table in the
+       chosen schemas from `pg_class`/`pg_roles` first, and says which owners the bootstrap
+       covers: the app's own credential - the one in Vault today - is the owner of the
+       app's schema in the ordinary case and needs only `CREATEROLE`, which an API-created
+       user has. A schema with tables owned by several roles (a migrations role beside the
+       app's) is reported as such, with the `GRANT <owner> TO <bootstrap>` the admin can
+       run first.
+    3. **Nothing the plan does needs `cloudsqlsuperuser`**: the role it creates holds
+       `LOGIN` alone, and `pg_monitor`/`pg_signal_backend` are grantable by any
+       `CREATEROLE`.
+  - **The step after: no password at all.** Cloud SQL's IAM database authentication
+    (instance flag `cloudsql.iam_authentication`, the portal's GSA added as a
+    `CLOUD_IAM_SERVICE_ACCOUNT` user named by its email, `roles/cloudsql.instanceUser` on
+    it) authenticates with an OAuth access token as the password - one-hour tokens, minted
+    from the GSA key the deployment already keeps in Vault for exports through the same
+    signing path `src/lib/gcs.ts` uses - and works over a direct TLS connection without
+    the Auth Proxy. The privileges are still granted in SQL, by this same plan; what
+    disappears is the password in Vault. The `pg` driver takes `password` as an async
+    function, so the provider can mint a fresh token per connection. Deferred behind the
+    account provisioning because it changes how a connection authenticates rather than
+    what it may do, and because a token that expires mid-pool is a corner the provider
+    has to own before it is offered.
+  - **Out of scope for the first cut:** MySQL (same shape, `mysql.user` and `GRANT ...
+    TO 'dbportal_x'@'%'`, no ownership problem), engines without SQL role management,
+    and any attempt to grant on objects the bootstrap cannot: the plan names them and
+    stops.
 - **4.45 Secrets the chart has no field for — done (asked 2026-09-16).** Deploying the
   three roles from one GitOps repository needed `METRICS_TOKEN`, `STORAGE_ENCRYPTION_KEY`,
   `VAULT_TOKEN` and the passwords a seed file refers to, and the chart offered `extraEnv`
