@@ -998,8 +998,30 @@ built. Each lands as its own section when done.
   explorer draws the item and the generator never mounts. The gate is a UI one, stated as
   such - a generated INSERT is an ordinary statement, and what protects production from
   one is the write policy the query route enforces (roles, approvals, tickets, freezes).
-- **4.54 A database account of the portal's own, provisioned from the sheet — planned
-  (asked 2026-09-17).** Today the credential a datasource reaches the database with is the
+- **4.54 A database account of the portal's own, provisioned from the sheet — done, first
+  cut (asked and shipped 2026-09-17).** Shipped as planned below for PostgreSQL: the
+  `KeyRound` action on a PostgreSQL row of the datasources tab (store and seed-file rows
+  alike) opens `ProvisionAccountDialog`, which reads the schemas with the datasource's
+  own credential, takes the profile, the schemas, the agent flag and an optional DBA
+  credential for that call alone, shows the plan (`POST
+  /api/admin/datasources/<id>/account/plan`) with the password masked and every blocker,
+  and runs it (`POST .../account`) statement by statement, stopping at the first
+  refusal. `src/lib/provisioning/` holds the pure plan (`plan.ts`), the inventory queries
+  (`inventory.ts`: who the bootstrap is, `CREATEROLE`, the schemas, the owners of every
+  relation and whether `pg_has_role(current_user, owner, 'MEMBER')` covers them) and the
+  run (`run.ts`: a provider opened outside the cache with the bootstrap credential, the
+  password kept where the deployment keeps secrets). Three destinations: a store
+  datasource with Vault configured gets the password written to `<mount>/data/datasources/<id>`
+  (`writeKvSecret`, KV v2) and its credential swapped for `vault:kv:` references; a store
+  datasource without Vault keeps it sealed on the record; a seed-file datasource gets the
+  Vault write and the report shows the references to paste into the file. The audit event
+  is `datasource_account` with action `provision` or `rotate`, the role name, profile,
+  schemas and each statement's outcome - never the password. Rotate is the same action
+  once the role exists (`ALTER ROLE ... PASSWORD`). Deferred from the plan: decommission
+  on delete, the drift check, MySQL, and IAM authentication. Nothing was verified against
+  a live Cloud SQL instance yet: the ownership rules are those of PostgreSQL itself and
+  the Cloud SQL facts are from Google's documentation. The plan as written:
+  Today the credential a datasource reaches the database with is the
   application's own, read from Vault: the portal inherits a power that is not its own, and
   nobody can audit or revoke the portal's access separately from the app's. The intended
   design, PostgreSQL first because that is what the deployments have, MySQL after:

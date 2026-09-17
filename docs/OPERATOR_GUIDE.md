@@ -47,6 +47,12 @@ datasource**. The sheet has two tabs:
 
 ![The datasource sheet, Connection tab](screenshots/datasource-sheet.png)
 
+Once a PostgreSQL datasource connects, the key action on its row provisions an account of
+the portal's own: a role with only what the chosen profile needs, its password generated
+and written to Vault (or sealed in the store when there is no Vault), the datasource
+pointed at it. The plan is shown as SQL before it runs; see
+[SEED_CONNECTIONS.md](SEED_CONNECTIONS.md) "An account of the portal's own".
+
 The same datasource can be declared in the seed file instead (`SEED_CONFIG_PATH`), which is
 the right place for anything that should survive a store reset and be reviewed in git
 ([SEED_CONNECTIONS.md](SEED_CONNECTIONS.md)). Seed-file datasources are read-only on the

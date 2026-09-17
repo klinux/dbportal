@@ -310,7 +310,17 @@ export function resetVaultTransport(): void {
   transport = null;
 }
 
-async function vaultGet(path: string, retried = false): Promise<Record<string, unknown>> {
+/**
+ * One request to Vault, authenticated, bounded by the configured timeout, and retried
+ * once after a new AppRole login when the token was refused. A write carries a JSON body;
+ * a read carries none. A 204 (what a KV write answers under some policies) is an empty
+ * object rather than a parse failure.
+ */
+async function vaultRequest(
+  path: string,
+  init: { method?: "GET" | "POST"; body?: Record<string, unknown> } = {},
+  retried = false,
+): Promise<Record<string, unknown>> {
   const config = getVaultConfig();
   const token = await vaultToken(config);
   const controller = new AbortController();
@@ -319,10 +329,13 @@ async function vaultGet(path: string, retried = false): Promise<Record<string, u
   try {
     const dispatcher = vaultDispatcher(config.tls);
     res = await fetch(`${config.addr}/v1/${path}`, {
+      method: init.method ?? "GET",
       headers: {
         "X-Vault-Token": token,
         ...(config.namespace ? { "X-Vault-Namespace": config.namespace } : {}),
+        ...(init.body ? { "content-type": "application/json" } : {}),
       },
+      ...(init.body ? { body: JSON.stringify(init.body) } : {}),
       signal: controller.signal,
       cache: "no-store",
       ...(dispatcher ? { dispatcher } : {}),
@@ -337,14 +350,30 @@ async function vaultGet(path: string, retried = false): Promise<Record<string, u
   // by one new login and the request tried once more; a second refusal is the answer.
   if (res.status === 403 && config.auth.method === "approle" && !retried) {
     forgetVaultSession();
-    return vaultGet(path, true);
+    return vaultRequest(path, init, true);
   }
   if (!res.ok) throw new VaultError(`Vault answered ${res.status} for ${path}`, res.status);
+  if (res.status === 204) return {};
   try {
     return (await res.json()) as Record<string, unknown>;
   } catch {
     throw new VaultError(`Vault answered ${path} with a body that is not JSON`);
   }
+}
+
+function vaultGet(path: string): Promise<Record<string, unknown>> {
+  return vaultRequest(path);
+}
+
+/**
+ * Write the fields of a KV v2 secret: `POST <mount>/data/<path>` with `{ data }`, which
+ * creates the secret or a new version of it. The one write this client makes, for the
+ * account provisioning (docs/CONTEXT.md §4.54); the policy behind the token needs
+ * `create` and `update` on that path and nothing wider. The cached copy of the secret, if
+ * any, is the reader's to forget (`resetVaultCache`).
+ */
+export async function writeKvSecret(mount: string, path: string, data: Record<string, string>): Promise<void> {
+  await vaultRequest(`${mount}/data/${path}`, { method: "POST", body: { data } });
 }
 
 /** The fields of a KV v2 secret: `GET <mount>/data/<path>` → `.data.data`. */

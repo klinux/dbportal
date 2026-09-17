@@ -61,7 +61,9 @@ export type AuditEventType =
   /** A seed of generated rows started, finished or failed on a non-production datasource (§4.23). */
   | "data_seed"
   /** An SSH profile created, updated or deleted by an administrator (§4.9). */
-  | "ssh_profile";
+  | "ssh_profile"
+  /** A database account of the portal's own, created or rotated from the sheet (docs/CONTEXT.md §4.54). */
+  | "datasource_account";
 
 /**
  * Why a reason is a closed union and never free text: it is the mechanism that makes redaction

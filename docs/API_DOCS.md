@@ -1451,6 +1451,20 @@ Events of type `agent_operation` come from the agent execution path (#328) and a
 
 Body `{ "connections": [...] }`; returns per-connection health `{ "results": [{ connectionId, status, latencyMs, ... }] }`. `400` if `connections` is missing. `401` with no session, `403` with a session that is not an admin — see the note above.
 
+#### POST /api/admin/datasources/{id}/account/plan · POST /api/admin/datasources/{id}/account
+
+The portal's own database account on a PostgreSQL datasource (docs/CONTEXT.md §4.54). Body
+`{ "profile": "read" | "readwrite", "schemas": [...], "agent": bool, "bootstrap": { "user", "password" }?, "vaultMount"? }`;
+`schemas` is at most 100 names, `bootstrap` is a DBA credential used for this call alone and stored nowhere. The
+plan route answers `{ "inventory", "plan": { "roleName", "agentRoleName", "statements": [{ "shown", "purpose", "optional"?, "account" }], "blockers": [] }, "destination" }`
+with the password masked in every statement; an empty `schemas` reads the inventory alone. The run route runs the
+plan and answers the same `statements` each with an `outcome` (`ran`, `refused`, `skipped`) and `completed`; `200`
+when complete, `409` when it stopped at a refusal; for a seed-file datasource it adds `references`, the `vault:kv:`
+values to paste into the file. `400` for a malformed body, `403` for a datasource that is not PostgreSQL, `404` for
+an unknown datasource, `409` when the plan has a blocker or a seed-file datasource has no Vault to write to, `502`
+when Vault refuses the write (the role exists by then; run the action again to rotate). Both go through the shared
+route guard on the query bucket: `401` with no session, `403` for a non-admin session, with an audit line.
+
 ---
 
 > **Internal routes (not part of this public reference).** The frontend also calls several internal `/api/db/*` endpoints that mirror provider internals and change with the UI: `multi-query`, `transaction`, `cancel`, `disconnect`, `test-connection`, `monitoring`, `pool-stats`, `profile`, `provider-meta`, and the object-surface routes under `objects/`. They're auth-gated by the middleware like everything else; consult the route handlers in `src/app/api/db/` for their shapes.

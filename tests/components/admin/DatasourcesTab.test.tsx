@@ -677,3 +677,62 @@ describe("datasource helpers", () => {
     expect(parseGroupNames("")).toEqual([]);
   });
 });
+
+describe("DatasourcesTab: the portal's own account", () => {
+  afterEach(() => {
+    cleanup();
+    restoreGlobalFetch();
+  });
+
+  // The account button is a PostgreSQL affair (docs/CONTEXT.md §4.54) and opens the dialog
+  // for the row; a seed-file row keeps it too, next to its read-only mark, because the
+  // password goes to Vault and the report says what to paste. Closing puts it away.
+  test("offers the account dialog on PostgreSQL rows only, store and seed-file alike", async () => {
+    mockGlobalFetch({
+      "/api/admin/datasources/prod-orders/account/plan": {
+        ok: true,
+        json: {
+          inventory: {
+            bootstrapUser: "portal",
+            database: "orders",
+            canCreateRole: true,
+            serverVersion: 160000,
+            availableSchemas: ["public"],
+            roleExists: false,
+            agentRoleExists: false,
+            owners: [],
+          },
+          plan: {
+            roleName: "dbportal_prod_orders",
+            agentRoleName: "dbportal_prod_orders_agent",
+            statements: [],
+            blockers: [],
+          },
+          destination: { kind: "store" },
+        },
+      },
+      "/api/admin/datasources": listing({
+        datasources: [storeRow, { ...storeRow, id: "prod-mongo", name: "Mongo", type: "mongodb" }],
+        declared: [configRow, { ...configRow, id: "dev-click", name: "Click", type: "clickhouse" }],
+      }),
+    });
+    const view = await renderLoaded();
+
+    expect(view.queryByRole("button", { name: "Provision the portal's account on Orders" })).not.toBeNull();
+    expect(view.queryByRole("button", { name: "Provision the portal's account on Mongo" })).toBeNull();
+    fireEvent.mouseDown(view.getByTestId("env-tab-development"), { button: 0 });
+    expect(view.queryByRole("button", { name: "Provision the portal's account on Dev shared" })).not.toBeNull();
+    expect(view.queryByRole("button", { name: "Provision the portal's account on Click" })).toBeNull();
+    expect(view.queryByTestId("provision-account-dialog")).toBeNull();
+
+    fireEvent.mouseDown(view.getByTestId("env-tab-production"), { button: 0 });
+    fireEvent.click(view.getByRole("button", { name: "Provision the portal's account on Orders" }));
+    await waitFor(() => {
+      if (!view.queryByTestId("provision-schemas")) throw new Error("dialog still reading");
+    });
+    expect(view.getByTestId("provision-account-dialog").textContent).toContain("The portal's own account on Orders");
+
+    fireEvent.click(view.getByTestId("provision-close"));
+    await waitFor(gone(() => view.queryByTestId("provision-account-dialog")));
+  });
+});

@@ -398,6 +398,38 @@ In the admin sheet, "From Vault" browses the KV v2 mount `VAULT_KV_MOUNT` (defau
 fills the fields from a picked secret: host, port, user and database as values, the password as
 a `vault:kv:` reference (docs/CONTEXT.md §4.39).
 
+### An account of the portal's own
+
+A datasource usually starts with the application's credential, which gives the portal
+every power the application has. On a PostgreSQL datasource, the key action of its row in
+the admin tab provisions a least-privilege role for the portal instead (docs/CONTEXT.md
+§4.54): `dbportal_<datasource id>` with a generated password, `LOGIN` alone, `CONNECT` on
+the database, `USAGE` on the chosen schemas, `SELECT` (or `SELECT, INSERT, UPDATE, DELETE`
+for the read-and-write profile) on their tables and sequences, the same on the tables their
+owners create later, and `pg_monitor` plus `pg_signal_backend` where the bootstrap may grant
+them. The whole plan is shown as SQL, password masked, before anything runs; a blocker (no
+`CREATEROLE`, a schema the database does not have, tables owned by a role the bootstrap is
+not a member of) is named with its remedy and the run stays off. The credential that runs
+the plan is the datasource's own, or a DBA credential typed for that call and kept nowhere.
+
+Where the password goes: with Vault configured, to `<mount>/data/datasources/<id>` (keys
+`user`, `password`, and `agent_user`/`agent_password` when the agent's read-only account was
+asked for), the mount being the one the datasource already references, else the one typed
+in the dialog, else `dbportal`. A store datasource is then rewritten to `vault:kv:`
+references; a seed-file datasource cannot be rewritten by the portal, so the report shows
+the references to paste:
+
+```yaml
+    user: "vault:kv:dbportal/datasources/orders#user"
+    password: "vault:kv:dbportal/datasources/orders#password"
+```
+
+Without Vault, a store datasource keeps the password sealed on its record. The portal's
+Vault policy needs `create` and `update` on `<mount>/data/datasources/*` for this, and
+nothing else beyond the reads it already has. Running the action again on a role that
+exists rotates its password and re-applies the grants; nothing restarts, because the
+reference is resolved when a connection opens.
+
 ### Notification channels
 
 Where alerts fire to (docs/CONTEXT.md §4.29) can be declared once here, read-only on the

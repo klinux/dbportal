@@ -14,6 +14,7 @@ import {
   resetVaultTransport,
   vaultDispatcher,
   vaultToken,
+  writeKvSecret,
 } from "@/lib/vault/client";
 
 /**
@@ -407,6 +408,34 @@ describe("vault client", () => {
       expect(err).toBeInstanceOf(VaultError);
       expect(err.message).toBe("Vault secret secret/db/orders has no data");
     }
+  });
+
+  // The one write this client makes (docs/CONTEXT.md §4.54): a KV v2 version, POSTed with
+  // the same headers a read carries, and a 204 accepted as done.
+  test("writeKvSecret posts the fields as a KV v2 version, and takes a 204 as done", async () => {
+    process.env.VAULT_NAMESPACE = "team-a";
+    fetchSpy.mockImplementation(async () => new Response(null, { status: 204 }));
+    await expect(writeKvSecret("secret", "datasources/shop", { user: "dbportal_shop", password: "pw" })).resolves.toBeUndefined();
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://vault.internal:8200/v1/secret/data/datasources/shop");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({
+      "X-Vault-Token": "s.token-never-logged",
+      "X-Vault-Namespace": "team-a",
+      "content-type": "application/json",
+    });
+    expect(JSON.parse(init.body as string)).toEqual({ data: { user: "dbportal_shop", password: "pw" } });
+
+    fetchSpy.mockImplementation(async () => jsonResponse({ data: { version: 2 } }));
+    await expect(writeKvSecret("secret", "datasources/shop", { password: "pw2" })).resolves.toBeUndefined();
+  });
+
+  test("writeKvSecret reports a refusal with the status, never the fields", async () => {
+    fetchSpy.mockImplementation(async () => jsonResponse({ errors: ["permission denied"] }, 403));
+    const err = await writeKvSecret("secret", "datasources/shop", { password: "pw" }).catch((e) => e);
+    expect(err).toBeInstanceOf(VaultError);
+    expect(err.message).toBe("Vault answered 403 for secret/data/datasources/shop");
+    expect(err.message).not.toContain("pw");
   });
 
   test("issueDatabaseCredentials reads the credential and its lease", async () => {
