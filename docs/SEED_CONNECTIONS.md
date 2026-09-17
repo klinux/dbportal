@@ -401,16 +401,21 @@ a `vault:kv:` reference (docs/CONTEXT.md §4.39).
 ### An account of the portal's own
 
 A datasource usually starts with the application's credential, which gives the portal
-every power the application has. On a PostgreSQL datasource, the key action of its row in
-the admin tab provisions a least-privilege role for the portal instead (docs/CONTEXT.md
-§4.54): `dbportal_<datasource id>` with a generated password, `LOGIN` alone, `CONNECT` on
-the database, `USAGE` on the chosen schemas, `SELECT` (or `SELECT, INSERT, UPDATE, DELETE`
-for the read-and-write profile) on their tables and sequences, the same on the tables their
-owners create later, and `pg_monitor` plus `pg_signal_backend` where the bootstrap may grant
+every power the application has. On a PostgreSQL or MySQL datasource, the key action of
+its row in the admin tab provisions a least-privilege account for the portal instead
+(docs/CONTEXT.md §4.54). On PostgreSQL: `dbportal_<datasource id>` with a generated
+password, `LOGIN` alone, `CONNECT` on the database, `USAGE` on the chosen schemas, `SELECT`
+(or `SELECT, INSERT, UPDATE, DELETE` for the read-and-write profile) on their tables and
+sequences, the same on the tables their owners create later, and `pg_monitor` plus
+`pg_signal_backend` where the bootstrap may grant them. On MySQL: `'dbportal_<id>'@'%'`
+(32 characters at most), one `GRANT ... ON schema.*` per chosen schema, which already
+covers the tables to come, plus `PROCESS`, `SELECT ON performance_schema.*` and the kill
+privilege the server spells (`CONNECTION_ADMIN` on MySQL 8) where the bootstrap may grant
 them. The whole plan is shown as SQL, password masked, before anything runs; a blocker (no
-`CREATEROLE`, a schema the database does not have, tables owned by a role the bootstrap is
-not a member of) is named with its remedy and the run stays off. The credential that runs
-the plan is the datasource's own, or a DBA credential typed for that call and kept nowhere.
+`CREATEROLE` or `CREATE USER`, a schema the server does not have, tables owned by a role
+the bootstrap is not a member of, a privilege held without `GRANT OPTION`) is named with
+its remedy and the run stays off. The credential that runs the plan is the datasource's
+own, or a DBA credential typed for that call and kept nowhere.
 
 Where the password goes: with Vault configured, to `<mount>/data/datasources/<id>` (keys
 `user`, `password`, and `agent_user`/`agent_password` when the agent's read-only account was

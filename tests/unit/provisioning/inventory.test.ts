@@ -4,11 +4,20 @@
  */
 import { describe, expect, test } from "bun:test";
 import { ProvisionError } from "@/lib/provisioning/errors";
-import { type InventoryRunner, OWNERS_SQL, ROLES_SQL, SCHEMAS_SQL, WHO_SQL, readInventory } from "@/lib/provisioning/inventory";
+import {
+  type InventoryRunner,
+  OWNERS_SQL,
+  ROLES_SQL,
+  SCHEMAS_SQL,
+  WHO_SQL,
+  readInventory,
+} from "@/lib/provisioning/inventory";
 
 type Rows = Record<string, unknown>[];
 
-function runner(answers: Partial<Record<"who" | "schemas" | "roles" | "owners", Rows>>): InventoryRunner & { asked: [string, unknown[] | undefined][] } {
+function runner(
+  answers: Partial<Record<"who" | "schemas" | "roles" | "owners", Rows>>,
+): InventoryRunner & { asked: [string, unknown[] | undefined][] } {
   const asked: [string, unknown[] | undefined][] = [];
   return {
     asked,
@@ -41,6 +50,7 @@ describe("readInventory", () => {
     const inventory = await readInventory(run, "shop-prod", ["sales", "empty"]);
 
     expect(inventory).toEqual({
+      engine: "postgres",
       serverVersion: 150004,
       database: "shop",
       bootstrapUser: "app",
@@ -61,7 +71,9 @@ describe("readInventory", () => {
     });
     // The names a person picked reach the catalog as parameters, never as SQL text.
     expect(run.asked.find(([sql]) => sql === OWNERS_SQL)?.[1]).toEqual([["sales", "empty"]]);
-    expect(run.asked.find(([sql]) => sql === ROLES_SQL)?.[1]).toEqual([["dbportal_shop_prod", "dbportal_shop_prod_agent"]]);
+    expect(run.asked.find(([sql]) => sql === ROLES_SQL)?.[1]).toEqual([
+      ["dbportal_shop_prod", "dbportal_shop_prod_agent"],
+    ]);
   });
 
   test("asks about no owners when no schema was chosen", async () => {

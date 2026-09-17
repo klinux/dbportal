@@ -11,7 +11,7 @@ import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react
 import { mockGlobalFetch, restoreGlobalFetch } from "../../helpers/mock-fetch";
 import { ProvisionAccountDialog } from "@/components/admin/ProvisionAccountDialog";
 
-const datasource = { id: "shop", name: "Shop" };
+const datasource = { id: "shop", name: "Shop", type: "postgres" };
 const inventory = {
   bootstrapUser: "app",
   database: "shop",
@@ -186,7 +186,7 @@ describe("ProvisionAccountDialog", () => {
     });
 
     expect(view.getByTestId("provision-blockers").textContent).toContain("app cannot create roles");
-    expect(view.getByTestId("provision-plan").textContent).toContain("(cannot create roles)");
+    expect(view.getByTestId("provision-plan").textContent).toContain("(cannot create accounts)");
     expect(view.getByTestId("provision-plan").textContent).toContain("exists, its password will be rotated");
     expect(view.getByTestId("provision-plan").textContent).toContain("sealed at rest");
     expect(button(view, "Rotate and apply").disabled).toBe(true);
@@ -392,6 +392,19 @@ describe("ProvisionAccountDialog", () => {
     await act(async () => {});
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(view.getByText("The portal's own account on the datasource")).toBeTruthy();
+  });
+
+  // The bootstrap hint follows the engine: ownership on PostgreSQL, the grant option on MySQL.
+  test("tells a MySQL datasource's admin what the bootstrap needs there", async () => {
+    mockGlobalFetch(routes());
+    const view = render(
+      <ProvisionAccountDialog open onOpenChange={() => {}} datasource={{ ...datasource, type: "mysql" }} />,
+    );
+    await waitFor(() => {
+      if (!view.queryByTestId("provision-schemas")) throw new Error("still reading");
+    });
+    expect(view.getByTestId("provision-account-dialog").textContent).toContain("WITH GRANT OPTION");
+    expect(view.getByTestId("provision-account-dialog").textContent).not.toContain("OWNS the tables");
   });
 
   // An unmount mid-read leaves no state update behind.

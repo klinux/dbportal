@@ -92,17 +92,28 @@ mock.module("@/lib/db/factory", () => ({
         ran.push({ sql, params });
         const rows = sql.startsWith("SELECT current_database()")
           ? answers.who
-          : sql.startsWith("SELECT nspname")
-            ? answers.schemas
-            : sql.startsWith("SELECT rolname")
-              ? answers.roles
-              : sql.startsWith("SELECT n.nspname")
-                ? answers.owners
-                : (() => {
-                    const refusal = refuse(sql);
-                    if (refusal) throw new Error(refusal);
-                    return [];
-                  })();
+          : sql.startsWith("SELECT DATABASE()")
+            ? [{ db: "shop", bootstrap: "app@%", version: "8.0.36" }]
+            : sql.includes("information_schema.USER_PRIVILEGES WHERE GRANTEE = CONCAT")
+              ? [
+                  { privilege: "SELECT", grantable: "YES" },
+                  { privilege: "CREATE USER", grantable: "YES" },
+                ]
+              : sql.startsWith("SELECT SCHEMA_NAME")
+                ? [{ name: "sales" }]
+                : sql.includes("USER_PRIVILEGES WHERE GRANTEE IN") || sql.includes("SCHEMA_PRIVILEGES")
+                  ? []
+                  : sql.startsWith("SELECT nspname")
+                    ? answers.schemas
+                    : sql.startsWith("SELECT rolname")
+                      ? answers.roles
+                      : sql.startsWith("SELECT n.nspname")
+                        ? answers.owners
+                        : (() => {
+                            const refusal = refuse(sql);
+                            if (refusal) throw new Error(refusal);
+                            return [];
+                          })();
         return { rows, fields: [], rowCount: rows.length, executionTime: 1 };
       },
     };
@@ -255,11 +266,11 @@ describe("inspectAccount", () => {
     });
   });
 
-  test("refuses an unknown datasource, a non-PostgreSQL one, and a credential Vault cannot read", async () => {
+  test("refuses an unknown datasource, one of an engine without account management, and a credential Vault cannot read", async () => {
     declared = null;
     expect((await inspectAccount(input()).catch((e) => e)).statusCode).toBe(404);
 
-    declared = datasource({ type: "mysql" });
+    declared = datasource({ type: "mongodb" });
     expect((await inspectAccount(input()).catch((e) => e)).statusCode).toBe(403);
 
     declared = datasource({ password: "vault:kv:apps/shop#password" });
@@ -366,6 +377,25 @@ describe("provisionAccount", () => {
     });
     expect(updateSharedDatasource).not.toHaveBeenCalled();
     expect(writeKvSecret).toHaveBeenCalledTimes(1);
+  });
+
+  // The same run on MySQL: its own inventory reads, its own statements, the same keeping
+  // of the password. The account does not exist, so the ALTER USER that sets the password
+  // after CREATE USER IF NOT EXISTS is a provision, not a rotation.
+  test("provisions on a MySQL datasource through the MySQL plan", async () => {
+    declared = datasource({ type: "mysql", port: 3306 });
+
+    const report = await provisionAccount(input());
+
+    expect(report.completed).toBe(true);
+    expect(report.roleName).toBe("dbportal_shop_prod");
+    expect(report.statements[0].shown).toBe(
+      "CREATE USER IF NOT EXISTS 'dbportal_shop_prod'@'%' IDENTIFIED BY '********'",
+    );
+    expect(report.statements.map((s) => s.outcome)).toEqual(["ran", "ran", "ran", "ran", "ran", "ran"]);
+    expect(ran.some(({ sql }) => sql.startsWith("GRANT SELECT ON `sales`.*"))).toBe(true);
+    expect(writeKvSecret.mock.calls[0][2]).toMatchObject({ user: "dbportal_shop_prod" });
+    expect(audit.mock.calls[0][0]).toMatchObject({ action: "provision", result: "success" });
   });
 
   test("rotates when the role exists, and says so in the audit trail", async () => {

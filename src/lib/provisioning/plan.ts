@@ -26,6 +26,7 @@
 
 import { quoteIdentifier } from "@/lib/sql/identifier";
 import { quoteLiteral } from "@/lib/sql/values";
+import type { ProvisionEngine } from "./engines";
 
 export type ProvisionProfile = "read" | "readwrite";
 
@@ -47,16 +48,26 @@ export interface SchemaOwner {
 
 export interface SchemaInventory {
   readonly name: string;
+  /** PostgreSQL: the owners of the schema's relations. MySQL has no owners; empty there. */
   readonly owners: readonly SchemaOwner[];
+  /**
+   * MySQL: the privilege types the bootstrap holds on this schema WITH GRANT OPTION,
+   * globally or on the schema itself - what it may pass on. Absent on PostgreSQL, where
+   * ownership decides instead.
+   */
+  readonly grantable?: readonly string[];
 }
 
 /** What the bootstrap connection saw, read once before the plan is built. */
 export interface ProvisionInventory {
-  /** `server_version_num`, so the plan can say which membership rules apply. */
+  readonly engine: ProvisionEngine;
+  /** `server_version_num` on PostgreSQL, major*10000+minor*100+patch on MySQL: which rules apply. */
   readonly serverVersion: number;
+  /** MySQL only: a MariaDB server, whose administrative privileges are spelled differently. */
+  readonly mariadb?: boolean;
   readonly database: string;
   readonly bootstrapUser: string;
-  /** `rolcreaterole` of the bootstrap: without it no role can be created. */
+  /** `rolcreaterole` of the bootstrap (PostgreSQL), the CREATE USER privilege (MySQL): without it no account can be created. */
   readonly canCreateRole: boolean;
   /** Every schema a person may pick, with the system ones already left out. */
   readonly availableSchemas: readonly string[];
@@ -98,13 +109,16 @@ export interface ProvisionPlan {
 /** What a shown statement carries where the password stands in `sql`. */
 export const PASSWORD_MASK = "'********'";
 
-/** A role name from a datasource id: the id's slug characters, prefixed, and bounded to PostgreSQL's 63 bytes. */
-export function roleNameFor(datasourceId: string): string {
-  return `dbportal_${datasourceId.toLowerCase().replace(/[^a-z0-9_]+/g, "_")}`.slice(0, 63);
+/** The longest name an account may have: 63 bytes on PostgreSQL, 32 characters on MySQL. */
+export const NAME_LIMIT: Record<ProvisionEngine, number> = { postgres: 63, mysql: 32 };
+
+/** A role name from a datasource id: the id's slug characters, prefixed, and bounded to the engine's limit. */
+export function roleNameFor(datasourceId: string, engine: ProvisionEngine = "postgres"): string {
+  return `dbportal_${datasourceId.toLowerCase().replace(/[^a-z0-9_]+/g, "_")}`.slice(0, NAME_LIMIT[engine]);
 }
 
-export function agentRoleNameFor(datasourceId: string): string {
-  return `${roleNameFor(datasourceId).slice(0, 63 - "_agent".length)}_agent`;
+export function agentRoleNameFor(datasourceId: string, engine: ProvisionEngine = "postgres"): string {
+  return `${roleNameFor(datasourceId, engine).slice(0, NAME_LIMIT[engine] - "_agent".length)}_agent`;
 }
 
 /** The roles beside the bootstrap that own tables in the chosen schemas and that the bootstrap does not cover. */
@@ -126,7 +140,13 @@ function accountStatements(
   const pw = quoteLiteral(password, "postgres");
   const statements: PlannedStatement[] = [];
   const add = (sql: string, purpose: string, optional = false): void => {
-    statements.push({ sql, shown: sql.replace(pw, PASSWORD_MASK), purpose, account, ...(optional ? { optional } : {}) });
+    statements.push({
+      sql,
+      shown: sql.replace(pw, PASSWORD_MASK),
+      purpose,
+      account,
+      ...(optional ? { optional } : {}),
+    });
   };
 
   if (exists) {
@@ -137,14 +157,20 @@ function accountStatements(
       `Create the role ${role}: login only, no attribute the portal does not need`,
     );
   }
-  add(`GRANT CONNECT ON DATABASE ${quoteIdentifier(inventory.database, "postgres")} TO ${r}`, "Let the role open this database");
+  add(
+    `GRANT CONNECT ON DATABASE ${quoteIdentifier(inventory.database, "postgres")} TO ${r}`,
+    "Let the role open this database",
+  );
 
   const tableRights = profile === "readwrite" ? "SELECT, INSERT, UPDATE, DELETE" : "SELECT";
   const sequenceRights = profile === "readwrite" ? "USAGE, SELECT" : "SELECT";
   for (const schema of inventory.schemas) {
     const s = quoteIdentifier(schema.name, "postgres");
     add(`GRANT USAGE ON SCHEMA ${s} TO ${r}`, `Let the role see the schema ${schema.name}`);
-    add(`GRANT ${tableRights} ON ALL TABLES IN SCHEMA ${s} TO ${r}`, `${tableRights} on every table ${schema.name} holds today`);
+    add(
+      `GRANT ${tableRights} ON ALL TABLES IN SCHEMA ${s} TO ${r}`,
+      `${tableRights} on every table ${schema.name} holds today`,
+    );
     add(
       `GRANT ${sequenceRights} ON ALL SEQUENCES IN SCHEMA ${s} TO ${r}`,
       `${sequenceRights} on every sequence in ${schema.name}, which a serial column needs`,

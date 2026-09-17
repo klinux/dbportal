@@ -85,6 +85,7 @@ export async function readInventory(
   }
 
   return {
+    engine: "postgres",
     serverVersion: count(who.version),
     database: text(who.database),
     bootstrapUser: text(who.bootstrap),

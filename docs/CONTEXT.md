@@ -1017,10 +1017,25 @@ built. Each lands as its own section when done.
   Vault write and the report shows the references to paste into the file. The audit event
   is `datasource_account` with action `provision` or `rotate`, the role name, profile,
   schemas and each statement's outcome - never the password. Rotate is the same action
-  once the role exists (`ALTER ROLE ... PASSWORD`). Deferred from the plan: decommission
-  on delete, the drift check, MySQL, and IAM authentication. Nothing was verified against
-  a live Cloud SQL instance yet: the ownership rules are those of PostgreSQL itself and
-  the Cloud SQL facts are from Google's documentation. The plan as written:
+  once the role exists (`ALTER ROLE ... PASSWORD`). **MySQL followed the same day**
+  (`src/lib/provisioning/mysql.ts`, the engine picked in `run.ts` by
+  `src/lib/provisioning/engines.ts`): the account is `'dbportal_<id>'@'%'` within MySQL's
+  32 characters, created with `CREATE USER IF NOT EXISTS` and its password set with
+  `ALTER USER` either way (information_schema shows an account its own grants, so an
+  existing account may be unseen), one `GRANT ... ON schema.*` per schema - which covers
+  the tables to come, so there is no default-privileges step and no owner to cover - and
+  three optional grants: `PROCESS`, `SELECT ON performance_schema.*`, and the kill
+  privilege as the server spells it (`CONNECTION_ADMIN` on MySQL 8, `CONNECTION ADMIN`
+  on MariaDB 10.5.2+, nothing where only `SUPER` would do, which Cloud SQL refuses
+  anyway). The wall there is the grant option: the inventory reads `USER_PRIVILEGES` and
+  `SCHEMA_PRIVILEGES` for the bootstrap and blocks on a privilege it holds without
+  `IS_GRANTABLE`, naming the `GRANT ... WITH GRANT OPTION` to run first; on Cloud SQL
+  for MySQL the default user and every console-made user hold everything but `SUPER`
+  and `FILE` with the option, so the app's credential is an ordinary bootstrap. Deferred
+  from the plan: decommission on delete, the drift check, and IAM authentication.
+  Nothing was verified against a live Cloud SQL instance yet: the ownership rules are
+  those of PostgreSQL itself, the grant rules those of MySQL, and the Cloud SQL facts are
+  from Google's documentation. The plan as written:
   Today the credential a datasource reaches the database with is the
   application's own, read from Vault: the portal inherits a power that is not its own, and
   nobody can audit or revoke the portal's access separately from the app's. The intended

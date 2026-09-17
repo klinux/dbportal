@@ -21,7 +21,7 @@ import type { InspectReport, ProvisionReport } from "@/lib/provisioning/run";
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  datasource: { id: string; name: string } | null;
+  datasource: { id: string; name: string; type: string } | null;
   /** Called after a completed run, so the list re-reads the datasource's new credential. */
   onProvisioned?: () => void;
 }
@@ -263,8 +263,10 @@ export function ProvisionAccountDialog({ open, onOpenChange, datasource, onProvi
               </div>
             </div>
             <p className="text-fg-muted mt-2">
-              Used once and kept nowhere. On Cloud SQL, use the role that OWNS the tables: only the owner, or a member
-              of it, can grant on them and bind the privileges of the tables to come.
+              Used once and kept nowhere.{" "}
+              {datasource?.type === "mysql"
+                ? "It needs CREATE USER and the privileges it will pass on WITH GRANT OPTION; on Cloud SQL the default user and every user made through the console have both."
+                : "On Cloud SQL, use the role that OWNS the tables: only the owner, or a member of it, can grant on them and bind the privileges of the tables to come."}
             </p>
           </details>
 
@@ -279,7 +281,7 @@ export function ProvisionAccountDialog({ open, onOpenChange, datasource, onProvi
               <p className="text-fg-muted">
                 Bootstrap <span className="font-mono">{inspection.inventory.bootstrapUser}</span> on{" "}
                 <span className="font-mono">{inspection.inventory.database}</span>
-                {inspection.inventory.canCreateRole ? "" : " (cannot create roles)"} · role{" "}
+                {inspection.inventory.canCreateRole ? "" : " (cannot create accounts)"} · account{" "}
                 <span className="font-mono">{inspection.plan.roleName}</span>
                 {inspection.inventory.roleExists ? " exists, its password will be rotated" : " will be created"}
               </p>

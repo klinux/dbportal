@@ -47,7 +47,7 @@ datasource**. The sheet has two tabs:
 
 ![The datasource sheet, Connection tab](screenshots/datasource-sheet.png)
 
-Once a PostgreSQL datasource connects, the key action on its row provisions an account of
+Once a PostgreSQL or MySQL datasource connects, the key action on its row provisions an account of
 the portal's own: a role with only what the chosen profile needs, its password generated
 and written to Vault (or sealed in the store when there is no Vault), the datasource
 pointed at it. The plan is shown as SQL before it runs; see

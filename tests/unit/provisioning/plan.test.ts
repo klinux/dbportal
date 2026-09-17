@@ -16,6 +16,7 @@ const SECRETS = { password: "p'w", agentPassword: "agent-pw" };
 
 function inventory(overrides: Partial<ProvisionInventory> = {}): ProvisionInventory {
   return {
+    engine: "postgres",
     serverVersion: 150004,
     database: "shop",
     bootstrapUser: "app",
@@ -74,10 +75,17 @@ describe("buildPlan", () => {
   });
 
   test("the read-and-write profile adds the DML rights and sequence usage, never DDL", () => {
-    const plan = buildPlan("shop-prod", { profile: "readwrite", schemas: ["sales"], agent: false }, inventory(), SECRETS);
+    const plan = buildPlan(
+      "shop-prod",
+      { profile: "readwrite", schemas: ["sales"], agent: false },
+      inventory(),
+      SECRETS,
+    );
     const sql = plan.statements.map((s) => s.sql);
 
-    expect(sql).toContain(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "sales" TO "dbportal_shop_prod"`);
+    expect(sql).toContain(
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "sales" TO "dbportal_shop_prod"`,
+    );
     expect(sql).toContain(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA "sales" TO "dbportal_shop_prod"`);
     expect(sql.join("\n")).not.toMatch(/CREATE ON SCHEMA|ALL PRIVILEGES|TRUNCATE/);
   });
@@ -96,13 +104,20 @@ describe("buildPlan", () => {
   });
 
   test("provisions the agent's account as a read profile beside the portal's", () => {
-    const plan = buildPlan("shop-prod", { profile: "readwrite", schemas: ["sales"], agent: true }, inventory(), SECRETS);
+    const plan = buildPlan(
+      "shop-prod",
+      { profile: "readwrite", schemas: ["sales"], agent: true },
+      inventory(),
+      SECRETS,
+    );
     const agent = plan.statements.filter((s) => s.account === "agent");
 
     expect(agent[0].sql).toBe(
       `CREATE ROLE "dbportal_shop_prod_agent" WITH LOGIN PASSWORD 'agent-pw' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION`,
     );
-    expect(agent.map((s) => s.sql)).toContain(`GRANT SELECT ON ALL TABLES IN SCHEMA "sales" TO "dbportal_shop_prod_agent"`);
+    expect(agent.map((s) => s.sql)).toContain(
+      `GRANT SELECT ON ALL TABLES IN SCHEMA "sales" TO "dbportal_shop_prod_agent"`,
+    );
     expect(agent.some((s) => s.sql.includes("INSERT"))).toBe(false);
     expect(plan.agentRoleName).toBe("dbportal_shop_prod_agent");
   });
@@ -127,10 +142,20 @@ describe("buildPlan", () => {
   });
 
   test("blocks on a schema the database does not hold, and on no schema at all", () => {
-    const missing = buildPlan("shop-prod", { profile: "read", schemas: ["sales", "nope"], agent: false }, inventory(), SECRETS);
+    const missing = buildPlan(
+      "shop-prod",
+      { profile: "read", schemas: ["sales", "nope"], agent: false },
+      inventory(),
+      SECRETS,
+    );
     expect(missing.blockers).toEqual(['The database "shop" has no schema "nope".']);
 
-    const none = buildPlan("shop-prod", { profile: "read", schemas: [], agent: false }, inventory({ schemas: [] }), SECRETS);
+    const none = buildPlan(
+      "shop-prod",
+      { profile: "read", schemas: [], agent: false },
+      inventory({ schemas: [] }),
+      SECRETS,
+    );
     expect(none.blockers).toEqual(["Pick at least one schema for the account to reach."]);
   });
 
@@ -147,9 +172,7 @@ describe("buildPlan", () => {
       inventory({ schemas: [{ name: "sales", owners }] }),
       SECRETS,
     );
-    expect(fifteen.blockers).toEqual([
-      expect.stringContaining('3 table(s) in "sales" are owned by "migrations"'),
-    ]);
+    expect(fifteen.blockers).toEqual([expect.stringContaining('3 table(s) in "sales" are owned by "migrations"')]);
     expect(fifteen.blockers[0]).toContain('run GRANT "migrations" TO "app" first');
     // The default privileges are bound to the covered owner only.
     expect(fifteen.statements.some((s) => s.sql.includes('FOR ROLE "migrations"'))).toBe(false);

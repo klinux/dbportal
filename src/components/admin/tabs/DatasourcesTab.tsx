@@ -38,6 +38,7 @@ import {
 } from "@/lib/types";
 import { Database, FileCode2, KeyRound, Pencil, Plus, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
 import { ProvisionAccountDialog } from "@/components/admin/ProvisionAccountDialog";
+import { canProvisionAccount } from "@/lib/provisioning/engines";
 import { toast } from "sonner";
 
 /**
@@ -381,7 +382,7 @@ export function DatasourcesTab() {
   const [maxConcurrent, setMaxConcurrent] = useState("");
   const [pendingDelete, setPendingDelete] = useState<StoreRow | null>(null);
   // The datasource whose account is being provisioned (docs/CONTEXT.md §4.54).
-  const [provisioning, setProvisioning] = useState<{ id: string; name: string } | null>(null);
+  const [provisioning, setProvisioning] = useState<{ id: string; name: string; type: string } | null>(null);
   const [sshProfiles, setSshProfiles] = useState<SshProfileOption[]>([]);
 
   const applyListing = useCallback((body: ListResponse) => {
@@ -879,14 +880,14 @@ export function DatasourcesTab() {
                               <TableCell className="text-right">
                                 {row.source === "store" ? (
                                   <div className="flex justify-end gap-1">
-                                    {row.type === "postgres" && (
+                                    {canProvisionAccount(row.type) && (
                                       <Button
                                         variant="ghost"
                                         size="sm"
                                         className="h-7 w-7 p-0"
                                         aria-label={`Provision the portal's account on ${row.name}`}
                                         title="The portal's own database account (docs/CONTEXT.md §4.54)"
-                                        onClick={() => setProvisioning({ id: row.id, name: row.name })}
+                                        onClick={() => setProvisioning({ id: row.id, name: row.name, type: row.type })}
                                       >
                                         <KeyRound className="h-3.5 w-3.5" />
                                       </Button>
@@ -910,7 +911,7 @@ export function DatasourcesTab() {
                                       <Trash2 className="h-3.5 w-3.5" />
                                     </Button>
                                   </div>
-                                ) : row.type === "postgres" ? (
+                                ) : canProvisionAccount(row.type) ? (
                                   // A seed-file datasource is read-only here, but its account can still be
                                   // provisioned: the password goes to Vault and the report says what to paste.
                                   <div className="flex justify-end items-center gap-1">
@@ -920,7 +921,7 @@ export function DatasourcesTab() {
                                       className="h-7 w-7 p-0"
                                       aria-label={`Provision the portal's account on ${row.name}`}
                                       title="The portal's own database account (docs/CONTEXT.md §4.54)"
-                                      onClick={() => setProvisioning({ id: row.id, name: row.name })}
+                                      onClick={() => setProvisioning({ id: row.id, name: row.name, type: row.type })}
                                     >
                                       <KeyRound className="h-3.5 w-3.5" />
                                     </Button>

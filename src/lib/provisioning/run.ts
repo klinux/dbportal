@@ -45,8 +45,10 @@ import {
   resetVaultCache,
   resolveVaultReferences,
 } from "@/lib/vault/credentials";
+import { type ProvisionEngine, canProvisionAccount } from "./engines";
 import { ProvisionError } from "./errors";
-import { readInventory } from "./inventory";
+import { type InventoryRunner, readInventory } from "./inventory";
+import { buildMysqlPlan, readMysqlInventory } from "./mysql";
 import {
   buildPlan,
   type PlannedStatement,
@@ -54,6 +56,18 @@ import {
   type ProvisionPlan,
   type ProvisionRequest,
 } from "./plan";
+
+/** The inventory read and the plan of each engine; the same shape, the engine's own rules. */
+const ENGINES: Record<
+  ProvisionEngine,
+  {
+    read: (runner: InventoryRunner, datasourceId: string, schemas: readonly string[]) => Promise<ProvisionInventory>;
+    plan: typeof buildPlan;
+  }
+> = {
+  postgres: { read: readInventory, plan: buildPlan },
+  mysql: { read: readMysqlInventory, plan: buildMysqlPlan },
+};
 
 /** The one call's own credential, typed by the admin and never stored. */
 export interface BootstrapCredential {
@@ -126,8 +140,8 @@ async function resolvedDatasource(
 ): Promise<{ declared: DatabaseConnection; resolved: DatabaseConnection }> {
   const declared = await getSeedConnectionByIdUnfiltered(datasourceId);
   if (!declared) throw new ProvisionError(`Datasource "${datasourceId}" not found`, 404);
-  if (declared.type !== "postgres") {
-    throw new ProvisionError("An account is provisioned on PostgreSQL datasources only", 403);
+  if (!canProvisionAccount(declared.type)) {
+    throw new ProvisionError("An account is provisioned on PostgreSQL and MySQL datasources only", 403);
   }
   try {
     return { declared, resolved: await resolveVaultReferences(resolveEnvPlaceholders(declared), actor) };
@@ -211,11 +225,17 @@ async function withBootstrap<T>(
 
 async function inspectWith(
   provider: DatabaseProvider,
+  engine: ProvisionEngine,
   input: InspectInput,
   secrets: { password: string; agentPassword: string },
 ) {
-  const inventory = await readInventory(provider, input.datasourceId, input.request.schemas);
-  return { inventory, plan: buildPlan(input.datasourceId, input.request, inventory, secrets) };
+  const inventory = await ENGINES[engine].read(provider, input.datasourceId, input.request.schemas);
+  return { inventory, plan: ENGINES[engine].plan(input.datasourceId, input.request, inventory, secrets) };
+}
+
+/** The engine of a datasource `resolvedDatasource` let through. */
+function engineOf(declared: DatabaseConnection): ProvisionEngine {
+  return declared.type as ProvisionEngine;
 }
 
 /** The plan and its blockers, without running anything. */
@@ -224,7 +244,10 @@ export async function inspectAccount(input: InspectInput): Promise<InspectReport
   const destination = await destinationFor(input.datasourceId, declared, input.vaultMount);
   return withBootstrap(resolved, input.bootstrap, input.actor, async (provider) => {
     // Placeholder secrets: the shown plan masks them, and nothing runs here.
-    const { inventory, plan } = await inspectWith(provider, input, { password: "x", agentPassword: "x" });
+    const { inventory, plan } = await inspectWith(provider, engineOf(declared), input, {
+      password: "x",
+      agentPassword: "x",
+    });
     return { inventory, plan, destination };
   });
 }
@@ -236,8 +259,10 @@ export async function provisionAccount(input: InspectInput): Promise<ProvisionRe
   const secrets = { password: generatePassword(), agentPassword: generatePassword() };
   const statements: StatementOutcome[] = [];
   let completed = true;
+  let rotate = false;
   const plan = await withBootstrap(resolved, input.bootstrap, input.actor, async (provider) => {
-    const inspected = await inspectWith(provider, input, secrets);
+    const inspected = await inspectWith(provider, engineOf(declared), input, secrets);
+    rotate = inspected.inventory.roleExists;
     if (inspected.plan.blockers.length > 0) {
       throw new ProvisionError(`The plan cannot run yet: ${inspected.plan.blockers.join(" ")}`, 409);
     }
@@ -262,7 +287,7 @@ export async function provisionAccount(input: InspectInput): Promise<ProvisionRe
   const audit = (result: "success" | "failure", details: string): void => {
     emitAuditEvent({
       type: "datasource_account",
-      action: plan.statements.some((s) => s.sql.startsWith("ALTER ROLE")) ? "rotate" : "provision",
+      action: rotate ? "rotate" : "provision",
       target: input.datasourceId,
       connectionName: declared.name,
       user: input.actor,

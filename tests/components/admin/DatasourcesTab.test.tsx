@@ -687,7 +687,7 @@ describe("DatasourcesTab: the portal's own account", () => {
   // The account button is a PostgreSQL affair (docs/CONTEXT.md §4.54) and opens the dialog
   // for the row; a seed-file row keeps it too, next to its read-only mark, because the
   // password goes to Vault and the report says what to paste. Closing puts it away.
-  test("offers the account dialog on PostgreSQL rows only, store and seed-file alike", async () => {
+  test("offers the account dialog on PostgreSQL and MySQL rows only, store and seed-file alike", async () => {
     mockGlobalFetch({
       "/api/admin/datasources/prod-orders/account/plan": {
         ok: true,
@@ -712,7 +712,11 @@ describe("DatasourcesTab: the portal's own account", () => {
         },
       },
       "/api/admin/datasources": listing({
-        datasources: [storeRow, { ...storeRow, id: "prod-mongo", name: "Mongo", type: "mongodb" }],
+        datasources: [
+          storeRow,
+          { ...storeRow, id: "prod-mongo", name: "Mongo", type: "mongodb" },
+          { ...storeRow, id: "prod-mysql", name: "Catalog", type: "mysql" },
+        ],
         declared: [configRow, { ...configRow, id: "dev-click", name: "Click", type: "clickhouse" }],
       }),
     });
@@ -720,6 +724,7 @@ describe("DatasourcesTab: the portal's own account", () => {
 
     expect(view.queryByRole("button", { name: "Provision the portal's account on Orders" })).not.toBeNull();
     expect(view.queryByRole("button", { name: "Provision the portal's account on Mongo" })).toBeNull();
+    expect(view.queryByRole("button", { name: "Provision the portal's account on Catalog" })).not.toBeNull();
     fireEvent.mouseDown(view.getByTestId("env-tab-development"), { button: 0 });
     expect(view.queryByRole("button", { name: "Provision the portal's account on Dev shared" })).not.toBeNull();
     expect(view.queryByRole("button", { name: "Provision the portal's account on Click" })).toBeNull();
