@@ -69,9 +69,11 @@ describe("the account routes", () => {
     expect(audit).toHaveBeenCalled();
   });
 
-  test("refuse a request with no session", async () => {
+  test("refuse a request with no session, even one that carries no route context", async () => {
     session = null;
     expect((await post(plan, { profile: "read" })).status).toBe(401);
+    const bare = new Request("http://localhost/api/admin/datasources/shop/account", { method: "POST", body: "{}" });
+    expect((await run(bare, undefined as never)).status).toBe(401);
   });
 
   test("the plan route answers the inspection for the datasource in the path, as the session's actor", async () => {

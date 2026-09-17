@@ -14,7 +14,10 @@ type Params = { params: Promise<{ id: string }> };
  * stop the run. The bootstrap credential in the body, when there is one, is used for
  * this call and dropped.
  */
-export async function POST(request: Request, { params }: Params): Promise<NextResponse> {
+// The context is read after the guard, so a request with no session is refused before
+// anything about the route is touched (tests/security/route-auth.test.ts calls every
+// provider-reaching POST with the request alone).
+export async function POST(request: Request, context: Params): Promise<NextResponse> {
   const route = "POST /api/admin/datasources/[id]/account/plan";
   const gate = await guardRoute({ route, bucket: "query", request });
   if ("response" in gate) return gate.response;
@@ -23,7 +26,7 @@ export async function POST(request: Request, { params }: Params): Promise<NextRe
     return NextResponse.json({ error: "Unauthorized. Admin access required." }, { status: 403 });
   }
   try {
-    const { id } = await params;
+    const { id } = await context.params;
     const body = readAccountRequest((await readObjectBody(request)) ?? {});
     const report = await inspectAccount({ datasourceId: id, ...body, actor: gate.session.username });
     return NextResponse.json(report);
