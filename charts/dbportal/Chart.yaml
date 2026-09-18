@@ -103,7 +103,7 @@ annotations:
   artifacthub.io/containsSecurityUpdates: "false"
   artifacthub.io/images: |
     - name: dbportal
-      image: ghcr.io/klinux/dbportal:0.7.0
+      image: ghcr.io/klinux/dbportal:0.7.1
       platforms:
         - linux/amd64
         - linux/arm64
