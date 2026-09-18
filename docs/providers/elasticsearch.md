@@ -433,6 +433,40 @@ inside a provider. `query()` therefore throws a `QueryError` when `params` is no
 [`src/lib/sql/values.ts`](../../src/lib/sql/values.ts) returns `null` for this dialect to match, so no
 shared generator emits a `?` this provider would then decline to fill.
 
+### 3.12 Elasticsearch 6.x: the `_xpack` prefix, and the mapping type
+
+Two things a 6.x cluster still has that 7.0 removed, both handled in the transport alone so the
+provider never learns that a cluster has an age:
+
+- **The SQL endpoint is `/_xpack/sql`.** Measured 2026-09-18 on a 6.x cluster with security on:
+  `POST /_sql?format=json` answers HTTP **405**, "Incorrect HTTP method for uri [/_sql?format=json] and
+  method [POST], allowed: [PUT, HEAD, DELETE, GET]" — the cluster read `_sql` as an **index name**,
+  because nothing is registered at that path — while `POST /_xpack/sql?format=json` answers HTTP 401
+  from the security layer, which is a handler asking for credentials. The request body, the answer
+  envelope and the cursor protocol are the same on both paths. `resolveSqlPath()` reads `GET /` once
+  per transport, before the first statement (the connect probe, in practice), and takes the prefixed
+  path when the payload names **no other distribution** and a major **below 7**; the answer is kept
+  for the transport's life, and `closeCursor()` follows it. A refusal of `/` is reported as that
+  refusal (an `AuthenticationError` on 401/403), not as a guess about the path. A version the client
+  cannot read as a number takes the modern path, which is the one every release since 7.0 has kept.
+  The distribution check is not decoration: OpenSearch is at 3.x, so an Elasticsearch connection
+  pointed at it would otherwise read "3" as "older than 7" and go looking for a prefix the fork never
+  had, and the user would lose the measured 405 that names their mistake.
+- **The mapping carries a type level.** `{"mappings":{"_doc":{"properties":…}}}` on 6.x against
+  `{"mappings":{"properties":…}}` since 7.0, where `_doc` is whatever name the index was created with
+  (6.x allows exactly one). `mappingProperties()` takes `properties` when it is there and otherwise
+  reads through the first type that declares one, for the single and the bulk read alike; a type
+  declared without properties is an empty index, an empty list rather than an error. Reading through
+  rather than asking for `include_type_name=false` because only 6.7+ understands that parameter and
+  7.x deprecates it.
+
+Not measured on 6.x beyond the two probes above: `field_multi_value_leniency` (added to the request
+body in 6.7, so a 6.8 cluster should accept it), `_cat/indices?bytes=b`, and the object listings.
+`_index_template` and `_data_stream` did not exist before 7.8/7.9, so on 6.x those two folders report
+the cluster's refusal as their unavailable reason rather than a count, which is the state
+`countObjects()` already has for a denied endpoint. 6.8 has been out of support since 2020; this is
+compatibility for the clusters that are still there, not a verified target.
+
 ---
 
 ## 4. Connection
@@ -1430,6 +1464,10 @@ because the provider exposes no `cancelQuery` ([§3.8](#38-the-deadline-is-the-c
   ([transport.ts:205-219](../../src/lib/db/providers/sql/search/transport.ts)), and note the mapping
   read already tolerates the case: it takes the single entry of the payload rather than looking it up
   by the requested name, because an alias resolves to the concrete index behind it.
+- **Elasticsearch 6.x is served by replay, not by a live pass.** The `_xpack/sql` path and the typed
+  mapping are measured facts ([§3.12](#312-elasticsearch-6x-the-_xpack-prefix-and-the-mapping-type)),
+  but no 6.x cluster ran the whole surface; the `_index_template` and `_data_stream` folders are
+  unavailable there by construction.
 - **No maintenance operations at all** ([§8](#8-maintenance)).
 - **No active sessions and no slow queries**, structurally rather than unimplemented: a request is one
   HTTP request, and the slow log is a node log file no API returns ([§7](#7-monitoring--health)).

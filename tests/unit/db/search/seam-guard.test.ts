@@ -68,6 +68,9 @@ const WIRE_TOKENS = [
   // contains it, so a leak names the endpoint that was actually copied.
   "/_plugins/_sql",
   "/_sql",
+  // Where Elasticsearch 6.x still answers SQL, decided from the version payload by
+  // the transport alone; the provider must not learn that a cluster has an age.
+  "/_xpack/sql",
   "/_cat/indices",
   "/_cluster/health",
   "/_cluster/stats",

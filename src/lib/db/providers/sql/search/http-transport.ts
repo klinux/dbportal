@@ -344,6 +344,12 @@ const STATS_FIELDS = Object.freeze({
  * Mapping payload nesting, measured identical on both products:
  * `{"<index>":{"mappings":{"properties":{...}}}}`, where a leaf carries `type`, a
  * container carries `properties`, and a multi-field carries `fields`.
+ *
+ * Elasticsearch 6.x puts one more level in: the MAPPING TYPE, gone since 7.0 -
+ * `{"<index>":{"mappings":{"_doc":{"properties":{...}}}}}`, where `_doc` is whatever
+ * name the index was created with (6.x allows exactly one). `mappingProperties`
+ * reads through it rather than asking for `include_type_name=false`, which only
+ * 6.7+ understands and 7.x deprecates.
  */
 const MAPPING_FIELDS = Object.freeze({
   MAPPINGS: "mappings",
@@ -423,6 +429,19 @@ interface SearchDialectSpec {
   /** The SQL endpoint, and the query string it needs (empty when it needs none). */
   readonly sqlPath: string;
   readonly sqlQuery: string;
+  /**
+   * Where the SQL endpoint lived BEFORE a major version moved it, or null when the
+   * product never moved it. Measured 2026-09-18 on a 6.x cluster with security on:
+   * `POST /_sql?format=json` answers HTTP 405, "Incorrect HTTP method for uri
+   * [/_sql?format=json] and method [POST], allowed: [PUT, HEAD, DELETE, GET]" - the
+   * cluster took `_sql` for an INDEX NAME, because no handler is registered there -
+   * while `POST /_xpack/sql?format=json` answers HTTP 401 from the security layer,
+   * which is a handler asking for credentials. The `_xpack` prefix was dropped in
+   * 7.0, so the version payload decides which of the two a connection speaks to
+   * (see `resolveSqlPath`). Same request body, same answer envelope, same cursor
+   * protocol on both paths; only the path differs.
+   */
+  readonly legacySql: { readonly path: string; readonly belowMajor: number } | null;
   /** Whether SQL should tolerate multi-valued fields. Elasticsearch supports this request option. */
   readonly fieldMultiValueLeniency: boolean;
   /** The success envelope's declared-columns key. */
@@ -466,6 +485,7 @@ const DIALECTS: Readonly<Record<SearchDialectId, SearchDialectSpec>> = Object.fr
     label: "Elasticsearch",
     sqlPath: "/_sql",
     sqlQuery: "format=json",
+    legacySql: { path: "/_xpack/sql", belowMajor: 7 },
     fieldMultiValueLeniency: true,
     columnsKey: "columns",
     // Elasticsearch folds the alias into `name`, so there is no separate member.
@@ -504,6 +524,8 @@ const DIALECTS: Readonly<Record<SearchDialectId, SearchDialectSpec>> = Object.fr
     label: "OpenSearch",
     sqlPath: "/_plugins/_sql",
     sqlQuery: "",
+    // The fork was cut from 7.10, after the prefix was gone; there is no older path.
+    legacySql: null,
     fieldMultiValueLeniency: false,
     columnsKey: "schema",
     aliasKey: "alias",
@@ -803,7 +825,7 @@ function responseFailure(spec: SearchDialectSpec, status: number, text: string):
   if (typeof envelope === "string") {
     return new SearchTransportError(
       "unreachable",
-      `${spec.label} did not route the request to its SQL endpoint: ${envelope}`,
+      `${spec.label} did not route the request: ${envelope}`,
     );
   }
 
@@ -1057,6 +1079,8 @@ export class SearchHttpTransport implements SearchTransport {
   private readonly spec: SearchDialectSpec;
   private readonly origin: string;
   private readonly authorization: string | undefined;
+  /** The SQL endpoint this cluster answers on, once the version payload has said which; see `resolveSqlPath`. */
+  private sqlPath: string | null = null;
 
   constructor(dialect: SearchDialectId, config: DatabaseConnection) {
     this.dialect = dialect;
@@ -1111,7 +1135,7 @@ export class SearchHttpTransport implements SearchTransport {
    * stops early is closed on the way out, because that one IS server-side state.
    */
   public async query(sql: string, signal?: AbortSignal): Promise<SearchQueryResult> {
-    const path = `${this.spec.sqlPath}${this.spec.sqlQuery === "" ? "" : `?${this.spec.sqlQuery}`}`;
+    const path = `${await this.resolveSqlPath(signal)}${this.spec.sqlQuery === "" ? "" : `?${this.spec.sqlQuery}`}`;
 
     const first = asRecord(
       await this.request(
@@ -1164,10 +1188,40 @@ export class SearchHttpTransport implements SearchTransport {
    */
   private async closeCursor(cursor: string, signal?: AbortSignal): Promise<void> {
     try {
-      await this.request(`${this.spec.sqlPath}/close`, signal, JSON.stringify({ cursor }));
+      await this.request(`${await this.resolveSqlPath(signal)}/close`, signal, JSON.stringify({ cursor }));
     } catch {
       // Deliberately swallowed; see the doc comment.
     }
+  }
+
+  /**
+   * Which SQL endpoint this cluster has, decided once per transport.
+   *
+   * A product that never moved its endpoint costs nothing here. One that did costs
+   * ONE version read on the first statement - the connect probe, in practice - and
+   * the answer is kept for the transport's life, because a cluster does not change
+   * its major version under an open connection. The read is not swallowed: a refusal
+   * of `/` is the same refusal the statement would have met, and it is reported as
+   * such rather than as a guess about the path. A version this client cannot read as
+   * a number is taken as current: the modern path is the one that has been stable
+   * for every release since, so it is the one to try when the payload says nothing.
+   *
+   * The number alone does not decide. OpenSearch counts from 1.0 and is at 3.x, so a
+   * connection of THIS type pointed at that product would read "3" as "older than
+   * 7" and go looking for a prefix the fork never had - and the user would see an
+   * unrouted `_xpack` path instead of the measured refusal of `/_sql` that names
+   * their mistake. The legacy path is Elasticsearch's own, so it is taken only when
+   * the payload names no other distribution (see {@link VERSION_FIELDS}).
+   */
+  private async resolveSqlPath(signal?: AbortSignal): Promise<string> {
+    if (this.sqlPath !== null) return this.sqlPath;
+    if (this.spec.legacySql === null) return (this.sqlPath = this.spec.sqlPath);
+
+    const { version, product } = await this.version(signal);
+    const major = Number.parseInt(version, 10);
+    const legacy = product === UNDISTRIBUTED_PRODUCT && Number.isFinite(major) && major < this.spec.legacySql.belowMajor;
+    this.sqlPath = legacy ? this.spec.legacySql.path : this.spec.sqlPath;
+    return this.sqlPath;
   }
 
   public async version(signal?: AbortSignal): Promise<{ version: string; product: string }> {
@@ -1190,6 +1244,23 @@ export class SearchHttpTransport implements SearchTransport {
     });
   }
 
+  /**
+   * The field declarations of one index's `mappings` member, through the 6.x type
+   * level when there is one. Null for an index with no mapping at all - measured on
+   * both products, a present and EMPTY `mappings`, which the seam reports as an empty
+   * list rather than an error - and for a 6.x type declared without properties.
+   */
+  private mappingProperties(mappings: Record<string, unknown> | null): Record<string, unknown> | null {
+    if (mappings === null) return null;
+    const direct = asRecord(mappings[MAPPING_FIELDS.PROPERTIES]);
+    if (direct !== null) return direct;
+    for (const typed of Object.values(mappings)) {
+      const properties = asRecord(asRecord(typed)?.[MAPPING_FIELDS.PROPERTIES]);
+      if (properties !== null) return properties;
+    }
+    return null;
+  }
+
   public async mapping(index: string, signal?: AbortSignal): Promise<SearchMappingField[]> {
     const payload = asRecord(await this.request(`/${encodeURIComponent(index)}${MAPPING_SUFFIX}`, signal));
     if (payload === null) throw unreadableBody(this.spec, "a mapping");
@@ -1198,10 +1269,7 @@ export class SearchHttpTransport implements SearchTransport {
     // for - an alias resolves to the index behind it - so the single entry is
     // taken rather than looked up by `index`.
     const mappings = asRecord(asRecord(Object.values(payload)[0])?.[MAPPING_FIELDS.MAPPINGS]);
-    const properties = asRecord(mappings?.[MAPPING_FIELDS.PROPERTIES]);
-    // Measured on both: an index created with no mapping answers
-    // `{"<index>":{"mappings":{}}}` - a present, EMPTY object. That is a fact about
-    // the index, and the seam says an empty list, not an error.
+    const properties = this.mappingProperties(mappings);
     return properties === null ? [] : flattenProperties(properties, "");
   }
 
@@ -1214,7 +1282,7 @@ export class SearchHttpTransport implements SearchTransport {
 
       for (const [name, entry] of Object.entries(payload)) {
         const mappings = asRecord(asRecord(entry)?.[MAPPING_FIELDS.MAPPINGS]);
-        const properties = asRecord(mappings?.[MAPPING_FIELDS.PROPERTIES]);
+        const properties = this.mappingProperties(mappings);
         byIndex.set(name, properties === null ? [] : flattenProperties(properties, ""));
       }
     }

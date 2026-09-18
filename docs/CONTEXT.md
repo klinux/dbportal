@@ -1159,6 +1159,22 @@ built. Each lands as its own section when done.
   pod template so a rotated value rolls the pods; the values are base64-encoded as the
   release's own Secret is, so a tool that resolves placeholders in rendered manifests (the
   Argo CD Vault plugin) treats both alike. A default render is byte for byte what it was.
+- **4.55 Elasticsearch 6.x on the search driver — done (asked 2026-09-18).** A 6.x cluster
+  with SQL enabled refused the connect probe with HTTP 405 on `/_sql`: the cluster read
+  `_sql` as an index name, because 6.x serves SQL at `/_xpack/sql` and the prefix only went
+  away in 7.0. The transport now reads `GET /` once per connection, before the first
+  statement, and takes the prefixed path when the payload names no other distribution and a
+  major below 7 (OpenSearch is at 3.x, so the number alone would send an Elasticsearch
+  connection pointed at OpenSearch after a prefix the fork never had); the cursor close
+  follows the same path, a refusal of `/` is reported as the refusal it is, and an
+  unreadable version takes the modern path. The mapping read goes through the type level
+  6.x still has (`mappings.<type>.properties`), single and bulk reads alike. Everything sits
+  in `http-transport.ts` and the seam guard now lists `/_xpack/sql` as wire knowledge the
+  provider must not spell. Measured on the live cluster: the 405 on `/_sql` and the 401 on
+  `/_xpack/sql`; the rest is replay
+  ([`docs/providers/elasticsearch.md` §3.12](providers/elasticsearch.md)). The two folders
+  6.x has no endpoint for, composable templates and data streams, report the refusal as
+  their unavailable reason, which is the state a denied endpoint already had.
 
 ## 5. Decisions already taken
 

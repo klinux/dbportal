@@ -1055,7 +1055,7 @@ describe("ElasticsearchProvider validation", () => {
     // addressable), so the field can only ever be noise.
     const provider = await connectProvider({ database: "nope" });
 
-    expect(sent[0].url).toBe(`http://127.0.0.1:9200${SQL_PATH}`);
+    expect(sqlRequests()[0].url).toBe(`http://127.0.0.1:9200${SQL_PATH}`);
     expect(statementsSent()).toEqual([CONNECT_PROBE]);
     await provider.disconnect();
   });
@@ -1065,7 +1065,7 @@ describe("ElasticsearchProvider validation", () => {
     // guess - and the connection form prefills the same number.
     const provider = await connectProvider({ port: undefined });
 
-    expect(sent[0].url).toBe(`http://127.0.0.1:9200${SQL_PATH}`);
+    expect(sqlRequests()[0].url).toBe(`http://127.0.0.1:9200${SQL_PATH}`);
     await provider.disconnect();
   });
 
@@ -1076,7 +1076,7 @@ describe("ElasticsearchProvider validation", () => {
     // credentials somewhere nothing is listening.
     const provider = await connectProvider({ ssl: { mode: "require" } });
 
-    expect(sent[0].url).toBe(`https://127.0.0.1:9200${SQL_PATH}`);
+    expect(sqlRequests()[0].url).toBe(`https://127.0.0.1:9200${SQL_PATH}`);
     await provider.disconnect();
   });
 
@@ -1085,7 +1085,7 @@ describe("ElasticsearchProvider validation", () => {
     // "ssl is configured, so use https".
     const provider = await connectProvider({ ssl: { mode: "disable" } });
 
-    expect(sent[0].url).toBe(`http://127.0.0.1:9200${SQL_PATH}`);
+    expect(sqlRequests()[0].url).toBe(`http://127.0.0.1:9200${SQL_PATH}`);
     await provider.disconnect();
   });
 
@@ -1119,7 +1119,7 @@ describe("ElasticsearchProvider validation", () => {
     const provider = new ElasticsearchProvider(makeConnection({ host: "::1" }));
     await provider.connect();
 
-    expect(sent[0].url).toBe(`http://[::1]:9200${SQL_PATH}`);
+    expect(sqlRequests()[0].url).toBe(`http://[::1]:9200${SQL_PATH}`);
     await provider.disconnect();
   });
 });
@@ -1133,11 +1133,14 @@ describe("ElasticsearchProvider lifecycle", () => {
     // `SELECT 1` needs no index, so it also succeeds on a cluster that holds nothing
     // yet. And the SQL endpoint path is product-specific, so a connected transport is
     // evidence that this connection's type-id names the product actually listening.
+    // The version read comes first, because on this product the path depends on it
+    // (6.x kept the `_xpack` prefix, see "a 6.x cluster" below) and it is read ONCE.
     const provider = await connectProvider();
 
     expect(provider.isConnected()).toBe(true);
     expect(statementsSent()).toEqual([CONNECT_PROBE]);
-    expect(sent[0].method).toBe("POST");
+    expect(pathsSent()).toEqual(["/", SQL_PATH]);
+    expect(sent[1].method).toBe("POST");
   });
 
   test("connect arms one client-side deadline, and it is the only deadline there is", async () => {
@@ -1430,8 +1433,9 @@ describe("ElasticsearchProvider query", () => {
       ...SQL_QUERY_OPTIONS,
     });
     expect(paging[1].body).toEqual({ cursor: AGGREGATION_CURSOR });
-    // Nothing else was asked: no /_sql/close, because no cursor was left holding.
-    expect(pathsSent()).toEqual([SQL_PATH, SQL_PATH, SQL_PATH]);
+    // Nothing else was asked: no /_sql/close, because no cursor was left holding, and
+    // the version was read once at connect rather than once per statement.
+    expect(pathsSent()).toEqual(["/", SQL_PATH, SQL_PATH, SQL_PATH]);
   });
 
   test("refuses a statement that pages forever, and closes the cursor on the way out", async () => {
@@ -1640,7 +1644,7 @@ describe("ElasticsearchProvider error mapping", () => {
     const failure = provider.query(CONNECT_PROBE);
 
     await expect(failure).rejects.toBeInstanceOf(ConnectionError);
-    await expect(failure).rejects.toThrow(/did not route the request to its SQL endpoint/);
+    await expect(failure).rejects.toThrow(/did not route the request/);
     await expect(failure).rejects.toThrow(/no handler found for uri \[\/_plugins\/_sql\]/);
   });
 
@@ -2793,5 +2797,157 @@ describe("Elasticsearch object paths are derived from the declaration, never fro
       "search",
       "probe_stream",
     ]);
+  });
+});
+
+// ============================================================================
+// Elasticsearch 6.x
+// ============================================================================
+
+/**
+ * `GET /` on a 6.x cluster. The same members as 9.x - `build_flavor` `default` is
+ * the distribution the SQL endpoint ships in - and no `distribution`, which is what
+ * lets the number be read as an Elasticsearch major rather than an OpenSearch one.
+ */
+const ROOT_6_BODY = JSON.stringify({
+  name: "es-data-0",
+  cluster_name: "es-data",
+  cluster_uuid: "y2Q7oJ7dTsS0cIm5dO8LFA",
+  version: { number: "6.8.23", build_flavor: "default", build_type: "docker", lucene_version: "7.7.3" },
+  tagline: "You Know, for Search",
+});
+
+/** Where a 6.x cluster answers SQL: the prefix 7.0 dropped, the same query string. */
+const LEGACY_SQL_PATH = "/_xpack/sql?format=json";
+const LEGACY_CLOSE_PATH = "/_xpack/sql/close";
+
+/**
+ * `POST /_sql?format=json` on a 6.x cluster, measured 2026-09-18 with security on:
+ * HTTP 405, and the wording gives the cause away - a POST to a name with no handler
+ * is read as a request to an INDEX called `_sql`, hence the index methods listed.
+ */
+const SIX_UNROUTED_SQL =
+  '{"error":"Incorrect HTTP method for uri [/_sql?format=json] and method [POST], allowed: [PUT, HEAD, DELETE, GET]","status":405}';
+
+/** The same mapping a 6.x cluster answers: one mapping-type level down, `_doc` by convention. */
+function typedMapping(body: string, type = "_doc"): string {
+  const payload = JSON.parse(body) as Record<string, { mappings: Record<string, unknown> }>;
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(payload).map(([index, entry]) => [index, { mappings: { [type]: entry.mappings } }])),
+  );
+}
+
+/**
+ * Serve the whole surface the way a 6.x cluster does: the version payload says 6,
+ * `/_sql` is refused exactly as measured, `_xpack/sql` answers what `/_sql` answers
+ * on 9.x, and every mapping carries the type level.
+ */
+function serveSixCluster(root: string = ROOT_6_BODY): void {
+  replyFor = (request) => {
+    if (request.path === "/") return ok(root);
+    if (request.path === SQL_PATH) return fail(405, SIX_UNROUTED_SQL);
+    if (request.path === LEGACY_SQL_PATH) return defaultReply({ ...request, path: SQL_PATH });
+    if (request.path === LEGACY_CLOSE_PATH) return ok(CURSOR_CLOSED_BODY);
+    const canned = PATH_BODIES[request.path];
+    if (canned !== undefined && request.path.endsWith("/_mapping")) return ok(typedMapping(canned));
+    return defaultReply(request);
+  };
+}
+
+describe("a 6.x cluster", () => {
+  test("is spoken to on the path its version calls for, and never on the one it refuses", async () => {
+    // The 405 above is what a user saw on a real 6.x cluster whose SQL worked fine on
+    // `_xpack/sql`. The version payload is the evidence the transport reads, BEFORE the
+    // first statement, so the refused path is never requested at all.
+    serveSixCluster();
+
+    const provider = await connectProvider();
+
+    expect(provider.isConnected()).toBe(true);
+    expect(pathsSent()).toEqual(["/", LEGACY_SQL_PATH]);
+    expect(sent[1].method).toBe("POST");
+    expect(sent[1].body).toEqual({ query: CONNECT_PROBE, ...SQL_QUERY_OPTIONS });
+  });
+
+  test("reads the version once per connection, not once per statement", async () => {
+    // A cluster does not change its major under an open connection, so the answer is
+    // kept for the transport's life: two statements cost two requests, not four.
+    serveSixCluster();
+    const provider = await connectProvider();
+
+    await provider.query("SELECT id FROM probe_orders");
+    await provider.query("SELECT id FROM probe_orders");
+
+    expect(pathsSent().filter((path) => path === "/")).toHaveLength(1);
+    expect(pathsSent().filter((path) => path === LEGACY_SQL_PATH)).toHaveLength(3);
+  });
+
+  test("releases an abandoned cursor on the same path it was opened on", async () => {
+    // The cursor protocol is the same on both paths; a close sent to the modern path
+    // would be another unrouted request, and the cursor would live to its keep-alive.
+    serveSixCluster();
+    const provider = await connectProvider();
+    replyFor = (request) =>
+      request.path === LEGACY_SQL_PATH
+        ? ok(ENDLESS_PAGE)
+        : request.path === LEGACY_CLOSE_PATH
+          ? ok(CURSOR_CLOSED_BODY)
+          : defaultReply(request);
+
+    await expect(provider.query("SELECT k, COUNT(*) FROM probe_buckets GROUP BY k")).rejects.toThrow(
+      /more result pages/,
+    );
+
+    expect(pathsSent()).toContain(LEGACY_CLOSE_PATH);
+    expect(pathsSent()).not.toContain("/_sql/close");
+  });
+
+  test("reads field declarations through the mapping type 7.0 removed", async () => {
+    // `{"mappings":{"_doc":{"properties":...}}}` on 6.x against
+    // `{"mappings":{"properties":...}}` since 7.0: the same fields, one level down, and
+    // both the single and the bulk read see them. A type declared with no properties
+    // (the typed spelling of an empty index) is still an empty list, not an error.
+    serveSixCluster();
+    const provider = await connectProvider();
+
+    const single = await provider.describeObject(["probe_orders"], "index");
+    expect(single.columns.map((column) => column.name)).toEqual(["created", "customer", "id", "note", "total"]);
+
+    const batch = await provider.describeObjects([], "index");
+    expect(batch.details.map((detail) => detail.columns.map((column) => column.name))).toEqual([
+      ["k"],
+      ["created", "customer", "id", "note", "total"],
+      ["address.city", "note"],
+    ]);
+
+    const six = replyFor;
+    replyFor = (request) =>
+      request.path === "/_cat/indices?format=json&bytes=b" ? ok(CAT_INDICES_CLOSED_BODY) : six(request);
+    const closed = await provider.describeObject(["probe_closed"], "index");
+    expect(closed.columns).toEqual([]);
+  });
+
+  test("a version this client cannot read is taken as current", async () => {
+    // The modern path is the one every release since 7.0 has kept, so a payload that
+    // says nothing readable gets the modern path - and here that is the refused one,
+    // which is how the test knows which path was chosen.
+    serveSixCluster(JSON.stringify({ version: { number: "unknown", build_flavor: "default" } }));
+
+    const failure = new ElasticsearchProvider(makeConnection()).connect();
+
+    await expect(failure).rejects.toBeInstanceOf(ConnectionError);
+    await expect(failure).rejects.toThrow("Incorrect HTTP method for uri [/_sql?format=json]");
+    expect(pathsSent()).toEqual(["/", SQL_PATH]);
+  });
+
+  test("a refused version read is reported as the refusal it is, before any statement", async () => {
+    // Reading `/` costs the same credentials the statement would, so a denial there is
+    // the denial the connection form should show - not a guess about the path.
+    replyFor = (request) => (request.path === "/" ? fail(403, NO_BODY) : defaultReply(request));
+
+    const failure = new ElasticsearchProvider(makeConnection()).connect();
+
+    await expect(failure).rejects.toBeInstanceOf(AuthenticationError);
+    expect(pathsSent()).toEqual(["/"]);
   });
 });
