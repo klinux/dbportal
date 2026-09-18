@@ -290,6 +290,7 @@ run_group "Group 14/16: DataCharts" \
 # Group 15: All remaining files (safe together)
 run_group "Group 15/16: Remaining components" \
   tests/components/copy-button.test.tsx \
+  tests/components/EnvironmentTag.test.tsx \
   tests/components/rich-text.test.tsx \
   tests/components/QueryEditor.test.tsx \
   tests/components/QuerySafetyDialog.test.tsx \

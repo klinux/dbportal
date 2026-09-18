@@ -25,6 +25,7 @@ import {
   Save,
 } from "lucide-react";
 import { DatabaseConnection, SavedQuery, QueryHistoryItem } from "@/lib/types";
+import { EnvironmentTag } from "@/components/EnvironmentTag";
 import { relationObjects, type DetailedObject } from "@/lib/db/detailed-object";
 import { pathKey } from "@/lib/db/object-path";
 import type { ProviderCapabilities } from "@/lib/db/types";
@@ -191,6 +192,7 @@ export function CommandPalette({
                 <CommandItem key={conn.id} onSelect={() => runAction(() => onSelectConnection(conn))}>
                   <Icon className="w-3.5 h-3.5" />
                   <span>{conn.name}</span>
+                  <EnvironmentTag environment={conn.environment} />
                   {activeConnection?.id === conn.id && (
                     <span className="ml-auto text-xs text-success font-medium">Active</span>
                   )}

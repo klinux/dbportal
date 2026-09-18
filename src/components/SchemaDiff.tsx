@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { EnvironmentTag } from "@/components/EnvironmentTag";
 import type { SchemaSnapshot, DatabaseType, DatabaseConnection } from "@/lib/types";
 import { detailedObjects, type DetailedObject } from "@/lib/db/detailed-object";
 import { relationKindIds } from "@/lib/db/object-kinds";
@@ -271,6 +272,7 @@ export function SchemaDiff({ schema, connection }: SchemaDiffProps) {
                       <SelectItem key={`conn:${c.id}`} value={`conn:${c.id}`} className="text-xs">
                         <div className="flex items-center gap-1">
                           <Database strokeWidth={1.5} className="w-3 h-3 text-hue-blue" /> {c.name}
+                          <EnvironmentTag environment={c.environment} />
                           {c.environment === "production" && (
                             <TriangleAlert strokeWidth={1.5} className="w-3 h-3 text-danger" />
                           )}

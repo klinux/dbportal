@@ -1,5 +1,7 @@
 "use client";
 
+import { EnvironmentTag } from "@/components/EnvironmentTag";
+import { useEnvironments } from "@/hooks/use-environments";
 import React, { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -33,6 +35,7 @@ import { StorageTab } from "./tabs/StorageTab";
 import { PoolTab } from "./tabs/PoolTab";
 
 export function MonitoringDashboard() {
+  const environments = useEnvironments();
   const router = useRouter();
   // The stored active connection is read once, at mount: it seeds the default
   // selection and nothing re-reads it afterwards. `readString` answers null
@@ -146,6 +149,7 @@ export function MonitoringDashboard() {
             <div className="flex items-center gap-2">
               <Database strokeWidth={1.5} className="h-4 w-4 flex-shrink-0" />
               <span className="truncate">{selectedConnection.name}</span>
+              <EnvironmentTag environment={selectedConnection.environment} environments={environments} />
               <span className="text-xs text-fg-muted hidden sm:inline">({selectedConnection.type})</span>
             </div>
           ) : (
@@ -159,6 +163,7 @@ export function MonitoringDashboard() {
             <div className="flex items-center gap-2">
               <Database strokeWidth={1.5} className="h-4 w-4" />
               <span>{conn.name}</span>
+              <EnvironmentTag environment={conn.environment} environments={environments} />
               <span className="text-xs text-fg-muted">({conn.type})</span>
             </div>
           </SelectItem>

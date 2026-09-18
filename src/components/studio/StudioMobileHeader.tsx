@@ -5,6 +5,7 @@ import type { DatabaseConnection } from "@/lib/types";
 import type { QueryEditorRef } from "@/components/QueryEditor";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { EnvironmentTag } from "@/components/EnvironmentTag";
 import {
   TextAlignStart,
   Bot,
@@ -170,6 +171,7 @@ export function StudioMobileHeader({
                     >
                       <Database strokeWidth={1.5} className="w-3.5 h-3.5 mr-2" />
                       <span className="truncate">{c.name}</span>
+                      <EnvironmentTag environment={c.environment} className="ml-2" />
                       {activeConnection?.id === c.id && (
                         <div className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-tint" />
                       )}

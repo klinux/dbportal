@@ -1,5 +1,7 @@
 "use client";
 
+import { environmentSuffix } from "@/components/EnvironmentTag";
+import { useEnvironments } from "@/hooks/use-environments";
 import { appFetch } from "@/lib/config/base-path";
 import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +36,7 @@ import type { SeedRun } from "@/lib/seed-data/run";
 export const POLL_MS = 1500;
 
 export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: string; datasourceName: string }) {
+  const environments = useEnvironments();
   const [schema, setSchema] = useState("public");
   const [plan, setPlan] = useState<PlanTable[] | null>(null);
   const [counts, setCounts] = useState<Record<string, string>>({});
@@ -196,6 +199,7 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
               {sources.map((c) => (
                 <option key={c.id} value={c.seedId}>
                   {c.name}
+                  {environmentSuffix(c.environment, environments)}
                 </option>
               ))}
             </select>

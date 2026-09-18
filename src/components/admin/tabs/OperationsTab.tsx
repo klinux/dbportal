@@ -1,5 +1,7 @@
 "use client";
 
+import { EnvironmentTag } from "@/components/EnvironmentTag";
+import { useEnvironments } from "@/hooks/use-environments";
 import React, { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
@@ -112,6 +114,7 @@ interface OperationLogEntry {
 }
 
 export function OperationsTab() {
+  const environments = useEnvironments();
   // Only the operator's CHOICE is state; the list and the selected object are both
   // calculated during render from it. `useAllConnections` is read here, above the
   // hooks that take `selectedConnection` as an argument, because the derivation has
@@ -376,6 +379,7 @@ export function OperationsTab() {
                     <div className="flex items-center gap-2">
                       <Database className="h-4 w-4 flex-shrink-0" />
                       <span className="truncate">{selectedConnection.name}</span>
+                      <EnvironmentTag environment={selectedConnection.environment} environments={environments} />
                       <span className="text-xs text-fg-muted hidden sm:inline">({selectedConnection.type})</span>
                     </div>
                   ) : (
@@ -389,6 +393,7 @@ export function OperationsTab() {
                     <div className="flex items-center gap-2">
                       <Database className="h-4 w-4" />
                       <span>{conn.name}</span>
+                      <EnvironmentTag environment={conn.environment} environments={environments} />
                       <span className="text-xs text-muted-foreground">({conn.type})</span>
                     </div>
                   </SelectItem>

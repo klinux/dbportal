@@ -1,5 +1,7 @@
 "use client";
 
+import { environmentSuffix } from "@/components/EnvironmentTag";
+import { useEnvironments } from "@/hooks/use-environments";
 import { appFetch } from "@/lib/config/base-path";
 import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -131,6 +133,7 @@ async function fetchAlerts(): Promise<AlertRecord[]> {
 }
 
 export function AlertsPanel() {
+  const environments = useEnvironments();
   const { connections } = useAllConnections();
   const channels = useChannels();
   const [alerts, setAlerts] = useState<AlertRecord[] | null>(null);
@@ -429,6 +432,7 @@ export function AlertsPanel() {
                     .map((c) => (
                       <option key={c.id} value={c.seedId}>
                         {c.name}
+                        {environmentSuffix(c.environment, environments)}
                       </option>
                     ))}
                 </select>
