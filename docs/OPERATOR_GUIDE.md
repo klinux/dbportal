@@ -53,6 +53,10 @@ and written to Vault (or sealed in the store when there is no Vault), the dataso
 pointed at it. The plan is shown as SQL before it runs; see
 [SEED_CONNECTIONS.md](SEED_CONNECTIONS.md) "An account of the portal's own".
 
+The datasource's id is the slug of its name; the same application in another environment
+(`smb` in production, `smb` in staging) keeps its name and gets the environment appended to
+the id (`smb-staging`), which the toast says.
+
 The same datasource can be declared in the seed file instead (`SEED_CONFIG_PATH`), which is
 the right place for anything that should survive a store reset and be reviewed in git
 ([SEED_CONNECTIONS.md](SEED_CONNECTIONS.md)). Seed-file datasources are read-only on the

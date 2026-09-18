@@ -194,6 +194,25 @@ export function slugifyDatasourceId(name: string): string {
     .slice(0, 64);
 }
 
+/**
+ * The id a NEW datasource gets: the slug of its name, and when that id is already taken - the
+ * same application in another environment, `smb` in production and `smb` in staging - the
+ * environment is appended, then a counter. The id is a key everywhere (`seed:<id>`, the
+ * Vault path, the audit target), so it must stay unique across environments; the name is
+ * what people read, and it may repeat.
+ */
+export function uniqueDatasourceId(name: string, environment: string | undefined, taken: readonly string[]): string {
+  const base = slugifyDatasourceId(name);
+  if (base === "" || !taken.includes(base)) return base;
+  const withEnvironment = slugifyDatasourceId(`${base}-${environment ?? "other"}`);
+  if (!taken.includes(withEnvironment)) return withEnvironment;
+  for (let n = 2; n < 100; n += 1) {
+    const candidate = slugifyDatasourceId(`${withEnvironment}-${n}`);
+    if (!taken.includes(candidate)) return candidate;
+  }
+  return withEnvironment;
+}
+
 /** What the API stores, from what the modal built: the connection fields the seed schema knows. */
 export function toDatasourcePayload(
   conn: DatabaseConnection,
@@ -503,7 +522,13 @@ export function DatasourcesTab() {
           : writeMode === "none"
             ? []
             : editing?.writeRoles;
-    const id = editing ? editing.id : slugifyDatasourceId(conn.name);
+    const id = editing
+      ? editing.id
+      : uniqueDatasourceId(
+          conn.name,
+          conn.environment,
+          rows.map((row) => row.id),
+        );
     if (!id) {
       toast.error("The name must contain at least one letter or digit.");
       return;
@@ -530,7 +555,13 @@ export function DatasourcesTab() {
         },
       );
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
-      toast.success(editing ? `Datasource "${conn.name}" updated` : `Datasource "${conn.name}" created`);
+      toast.success(
+        editing
+          ? `Datasource "${conn.name}" updated`
+          : id === slugifyDatasourceId(conn.name)
+            ? `Datasource "${conn.name}" created`
+            : `Datasource "${conn.name}" created as ${id}`,
+      );
       closeModal();
       await load();
     } catch (error) {

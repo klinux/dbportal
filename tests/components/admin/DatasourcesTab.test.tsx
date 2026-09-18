@@ -61,6 +61,7 @@ import { render, waitFor, act, cleanup, fireEvent, within } from "@testing-libra
 const {
   DatasourcesTab,
   slugifyDatasourceId,
+  uniqueDatasourceId,
   toDatasourcePayload,
   PAGE_SIZE,
   rowMatches,
@@ -605,6 +606,37 @@ describe("DatasourcesTab", () => {
 });
 
 describe("datasource helpers", () => {
+  // The same application in two environments is two datasources with one name: the id, a key
+  // everywhere, gets the environment appended, then a counter, and never collides.
+  test("uniqueDatasourceId appends the environment, then a counter, when the slug is taken", () => {
+    expect(uniqueDatasourceId("smb", "staging", ["prod-orders"])).toBe("smb");
+    expect(uniqueDatasourceId("smb", "staging", ["smb"])).toBe("smb-staging");
+    expect(uniqueDatasourceId("smb", undefined, ["smb"])).toBe("smb-other");
+    expect(uniqueDatasourceId("smb", "staging", ["smb", "smb-staging"])).toBe("smb-staging-2");
+    expect(uniqueDatasourceId("smb", "staging", ["smb", "smb-staging", "smb-staging-2"])).toBe("smb-staging-3");
+    expect(uniqueDatasourceId("***", "staging", ["smb"])).toBe("");
+    const all = ["smb-staging", ...Array.from({ length: 98 }, (_, i) => `smb-staging-${i + 2}`), "smb"];
+    expect(uniqueDatasourceId("smb", "staging", all)).toBe("smb-staging");
+  });
+
+  test("a new datasource whose name is taken in another environment is created under the suffixed id", async () => {
+    const fetchMock = mockGlobalFetch({
+      "/api/admin/datasources": listing({ datasources: [{ ...storeRow, id: "smb", name: "smb" }] }),
+    });
+    const { getByText } = await renderLoaded();
+    fireEvent.click(getByText("New datasource"));
+    await act(async () => {
+      await (capturedModalProps.onConnect as (c: DatabaseConnection) => Promise<void>)({
+        ...built,
+        name: "smb",
+        environment: "staging",
+      });
+    });
+    const post = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "POST")!;
+    expect(JSON.parse((post[1] as RequestInit).body as string).id).toBe("smb-staging");
+    expect(mockToastSuccess).toHaveBeenCalledWith('Datasource "smb" created as smb-staging');
+  });
+
   test("slugifyDatasourceId produces the seed schema's id shape", () => {
     expect(slugifyDatasourceId("Orders (production)")).toBe("orders-production");
     expect(slugifyDatasourceId("  Réplica de leitura #2 ")).toBe("replica-de-leitura-2");
