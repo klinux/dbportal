@@ -1039,6 +1039,13 @@ built. Each lands as its own section when done.
   keeps its other keys (a KV v2 write is a whole version), and a path where the
   datasource's own credential lives under a key the write would set is a 409 - the
   portal's password replacing the application's would be an outage of the portal's making.
+  **Live on Cloud SQL for MySQL (2026-09-18, 0.6.4):** the whole plan ran - the account,
+  `SELECT` on the schema, `PROCESS`, `SELECT ON performance_schema.*` - and the default
+  user could not pass `CONNECTION_ADMIN` on ("you need the GRANT OPTION privilege"), so
+  kill from the sessions panel stays refused for the portal's account there. 0.6.5 reads
+  the global privileges the bootstrap holds with the grant option (dynamic ones included)
+  and leaves such a grant out of the plan with a note that says what it costs and the
+  statement an administrator may run later, instead of attempting it and showing a refusal.
   First live contact (2026-09-17, 0.6.2): the bootstrap connection timed out on both
   engines because the provisioning resolver applied env and Vault but not the SSH profile
   the datasource names; it now goes through `applySshProfile` like `resolveConnection`,

@@ -124,6 +124,8 @@ mock.module("@/lib/db/factory", () => ({
               ? [
                   { privilege: "SELECT", grantable: "YES" },
                   { privilege: "CREATE USER", grantable: "YES" },
+                  { privilege: "PROCESS", grantable: "YES" },
+                  { privilege: "CONNECTION_ADMIN", grantable: "YES" },
                 ]
               : sql.startsWith("SELECT SCHEMA_NAME")
                 ? [{ name: "sales" }]

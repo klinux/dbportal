@@ -411,7 +411,8 @@ sequences, the same on the tables their owners create later, and `pg_monitor` pl
 (32 characters at most), one `GRANT ... ON schema.*` per chosen schema, which already
 covers the tables to come, plus `PROCESS`, `SELECT ON performance_schema.*` and the kill
 privilege the server spells (`CONNECTION_ADMIN` on MySQL 8) where the bootstrap may grant
-them. The whole plan is shown as SQL, password masked, before anything runs; a blocker (no
+them; a global grant the bootstrap cannot pass on (on Cloud SQL, `CONNECTION_ADMIN`) is left
+out with a note saying what the account lacks and the statement an administrator may run. The whole plan is shown as SQL, password masked, before anything runs; a blocker (no
 `CREATEROLE` or `CREATE USER`, a schema the server does not have, tables owned by a role
 the bootstrap is not a member of, a privilege held without `GRANT OPTION`) is named with
 its remedy and the run stays off. The credential that runs the plan is the datasource's

@@ -309,6 +309,13 @@ export function ProvisionAccountSheet({ open, onOpenChange, datasource, onProvis
                     ))}
                   </ul>
                 )}
+                {(inspection.plan.notes ?? []).length > 0 && (
+                  <ul className="list-disc pl-4 text-fg-muted space-y-1" data-testid="provision-notes">
+                    {(inspection.plan.notes ?? []).map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
+                  </ul>
+                )}
                 <pre className="rounded-md border border-hairline bg-sunken p-3 font-mono text-[11px] overflow-x-auto whitespace-pre-wrap">
                   {inspection.plan.statements
                     .map((s) => `-- ${s.purpose}${s.optional ? " (optional)" : ""}\n${s.shown};`)

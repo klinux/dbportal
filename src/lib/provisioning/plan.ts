@@ -65,6 +65,8 @@ export interface ProvisionInventory {
   readonly serverVersion: number;
   /** MySQL only: a MariaDB server, whose administrative privileges are spelled differently. */
   readonly mariadb?: boolean;
+  /** MySQL only: the global privileges the bootstrap holds WITH GRANT OPTION, dynamic ones included. */
+  readonly grantableEverywhere?: readonly string[];
   readonly database: string;
   readonly bootstrapUser: string;
   /** `rolcreaterole` of the bootstrap (PostgreSQL), the CREATE USER privilege (MySQL): without it no account can be created. */
@@ -104,6 +106,12 @@ export interface ProvisionPlan {
    * fail halfway and leave an account that reaches half the schema.
    */
   readonly blockers: readonly string[];
+  /**
+   * What the plan leaves out on purpose, each a sentence with what it costs and the remedy:
+   * an optional grant the bootstrap is known not to hold with the grant option is not
+   * attempted, so the account lacks that one thing rather than the report showing a refusal.
+   */
+  readonly notes?: readonly string[];
 }
 
 /** What a shown statement carries where the password stands in `sql`. */

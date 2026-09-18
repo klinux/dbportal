@@ -178,7 +178,7 @@ describe("ProvisionAccountSheet", () => {
             }
           : {
               inventory: { ...inventory, canCreateRole: false, roleExists: true },
-              plan: { ...plan, blockers: ["app cannot create roles"] },
+              plan: { ...plan, blockers: ["app cannot create roles"], notes: ["CONNECTION_ADMIN is not granted"] },
               destination: { kind: "store" },
             },
     });
@@ -190,6 +190,7 @@ describe("ProvisionAccountSheet", () => {
     });
 
     expect(view.getByTestId("provision-blockers").textContent).toContain("app cannot create roles");
+    expect(view.getByTestId("provision-notes").textContent).toContain("CONNECTION_ADMIN is not granted");
     expect(view.getByTestId("provision-plan").textContent).toContain("(cannot create accounts)");
     expect(view.getByTestId("provision-plan").textContent).toContain("exists, its password will be rotated");
     expect(view.getByTestId("provision-plan").textContent).toContain("sealed at rest");

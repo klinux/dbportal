@@ -99,6 +99,7 @@ describe("readMysqlInventory", () => {
       database: "shop",
       bootstrapUser: "app@%",
       canCreateRole: true,
+      grantableEverywhere: ["CREATE USER"],
       availableSchemas: ["sales", "shop"],
       // What is grantable everywhere is grantable here too; what is held without the
       // option is not listed; a chosen schema the server lacks is left out.
@@ -205,6 +206,47 @@ describe("buildMysqlPlan", () => {
     );
     expect(sqls({ mariadb: true, serverVersion: 100400 }).some((s) => s.includes("CONNECTION"))).toBe(false);
     expect(sqls({ serverVersion: 50744 }).some((s) => s.includes("CONNECTION"))).toBe(false);
+    const older = buildMysqlPlan(
+      "s",
+      { profile: "read", schemas: ["sales"], agent: false },
+      inventory({ serverVersion: 50744 }),
+      SECRETS,
+    );
+    expect(older.notes).toEqual([
+      "Kill from the sessions panel needs SUPER on this server, which the plan never grants; dbportal_s does without it.",
+    ]);
+  });
+
+  // Measured on Cloud SQL for MySQL 2026-09-18: the default user passes PROCESS on and not
+  // CONNECTION_ADMIN. A global grant the inventory says the bootstrap cannot pass on is left
+  // out and noted, so the report shows no refusal and the admin knows what the account lacks.
+  test("leaves out a global grant the bootstrap cannot pass on, and says what it costs", () => {
+    const plan = buildMysqlPlan(
+      "shop-prod",
+      { profile: "read", schemas: ["sales"], agent: true },
+      inventory({ grantableEverywhere: ["CREATE USER", "SELECT", "PROCESS"] }),
+      SECRETS,
+    );
+
+    expect(plan.statements.some((s) => s.sql.includes("CONNECTION_ADMIN"))).toBe(false);
+    expect(plan.statements.filter((s) => s.sql.startsWith("GRANT PROCESS"))).toHaveLength(2);
+    expect(plan.notes).toHaveLength(2);
+    expect(plan.notes?.[0]).toContain("CONNECTION_ADMIN is not granted to dbportal_shop_prod");
+    expect(plan.notes?.[0]).toContain("GRANT CONNECTION_ADMIN ON *.* TO 'dbportal_shop_prod'@'%'");
+    expect(plan.notes?.[1]).toContain("dbportal_shop_prod_agent");
+
+    const noProcess = buildMysqlPlan(
+      "shop-prod",
+      { profile: "read", schemas: ["sales"], agent: false },
+      inventory({ grantableEverywhere: ["CREATE USER", "SELECT"] }),
+      SECRETS,
+    );
+    expect(noProcess.statements.some((s) => s.sql.startsWith("GRANT PROCESS"))).toBe(false);
+    expect(noProcess.notes?.[0]).toContain("PROCESS is not granted");
+    // An inventory that did not read the global privileges attempts every optional grant.
+    expect(
+      buildMysqlPlan("s", { profile: "read", schemas: ["sales"], agent: false }, inventory(), SECRETS).notes,
+    ).toEqual([]);
   });
 
   test("blocks on a bootstrap without CREATE USER unless every account exists, on a missing schema, on rights held without the grant option, and on no schema", () => {

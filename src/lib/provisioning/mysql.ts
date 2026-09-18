@@ -126,6 +126,7 @@ export async function readMysqlInventory(
     database: text(who.db),
     bootstrapUser: text(who.bootstrap),
     canCreateRole,
+    grantableEverywhere,
     availableSchemas: available,
     schemas: described,
     roleExists: accounts.includes(accountFor(roleName)),
@@ -137,6 +138,12 @@ function rightsFor(profile: ProvisionProfile): readonly string[] {
   return profile === "readwrite" ? ["SELECT", "INSERT", "UPDATE", "DELETE"] : ["SELECT"];
 }
 
+/** The kill privilege as this server spells it, or null where only SUPER would do. */
+function killPrivilege(inventory: ProvisionInventory): string | null {
+  if (inventory.mariadb) return inventory.serverVersion >= 100502 ? "CONNECTION ADMIN" : null;
+  return inventory.serverVersion >= 80000 ? "CONNECTION_ADMIN" : null;
+}
+
 function accountStatements(
   name: string,
   password: string,
@@ -144,6 +151,7 @@ function accountStatements(
   profile: ProvisionProfile,
   inventory: ProvisionInventory,
   account: PlannedStatement["account"],
+  notes: string[],
 ): PlannedStatement[] {
   const who = accountFor(name);
   const pw = quoteLiteral(password, "mysql");
@@ -182,14 +190,30 @@ function accountStatements(
     );
   }
 
-  add(`GRANT PROCESS ON *.* TO ${who}`, "See every session in the sessions panel and the InnoDB status", true);
+  // A global grant the bootstrap is known not to hold with the grant option is left out and
+  // said so, rather than attempted and shown refused: measured on Cloud SQL for MySQL
+  // 2026-09-18, the default user passes PROCESS on but not CONNECTION_ADMIN.
+  const passesOn = (privilege: string): boolean =>
+    inventory.grantableEverywhere === undefined || inventory.grantableEverywhere.includes(privilege);
+  if (passesOn("PROCESS")) {
+    add(`GRANT PROCESS ON *.* TO ${who}`, "See every session in the sessions panel and the InnoDB status", true);
+  } else {
+    notes.push(
+      `PROCESS is not granted to ${name}: the bootstrap "${inventory.bootstrapUser}" cannot pass it on, so the sessions panel shows this account's own sessions only. An administrator may run GRANT PROCESS ON *.* TO ${who} later.`,
+    );
+  }
   add(`GRANT SELECT ON performance_schema.* TO ${who}`, "The statistics the monitoring panels are built from", true);
-  if (inventory.mariadb) {
-    if (inventory.serverVersion >= 100502) {
-      add(`GRANT CONNECTION ADMIN ON *.* TO ${who}`, "Stop a statement from the sessions panel (kill)", true);
-    }
-  } else if (inventory.serverVersion >= 80000) {
-    add(`GRANT CONNECTION_ADMIN ON *.* TO ${who}`, "Stop a statement from the sessions panel (kill)", true);
+  const kill = killPrivilege(inventory);
+  if (kill === null) {
+    notes.push(
+      `Kill from the sessions panel needs SUPER on this server, which the plan never grants; ${name} does without it.`,
+    );
+  } else if (passesOn(kill)) {
+    add(`GRANT ${kill} ON *.* TO ${who}`, "Stop a statement from the sessions panel (kill)", true);
+  } else {
+    notes.push(
+      `${kill} is not granted to ${name}: the bootstrap "${inventory.bootstrapUser}" cannot pass it on (on Cloud SQL no user can), so kill from the sessions panel stays refused for this account. An administrator with it may run GRANT ${kill} ON *.* TO ${who} later.`,
+    );
   }
   return statements;
 }
@@ -221,11 +245,20 @@ export function buildMysqlPlan(
   }
   if (request.schemas.length === 0) blockers.push("Pick at least one schema for the account to reach.");
 
+  const notes: string[] = [];
   const statements = [
-    ...accountStatements(roleName, secrets.password, inventory.roleExists, request.profile, inventory, "portal"),
+    ...accountStatements(roleName, secrets.password, inventory.roleExists, request.profile, inventory, "portal", notes),
     ...(request.agent
-      ? accountStatements(agentRoleName, secrets.agentPassword, inventory.agentRoleExists, "read", inventory, "agent")
+      ? accountStatements(
+          agentRoleName,
+          secrets.agentPassword,
+          inventory.agentRoleExists,
+          "read",
+          inventory,
+          "agent",
+          notes,
+        )
       : []),
   ];
-  return { roleName, agentRoleName, statements, blockers };
+  return { roleName, agentRoleName, statements, blockers, notes };
 }
