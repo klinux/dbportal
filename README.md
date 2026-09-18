@@ -26,7 +26,7 @@ Adminer, and every statement that reaches a database is attributable to a person
 > database drivers and SSO come from there ([NOTICE.md](NOTICE.md)). The governance,
 > operations and scale layers described below were built on top, and
 > [docs/CONTEXT.md](docs/CONTEXT.md) §4 records the design of each and what was
-> deliberately left out. Current release: [0.7.0](https://github.com/klinux/dbportal/releases).
+> deliberately left out. Current release: [0.7.1](https://github.com/klinux/dbportal/releases).
 > The documentation is also published at <https://klinux.github.io/dbportal/>.
 
 ## Why
