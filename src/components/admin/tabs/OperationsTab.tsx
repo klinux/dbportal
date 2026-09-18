@@ -8,6 +8,7 @@ import { AdminSectionHeader } from "@/components/admin/AdminSectionHeader";
 import { BackupsPanel } from "@/components/admin/BackupsPanel";
 import { RunbooksPanel } from "@/components/admin/RunbooksPanel";
 import { SeedDataPanel } from "@/components/admin/SeedDataPanel";
+import { seedEngineOf } from "@/lib/seed-data/engine";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -451,18 +452,24 @@ export function OperationsTab() {
         </TabsContent>
 
         <TabsContent value="seed" className="mt-4">
-          {/* Generated rows for a staging datasource; never production, PostgreSQL only. */}
+          {/* Generated rows for a staging datasource; never production, PostgreSQL or MySQL (§4.23). */}
           {selectedConnection &&
           selectedConnection.environment !== "production" &&
-          selectedConnection.type === "postgres" ? (
+          seedEngineOf(selectedConnection.type) ? (
             <SeedDataPanel
               key={selectedConnection.seedId ?? selectedConnection.id}
               datasourceId={selectedConnection.seedId ?? selectedConnection.id}
               datasourceName={selectedConnection.name}
+              engine={seedEngineOf(selectedConnection.type)!}
+              defaultSchema={selectedConnection.type === "mysql" ? (selectedConnection.database ?? "") : "public"}
             />
           ) : (
             <p className="text-xs text-fg-muted" data-testid="operations-seed-unavailable">
-              Seeding fills a non-production PostgreSQL datasource with generated rows. Select one to use it.
+              {!selectedConnection
+                ? "Select a non-production PostgreSQL or MySQL datasource to fill it from its schema."
+                : selectedConnection.environment === "production"
+                  ? `"${selectedConnection.name}" is a production datasource, and a production datasource is never seeded.`
+                  : `"${selectedConnection.name}" is ${selectedConnection.type}; seeding from the schema is available on PostgreSQL and MySQL datasources.`}
             </p>
           )}
         </TabsContent>

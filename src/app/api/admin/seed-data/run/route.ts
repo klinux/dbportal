@@ -6,6 +6,7 @@ import { answerSeedDataError } from "@/lib/api/seed-data";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
 import { readCatalog, readSchemaName } from "@/lib/seed-data/catalog";
+import { seedEngineLabel, seedEngineOf } from "@/lib/seed-data/engine";
 import { SeedDataError } from "@/lib/seed-data/errors";
 import { enqueueSeed } from "@/lib/seed-data/job";
 import { buildPlan, readCounts, readRatios } from "@/lib/seed-data/plan";
@@ -15,7 +16,7 @@ import { resolveConnection } from "@/lib/seed/resolve-connection";
 /**
  * Start a seed (docs/CONTEXT.md §4.23, §4.31): the catalog is read here to validate what was
  * asked - the counts bounded, the ratios on tables with a parent, the source another
- * PostgreSQL this session may open - and the seed is handed to the queue (§4.40), where a
+ * datasource of the same engine this session may open - and the seed is handed to the queue (§4.40), where a
  * worker runs it and writes each table's progress; this answers 202 with the run to poll.
  */
 export async function POST(request: Request) {
@@ -31,13 +32,14 @@ export async function POST(request: Request) {
     const body = (await readObjectBody(request)) ?? {};
     const datasourceId = typeof body.datasourceId === "string" ? body.datasourceId.trim() : "";
     if (!datasourceId) return NextResponse.json({ error: "datasourceId is required" }, { status: 400 });
-    const schema = readSchemaName(body.schema);
     const connection = await resolveConnection({ connectionId: `seed:${datasourceId}` }, gate.session);
     await assertSeedable(connection);
+    const engine = seedEngineOf(connection.type) ?? "postgres";
+    const schema = readSchemaName(body.schema, engine, connection.database);
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(gate.session.username),
     });
-    const tables = await readCatalog(provider, schema);
+    const tables = await readCatalog(provider, schema, engine);
     const plan = buildPlan(tables);
     const counts = readCounts(body.counts, plan);
     const ratios = readRatios(body.ratios, plan);
@@ -51,8 +53,11 @@ export async function POST(request: Request) {
         throw new SeedDataError("The sample must come from another datasource", 400);
       }
       const sourceConnection = await resolveConnection({ connectionId: `seed:${sourceDatasourceId}` }, gate.session);
-      if (sourceConnection.type !== "postgres") {
-        throw new SeedDataError("A sample is copied from a PostgreSQL datasource only", 403);
+      if (sourceConnection.type !== connection.type) {
+        throw new SeedDataError(
+          `A sample is copied from a datasource of the same engine only: "${connection.name}" is ${seedEngineLabel(engine)}`,
+          403,
+        );
       }
       sourceName = sourceConnection.name;
     }

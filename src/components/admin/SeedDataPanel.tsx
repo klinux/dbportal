@@ -22,6 +22,7 @@ import {
 import { Database, Play, RefreshCw, Sprout } from "lucide-react";
 import { useAllConnections } from "@/hooks/use-all-connections";
 import { toast } from "sonner";
+import { type SeedEngine, seedEngineLabel } from "@/lib/seed-data/engine";
 import type { PlanTable } from "@/lib/seed-data/plan";
 import type { SeedRun } from "@/lib/seed-data/run";
 
@@ -29,22 +30,35 @@ import type { SeedRun } from "@/lib/seed-data/run";
  * Seeding a non-production datasource from its schema (docs/CONTEXT.md §4.23): read the
  * schema into a plan - the tables in the order they are filled, with what each depends on
  * and a row count to edit - then run it and watch each table fill. Two modes (§4.31):
- * generated rows, or a masked sample copied from another PostgreSQL datasource; a child
+ * generated rows, or a masked sample copied from another datasource of the same engine; a child
  * table may take rows per parent row instead of a count. The server refuses what it will
  * not do (production, another engine, a freeze window); this panel shows its words.
  */
 export const POLL_MS = 1500;
 
-export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: string; datasourceName: string }) {
+export function SeedDataPanel({
+  datasourceId,
+  datasourceName,
+  engine = "postgres",
+  defaultSchema = "public",
+}: {
+  datasourceId: string;
+  datasourceName: string;
+  /** PostgreSQL or MySQL: decides what a schema is and where a sample may come from. */
+  engine?: SeedEngine;
+  /** PostgreSQL's `public`; on MySQL the datasource's own database. */
+  defaultSchema?: string;
+}) {
   const environments = useEnvironments();
-  const [schema, setSchema] = useState("public");
+  const [schema, setSchema] = useState(defaultSchema);
   const [plan, setPlan] = useState<PlanTable[] | null>(null);
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [ratios, setRatios] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<"generate" | "copy">("generate");
   const [sourceId, setSourceId] = useState("");
   const { connections } = useAllConnections();
-  const sources = connections.filter((c) => c.type === "postgres" && c.seedId && c.seedId !== datasourceId);
+  // A sample comes from the same engine: the copy speaks the target's SQL.
+  const sources = connections.filter((c) => c.type === engine && c.seedId && c.seedId !== datasourceId);
   const [truncate, setTruncate] = useState(false);
   const [reading, setReading] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -150,7 +164,7 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
         </div>
         <div className="flex items-center gap-2">
           <Label htmlFor="seed-schema" className="text-xs text-fg-tertiary">
-            Schema
+            {engine === "mysql" ? "Database" : "Schema"}
           </Label>
           <Input
             id="seed-schema"
@@ -195,7 +209,7 @@ export function SeedDataPanel({ datasourceId, datasourceName }: { datasourceId: 
               disabled={run?.status === "running" || run?.status === "queued"}
               className="h-8 rounded-md border border-hairline-strong bg-panel px-2 text-xs"
             >
-              <option value="">Select a PostgreSQL datasource</option>
+              <option value="">Select a {seedEngineLabel(engine)} datasource</option>
               {sources.map((c) => (
                 <option key={c.id} value={c.seedId}>
                   {c.name}

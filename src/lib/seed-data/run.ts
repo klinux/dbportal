@@ -6,9 +6,11 @@ import type { ManagedConnection } from "@/lib/seed";
 import { quoteIdentifier } from "@/lib/sql/identifier";
 import type { QueryResult } from "@/lib/db/types";
 import type { ColumnSpec, TableSpec } from "./catalog";
+import { type SeedEngine, seedEngineOf } from "./engine";
 import { SeedDataError } from "./errors";
 import { copyTable, type CopySource } from "./copy";
 import { valueFor, type Pools } from "./generators";
+import { mysqlEmptyStatements, mysqlInsert, mysqlReadBack, mysqlWrittenColumns } from "./mysql";
 import { MAX_ROWS_PER_TABLE, orderTables } from "./plan";
 import { PRODUCTION_SEED_REFUSAL } from "./policy";
 
@@ -17,7 +19,8 @@ import { PRODUCTION_SEED_REFUSAL } from "./policy";
  * batches of bound rows, the keys the engine handed back kept as the pool the next table's
  * foreign keys draw from. Runs in this process after the request that started it answered,
  * one job per datasource at a time, and reports its progress per table to whoever asks for
- * it. Never on production, never inside a freeze window, PostgreSQL only.
+ * it. Never on production, never inside a freeze window; PostgreSQL and MySQL (the MySQL
+ * statements in `mysql.ts`: no RETURNING, no TRUNCATE CASCADE, `?` binds).
  */
 export interface SeedTableProgress {
   name: string;
@@ -48,7 +51,7 @@ type Runner = { query(sql: string, params?: unknown[]): Promise<QueryResult> };
 
 const RUNS_KEY = Symbol.for("dbportal.seed-data-runs");
 const MAX_KEPT_RUNS = 50;
-/** Bound parameters PostgreSQL takes in one statement, with room to spare. */
+/** Bound parameters PostgreSQL takes in one statement, with room to spare; MySQL's prepared statements take 65535. */
 const MAX_PARAMS = 60_000;
 export const MAX_BATCH_ROWS = 500;
 
@@ -68,7 +71,8 @@ export function getSeedRun(id: string): SeedRun | null {
 }
 
 export function seedAllowed(connection: Pick<ManagedConnection, "environment" | "type">): string | null {
-  if (connection.type !== "postgres") return "Seeding from the schema is available on PostgreSQL datasources only";
+  if (!seedEngineOf(connection.type))
+    return "Seeding from the schema is available on PostgreSQL and MySQL datasources only";
   if (connection.environment === "production") return PRODUCTION_SEED_REFUSAL;
   return null;
 }
@@ -113,8 +117,8 @@ function referencedColumns(tables: TableSpec[]): Map<string, Set<string>> {
   return out;
 }
 
-function q(name: string): string {
-  return quoteIdentifier(name, "postgres");
+function q(name: string, engine: SeedEngine = "postgres"): string {
+  return quoteIdentifier(name, engine);
 }
 
 /** The columns the seed writes: everything the engine does not fill better itself, plus foreign keys the engine cannot guess. */
@@ -124,6 +128,7 @@ function writtenColumns(table: TableSpec, softened: Set<string>): ColumnSpec[] {
 
 async function fillTable(
   runner: Runner,
+  engine: SeedEngine,
   schema: string,
   table: TableSpec,
   target: number,
@@ -133,7 +138,7 @@ async function fillTable(
   softened: Set<string>,
   progress: SeedTableProgress,
 ): Promise<void> {
-  const columns = writtenColumns(table, softened);
+  const columns = engine === "mysql" ? mysqlWrittenColumns(table, softened, wanted) : writtenColumns(table, softened);
   const returning = [...wanted].filter((name) => table.columns.some((c) => c.name === name));
   const batchRows =
     columns.length === 0
@@ -144,6 +149,7 @@ async function fillTable(
     const count = Math.min(batchRows, target - done);
     const params: unknown[] = [];
     const tuples: string[] = [];
+    const generated: unknown[][] = [];
     for (let i = 0; i < count; i++) {
       const n = offset + done + i;
       const values = columns.map((c) => valueFor(c, n, pools));
@@ -153,13 +159,31 @@ async function fillTable(
         throw new Error(
           `"${table.name}.${missing.name}" needs a row in "${missing.references!.table}", which has none`,
         );
+      generated.push(values);
       tuples.push(`(${values.map((_v, idx) => `$${params.length + idx + 1}`).join(", ")})`);
       params.push(...values);
     }
+    if (engine === "mysql") {
+      // The values written here are known; what the engine numbered is read back, the
+      // batch's own rows being the last `count` by that column.
+      const insert = mysqlInsert(schema, table, columns, generated);
+      await runner.query(insert.sql, insert.params);
+      for (const name of returning) {
+        const at = columns.findIndex((c) => c.name === name);
+        if (at >= 0) {
+          for (const values of generated) pools.add(table.name, name, values[at]);
+          continue;
+        }
+        const back = await runner.query(mysqlReadBack(schema, table, name, count));
+        for (const row of [...back.rows].reverse()) pools.add(table.name, name, row[name]);
+      }
+      progress.inserted += count;
+      continue;
+    }
     const sql =
       columns.length === 0
-        ? `INSERT INTO ${target_} SELECT FROM generate_series(1, ${count})${returning.length ? ` RETURNING ${returning.map(q).join(", ")}` : ""}`
-        : `INSERT INTO ${target_} (${columns.map((c) => q(c.name)).join(", ")}) VALUES ${tuples.join(", ")}${returning.length ? ` RETURNING ${returning.map(q).join(", ")}` : ""}`;
+        ? `INSERT INTO ${target_} SELECT FROM generate_series(1, ${count})${returning.length ? ` RETURNING ${returning.map((name) => q(name)).join(", ")}` : ""}`
+        : `INSERT INTO ${target_} (${columns.map((c) => q(c.name)).join(", ")}) VALUES ${tuples.join(", ")}${returning.length ? ` RETURNING ${returning.map((name) => q(name)).join(", ")}` : ""}`;
     const result = await runner.query(sql, params);
     for (const row of result.rows) for (const name of returning) pools.add(table.name, name, row[name]);
     progress.inserted += count;
@@ -254,13 +278,18 @@ async function execute(
 ): Promise<void> {
   const pools = new PoolMap();
   const wanted = referencedColumns(order);
+  const engine: SeedEngine = seedEngineOf(input.connection.type) ?? "postgres";
   // One offset per run so unique columns do not collide with the last run's values.
   const offset = (Date.now() % 1_000_000) * 1_000;
   let failed = false;
   try {
     if (input.truncate) {
-      const names = order.map((t) => `${q(input.schema)}.${q(t.name)}`).join(", ");
-      await input.runner.query(`TRUNCATE ${names} RESTART IDENTITY CASCADE`);
+      if (engine === "mysql") {
+        for (const statement of mysqlEmptyStatements(input.schema, order)) await input.runner.query(statement);
+      } else {
+        const names = order.map((t) => `${q(input.schema)}.${q(t.name)}`).join(", ");
+        await input.runner.query(`TRUNCATE ${names} RESTART IDENTITY CASCADE`);
+      }
     }
     for (const table of order) {
       const progress = run.tables.find((t) => t.name === table.name)!;
@@ -284,10 +313,12 @@ async function execute(
             softened,
             run.startedBy,
             Math.max(1, Math.min(MAX_BATCH_ROWS, Math.floor(MAX_PARAMS / Math.max(1, table.columns.length)))),
+            engine,
           );
         } else {
           await fillTable(
             input.runner,
+            engine,
             input.schema,
             table,
             progress.target,

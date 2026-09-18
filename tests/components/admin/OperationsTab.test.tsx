@@ -1916,28 +1916,70 @@ describe("OperationsTab", () => {
     expect(runbooksPanelProps).toEqual(backupsPanelProps);
     // docs/CONTEXT.md §4.23: the seed panel too, for a non-production PostgreSQL datasource.
     fireEvent.mouseDown(getByTestId("operations-tab-seed"), { button: 0 });
-    expect(seedPanelProps).toEqual(backupsPanelProps);
+    expect(seedPanelProps).toMatchObject(backupsPanelProps!);
+    expect(seedPanelProps).toMatchObject({ engine: "postgres", defaultSchema: "public" });
     expect(queryByTestId("operations-seed-unavailable")).toBeNull();
   });
 
-  test("the Seed tab says why it has nothing to offer where the datasource is not a non-production PostgreSQL", async () => {
+  // docs/CONTEXT.md §4.23: MySQL seeds too, its database as the schema the panel starts from.
+  test("the Seed tab offers a non-production MySQL datasource its own database", async () => {
     mockConnectionsList = [
       {
-        id: "c2",
-        name: "MySQL Prod",
+        id: "c3",
+        name: "smb",
         type: "mysql",
         host: "localhost",
         port: 3306,
-        database: "prod",
+        database: "smb",
+        environment: "staging",
+        createdAt: new Date(),
+      },
+    ];
+    mockActiveConnectionId = "c3";
+    seedPanelProps = null;
+    const { getByTestId, queryByTestId } = render(<OperationsTab />);
+    await act(async () => {});
+    fireEvent.mouseDown(getByTestId("operations-tab-seed"), { button: 0 });
+    expect(seedPanelProps).toMatchObject({ datasourceId: "c3", engine: "mysql", defaultSchema: "smb" });
+    expect(queryByTestId("operations-seed-unavailable")).toBeNull();
+  });
+
+  test("the Seed tab says why it has nothing to offer: the engine, or production", async () => {
+    mockConnectionsList = [
+      {
+        id: "c2",
+        name: "Docs",
+        type: "mongodb",
+        host: "localhost",
+        port: 27017,
+        database: "docs",
+        createdAt: new Date(),
+      },
+      {
+        id: "c4",
+        name: "smb",
+        type: "mysql",
+        host: "localhost",
+        port: 3306,
+        database: "smb",
+        environment: "production",
         createdAt: new Date(),
       },
     ];
     mockActiveConnectionId = "c2";
     seedPanelProps = null;
-    const { getByTestId, queryByTestId } = render(<OperationsTab />);
+    const { getByTestId, queryByTestId, unmount } = render(<OperationsTab />);
     await act(async () => {});
     fireEvent.mouseDown(getByTestId("operations-tab-seed"), { button: 0 });
     expect(seedPanelProps).toBeNull();
-    expect(queryByTestId("operations-seed-unavailable")).not.toBeNull();
+    expect(queryByTestId("operations-seed-unavailable")!.textContent).toContain('"Docs" is mongodb');
+    unmount();
+
+    mockActiveConnectionId = "c4";
+    const production = render(<OperationsTab />);
+    await act(async () => {});
+    fireEvent.mouseDown(production.getByTestId("operations-tab-seed"), { button: 0 });
+    expect(seedPanelProps).toBeNull();
+    expect(production.queryByTestId("operations-seed-unavailable")!.textContent).toContain("never seeded");
   });
 });

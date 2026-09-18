@@ -181,6 +181,38 @@ describe("SeedDataPanel", () => {
     expect((await again.findByTestId("seed-data-error")).textContent).toContain("already running");
   });
 
+  // docs/CONTEXT.md §4.23 on MySQL: the panel starts from the datasource's database, says so, and offers MySQL sources only.
+  test("a MySQL target starts from its database and offers a sample from MySQL datasources only", async () => {
+    const fetchMock = mockGlobalFetch({
+      "/api/connections/managed": {
+        ok: true,
+        json: {
+          connections: [
+            { id: "seed:prod", seedId: "prod", name: "Prod", type: "postgres", createdAt: "2026-09-14T00:00:00.000Z" },
+            { id: "seed:my", seedId: "my", name: "My", type: "mysql", createdAt: "2026-09-14T00:00:00.000Z" },
+            { id: "seed:smb", seedId: "smb", name: "smb", type: "mysql", createdAt: "2026-09-14T00:00:00.000Z" },
+          ],
+        },
+      },
+      "/api/admin/seed-data/plan": { ok: true, json: plan },
+    });
+    const view = render(<SeedDataPanel datasourceId="smb" datasourceName="smb" engine="mysql" defaultSchema="smb" />);
+    expect((view.getByLabelText("Database") as HTMLInputElement).value).toBe("smb");
+    await act(async () => {
+      fireEvent.click(view.getByText("Read schema"));
+    });
+    await view.findByTestId("seed-table-orders");
+    const planCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("/seed-data/plan"))!;
+    expect(JSON.parse((planCall[1] as RequestInit).body as string)).toEqual({ datasourceId: "smb", schema: "smb" });
+    fireEvent.change(view.getByLabelText("Rows"), { target: { value: "copy" } });
+    await waitFor(() => {
+      if (!(view.getByLabelText("From") as HTMLSelectElement).querySelector('option[value="my"]'))
+        throw new Error("sources not yet");
+    });
+    const options = [...(view.getByLabelText("From") as HTMLSelectElement).options].map((o) => o.textContent);
+    expect(options).toEqual(["Select a MySQL datasource", "My"]);
+  });
+
   // docs/CONTEXT.md §4.31: the copy mode names a source among the other PostgreSQL datasources; a child may take rows per parent.
   test("copy mode posts the source and the ratios; a source must be picked first; a ratio replaces the count in the total", async () => {
     const fetchMock = mockGlobalFetch({

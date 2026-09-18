@@ -504,7 +504,24 @@ built. Each lands as its own section when done.
   allowed; `truncate: true` empties the tables first. Progress per table by id
   (`GET /api/admin/seed-data/[id]`); a table that fails keeps its error and the rest go on.
   Audited as `data_seed` (started, finished or failed, with the row count). The second mode
-  and the ratios are §4.31.
+  and the ratios are §4.31. **MySQL since 0.7.0 (asked 2026-09-18):** the same plan, panel
+  and job, with the engine picked off the datasource (`src/lib/seed-data/engine.ts`) and
+  MySQL's own catalog and statements in [`src/lib/seed-data/mysql.ts`](../src/lib/seed-data/mysql.ts).
+  The schema is the datasource's database unless named; the catalog comes from
+  `information_schema` (COLUMNS, TABLE_CONSTRAINTS, KEY_COLUMN_USAGE), MySQL's types
+  mapped onto the generators' vocabulary (`tinyint(1)` and `bit(1)` as booleans, DATETIME
+  and TIMESTAMP as a Date because the driver spells it the way the server reads it, ENUM
+  and SET labels parsed off `COLUMN_TYPE`, `AUTO_INCREMENT` as the identity, a
+  `DEFAULT_GENERATED` expression or `CURRENT_TIMESTAMP` as engine-filled, a `VIRTUAL` or
+  `STORED` generated column never written nor copied). What MySQL has no spelling for is
+  done another way: no `RETURNING`, so a batch's numbered keys are read back as the last
+  rows by that column and a referenced column the engine would fill with an expression is
+  generated instead; no `TRUNCATE ... CASCADE` and no session variable a pooled runner can
+  pin, so the tables are emptied with `DELETE` children first and `ALTER TABLE ...
+  AUTO_INCREMENT = 1`; `?` binds, and a copied sample filters on an `IN` list of at most a
+  thousand sampled parents because the driver's prepared statements take no array for one
+  placeholder. A sample is copied from a datasource of the same engine only. Not verified
+  against a live MySQL yet.
 - **4.24 Slack buttons — done.** With `SLACK_SIGNING_SECRET` set, the announcement of a
   pending execution carries Approve and Reject. Slack posts the press to
   `POST /api/slack/interactions`, whose credential is the request signature (`v0=` HMAC over

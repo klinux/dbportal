@@ -71,6 +71,26 @@ class Pools {
 describe("seed-data copy", () => {
   beforeEach(() => audit.mockClear());
 
+  // On MySQL the sample and the insert are spelled by the MySQL module, and there is no
+  // sequence to move: an AUTO_INCREMENT counter follows an explicit value.
+  test("on MySQL, delegates the sample and the insert and moves no sequence", async () => {
+    const pools = new Pools();
+    expect(sampleStatement("shop", customers, 5, pools, new Set(), "mysql")).toEqual({
+      sql: "SELECT `id`, `email` FROM `shop`.`customers` ORDER BY RAND() LIMIT 5",
+      params: [],
+    });
+    expect(insertStatement("shop", customers, [{ id: 1, email: "a" }], new Set(), "mysql")).toEqual({
+      sql: "INSERT INTO `shop`.`customers` (`id`, `email`) VALUES (?, ?)",
+      params: [1, "a"],
+    });
+    const asked: string[] = [];
+    const target = {
+      query: async (sql: string) => (asked.push(sql), { rows: [], fields: [], rowCount: 0, executionTime: 0 }),
+    };
+    await resetSequences(target, "shop", customers, "mysql");
+    expect(asked).toEqual([]);
+  });
+
   test("the sample: every column, at random, bounded; filtered to sampled parents, a nullable reference allowed null, a cut one ignored", () => {
     const pools = new Pools();
     expect(sampleStatement("public", customers, 5, pools, new Set())).toEqual({

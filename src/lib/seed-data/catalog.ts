@@ -1,5 +1,8 @@
 import type { QueryResult } from "@/lib/db/types";
+import type { SeedEngine } from "./engine";
 import { SeedDataError } from "./errors";
+import { readMysqlCatalog, readMysqlSchemaName } from "./mysql";
+import { isPortalTable } from "./portal-tables";
 
 /**
  * What the seed needs to know about a schema (docs/CONTEXT.md §4.23), read from PostgreSQL's
@@ -23,6 +26,8 @@ export interface ColumnSpec {
    */
   engineFilled: boolean;
   identity: boolean;
+  /** MySQL: a `VIRTUAL` or `STORED` generated column, which can be neither written nor copied. */
+  generated?: boolean;
   maxLength: number | null;
   numericPrecision: number | null;
   numericScale: number | null;
@@ -75,7 +80,8 @@ WHERE n.nspname = $1 ORDER BY t.typname, e.enumsortorder`;
 
 const SCHEMA_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
 
-export function readSchemaName(value: unknown): string {
+export function readSchemaName(value: unknown, engine: SeedEngine = "postgres", database?: string): string {
+  if (engine === "mysql") return readMysqlSchemaName(value, database);
   if (value === undefined || value === null || value === "") return "public";
   if (typeof value !== "string" || !SCHEMA_NAME.test(value)) {
     throw new SeedDataError("schema must be a lower-case identifier", 400);
@@ -86,27 +92,15 @@ export function readSchemaName(value: unknown): string {
 const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number(v));
 
-/**
- * The portal's own store tables (src/lib/storage/providers): never part of a seed plan. A
- * datasource may point at the database that hosts the store - a local install does - and a
- * plan that listed them would fill them with generated rows or, with `truncate`, empty
- * them (measured 2026-09-14 on a local install: the store went with the tables).
- */
-export const PORTAL_TABLES: ReadonlySet<string> = new Set([
-  "user_storage",
-  "audit_events",
-  "approval_requests",
-  "jobs",
-  "leases",
-]);
+export { isPortalTable, PORTAL_TABLES } from "./portal-tables";
 
-/** The store's tables, the audit record's partitions included (§4.43: `audit_events_p2026_09`, `audit_events_legacy`). */
-export function isPortalTable(name: string): boolean {
-  return PORTAL_TABLES.has(name) || name.startsWith("audit_events_");
-}
-
-/** Every table of `schema` with what the seed needs, or a refusal when there is none. */
-export async function readCatalog(runner: Runner, schema: string): Promise<TableSpec[]> {
+/** Every table of `schema` with what the seed needs, or a refusal when there is none; MySQL through its own reads. */
+export async function readCatalog(
+  runner: Runner,
+  schema: string,
+  engine: SeedEngine = "postgres",
+): Promise<TableSpec[]> {
+  if (engine === "mysql") return readMysqlCatalog(runner, schema);
   const [columns, keys, fks, enums] = await Promise.all([
     runner.query(TABLES_SQL, [schema]),
     runner.query(KEYS_SQL, [schema]),

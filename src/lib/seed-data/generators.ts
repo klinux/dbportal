@@ -68,6 +68,10 @@ export function valueFor(column: ColumnSpec, n: number, pools: Pools): unknown {
   const { udt } = column;
   if (udt.startsWith("_")) return "{}";
   switch (udt) {
+    case "int1":
+      return column.unique ? (n % 120) + 1 : rand(100) + 1;
+    case "year":
+      return 1990 + (column.unique ? n % 100 : rand(36));
     case "int2":
       return column.unique ? (n % 32_000) + 1 : rand(30_000) + 1;
     case "int4":
@@ -89,6 +93,10 @@ export function valueFor(column: ColumnSpec, n: number, pools: Pools): unknown {
     case "timestamp":
     case "timestamptz":
       return dateAgo(rand(365)).toISOString();
+    // MySQL's DATETIME/TIMESTAMP: a Date, which the driver spells the way the server reads
+    // it; an ISO string with its trailing Z is refused there.
+    case "datetime":
+      return dateAgo(rand(365));
     case "time":
     case "timetz":
       return `${String(rand(24)).padStart(2, "0")}:${String(rand(60)).padStart(2, "0")}:00`;

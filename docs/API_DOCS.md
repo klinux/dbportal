@@ -1362,12 +1362,13 @@ the request is verified by its `X-Slack-Signature` over `X-Slack-Request-Timesta
 the request as reviewer `slack:<user id>` when the datasource's `approverRoles` admit that principal;
 every other case is answered to the presser alone through `response_url`.
 
-Seed from the schema (docs/CONTEXT.md §4.23), admin only, PostgreSQL, never production.
+Seed from the schema (docs/CONTEXT.md §4.23), admin only, PostgreSQL or MySQL, never production. On MySQL
+`schema` is a database name and defaults to the datasource's own.
 `POST /api/admin/seed-data/plan` — body `{ datasourceId, schema? }` → `{ schema, tables: [{ name, columns,
 dependsOn, rows }] }` in the order they are filled; `POST /api/admin/seed-data/run` — body `{ datasourceId,
 schema?, counts?: { <table>: n }, ratios?: { <child table>: rows per parent row }, mode?: "generate" | "copy",
 sourceDatasourceId?, truncate?: boolean }` → `202 { run }` in its queued shape (`status: "queued"`, `run.mode`, `run.sourceName`; the id is the queue job's,
-docs/CONTEXT.md §4.40), `409` while one is queued or running on the datasource; in copy mode (docs/CONTEXT.md §4.31) the source must be another PostgreSQL datasource the session
+docs/CONTEXT.md §4.40), `409` while one is queued or running on the datasource; in copy mode (docs/CONTEXT.md §4.31) the source must be another datasource of the same engine the session
 may open (`400` without one or for the target itself, `403` for another engine, `404` unknown) and the sample is
 masked by the server's rules;
 `GET /api/admin/seed-data/[id]` → `{ run: { id, status: "queued" | "running" | "done" | "failed", tables: [{ name,

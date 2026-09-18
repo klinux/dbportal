@@ -7,6 +7,7 @@ import { withNamedRoles } from "@/lib/roles/store";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 import type { JobRecord } from "@/lib/storage/types";
 import { readCatalog } from "./catalog";
+import { seedEngineOf } from "./engine";
 import { SeedDataError } from "./errors";
 import { buildPlan, readCounts, readRatios, type PlanTable } from "./plan";
 import { assertSeedable, runSeedNow, type SeedMode, type SeedRun } from "./run";
@@ -136,7 +137,7 @@ export async function runSeedJob(job: JobRecord, progress: (run: SeedRun) => Pro
   const connection = await resolveConnection({ connectionId: `seed:${payload.datasourceId}` }, session);
   await assertSeedable(connection);
   const provider = await getOrCreateProvider(connection, { applicationName: applicationNameFor(session.username) });
-  const tables = await readCatalog(provider, payload.schema);
+  const tables = await readCatalog(provider, payload.schema, seedEngineOf(connection.type) ?? "postgres");
   const plan = buildPlan(tables);
   const counts = readCounts(payload.counts, plan);
   const ratios = readRatios(payload.ratios, plan);

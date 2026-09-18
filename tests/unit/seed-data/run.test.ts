@@ -74,7 +74,24 @@ const calls: { sql: string; params: unknown[] | undefined }[] = [];
 const runner = {
   query: mock(async (sql: string, params?: unknown[]) => {
     calls.push({ sql, params });
-    if (sql.startsWith("TRUNCATE")) return { rows: [], fields: [], rowCount: 0, executionTime: 0 };
+    if (sql.startsWith("TRUNCATE") || sql.startsWith("DELETE") || sql.startsWith("ALTER"))
+      return { rows: [], fields: [], rowCount: 0, executionTime: 0 };
+    // MySQL: the batch's keys are read back as the last rows by the numbered column.
+    const readBack = sql.match(/^SELECT `id` AS `id` FROM .* LIMIT (\d+)$/);
+    if (readBack) {
+      const n = Number(readBack[1]);
+      return {
+        rows: Array.from({ length: n }, (_v, i) => ({ id: nextId - i })),
+        fields: ["id"],
+        rowCount: n,
+        executionTime: 1,
+      };
+    }
+    if (sql.startsWith("INSERT INTO `")) {
+      const n = (sql.match(/\(/g) ?? []).length - 1;
+      nextId += n;
+      return { rows: [], fields: [], rowCount: n, executionTime: 1 };
+    }
     if (sql.includes('"orders"') && sql.includes("boom")) throw new Error("duplicate key");
     const count = (sql.match(/\(\$/g) ?? []).length || Number(sql.match(/generate_series\(1, (\d+)\)/)?.[1] ?? 0);
     const rows = sql.includes("RETURNING") ? Array.from({ length: count }, () => ({ id: ++nextId })) : [];
@@ -94,15 +111,53 @@ describe("seed-data run", () => {
     frozen = null;
   });
 
-  test("the guard: PostgreSQL only, never production, never inside a freeze window", async () => {
-    expect(seedAllowed({ type: "mysql", environment: "staging" })).toContain("PostgreSQL");
+  test("the guard: PostgreSQL or MySQL, never production, never inside a freeze window", async () => {
+    expect(seedAllowed({ type: "mongodb", environment: "staging" })).toContain("PostgreSQL and MySQL");
     expect(seedAllowed({ type: "postgres", environment: "production" })).toContain("production");
+    expect(seedAllowed({ type: "mysql", environment: "production" })).toContain("production");
     expect(seedAllowed({ type: "postgres", environment: "staging" })).toBeNull();
+    expect(seedAllowed({ type: "mysql", environment: "staging" })).toBeNull();
     await expect(assertSeedable(connection)).resolves.toBeUndefined();
     frozen = { reason: "Release", until: "2026-09-15T00:00:00.000Z" };
     const err = await assertSeedable(connection).catch((e) => e);
     expect(err.statusCode).toBe(403);
     expect(err.message).toContain("frozen");
+  });
+
+  // docs/CONTEXT.md §4.23 on MySQL: the same run with MySQL's statements - `?` binds, the
+  // keys read back after each batch, the tables emptied with DELETE children first.
+  test("fills a MySQL datasource with its own statements, reading the numbered keys back", async () => {
+    const run = await runSeedNow({
+      connection: { ...(connection as object), type: "mysql", database: "shop" } as never,
+      runner,
+      schema: "shop",
+      tables: [orders, customers],
+      counts: new Map([
+        ["customers", 3],
+        ["orders", 2],
+      ]),
+      truncate: true,
+      actor: "root",
+    });
+
+    expect(run.status).toBe("done");
+    expect(run.tables).toEqual([
+      { name: "customers", target: 3, inserted: 3 },
+      { name: "orders", target: 2, inserted: 2 },
+    ]);
+    expect(calls.map((c) => c.sql).slice(0, 4)).toEqual([
+      "DELETE FROM `public`.`orders`".replace("public", "shop"),
+      "DELETE FROM `shop`.`customers`",
+      "ALTER TABLE `shop`.`customers` AUTO_INCREMENT = 1",
+      "ALTER TABLE `shop`.`orders` AUTO_INCREMENT = 1",
+    ]);
+    expect(calls[4].sql).toBe("INSERT INTO `shop`.`customers` (`email`) VALUES (?), (?), (?)");
+    expect(calls[4].params).toHaveLength(3);
+    expect(calls[5].sql).toBe("SELECT `id` AS `id` FROM `shop`.`customers` ORDER BY `id` DESC LIMIT 3");
+    expect(calls[6].sql).toBe("INSERT INTO `shop`.`orders` (`customer_id`, `status`) VALUES (?, ?), (?, ?)");
+    for (const v of calls[6].params!.filter((_v, i) => i % 2 === 0)) expect([1, 2, 3]).toContain(v as number);
+    // Nothing points at orders: no read-back for it.
+    expect(calls).toHaveLength(7);
   });
 
   test("fills parents then children in bound batches, pools the returned keys, and reports done with two audit lines", async () => {

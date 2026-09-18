@@ -4,6 +4,8 @@ import { applyMaskingToRows, detectSensitiveColumnsFromConfig } from "@/lib/data
 import { getServerMaskingConfig } from "@/lib/masking/store";
 import { quoteIdentifier } from "@/lib/sql/identifier";
 import type { ColumnSpec, TableSpec } from "./catalog";
+import type { SeedEngine } from "./engine";
+import { mysqlInsertCopied, mysqlSample } from "./mysql";
 
 /**
  * Seed mode 2 (docs/CONTEXT.md §4.31): a sample of another datasource copied across.
@@ -14,7 +16,9 @@ import type { ColumnSpec, TableSpec } from "./catalog";
  * source's own keys, so the parents' keys are the pool the children draw from. A column
  * the engine fills is written too (`OVERRIDING SYSTEM VALUE` for an identity), and the
  * table's sequences are moved past the copied keys, so what staging inserts later does
- * not collide. Every sample read is a `query_execution` line on the source.
+ * not collide. Every sample read is a `query_execution` line on the source. On MySQL the
+ * sample and the insert are spelled in `mysql.ts` (an IN list for the parents, no
+ * OVERRIDING, no sequence to move: an AUTO_INCREMENT counter follows an explicit value).
  */
 export type Runner = { query(sql: string, params?: unknown[]): Promise<QueryResult> };
 
@@ -33,7 +37,9 @@ export function sampleStatement(
   count: number,
   pools: Pools,
   softened: Set<string>,
+  engine: SeedEngine = "postgres",
 ): { sql: string; params: unknown[] } | { missing: ColumnSpec } {
+  if (engine === "mysql") return mysqlSample(schema, table, count, pools, softened);
   const params: unknown[] = [];
   const where: string[] = [];
   for (const col of table.columns) {
@@ -63,7 +69,9 @@ export function insertStatement(
   table: TableSpec,
   rows: Record<string, unknown>[],
   softened: Set<string>,
+  engine: SeedEngine = "postgres",
 ): { sql: string; params: unknown[] } {
+  if (engine === "mysql") return mysqlInsertCopied(schema, table, rows, softened);
   const columns = table.columns;
   const params: unknown[] = [];
   const tuples = rows.map(
@@ -86,8 +94,14 @@ export function sequenceColumns(table: TableSpec): ColumnSpec[] {
   return table.columns.filter((c) => c.identity || (c.engineFilled && ["int2", "int4", "int8"].includes(c.udt)));
 }
 
-/** Move each sequence past the copied keys, where the column has one. */
-export async function resetSequences(runner: Runner, schema: string, table: TableSpec): Promise<void> {
+/** Move each sequence past the copied keys, where the column has one; nothing on MySQL, whose counter follows. */
+export async function resetSequences(
+  runner: Runner,
+  schema: string,
+  table: TableSpec,
+  engine: SeedEngine = "postgres",
+): Promise<void> {
+  if (engine === "mysql") return;
   for (const col of sequenceColumns(table)) {
     await runner.query(
       `SELECT setval(s, GREATEST(coalesce((SELECT max(${q(col.name)}) FROM ${q(schema)}.${q(table.name)}), 1), 1)) FROM pg_get_serial_sequence($1, $2) s WHERE s IS NOT NULL`,
@@ -117,9 +131,10 @@ export async function copyTable(
   softened: Set<string>,
   actor: string,
   batchRows: number,
+  engine: SeedEngine = "postgres",
 ): Promise<number> {
   if (count === 0) return 0;
-  const statement = sampleStatement(schema, table, count, pools, softened);
+  const statement = sampleStatement(schema, table, count, pools, softened, engine);
   if ("missing" in statement) {
     throw new Error(
       `"${table.name}.${statement.missing.name}" needs a row in "${statement.missing.references!.table}", which has none in the sample`,
@@ -142,11 +157,11 @@ export async function copyTable(
   let copied = 0;
   for (let at = 0; at < rows.length; at += batchRows) {
     const batch = rows.slice(at, at + batchRows);
-    const insert = insertStatement(schema, table, batch, softened);
+    const insert = insertStatement(schema, table, batch, softened, engine);
     await target.query(insert.sql, insert.params);
     for (const row of batch) for (const name of wanted) if (name in row) pools.add(table.name, name, row[name]);
     copied += batch.length;
   }
-  await resetSequences(target, schema, table);
+  await resetSequences(target, schema, table, engine);
   return copied;
 }

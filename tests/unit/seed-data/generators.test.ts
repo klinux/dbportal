@@ -38,6 +38,11 @@ describe("seed-data generators", () => {
     for (const v of many(col({ udt: "jsonb" }))) expect(() => JSON.parse(String(v))).not.toThrow();
     expect(valueFor(col({ udt: "_text" }), 1, pools)).toBe("{}");
     expect(valueFor(col({ udt: "interval" }), 1, pools)).toMatch(/days$/);
+    // MySQL's own shapes (docs/CONTEXT.md §4.23): a tinyint within its byte, a year, a DATETIME as a Date.
+    for (const v of many(col({ udt: "int1" }))) expect((v as number) >= 1 && (v as number) <= 127).toBe(true);
+    for (const v of many(col({ udt: "int1", unique: true }), 200)) expect((v as number) <= 120).toBe(true);
+    for (const v of many(col({ udt: "year" }))) expect((v as number) >= 1990 && (v as number) <= 2090).toBe(true);
+    for (const v of many(col({ udt: "datetime" }))) expect(v).toBeInstanceOf(Date);
     expect(valueFor(col({ udt: "inet" }), 1, pools)).toMatch(/^10\.\d+\.\d+\.\d+$/);
     expect(valueFor(col({ udt: "bytea" }), 1, pools)).toEqual(Buffer.from([0]));
     expect(valueFor(col({ udt: "bytea", nullable: true }), 1, pools)).toBeNull();

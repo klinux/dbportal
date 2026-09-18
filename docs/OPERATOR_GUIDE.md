@@ -97,8 +97,8 @@ by default, no seeding, no restore.
 **Operations** is one datasource selector over four tabs: Global operations (vacuum,
 analyze, reindex, tables, sessions, locks), Runbooks (a statement declared once with the
 values it asks for, run from the studio by anyone who may open the datasource), Seed from
-schemas (a non-production PostgreSQL filled with generated rows, or with a masked sample
-copied from another datasource, children by ratio) and **Backups** (a dump of the selected
+schemas (a non-production PostgreSQL or MySQL filled with generated rows, or with a masked
+sample copied from another datasource of the same engine, children by ratio) and **Backups** (a dump of the selected
 datasource, kept on the server's data volume, uploaded or restored where the environment is
 not production).
 

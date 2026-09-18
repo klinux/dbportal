@@ -28,7 +28,7 @@ mock.module("@/lib/seed/resolve-connection", () => ({
     if (body.connectionId === "seed:prod")
       return { id: "seed:prod", seedId: "prod", name: "Prod", type: "postgres", environment: "production" };
     if (body.connectionId === "seed:mysql")
-      return { id: "seed:mysql", seedId: "mysql", name: "My", type: "mysql", environment: "staging" };
+      return { id: "seed:mysql", seedId: "mysql", name: "My", type: "mysql", environment: "staging", database: "shop" };
     throw new SeedConnectionError("not found", 404);
   },
 }));
@@ -55,7 +55,8 @@ const tables = [
 const readCatalog = mock(async () => tables);
 mock.module("@/lib/seed-data/catalog", () => ({
   readCatalog,
-  readSchemaName: (v: unknown) => (v === undefined ? "public" : String(v)),
+  readSchemaName: (v: unknown, engine?: string, database?: string) =>
+    v === undefined ? (engine === "mysql" ? String(database) : "public") : String(v),
 }));
 mock.module("@/lib/seed-data/run", () => ({
   assertSeedable: async (c: { environment: string }) => {
@@ -129,6 +130,11 @@ describe("/api/admin/seed-data", () => {
     expect((await plan(json({}))).status).toBe(400);
     expect((await plan(json({ datasourceId: "prod" }))).status).toBe(403);
     expect((await plan(json({ datasourceId: "ghost" }))).status).toBe(404);
+    // docs/CONTEXT.md §4.23 on MySQL: the schema is the datasource's own database unless named.
+    const mysql = await plan(json({ datasourceId: "mysql" }));
+    expect(mysql.status).toBe(200);
+    expect((await mysql.json()).schema).toBe("shop");
+    expect((readCatalog.mock.calls.at(-1) as unknown[]).slice(1)).toEqual(["shop", "mysql"]);
   });
 
   test("run reads the catalog again, bounds the counts, hands the seed to the queue as the session and answers 202 with the queued run", async () => {
@@ -181,7 +187,9 @@ describe("/api/admin/seed-data", () => {
     expect(request.ratios).toEqual(new Map());
     expect((await run(json({ datasourceId: "stage", mode: "copy" }))).status).toBe(400);
     expect((await run(json({ datasourceId: "stage", mode: "copy", sourceDatasourceId: "stage" }))).status).toBe(400);
-    expect((await run(json({ datasourceId: "stage", mode: "copy", sourceDatasourceId: "mysql" }))).status).toBe(403);
+    const other = await run(json({ datasourceId: "stage", mode: "copy", sourceDatasourceId: "mysql" }));
+    expect(other.status).toBe(403);
+    expect((await other.json()).error).toContain("same engine");
     expect((await run(json({ datasourceId: "stage", mode: "copy", sourceDatasourceId: "ghost" }))).status).toBe(404);
     expect((await run(json({ datasourceId: "stage", ratios: { customers: 2 } }))).status).toBe(400);
   });
