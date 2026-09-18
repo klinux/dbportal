@@ -30,7 +30,7 @@ FAIL=0
 # green summary line reported a group count no run had.
 # Drifted again before this line was touched: it read 30 while 32 `run_group` calls
 # existed, so every green run reported a group count no run had. 33 is the grep below.
-TOTAL_GROUPS=41
+TOTAL_GROUPS=42
 EXTRA_BUN_ARGS=("$@")
 GROUP_INDEX=0
 COVERAGE_MODE=0
@@ -308,7 +308,6 @@ run_group "Group 15/16: Remaining components" \
   tests/components/admin/AuditTab.test.tsx \
   tests/components/admin/JobsTab.test.tsx \
   tests/components/admin/SshIdentityDialog.test.tsx \
-  tests/components/admin/ProvisionAccountSheet.test.tsx \
   tests/components/admin/AuditPaging.test.tsx \
   tests/components/monitoring/StorageTab.test.tsx \
   tests/components/monitoring/SessionsTab.test.tsx \
@@ -389,6 +388,12 @@ run_group "Group 26: Embedded workspace object tree" \
 # It also installs a global ResizeObserver, which Radix mounts on the viewport.
 run_group "Group 21: ui/scroll-area" \
   tests/components/ui/scroll-area.test.tsx
+
+# Group 27: the account provisioning sheet renders the REAL @/components/ui/sheet, which
+# ConnectionModal's suite mocks process-wide with a stub that drops every prop (the
+# data-testid included); sharing Group 15 with it made the sheet unfindable in CI.
+run_group "Group 27: Account provisioning sheet" \
+  tests/components/admin/ProvisionAccountSheet.test.tsx
 
 # Summary
 echo ""
