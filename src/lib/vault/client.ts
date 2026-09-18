@@ -199,7 +199,8 @@ async function renewSelf(config: VaultConfig, token: string): Promise<TokenRenew
   let leaseS = 0;
   try {
     const body = (await res.json()) as { auth?: { lease_duration?: unknown } };
-    leaseS = typeof body.auth?.lease_duration === "number" && body.auth.lease_duration > 0 ? body.auth.lease_duration : 0;
+    leaseS =
+      typeof body.auth?.lease_duration === "number" && body.auth.lease_duration > 0 ? body.auth.lease_duration : 0;
   } catch {
     // A renewal that answered 2xx without a readable lease: renewed, and asked again in a minute.
   }
@@ -222,7 +223,10 @@ async function renewIfDue(config: VaultConfig, token: string): Promise<void> {
   return holder.renewing;
 }
 
-async function loginAppRole(config: VaultConfig, auth: Extract<VaultAuth, { method: "approle" }>): Promise<VaultSession> {
+async function loginAppRole(
+  config: VaultConfig,
+  auth: Extract<VaultAuth, { method: "approle" }>,
+): Promise<VaultSession> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
   const dispatcher = vaultDispatcher(config.tls);
@@ -253,7 +257,8 @@ async function loginAppRole(config: VaultConfig, auth: Extract<VaultAuth, { meth
   }
   const token = body.auth?.client_token;
   if (typeof token !== "string" || !token) throw new VaultError("Vault answered the AppRole login without a token");
-  const leaseS = typeof body.auth?.lease_duration === "number" && body.auth.lease_duration > 0 ? body.auth.lease_duration : 0;
+  const leaseS =
+    typeof body.auth?.lease_duration === "number" && body.auth.lease_duration > 0 ? body.auth.lease_duration : 0;
   logger.info("Vault AppRole login", { route: "vault", mount: auth.mount, leaseS });
   return { key: `${config.addr}|${auth.mount}|${auth.roleId}`, token, obtainedAt: Date.now(), leaseMs: leaseS * 1000 };
 }

@@ -14,20 +14,20 @@ describe("readAccountRequest", () => {
         schemas: ["sales", "sales", "public"],
         agent: true,
         bootstrap: { user: " dba ", password: "s" },
-        vaultMount: " kv ",
+        vaultPath: " /kv/prod/shop/ ",
       }),
     ).toEqual({
       request: { profile: "readwrite", schemas: ["sales", "public"], agent: true },
       bootstrap: { user: "dba", password: "s" },
-      vaultMount: "kv",
+      vaultPath: "kv/prod/shop",
     });
   });
 
   test("defaults what was left out: no schemas, no agent, no bootstrap, no mount", () => {
-    expect(readAccountRequest({ profile: "read", bootstrap: null, vaultMount: "" })).toEqual({
+    expect(readAccountRequest({ profile: "read", bootstrap: null, vaultPath: "" })).toEqual({
       request: { profile: "read", schemas: [], agent: false },
       bootstrap: undefined,
-      vaultMount: undefined,
+      vaultPath: undefined,
     });
   });
 
@@ -41,8 +41,20 @@ describe("readAccountRequest", () => {
     ["a schema past 63 characters", { profile: "read", schemas: ["x".repeat(64)] }, "schema names"],
     ["a bootstrap that is not an object", { profile: "read", bootstrap: "dba" }, "bootstrap must be an object"],
     ["a bootstrap that is a list", { profile: "read", bootstrap: ["dba"] }, "bootstrap must be an object"],
-    ["a bootstrap without a password", { profile: "read", bootstrap: { user: "dba", password: "" } }, "needs a user and a password"],
-    ["a bootstrap without a user", { profile: "read", bootstrap: { user: "  ", password: "s" } }, "needs a user and a password"],
+    [
+      "a bootstrap without a password",
+      { profile: "read", bootstrap: { user: "dba", password: "" } },
+      "needs a user and a password",
+    ],
+    [
+      "a bootstrap without a user",
+      { profile: "read", bootstrap: { user: "  ", password: "s" } },
+      "needs a user and a password",
+    ],
+    ["a Vault path with no path", { profile: "read", vaultPath: "kv" }, "vaultPath must be"],
+    ["a Vault path with a parent segment", { profile: "read", vaultPath: "kv/../secret" }, "vaultPath must be"],
+    ["a Vault path with a space", { profile: "read", vaultPath: "kv/pr od" }, "vaultPath must be"],
+    ["a Vault path past 200 characters", { profile: "read", vaultPath: `kv/${"a".repeat(200)}` }, "vaultPath must be"],
   ])("refuses %s", (_label, body, message) => {
     const err = (() => {
       try {

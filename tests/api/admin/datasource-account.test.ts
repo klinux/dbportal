@@ -85,7 +85,7 @@ describe("the account routes", () => {
       datasourceId: "shop",
       request: { profile: "read", schemas: ["sales"], agent: false },
       bootstrap: { user: "dba", password: "s" },
-      vaultMount: undefined,
+      vaultPath: undefined,
       actor: "root",
     });
   });

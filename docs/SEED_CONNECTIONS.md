@@ -418,10 +418,15 @@ its remedy and the run stays off. The credential that runs the plan is the datas
 own, or a DBA credential typed for that call and kept nowhere; a datasource behind an SSH
 profile is reached through its tunnel, as every other open reaches it.
 
-Where the password goes: with Vault configured, to `<mount>/data/datasources/<id>` (keys
-`user`, `password`, and `agent_user`/`agent_password` when the agent's read-only account was
-asked for), the mount being the one the datasource already references, else the one typed
-in the dialog, else `dbportal`. A store datasource is then rewritten to `vault:kv:`
+Where the password goes: with Vault configured, to the path typed in the dialog as
+`<mount>/<path>` (a deployment's own layout, `dbportal/prod/<app>` say), else to
+`<mount>/data/datasources/<id>` on the mount the datasource already references, else on
+`dbportal`. The keys are always `user` and `password`, plus `agent_user`/`agent_password`
+when the agent's read-only account was asked for; every other key the secret already holds
+is read and written back, so one secret may keep several credentials, and a path where the
+datasource's own credential lives under one of those keys is refused, because the portal's
+password must never replace the application's. The portal's token needs `read`, `create`
+and `update` on the paths it writes. A store datasource is then rewritten to `vault:kv:`
 references; a seed-file datasource cannot be rewritten by the portal, so the report shows
 the references to paste:
 
@@ -431,8 +436,9 @@ the references to paste:
 ```
 
 Without Vault, a store datasource keeps the password sealed on its record. The portal's
-Vault policy needs `create` and `update` on `<mount>/data/datasources/*` for this, and
-nothing else beyond the reads it already has. Running the action again on a role that
+Vault policy needs `create` and `update` on `<mount>/data/datasources/*` for the default
+path, or on whatever prefix the deployment writes to, and nothing else beyond the reads it
+already has. Running the action again on a role that
 exists rotates its password and re-applies the grants; nothing restarts, because the
 reference is resolved when a connection opens.
 

@@ -14,10 +14,14 @@
  * audit trail or a log line.
  *
  * Where the password goes decides what the datasource ends up holding:
- * - Vault configured: `<mount>/datasources/<id>` with the keys `user` and `password`
- *   (`agent_user`, `agent_password` beside them), and the datasource's fields become
- *   `vault:kv:` references, resolved when the connection opens. The mount is the one the
- *   datasource's own reference names when it has one, else the one the request names.
+ * - Vault configured: `<mount>/<path>` with the keys `user` and `password` (`agent_user`,
+ *   `agent_password` beside them), and the datasource's fields become `vault:kv:`
+ *   references, resolved when the connection opens. The path is the one the request names
+ *   (`vaultPath`, so a deployment's own layout such as `dbportal/prod/<app>` is honoured),
+ *   else `datasources/<id>` on the mount the datasource's own reference names, else on
+ *   `dbportal`. The write keeps every other key the secret already holds, and a path
+ *   where the datasource's own credential lives under the same key is refused: the
+ *   portal's password must never replace the application's.
  * - No Vault: the password is stored on the datasource record, sealed at rest the way every
  *   stored credential is (`connection-secrets.ts`).
  * A datasource declared in the seed file cannot be rewritten here: its account is created
@@ -39,7 +43,7 @@ import { getSeedConnectionByIdUnfiltered } from "@/lib/seed";
 import { applySshProfile, SshProfileResolutionError } from "@/lib/ssh-profiles/resolve";
 import { resolveEnvPlaceholders } from "@/lib/seed/credential-resolver";
 import type { DatabaseConnection } from "@/lib/types";
-import { isVaultConfigured, VaultError, writeKvSecret } from "@/lib/vault/client";
+import { isVaultConfigured, readKvSecret, VaultError, writeKvSecret } from "@/lib/vault/client";
 import {
   isVaultReference,
   parseVaultReference,
@@ -80,8 +84,14 @@ export interface InspectInput {
   readonly datasourceId: string;
   readonly request: ProvisionRequest;
   readonly bootstrap?: BootstrapCredential;
-  /** The KV mount to write to when the datasource's own credential names none. */
-  readonly vaultMount?: string;
+  /**
+   * Where in Vault the password goes, as `<mount>/<path>`, when the admin chose; the
+   * default is `datasources/<id>` on the mount the datasource's own reference names (else
+   * `dbportal`). The keys inside are always `user` and `password` (`agent_user`,
+   * `agent_password`), so a path that holds other keys keeps them and a path that holds
+   * the datasource's own credential under those keys is refused.
+   */
+  readonly vaultPath?: string;
   readonly actor: string;
 }
 
@@ -169,10 +179,35 @@ function mountOf(declared: DatabaseConnection): string | null {
   return null;
 }
 
+/** The KV keys the write would set, so a clash with the datasource's own credential is seen first. */
+function keysWritten(agent: boolean): string[] {
+  return agent ? ["user", "password", "agent_user", "agent_password"] : ["user", "password"];
+}
+
+/**
+ * Refuse a destination where the datasource's own credential lives under a key the write
+ * would set: the application's password replaced by the portal's is an outage.
+ */
+function refuseClobber(declared: DatabaseConnection, mount: string, path: string, agent: boolean): void {
+  const keys = keysWritten(agent);
+  for (const field of ["user", "password", "agentUser", "agentPassword"] as const) {
+    const value = declared[field];
+    if (!isVaultReference(value)) continue;
+    const ref = parseVaultReference(value);
+    if (ref.kind === "kv" && ref.mount === mount && ref.path === path && keys.includes(ref.key)) {
+      throw new ProvisionError(
+        `The datasource's own credential lives at ${mount}/${path}#${ref.key}, and the portal's account would be written under the same key. Choose another path for it.`,
+        409,
+      );
+    }
+  }
+}
+
 async function destinationFor(
   datasourceId: string,
   declared: DatabaseConnection,
-  requested?: string,
+  requested: string | undefined,
+  agent: boolean,
 ): Promise<SecretDestination> {
   const inStore = (await listSharedDatasources()).some((record) => record.id === datasourceId);
   if (!isVaultConfigured()) {
@@ -184,9 +219,14 @@ async function destinationFor(
     }
     return { kind: "store" };
   }
-  const mount = mountOf(declared) ?? requested?.trim() ?? DEFAULT_MOUNT;
-  if (!/^[A-Za-z0-9_\-.]+$/.test(mount)) throw new ProvisionError(`"${mount}" is not a Vault mount name`, 400);
-  const path = `datasources/${datasourceId}`;
+  const chosen = requested?.trim().replace(/^\/+|\/+$/g, "");
+  const slash = chosen ? chosen.indexOf("/") : -1;
+  if (chosen && (slash <= 0 || slash === chosen.length - 1)) {
+    throw new ProvisionError(`"${chosen}" is not a Vault location: <mount>/<path> is needed`, 400);
+  }
+  const mount = chosen ? chosen.slice(0, slash) : (mountOf(declared) ?? DEFAULT_MOUNT);
+  const path = chosen ? chosen.slice(slash + 1) : `datasources/${datasourceId}`;
+  refuseClobber(declared, mount, path, agent);
   return inStore ? { kind: "vault", mount, path } : { kind: "seed-file", mount, path };
 }
 
@@ -246,7 +286,7 @@ function engineOf(declared: DatabaseConnection): ProvisionEngine {
 /** The plan and its blockers, without running anything. */
 export async function inspectAccount(input: InspectInput): Promise<InspectReport> {
   const { declared, resolved } = await resolvedDatasource(input.datasourceId, input.actor);
-  const destination = await destinationFor(input.datasourceId, declared, input.vaultMount);
+  const destination = await destinationFor(input.datasourceId, declared, input.vaultPath, input.request.agent);
   return withBootstrap(resolved, input.bootstrap, input.actor, async (provider) => {
     // Placeholder secrets: the shown plan masks them, and nothing runs here.
     const { inventory, plan } = await inspectWith(provider, engineOf(declared), input, {
@@ -260,7 +300,7 @@ export async function inspectAccount(input: InspectInput): Promise<InspectReport
 /** Run the plan, keep the password, swap the datasource. */
 export async function provisionAccount(input: InspectInput): Promise<ProvisionReport> {
   const { declared, resolved } = await resolvedDatasource(input.datasourceId, input.actor);
-  const destination = await destinationFor(input.datasourceId, declared, input.vaultMount);
+  const destination = await destinationFor(input.datasourceId, declared, input.vaultPath, input.request.agent);
   const secrets = { password: generatePassword(), agentPassword: generatePassword() };
   const statements: StatementOutcome[] = [];
   let completed = true;
@@ -347,7 +387,10 @@ async function keepSecret(
 
   const { mount, path } = destination;
   try {
+    // A KV v2 write replaces the whole version, so the keys the secret already holds (a
+    // deployment keeping several credentials in one secret) are read and written back.
     await writeKvSecret(mount, path, {
+      ...(await existingKeys(mount, path)),
       user: plan.roleName,
       password: secrets.password,
       ...(agent ? { agent_user: plan.agentRoleName, agent_password: secrets.agentPassword } : {}),
@@ -356,7 +399,7 @@ async function keepSecret(
     // The role exists and its password is known to nobody now: say so, in the report's
     // own words, rather than leaving a datasource that silently keeps the old credential.
     throw new ProvisionError(
-      `The account was created but Vault refused the password (${error instanceof Error ? error.message : String(error)}). Run the plan again once the token may write ${mount}/data/${path}; the password will be rotated.`,
+      `The account was created but Vault refused the password (${error instanceof Error ? error.message : String(error)}). Run the plan again once the token may read and write ${mount}/data/${path}; the password will be rotated.`,
       502,
     );
   }
@@ -376,6 +419,16 @@ async function keepSecret(
   // Declared in the seed file: the account exists and the secret is kept, and the file is
   // the operator's to edit. The report carries what to paste.
   return references;
+}
+
+/** What the secret holds today; nothing when it does not exist yet. A refusal to read is a refusal: nothing is overwritten blind. */
+async function existingKeys(mount: string, path: string): Promise<Record<string, unknown>> {
+  try {
+    return await readKvSecret(mount, path);
+  } catch (error) {
+    if (error instanceof VaultError && error.status === 404) return {};
+    throw error;
+  }
 }
 
 /** The datasource record updated to the account, and its cached pool dropped so the next open uses it. */

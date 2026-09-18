@@ -1454,8 +1454,11 @@ Body `{ "connections": [...] }`; returns per-connection health `{ "results": [{ 
 #### POST /api/admin/datasources/{id}/account/plan · POST /api/admin/datasources/{id}/account
 
 The portal's own database account on a PostgreSQL or MySQL datasource (docs/CONTEXT.md §4.54). Body
-`{ "profile": "read" | "readwrite", "schemas": [...], "agent": bool, "bootstrap": { "user", "password" }?, "vaultMount"? }`;
-`schemas` is at most 100 names, `bootstrap` is a DBA credential used for this call alone and stored nowhere. The
+`{ "profile": "read" | "readwrite", "schemas": [...], "agent": bool, "bootstrap": { "user", "password" }?, "vaultPath"? }`;
+`schemas` is at most 100 names, `bootstrap` is a DBA credential used for this call alone and stored nowhere, `vaultPath` is
+where the password goes as `<mount>/<path>` (default: `datasources/<id>` on the datasource's own mount, else `dbportal`);
+the keys inside are always `user`/`password` (`agent_user`/`agent_password`), other keys the secret holds are kept, and a
+path where the datasource's own credential lives under one of those keys is a `409`. The
 plan route answers `{ "inventory", "plan": { "roleName", "agentRoleName", "statements": [{ "shown", "purpose", "optional"?, "account" }], "blockers": [] }, "destination" }`
 with the password masked in every statement; an empty `schemas` reads the inventory alone. The run route runs the
 plan and answers the same `statements` each with an `outcome` (`ran`, `refused`, `skipped`) and `completed`; `200`

@@ -22,7 +22,14 @@ let declared: Record<string, unknown> | null = null;
 mock.module("@/lib/seed", () => ({ getSeedConnectionByIdUnfiltered: async () => declared }));
 
 let vaultConfigured = true;
-const writeKvSecret = mock(async (_mount: string, _path: string, _data: Record<string, string>) => {});
+const writeKvSecret = mock(async (_mount: string, _path: string, _data: Record<string, unknown>) => {});
+let existing: Record<string, unknown> | null = null;
+let readRefusal: Error | null = null;
+const readKvSecret = mock(async (_mount: string, _path: string) => {
+  if (readRefusal) throw readRefusal;
+  if (existing === null) throw new VaultError("Vault answered 404", 404);
+  return existing;
+});
 class VaultError extends Error {
   constructor(
     message: string,
@@ -52,6 +59,7 @@ mock.module("@/lib/ssh-profiles/resolve", () => ({
 mock.module("@/lib/vault/client", () => ({
   isVaultConfigured: () => vaultConfigured,
   writeKvSecret,
+  readKvSecret,
   VaultError,
 }));
 let vaultResolution: ((conn: Record<string, unknown>) => Record<string, unknown>) | null = null;
@@ -197,6 +205,9 @@ const storeRecord = (overrides: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   audit.mockClear();
   writeKvSecret.mockClear();
+  readKvSecret.mockClear();
+  existing = null;
+  readRefusal = null;
   updateSharedDatasource.mockClear();
   removeProvider.mockClear();
   resetVaultCache.mockClear();
@@ -250,18 +261,53 @@ describe("inspectAccount", () => {
     expect(openedWith).toMatchObject({ user: "dba", password: "dba-secret", connectionString: undefined });
   });
 
-  test("resolves a Vault reference on the datasource and writes to that reference's mount", async () => {
+  test("resolves a Vault reference on the datasource and defaults the destination to that reference's mount", async () => {
     declared = datasource({ password: "vault:kv:apps/shop#password" });
 
-    const report = await inspectAccount(input({ vaultMount: "ignored" }));
+    const report = await inspectAccount(input());
 
     expect(openedWith).toMatchObject({ password: "from-vault" });
     expect(report.destination).toEqual({ kind: "vault", mount: "apps", path: "datasources/shop-prod" });
   });
 
-  test("takes the requested mount when the datasource names none, and refuses a malformed one", async () => {
-    expect((await inspectAccount(input({ vaultMount: "kv-team" }))).destination).toMatchObject({ mount: "kv-team" });
-    await expect(inspectAccount(input({ vaultMount: "bad mount" }))).rejects.toThrow(ProvisionError);
+  // A deployment lays Vault out its own way (dbportal/prod/<app>, dbportal/stage/<app>):
+  // the path the admin names wins over the default, and a location with no path is refused.
+  test("writes where the request says, mount and path, and refuses a location without a path", async () => {
+    expect((await inspectAccount(input({ vaultPath: "/dbportal/prod/shop/" }))).destination).toEqual({
+      kind: "vault",
+      mount: "dbportal",
+      path: "prod/shop",
+    });
+    const err = await inspectAccount(input({ vaultPath: "dbportal" })).catch((e) => e);
+    expect(err).toBeInstanceOf(ProvisionError);
+    expect(err.statusCode).toBe(400);
+  });
+
+  // The one path that must be refused: where the application's own credential lives under
+  // the key the portal would write. Replacing it would be an outage the portal caused.
+  test("refuses a path where the datasource's own credential lives under a key the write would set", async () => {
+    declared = datasource({ user: "app", password: "vault:kv:dbportal/prod/shop#password" });
+
+    const err = await inspectAccount(input({ vaultPath: "dbportal/prod/shop" })).catch((e) => e);
+    expect(err).toBeInstanceOf(ProvisionError);
+    expect(err.statusCode).toBe(409);
+    expect(err.message).toContain("dbportal/prod/shop#password");
+
+    // A different key at the same path is no clash: the secret is shared, the keys are not.
+    declared = datasource({ password: "vault:kv:dbportal/prod/shop#app_password" });
+    expect((await inspectAccount(input({ vaultPath: "dbportal/prod/shop" }))).destination).toMatchObject({
+      path: "prod/shop",
+    });
+
+    // The agent's keys count only when the agent's account is asked for.
+    declared = datasource({ agentUser: "vault:kv:dbportal/prod/shop#agent_user", agentPassword: "x" });
+    expect((await inspectAccount(input({ vaultPath: "dbportal/prod/shop" }))).destination).toMatchObject({
+      path: "prod/shop",
+    });
+    const withAgent = await inspectAccount(
+      input({ vaultPath: "dbportal/prod/shop", request: { ...REQUEST, agent: true } }),
+    ).catch((e) => e);
+    expect(withAgent.statusCode).toBe(409);
   });
 
   test("keeps the password on the record when Vault is not configured, and refuses a seed-file datasource then", async () => {
@@ -492,6 +538,28 @@ describe("provisionAccount", () => {
     const monitor = report.statements.find((s) => s.shown.startsWith("GRANT pg_monitor"));
     expect(monitor).toMatchObject({ outcome: "refused", error: "must have admin option on role pg_monitor" });
     expect(report.statements.at(-1)?.outcome).toBe("ran");
+    expect(writeKvSecret).toHaveBeenCalledTimes(1);
+  });
+
+  // A KV v2 write is a whole version: what the secret holds beside the portal's keys is read
+  // and written back, and a read the token may not do stops the write rather than overwrite blind.
+  test("keeps the other keys a shared secret holds, and refuses to overwrite one it cannot read", async () => {
+    existing = { app_user: "app", app_password: "keep-me", password: "old-portal" };
+
+    await provisionAccount(input({ vaultPath: "dbportal/prod/shop" }));
+
+    expect(readKvSecret).toHaveBeenCalledWith("dbportal", "prod/shop");
+    const written = writeKvSecret.mock.calls[0][2] as Record<string, unknown>;
+    expect(written.app_user).toBe("app");
+    expect(written.app_password).toBe("keep-me");
+    expect(written.user).toBe("dbportal_shop_prod");
+    expect(written.password).not.toBe("old-portal");
+
+    readRefusal = new VaultError("Vault answered 403 for dbportal/data/prod/shop", 403);
+    const err = await provisionAccount(input({ vaultPath: "dbportal/prod/shop" })).catch((e) => e);
+    expect(err).toBeInstanceOf(ProvisionError);
+    expect(err.statusCode).toBe(502);
+    expect(err.message).toContain("read and write dbportal/data/prod/shop");
     expect(writeKvSecret).toHaveBeenCalledTimes(1);
   });
 
