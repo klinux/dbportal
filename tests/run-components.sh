@@ -308,7 +308,7 @@ run_group "Group 15/16: Remaining components" \
   tests/components/admin/AuditTab.test.tsx \
   tests/components/admin/JobsTab.test.tsx \
   tests/components/admin/SshIdentityDialog.test.tsx \
-  tests/components/admin/ProvisionAccountDialog.test.tsx \
+  tests/components/admin/ProvisionAccountSheet.test.tsx \
   tests/components/admin/AuditPaging.test.tsx \
   tests/components/monitoring/StorageTab.test.tsx \
   tests/components/monitoring/SessionsTab.test.tsx \

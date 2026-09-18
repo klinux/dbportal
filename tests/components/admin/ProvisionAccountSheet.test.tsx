@@ -1,5 +1,5 @@
 /**
- * The account dialog (docs/CONTEXT.md §4.54): the schemas listed on open with `public`
+ * The account sheet (docs/CONTEXT.md §4.54): the schemas listed on open with `public`
  * ticked, the plan shown before anything runs, the bootstrap credential sent with each
  * call and cleared on completion, the report and the seed-file references after a run.
  */
@@ -9,7 +9,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { mockGlobalFetch, restoreGlobalFetch } from "../../helpers/mock-fetch";
-import { ProvisionAccountDialog } from "@/components/admin/ProvisionAccountDialog";
+import { ProvisionAccountSheet } from "@/components/admin/ProvisionAccountSheet";
 
 const datasource = { id: "shop", name: "Shop", type: "postgres" };
 const inventory = {
@@ -84,7 +84,7 @@ async function renderOpen(answers?: Parameters<typeof routes>[0], onProvisioned?
   mockGlobalFetch(routes(answers));
   const onOpenChange = (() => {}) as (open: boolean) => void;
   const view = render(
-    <ProvisionAccountDialog open onOpenChange={onOpenChange} datasource={datasource} onProvisioned={onProvisioned} />,
+    <ProvisionAccountSheet open onOpenChange={onOpenChange} datasource={datasource} onProvisioned={onProvisioned} />,
   );
   await waitFor(() => {
     if (!view.queryByTestId("provision-schemas") && !view.queryByTestId("provision-error"))
@@ -96,7 +96,7 @@ async function renderOpen(answers?: Parameters<typeof routes>[0], onProvisioned?
 const button = (view: ReturnType<typeof render>, label: string) =>
   view.getByRole("button", { name: label }) as HTMLButtonElement;
 
-describe("ProvisionAccountDialog", () => {
+describe("ProvisionAccountSheet", () => {
   beforeEach(() => {
     bodies.length = 0;
     paths.length = 0;
@@ -131,7 +131,11 @@ describe("ProvisionAccountDialog", () => {
     fireEvent.click(view.getByLabelText("Agent account"));
     fireEvent.change(view.getByLabelText("DBA user"), { target: { value: "dba" } });
     fireEvent.change(view.getByLabelText("DBA password"), { target: { value: "secret" } });
-    fireEvent.change(view.getByLabelText(/Vault KV mount/), { target: { value: "kv" } });
+    // The path field appears once the first read said where the default is, as its placeholder.
+    expect((view.getByLabelText(/Vault path for the password/) as HTMLInputElement).placeholder).toBe(
+      "dbportal/datasources/shop",
+    );
+    fireEvent.change(view.getByLabelText(/Vault path for the password/), { target: { value: " dbportal/prod/shop " } });
     await act(async () => {
       fireEvent.click(button(view, "Show the plan"));
     });
@@ -144,7 +148,7 @@ describe("ProvisionAccountDialog", () => {
       schemas: ["public", "sales"],
       agent: true,
       bootstrap: { user: "dba", password: "secret" },
-      vaultMount: "kv",
+      vaultPath: "dbportal/prod/shop",
     });
     const shown = view.getByTestId("provision-plan").textContent ?? "";
     expect(shown).toContain("PASSWORD '********'");
@@ -189,6 +193,8 @@ describe("ProvisionAccountDialog", () => {
     expect(view.getByTestId("provision-plan").textContent).toContain("(cannot create accounts)");
     expect(view.getByTestId("provision-plan").textContent).toContain("exists, its password will be rotated");
     expect(view.getByTestId("provision-plan").textContent).toContain("sealed at rest");
+    // No Vault, no path to choose.
+    expect(view.queryByLabelText(/Vault path for the password/)).toBeNull();
     expect(button(view, "Rotate and apply").disabled).toBe(true);
   });
 
@@ -329,7 +335,7 @@ describe("ProvisionAccountDialog", () => {
       "/api/admin/datasources/shop/account/plan": { ok: true, json: { inventory, plan, destination: vault } },
       "/api/admin/datasources/shop/account": { status: 502, text: "bad gateway" },
     });
-    const second = render(<ProvisionAccountDialog open onOpenChange={() => {}} datasource={datasource} />);
+    const second = render(<ProvisionAccountSheet open onOpenChange={() => {}} datasource={datasource} />);
     await waitFor(() => {
       if (!second.queryByTestId("provision-schemas")) throw new Error("still reading");
     });
@@ -358,7 +364,7 @@ describe("ProvisionAccountDialog", () => {
         throw "network down";
       },
     });
-    const third = render(<ProvisionAccountDialog open onOpenChange={() => {}} datasource={datasource} />);
+    const third = render(<ProvisionAccountSheet open onOpenChange={() => {}} datasource={datasource} />);
     await waitFor(() => {
       if (!third.queryByTestId("provision-schemas")) throw new Error("still reading");
     });
@@ -377,7 +383,7 @@ describe("ProvisionAccountDialog", () => {
     const opens: boolean[] = [];
     const fetchMock = mockGlobalFetch(routes());
     const view = render(
-      <ProvisionAccountDialog open onOpenChange={(next) => opens.push(next)} datasource={datasource} />,
+      <ProvisionAccountSheet open onOpenChange={(next) => opens.push(next)} datasource={datasource} />,
     );
     await waitFor(() => {
       if (!view.queryByTestId("provision-schemas")) throw new Error("still reading");
@@ -387,8 +393,8 @@ describe("ProvisionAccountDialog", () => {
     expect(opens).toEqual([false]);
     expect((view.getByLabelText("DBA password") as HTMLInputElement).value).toBe("");
 
-    view.rerender(<ProvisionAccountDialog open={false} onOpenChange={() => {}} datasource={datasource} />);
-    view.rerender(<ProvisionAccountDialog open onOpenChange={() => {}} datasource={null} />);
+    view.rerender(<ProvisionAccountSheet open={false} onOpenChange={() => {}} datasource={datasource} />);
+    view.rerender(<ProvisionAccountSheet open onOpenChange={() => {}} datasource={null} />);
     await act(async () => {});
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(view.getByText("The portal's own account on the datasource")).toBeTruthy();
@@ -398,13 +404,13 @@ describe("ProvisionAccountDialog", () => {
   test("tells a MySQL datasource's admin what the bootstrap needs there", async () => {
     mockGlobalFetch(routes());
     const view = render(
-      <ProvisionAccountDialog open onOpenChange={() => {}} datasource={{ ...datasource, type: "mysql" }} />,
+      <ProvisionAccountSheet open onOpenChange={() => {}} datasource={{ ...datasource, type: "mysql" }} />,
     );
     await waitFor(() => {
       if (!view.queryByTestId("provision-schemas")) throw new Error("still reading");
     });
-    expect(view.getByTestId("provision-account-dialog").textContent).toContain("WITH GRANT OPTION");
-    expect(view.getByTestId("provision-account-dialog").textContent).not.toContain("OWNS the tables");
+    expect(view.getByTestId("provision-account-sheet").textContent).toContain("WITH GRANT OPTION");
+    expect(view.getByTestId("provision-account-sheet").textContent).not.toContain("OWNS the tables");
   });
 
   // An unmount mid-read leaves no state update behind.
@@ -416,7 +422,7 @@ describe("ProvisionAccountDialog", () => {
           release = () => resolve({ ok: true, json: { inventory, plan, destination: vault } });
         }),
     });
-    const view = render(<ProvisionAccountDialog open onOpenChange={() => {}} datasource={datasource} />);
+    const view = render(<ProvisionAccountSheet open onOpenChange={() => {}} datasource={datasource} />);
     await waitFor(() => {
       if (!release) throw new Error("not asked yet");
     });

@@ -1001,7 +1001,7 @@ built. Each lands as its own section when done.
 - **4.54 A database account of the portal's own, provisioned from the sheet — done, first
   cut (asked and shipped 2026-09-17).** Shipped as planned below for PostgreSQL: the
   `KeyRound` action on a PostgreSQL row of the datasources tab (store and seed-file rows
-  alike) opens `ProvisionAccountDialog`, which reads the schemas with the datasource's
+  alike) opens `ProvisionAccountSheet` (a configuration sheet, §4.8, not a centred dialog: the plan and the report need a column to scroll in), which reads the schemas with the datasource's
   own credential, takes the profile, the schemas, the agent flag and an optional DBA
   credential for that call alone, shows the plan (`POST
   /api/admin/datasources/<id>/account/plan`) with the password masked and every blocker,
@@ -1033,6 +1033,12 @@ built. Each lands as its own section when done.
   for MySQL the default user and every console-made user hold everything but `SUPER`
   and `FILE` with the option, so the app's credential is an ordinary bootstrap. Deferred
   from the plan: decommission on delete, the drift check, and IAM authentication.
+  0.6.3: the destination is the admin's to choose (`vaultPath` as `<mount>/<path>`,
+  defaulting to `datasources/<id>` on the datasource's mount), because a deployment lays
+  Vault out its own way (`dbportal/prod/<app>`); the write reads the secret first and
+  keeps its other keys (a KV v2 write is a whole version), and a path where the
+  datasource's own credential lives under a key the write would set is a 409 - the
+  portal's password replacing the application's would be an outage of the portal's making.
   First live contact (2026-09-17, 0.6.2): the bootstrap connection timed out on both
   engines because the provisioning resolver applied env and Vault but not the SSH profile
   the datasource names; it now goes through `applySshProfile` like `resolveConnection`,

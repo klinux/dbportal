@@ -687,7 +687,7 @@ describe("DatasourcesTab: the portal's own account", () => {
   // The account button is a PostgreSQL affair (docs/CONTEXT.md §4.54) and opens the dialog
   // for the row; a seed-file row keeps it too, next to its read-only mark, because the
   // password goes to Vault and the report says what to paste. Closing puts it away.
-  test("offers the account dialog on PostgreSQL and MySQL rows only, store and seed-file alike", async () => {
+  test("offers the account sheet on PostgreSQL and MySQL rows only, store and seed-file alike", async () => {
     mockGlobalFetch({
       "/api/admin/datasources/prod-orders/account/plan": {
         ok: true,
@@ -728,16 +728,16 @@ describe("DatasourcesTab: the portal's own account", () => {
     fireEvent.mouseDown(view.getByTestId("env-tab-development"), { button: 0 });
     expect(view.queryByRole("button", { name: "Provision the portal's account on Dev shared" })).not.toBeNull();
     expect(view.queryByRole("button", { name: "Provision the portal's account on Click" })).toBeNull();
-    expect(view.queryByTestId("provision-account-dialog")).toBeNull();
+    expect(view.queryByTestId("provision-account-sheet")).toBeNull();
 
     fireEvent.mouseDown(view.getByTestId("env-tab-production"), { button: 0 });
     fireEvent.click(view.getByRole("button", { name: "Provision the portal's account on Orders" }));
     await waitFor(() => {
       if (!view.queryByTestId("provision-schemas")) throw new Error("dialog still reading");
     });
-    expect(view.getByTestId("provision-account-dialog").textContent).toContain("The portal's own account on Orders");
+    expect(view.getByTestId("provision-account-sheet").textContent).toContain("The portal's own account on Orders");
 
     fireEvent.click(view.getByTestId("provision-close"));
-    await waitFor(gone(() => view.queryByTestId("provision-account-dialog")));
+    await waitFor(gone(() => view.queryByTestId("provision-account-sheet")));
   });
 });

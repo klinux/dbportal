@@ -37,7 +37,7 @@ import {
   ENVIRONMENT_ORDER,
 } from "@/lib/types";
 import { Database, FileCode2, KeyRound, Pencil, Plus, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
-import { ProvisionAccountDialog } from "@/components/admin/ProvisionAccountDialog";
+import { ProvisionAccountSheet } from "@/components/admin/ProvisionAccountSheet";
 import { canProvisionAccount } from "@/lib/provisioning/engines";
 import { toast } from "sonner";
 
@@ -961,7 +961,7 @@ export function DatasourcesTab() {
         </Tabs>
       )}
 
-      <ProvisionAccountDialog
+      <ProvisionAccountSheet
         open={provisioning !== null}
         onOpenChange={(next) => {
           if (!next) setProvisioning(null);
