@@ -1033,7 +1033,11 @@ built. Each lands as its own section when done.
   for MySQL the default user and every console-made user hold everything but `SUPER`
   and `FILE` with the option, so the app's credential is an ordinary bootstrap. Deferred
   from the plan: decommission on delete, the drift check, and IAM authentication.
-  Nothing was verified against a live Cloud SQL instance yet: the ownership rules are
+  First live contact (2026-09-17, 0.6.2): the bootstrap connection timed out on both
+  engines because the provisioning resolver applied env and Vault but not the SSH profile
+  the datasource names; it now goes through `applySshProfile` like `resolveConnection`,
+  and the one-shot tunnel scope forwards it.
+  Nothing else was verified against a live Cloud SQL instance yet: the ownership rules are
   those of PostgreSQL itself, the grant rules those of MySQL, and the Cloud SQL facts are
   from Google's documentation. The plan as written:
   Today the credential a datasource reaches the database with is the

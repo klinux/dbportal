@@ -31,6 +31,24 @@ class VaultError extends Error {
     super(message);
   }
 }
+class SshProfileResolutionError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+  ) {
+    super(message);
+  }
+}
+let sshProfiles: Record<string, { host: string; port: number; username: string }> = {};
+mock.module("@/lib/ssh-profiles/resolve", () => ({
+  SshProfileResolutionError,
+  applySshProfile: async (conn: Record<string, unknown>) => {
+    if (!conn.sshProfile) return conn;
+    const profile = sshProfiles[conn.sshProfile as string];
+    if (!profile) throw new SshProfileResolutionError(`no profile ${conn.sshProfile}`, 400);
+    return { ...conn, sshTunnel: { enabled: true, ...profile, authMethod: "privateKey", privateKey: "k" } };
+  },
+}));
 mock.module("@/lib/vault/client", () => ({
   isVaultConfigured: () => vaultConfigured,
   writeKvSecret,
@@ -193,6 +211,7 @@ beforeEach(() => {
   tunnelled.length = 0;
   disconnected = 0;
   answers.roles = [];
+  sshProfiles = {};
 });
 
 describe("generatePassword", () => {
@@ -264,6 +283,25 @@ describe("inspectAccount", () => {
       mount: "dbportal",
       path: "datasources/shop-prod",
     });
+  });
+
+  // A datasource behind a bastion is opened the way every other open opens it: the SSH
+  // profile it names becomes the tunnel the one-shot scope forwards through. Measured on a
+  // deployment 2026-09-17: without this the bootstrap hit the raw host and timed out.
+  test("builds the tunnel from the datasource's SSH profile before opening, and names a profile it cannot resolve", async () => {
+    declared = datasource({ sshProfile: "bastion" });
+    sshProfiles = { bastion: { host: "bastion.internal", port: 22, username: "portal" } };
+
+    await inspectAccount(input());
+
+    expect(tunnelled[0]).toMatchObject({ sshTunnel: { enabled: true, host: "bastion.internal", port: 22 } });
+    expect(openedWith).toMatchObject({ host: "127.0.0.1" });
+
+    sshProfiles = {};
+    const err = await inspectAccount(input()).catch((e) => e);
+    expect(err).toBeInstanceOf(ProvisionError);
+    expect(err.statusCode).toBe(400);
+    expect(err.message).toContain("no profile bastion");
   });
 
   test("refuses an unknown datasource, one of an engine without account management, and a credential Vault cannot read", async () => {

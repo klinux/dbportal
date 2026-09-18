@@ -415,7 +415,8 @@ them. The whole plan is shown as SQL, password masked, before anything runs; a b
 `CREATEROLE` or `CREATE USER`, a schema the server does not have, tables owned by a role
 the bootstrap is not a member of, a privilege held without `GRANT OPTION`) is named with
 its remedy and the run stays off. The credential that runs the plan is the datasource's
-own, or a DBA credential typed for that call and kept nowhere.
+own, or a DBA credential typed for that call and kept nowhere; a datasource behind an SSH
+profile is reached through its tunnel, as every other open reaches it.
 
 Where the password goes: with Vault configured, to `<mount>/data/datasources/<id>` (keys
 `user`, `password`, and `agent_user`/`agent_password` when the agent's read-only account was

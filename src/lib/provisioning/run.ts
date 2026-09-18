@@ -36,6 +36,7 @@ import { createDatabaseProvider, removeProvider, withOneShotTunnel } from "@/lib
 import { applicationNameFor } from "@/lib/db/application-name";
 import type { DatabaseProvider } from "@/lib/db/types";
 import { getSeedConnectionByIdUnfiltered } from "@/lib/seed";
+import { applySshProfile, SshProfileResolutionError } from "@/lib/ssh-profiles/resolve";
 import { resolveEnvPlaceholders } from "@/lib/seed/credential-resolver";
 import type { DatabaseConnection } from "@/lib/types";
 import { isVaultConfigured, VaultError, writeKvSecret } from "@/lib/vault/client";
@@ -132,7 +133,9 @@ export function generatePassword(): string {
 /**
  * The datasource as declared and as resolved: the declaration still carries its `vault:`
  * references, which say where the deployment keeps this datasource's secrets; the
- * resolution carries the credential the portal holds, which opens the database.
+ * resolution carries the credential the portal holds, which opens the database - and the
+ * tunnel its SSH profile describes, the way `resolveConnection` builds it for every other
+ * open, because a datasource behind a bastion is unreachable at its raw host.
  */
 async function resolvedDatasource(
   datasourceId: string,
@@ -144,8 +147,10 @@ async function resolvedDatasource(
     throw new ProvisionError("An account is provisioned on PostgreSQL and MySQL datasources only", 403);
   }
   try {
-    return { declared, resolved: await resolveVaultReferences(resolveEnvPlaceholders(declared), actor) };
+    const withCredential = await resolveVaultReferences(resolveEnvPlaceholders(declared), actor);
+    return { declared, resolved: await applySshProfile(withCredential, actor) };
   } catch (error) {
+    if (error instanceof SshProfileResolutionError) throw new ProvisionError(error.message, error.statusCode);
     if (error instanceof VaultError)
       throw new ProvisionError(`The stored credential could not be read: ${error.message}`, 502);
     throw error;
