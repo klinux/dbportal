@@ -6,6 +6,9 @@ import { guardRoute } from "@/lib/api/require-session";
 import { auditRoleDenial } from "@/lib/api/role-denial";
 import { statementTooLarge } from "@/lib/api/statement-size";
 import { exportFileOf, ExportRequestError, readExportRequest } from "@/lib/export/request";
+import { assertObjectsAllowed } from "@/lib/api/object-gate";
+import { getOrCreateProvider } from "@/lib/db";
+import { applicationNameFor } from "@/lib/db/application-name";
 import { enqueueJob, JobError, waitForJob } from "@/lib/jobs/queue";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 import { serveExport } from "./serve";
@@ -42,6 +45,16 @@ export async function POST(req: Request) {
     if (!isReadStatement(payload.sql, connection.type)) {
       return NextResponse.json({ error: "Only a statement that reads can be exported" }, { status: 400 });
     }
+    // The objects the statement names must be this session's to use (docs/CONTEXT.md §4.56),
+    // judged here so the refusal is a 403 and nothing is queued; the worker judges again.
+    await assertObjectsAllowed({
+      route,
+      session: guard.session,
+      connection,
+      statements: [payload.sql],
+      request: req,
+      provider: await getOrCreateProvider(connection, { applicationName: applicationNameFor(guard.session.username) }),
+    });
     const job = await enqueueJob({
       kind: "export",
       payload: payload as unknown as Record<string, unknown>,

@@ -269,8 +269,6 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "replaces or deletes one alert in the app's own storage backend (PUT/DELETE, no POST export); resolving the datasource opens nothing. Session-gated by guardRoute; tests/api/alerts.test.ts proves the 401",
   "admin/trail-alerts":
     "reads and saves the trail alert rules in the app's own storage backend (GET/PUT, no POST export); never opens a user database. Admin-gated by requireAdmin; tests/api/admin/trail-alerts.test.ts proves the 403",
-  "db/export":
-    "checks the datasource's export rule and that the statement reads, then hands the export to the queue and waits for the file (POST); the worker (@/lib/export/job, behind the queue) opens the datasource, this route opens nothing. Session-gated by guardRoute; tests/api/db/export.test.ts proves the 401",
   "db/export/[jobId]":
     "serves the file of an export the session queued, read off the queue (GET, no POST export); opens no user database. Same session gate; tests/api/db/export-job.test.ts proves the 401",
   "admin/jobs":
@@ -515,7 +513,6 @@ describe("routes that reach a provider require a session", () => {
     "@/lib/jobs/queue": "the job queue's front door over the app's own storage backend; opens no user database",
     "@/lib/jobs/stats": "the queue's statistics computed from the records the front door lists; opens no user database",
     "@/lib/leases": "leases in the app's own storage backend (docs/CONTEXT.md §4.41): who leads a loop, which cooldowns run; opens no user database",
-    "@/lib/api/statement-size": "the size bound on a statement's text and its 413; a pure helper that opens nothing",
     "@/lib/export/request": "the export request read off the body and the worker's file found under EXPORT_DIR; opens no user database",
     "@/lib/seed-data/job": `a seed as a job (docs/CONTEXT.md §4.40): the queued run, the run read off the job, and the worker's side, which ${PROVIDER_NAMING_HELPER} (@/lib/db) - but the status route imports it for seedRunById alone, which reads the queue and opens nothing`,
     "@/lib/api/jobs": "the job routes' error answer; reaches no provider",

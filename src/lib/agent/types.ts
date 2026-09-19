@@ -406,6 +406,13 @@ export type AgentRunStopReason =
 export interface AgentRunActor {
   readonly sessionId: string;
   readonly role: Role;
+  /**
+   * The session's groups and named roles when the run opened (docs/CONTEXT.md §4.56):
+   * the principals a datasource's object rules are judged against, recorded with the
+   * role for the same reason the role is - a resumed drive acts as who opened it.
+   */
+  readonly groups?: readonly string[];
+  readonly namedRoles?: readonly string[];
 }
 
 /** Shape of a result, never the result: what a summary may say about rows. */

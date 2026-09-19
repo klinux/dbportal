@@ -5,6 +5,7 @@ import {
   SeedConfigSchema,
   SeedDefaultsSchema,
   SshProfileSchema,
+  virtualMembersError,
 } from "@/lib/seed/types";
 
 describe("SeedConnectionSchema", () => {
@@ -16,6 +17,38 @@ describe("SeedConnectionSchema", () => {
     port: 5432,
     roles: ["admin"],
   };
+
+  // docs/CONTEXT.md §4.56: object rules are patterns with principals, bounded, and never on a
+  // virtual datasource (its members carry their own, and a member with any is refused).
+  describe("object rules", () => {
+    it("accepts a list of pattern-and-principals rules", () => {
+      const result = SeedConnectionSchema.safeParse({
+        ...validConn,
+        objects: [{ match: "apim-*", roles: ["group:apim"] }, { match: "public.orders", roles: ["*"] }],
+      });
+      expect(result.success).toBe(true);
+    });
+    it("refuses a pattern with whitespace or a comma, a rule with nobody, and a list past the bound", () => {
+      expect(SeedConnectionSchema.safeParse({ ...validConn, objects: [{ match: "a b", roles: ["*"] }] }).success).toBe(false);
+      expect(SeedConnectionSchema.safeParse({ ...validConn, objects: [{ match: "a,b", roles: ["*"] }] }).success).toBe(false);
+      expect(SeedConnectionSchema.safeParse({ ...validConn, objects: [{ match: "a", roles: [] }] }).success).toBe(false);
+      expect(SeedConnectionSchema.safeParse({ ...validConn, objects: [{ match: "a", roles: ["nobody"] }] }).success).toBe(false);
+      const many = Array.from({ length: 101 }, (_, i) => ({ match: `t${i}`, roles: ["*"] }));
+      expect(SeedConnectionSchema.safeParse({ ...validConn, objects: many }).success).toBe(false);
+    });
+    it("refuses them on a virtual datasource, and a member that has any", () => {
+      const virtual = { id: "v", name: "V", type: "virtual", roles: ["*"], members: ["a", "b"] };
+      expect(SeedConnectionSchema.safeParse({ ...virtual, objects: [{ match: "x", roles: ["*"] }] }).success).toBe(false);
+      const members = [
+        { id: "a", type: "postgres", objects: [{ match: "x", roles: ["*"] }] },
+        { id: "b", type: "postgres" },
+      ];
+      expect(virtualMembersError(virtual, members)).toBe(
+        'Virtual datasource "v" cannot include a: it limits which objects each person sees',
+      );
+      expect(virtualMembersError(virtual, [{ id: "a", type: "postgres", objects: [] }, members[1]])).toBeNull();
+    });
+  });
 
   it("accepts a valid connection", () => {
     const result = SeedConnectionSchema.safeParse(validConn);

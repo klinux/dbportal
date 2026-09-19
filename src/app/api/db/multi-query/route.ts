@@ -15,6 +15,7 @@ import { guardRoute } from "@/lib/api/require-session";
 import type { DatabaseType, QueryWarning } from "@/lib/types";
 import type { DatabaseProvider } from "@/lib/db/types";
 import { auditExecution, type ExecutionAuditContext } from "@/lib/audit-execution";
+import { assertObjectsAllowed } from "@/lib/api/object-gate";
 import { assertWriteAllowed, providerAccessOptions } from "@/lib/api/write-gate";
 import { maskResult, type MaskingContext } from "@/lib/masking/store";
 import { clientAddress } from "@/lib/api/client-address";
@@ -175,6 +176,16 @@ export async function POST(req: NextRequest) {
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(guard.session.username),
       ...providerAccessOptions(connection, guard.session),
+    });
+    // Every statement's objects must be this session's to use (docs/CONTEXT.md §4.56),
+    // judged before the first one runs: a batch is refused whole, not half-executed.
+    await assertObjectsAllowed({
+      route: "POST /api/db/multi-query",
+      session: guard.session,
+      connection,
+      statements: statements.map((statement) => statement.sql),
+      request: req,
+      provider,
     });
     const masking: MaskingContext = {
       session: guard.session,

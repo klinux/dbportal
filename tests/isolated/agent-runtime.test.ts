@@ -164,6 +164,39 @@ describe("driveAgentRun", () => {
     );
   });
 
+  // docs/CONTEXT.md §4.56: the actor's groups reach the resolution and the object scope.
+  test("resolves as the actor's recorded groups too, and hands the drive the datasource's object scope", async () => {
+    const service = await getAgentRunService();
+    await service.start({
+      mode: "agent",
+      actor: { ...ACTOR, groups: ["apim"], namedRoles: ["oncall"] },
+      connectionId: "seed:sales",
+      objective: "why is checkout slow",
+      runId: "arun_groups",
+    });
+    mockResolveConnection.mockResolvedValueOnce({
+      ...CONNECTION,
+      objectRules: [{ match: "apim-*", roles: ["group:apim"] }, { match: "logs-*", roles: ["group:other"] }],
+    } as unknown as DatabaseConnection);
+
+    await driveAgentRun("arun_groups");
+
+    expect(mockResolveConnection).toHaveBeenCalledWith(
+      { connectionId: "seed:sales" },
+      { role: "user", username: "ada", groups: ["apim"], namedRoles: ["oncall"] },
+    );
+    expect(investigationCalls[investigationCalls.length - 1].resources.objectScope).toEqual({
+      restricted: true,
+      patterns: ["apim-*"],
+    });
+  });
+
+  test("a datasource without rules gives the drive an unrestricted scope", async () => {
+    await openRun("arun_unscoped");
+    await driveAgentRun("arun_unscoped");
+    expect(investigationCalls[investigationCalls.length - 1].resources.objectScope).toEqual({ restricted: false });
+  });
+
   test("scopes the run to its own connection and reaches the database through the profiled seam", async () => {
     await openRun("arun_scope");
 

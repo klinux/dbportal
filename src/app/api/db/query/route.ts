@@ -7,6 +7,7 @@ import { guardRoute } from "@/lib/api/require-session";
 import { readBoundParams } from "@/lib/api/bound-params";
 import { getExplainStrategy, type ExplainMode } from "@/lib/explain";
 import { auditExecution } from "@/lib/audit-execution";
+import { assertObjectsAllowed } from "@/lib/api/object-gate";
 import { assertWriteAllowed, providerAccessOptions } from "@/lib/api/write-gate";
 import { maskResult } from "@/lib/masking/store";
 import { clientAddress } from "@/lib/api/client-address";
@@ -102,6 +103,15 @@ export async function POST(req: NextRequest) {
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(guard.session.username),
       ...providerAccessOptions(connection, guard.session),
+    });
+    // The objects the statement names must be this session's to use (docs/CONTEXT.md §4.56).
+    await assertObjectsAllowed({
+      route: "POST /api/db/query",
+      session: guard.session,
+      connection,
+      statements: [sql],
+      request: req,
+      provider,
     });
 
     // The statement that actually runs. For an explain request it is the one the

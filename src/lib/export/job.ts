@@ -4,6 +4,7 @@ import { canExport, isReadStatement } from "@/lib/access";
 import { auditRoleDenial } from "@/lib/api/role-denial";
 import { emitAuditEvent } from "@/lib/audit";
 import { auditExecution } from "@/lib/audit-execution";
+import { assertObjectsAllowed } from "@/lib/api/object-gate";
 import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
 import { buildResultExport } from "@/lib/export/result-export";
@@ -75,6 +76,8 @@ export async function runExport(payload: ExportJobPayload, jobId: string): Promi
     applicationName: applicationNameFor(session.username),
     readOnly: true,
   });
+  // The object rules (docs/CONTEXT.md §4.56), judged again where the statement runs.
+  await assertObjectsAllowed({ route: ROUTE, session, connection, statements: [payload.sql], provider });
   const prepared = provider.prepareQuery(payload.sql, capPrepareOptions({ limit: EXPORT_MAX_ROWS }, connection.limits));
   const result = await withConcurrency(connection, session.username, () =>
     auditExecution(

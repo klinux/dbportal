@@ -27,6 +27,7 @@
  */
 
 import { createDatabaseProvider } from "@/lib/db";
+import { objectScopeFor } from "@/lib/objects/rules";
 import { acquireExecutionProfileProvider } from "@/lib/db/factory";
 import { type ExecutionArtifact, ExecutionArtifactStore } from "@/lib/db/operations/artifacts";
 import { ExecutionBudgetTracker } from "@/lib/db/operations/budgets";
@@ -165,7 +166,13 @@ export async function driveAgentRun(runId: string): Promise<AgentInvestigationRe
     const { actor, connectionId } = report.record;
     // The persisted actor is the sole authority: the role that decides which managed
     // connections are visible is the one recorded when the run was opened.
-    const connection = await resolveConnection({ connectionId }, { role: actor.role, username: actor.sessionId });
+    const session = {
+      role: actor.role,
+      username: actor.sessionId,
+      ...(actor.groups ? { groups: [...actor.groups] } : {}),
+      ...(actor.namedRoles ? { namedRoles: [...actor.namedRoles] } : {}),
+    };
+    const connection = await resolveConnection({ connectionId }, session);
 
     // Capabilities and labels are type-driven and read without connecting, the way
     // /api/db/provider-meta reads them. The live, read-only provider a statement
@@ -197,6 +204,8 @@ export async function driveAgentRun(runId: string): Promise<AgentInvestigationRe
         deadline: new AgentRunDeadline(AGENT_WORKFLOW_BUDGETS[report.record.workflowType].runDeadlineMs),
         repairs: new AgentRepairLedger(),
         acquireProvider: acquireExecutionProfileProvider,
+        // What this actor may see and name of the datasource (docs/CONTEXT.md §4.56).
+        objectScope: objectScopeFor(connection.objectRules, session),
       },
     });
   } catch (error) {

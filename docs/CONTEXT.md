@@ -1180,6 +1180,51 @@ built. Each lands as its own section when done.
   and answers those two listings with an empty list, without a request, on a cluster that
   predates the kind: the objects are not in its model, and zero is the truth. A cluster it
   cannot date is asked and answers for itself.
+- **4.56 Which objects each person sees, decided on the datasource — done (asked
+  2026-09-18).** A search cluster opened with its superuser showed every index to everyone
+  who could open the datasource, and the administrator wanted the cut made in the
+  portal rather than in the cluster's own roles: per datasource, which objects exist for
+  whom. A datasource may carry `objects`, rules of `match` (a name pattern) and `roles`
+  (the principal vocabulary of §4.4). With no rule nothing changes. With any, a person sees
+  exactly the objects some rule they hold matches, and an administrator sees everything -
+  the rules are theirs to manage, and a rule that hid an object from the one person who
+  can fix it would hide the mistake too. A pattern is matched, case-insensitively, against
+  the object's dotted path (`public.orders`, `apim-2026.09`) with `*` for any run and `?`
+  for one character; a pattern without a dot matches the relation's own name in any
+  container, which is what a rule on a search cluster (no containers) or a one-schema
+  database means; a matched object covers what nests under it (`src/lib/objects/rules.ts`).
+  Visibility is applied on the provider every object route reads through
+  (`scopeProvider`, `src/lib/objects/scoped-provider.ts`): the listing, the counts
+  (recounted from the listing), the detail (a hidden object is "not found", the same
+  answer as one that does not exist, so a refusal does not confirm a name) and the batch
+  detail - so the tree, the autocomplete, the schema diff and the agent's grounding all
+  show the same thing, and the browser is never sent the rules (they name other people's
+  groups). Enforcement is on the statement, on every path one runs: the four execution
+  routes, the export (the route, so the refusal is a 403 and nothing is queued, and the
+  worker again), the profiler (by the object's address), a service token's queued
+  execution, an alert's run (as its owner; the failure is "access") and the agent's
+  statement runner all pass every statement through `referencedObjects`
+  (`src/lib/sql/referenced-objects.ts`), a scanner over the statement's code - spans the
+  grammar declares (comments, strings, quoted names) stepped over, relations read after
+  FROM, JOIN, INTO, UPDATE, TABLE and the other words that introduce one, relation lists
+  followed past aliases and subqueries as a stack by paren depth, CTE names excluded - and
+  the gate (`src/lib/objects/gate.ts`, `src/lib/api/object-gate.ts`) refuses with 403 and
+  audits `object_forbidden` the first name outside the scope, with the fix: a hidden object
+  is not the person's, an unqualified name is placed in the session's default container
+  when the provider reports one and otherwise asked to be qualified (a guessed container
+  would be a guessed access decision), a wildcard name (`logs-*`, `public.*`) is asked to
+  be spelled out. The scanner errs toward refusal on purpose: a statement whose leading
+  keyword it does not know the reach of (`CALL`, `COPY`, `SYS`, a vendor extension) is
+  refused as unreadable rather than guessed at, because a false negative is a hidden
+  object read. Engines whose query language is not SQL (MongoDB, Redis) get visibility
+  only, said in the admin form. The agent's persisted actor now records the session's
+  groups and named roles so a drive judges the rules as the person who opened the run.
+  A virtual datasource can neither carry rules nor include a member that has any: its
+  statements name member tables through the member's prefix, which no rule was written
+  for. Admin form: a rule list on the datasource sheet, pattern and principals per row,
+  refused before posting when half-filled. Limitations, stated: the rules are the
+  portal's, the datasource's credential still sees the whole engine, and a monitoring
+  panel's table statistics are not filtered by them yet.
 
 ## 5. Decisions already taken
 

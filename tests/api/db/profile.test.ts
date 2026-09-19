@@ -92,6 +92,19 @@ describe("POST /api/db/profile", () => {
   // as a string literal (`'<col>' as column_name`). Doubling the quote is enough
   // only where a backslash is data, so on a backslash-escaping dialect a name
   // ending in one would close the literal and have the rest read as SQL (#290).
+  // docs/CONTEXT.md §4.56: the object profiled must be this session's to use.
+  test("refuses to profile an object the datasource's rules keep from this session", async () => {
+    const ruled = { ...validConnection, objectRules: [{ match: "public.users", roles: ["user"] }] };
+    const profile = (tablePath: string[]) =>
+      POST(createMockRequest("/api/db/profile", { method: "POST", body: { connection: ruled, tablePath, columns: ["id"] } }) as never);
+    mockGetSession.mockResolvedValueOnce({ role: "user", username: "ada" } as never);
+    const hidden = await profile(["public", "secrets"]);
+    expect(hidden.status).toBe(403);
+    expect((await hidden.json()).error).toBe('"public.secrets" is not an object you may use on "Test DB".');
+    mockGetSession.mockResolvedValueOnce({ role: "user", username: "ada" } as never);
+    expect((await profile(["public", "users"])).status).toBe(200);
+  });
+
   test("quotes the column label for the connected dialect", async () => {
     const req = createMockRequest("/api/db/profile", {
       method: "POST",

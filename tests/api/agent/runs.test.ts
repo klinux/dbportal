@@ -679,6 +679,16 @@ describe("POST /api/agent/runs", () => {
     });
   });
 
+  // docs/CONTEXT.md §4.56: the actor records the session's groups and named roles, so a drive
+  // judges the datasource's object rules as the person who opened the run.
+  test("records the session's groups and named roles on the actor, and only when there are any", async () => {
+    mockGetSession.mockResolvedValueOnce({ role: "user", username: "ada", groups: ["apim"], namedRoles: ["oncall"] } as never);
+    expect((await POST(startRequest(VALID_BODY))).status).toBe(202);
+    expect(mockStart.mock.calls[mockStart.mock.calls.length - 1][0]).toMatchObject({
+      actor: { sessionId: "ada", role: "user", groups: ["apim"], namedRoles: ["oncall"] },
+    });
+  });
+
   test("a named workflow type is persisted, and the response echoes what was PERSISTED", async () => {
     const res = await POST(startRequest({ ...VALID_BODY, workflowType: "query-optimization" }));
     const body = await parseResponseJSON<{ workflowType: string }>(res);

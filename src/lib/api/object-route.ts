@@ -6,6 +6,8 @@ import { resolveConnection } from "@/lib/seed/resolve-connection";
 import { guardRoute } from "@/lib/api/require-session";
 import { containerDepth, declaredKinds, findKind } from "@/lib/db/object-kinds";
 import { INVENTORY_LIMIT, INVENTORY_PAIR_LIMIT, PAIR_TRUNCATION_REASON } from "@/lib/db/inventory-bounds";
+import { type ObjectRule, objectScopeFor } from "@/lib/objects/rules";
+import { ObjectHiddenError, scopeProvider } from "@/lib/objects/scoped-provider";
 import type {
   DatabaseConnection,
   DatabaseObject,
@@ -61,9 +63,12 @@ export async function handleObjectRequest(
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(guard.session.username),
     });
-    return NextResponse.json(await run(provider, body));
+    // What this session may see of the datasource (docs/CONTEXT.md §4.56), applied on the
+    // provider so every object route reads through one filter.
+    const rules = (connection as { objectRules?: readonly ObjectRule[] }).objectRules;
+    return NextResponse.json(await run(scopeProvider(provider, objectScopeFor(rules, guard.session)), body));
   } catch (error) {
-    if (error instanceof ObjectRouteError) {
+    if (error instanceof ObjectRouteError || error instanceof ObjectHiddenError) {
       // `{ error }`, the shape this handler's own body-shape refusals above already use.
       return NextResponse.json({ error: error.message }, { status: error.status });
     }

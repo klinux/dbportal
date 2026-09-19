@@ -35,6 +35,14 @@ class SeedConnectionError extends Error {
 const datasources: Record<string, Record<string, unknown>> = {
   orders: { id: "orders", seedId: "orders", name: "Orders", type: "postgres", roles: ["*"], writeApproval: true },
   plain: { id: "plain", seedId: "plain", name: "Plain", type: "postgres", roles: ["*"] },
+  ruled: {
+    id: "ruled",
+    seedId: "ruled",
+    name: "Ruled",
+    type: "postgres",
+    roles: ["*"],
+    objectRules: [{ match: "public.orders", roles: ["user"] }],
+  },
   locked: { id: "locked", seedId: "locked", name: "Locked", type: "postgres", roles: ["*"], writeRoles: ["admin"] },
   two: {
     id: "two",
@@ -78,6 +86,8 @@ const getOrCreateProvider = mock(async () => ({
     return { query: `${sql} /* prepared */`, limit: 1000, offset: 0, wasLimited: false };
   },
   query,
+  // The object gate (§4.56) reads the container depth off the provider.
+  getCapabilities: () => ({ containerLevels: [] }),
 }));
 mock.module("@/lib/db", () => ({ getOrCreateProvider }));
 mock.module("@/lib/db/application-name", () => ({ applicationNameFor: (u: string) => `app:${u}` }));
@@ -278,6 +288,17 @@ describe("executions store", () => {
     setTimeout(() => void runExecutionJob(waiting.id), 15);
     expect((await waitForExecution(waiting.id, 500, 10))?.execution?.status).toBe("done");
     expect(await waitForExecution("ghost", 10, 5)).toBeNull();
+  });
+
+  // docs/CONTEXT.md §4.56: the datasource's object rules hold for a token's statement as for a person's.
+  test("the object rules: a queued statement naming a hidden object fails as permission_denied and never runs", async () => {
+    const queued = await ask({ datasourceId: "ruled", statement: "SELECT * FROM public.secrets" });
+    expect(queued.status).toBe("approved");
+    liveToken = bot();
+    const record = (await runExecutionJob(queued.id))!;
+    expect(record.execution).toMatchObject({ status: "failed", error: "permission_denied" });
+    expect(query).not.toHaveBeenCalled();
+    expect(audit.mock.calls.map((c) => ((c as unknown[])[0] as { reason?: string }).reason)).toContain("object_forbidden");
   });
 
   test("a write on a datasource that requires approval, or any request from a token that requires it, waits and is announced", async () => {

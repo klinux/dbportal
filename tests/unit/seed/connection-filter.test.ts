@@ -278,3 +278,26 @@ describe("filterByRoles: write approval", () => {
     ).toEqual(["orders", "crm"]);
   });
 });
+
+// docs/CONTEXT.md §4.56: the object rules travel with the managed connection - only when
+// there is one - and close a virtual datasource whose member acquired any.
+describe("object rules", () => {
+  it("copies a non-empty rule list as objectRules and leaves an empty or absent one off", () => {
+    const rules = [{ match: "apim-*", roles: ["group:apim"] }];
+    const [ruled] = filterByRoles([{ ...baseConn, objects: rules }], ["admin"]);
+    expect(ruled.objectRules).toEqual(rules);
+    const [empty] = filterByRoles([{ ...baseConn, objects: [] }], ["admin"]);
+    expect(empty.objectRules).toBeUndefined();
+    const [plain] = filterByRoles([baseConn], ["admin"]);
+    expect(plain.objectRules).toBeUndefined();
+  });
+
+  it("does not open a virtual datasource whose member limits objects", () => {
+    const member: SeedConnection = { ...baseConn, id: "m1", objects: [{ match: "x", roles: ["*"] }] };
+    const other: SeedConnection = { ...baseConn, id: "m2" };
+    const virtual: SeedConnection = { id: "v", name: "V", type: "virtual", roles: ["*"], members: ["m1", "m2"] };
+    expect(filterByRoles([member, other, virtual], ["admin"]).map((c) => c.id)).toEqual(["seed:m1", "seed:m2"]);
+    const clean: SeedConnection = { ...member, objects: [] };
+    expect(filterByRoles([clean, other, virtual], ["admin"]).map((c) => c.id)).toEqual(["seed:m1", "seed:m2", "seed:v"]);
+  });
+});

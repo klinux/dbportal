@@ -21,6 +21,9 @@ connections:
     host: shared-pg.internal
     password: "${SHARED_PG_PASS}"
     roles: ["*"]
+    objects:
+      - match: "public.*"
+        roles: ["*"]
 
   - id: "admin-and-user"
     name: "Admin And User DB"

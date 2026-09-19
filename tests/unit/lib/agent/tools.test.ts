@@ -26,6 +26,7 @@ import {
   recommendChangeTool,
   runReadQueryTool,
   selectAgentTools,
+  AgentObjectRefusal,
 } from "@/lib/agent/tools";
 import { UNTRUSTED_CONTENT_BEGIN, UNTRUSTED_CONTENT_END } from "@/lib/agent/untrusted-content";
 import {
@@ -1923,6 +1924,31 @@ describe("runReadQueryTool — a policy denial is not a syntax error", () => {
       expect(outcome.modelText).toContain(workflowType);
     },
   );
+});
+
+// docs/CONTEXT.md §4.56: the datasource's object rules hold for the agent as for the person -
+// the statement is refused before it is sent, with the same sentence, and nothing without rules changes.
+describe("executeAgentOperation — the object rules", () => {
+  test("refuses a statement naming an object outside the run's scope, before the statement is sent", async () => {
+    const h = harness({ objectScope: { restricted: true, patterns: ["orders"] } });
+
+    const refused = runReadQueryTool(h.context, { sql: "SELECT * FROM secrets" });
+
+    await expect(refused).rejects.toBeInstanceOf(AgentObjectRefusal);
+    await expect(refused).rejects.toThrow('"secrets" is not an object you may use on "Orders".');
+    expect(h.queryReadOnly).not.toHaveBeenCalled();
+    expect(new AgentObjectRefusal("x").name).toBe("AgentObjectRefusal");
+  });
+
+  test("a statement inside the scope runs; a run with no scope runs everything", async () => {
+    const scoped = harness({ objectScope: { restricted: true, patterns: ["orders"] } });
+    await runReadQueryTool(scoped.context, { sql: "SELECT * FROM orders" });
+    expect(scoped.queryReadOnly).toHaveBeenCalledTimes(1);
+
+    const open = harness();
+    await runReadQueryTool(open.context, { sql: "SELECT * FROM secrets" });
+    expect(open.queryReadOnly).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("executeAgentOperation — the approval gate", () => {

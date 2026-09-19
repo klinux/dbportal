@@ -432,7 +432,12 @@ export async function POST(req: Request) {
       // the request that predates the field, so a run that starts its own conversation
       // writes the same bytes a run opened before conversations existed did.
       ...(thread === undefined ? {} : { thread }),
-      actor: { sessionId: guard.session.username, role: guard.session.role },
+      actor: {
+        sessionId: guard.session.username,
+        role: guard.session.role,
+        ...(guard.session.groups?.length ? { groups: guard.session.groups } : {}),
+        ...(guard.session.namedRoles?.length ? { namedRoles: guard.session.namedRoles } : {}),
+      },
       connectionId: connection.id,
       // The database this run is ACTUALLY reading, written unconditionally - including
       // on a run whose conversation was just declined as `"repointed"`. That is what

@@ -1395,6 +1395,17 @@ bot's `POST /api/v1/executions` accept an optional `ticket` (a string, trimmed t
 characters) that is written to the `query_execution` audit line as `ticket`; a datasource
 with `requireTicket: true` answers `403` to a write without one (docs/CONTEXT.md §4.18).
 
+A datasource with `objects` rules (docs/CONTEXT.md §4.56, docs/SEED_CONNECTIONS.md "Object
+rules") answers `403` (audited `permission_denied` / `object_forbidden`) on `/api/db/query`,
+`/api/db/multi-query`, `/api/db/transaction`, `/api/db/maintenance`, `/api/db/export`,
+`/api/db/profile` and the bot's `POST /api/v1/executions` when a statement names an object the
+rules keep from the session - or names one the server cannot place (an unqualified name with no
+default schema, a wildcard, a statement whose reach cannot be read, such as `CALL`); the error
+says which. The object routes under `/api/db/objects/*` list, count and describe only what the
+rules show, and a hidden object's `describe` is `404`. An administrator is never held by them,
+and the rules themselves are not returned to the browser (`objectRules` is stripped from
+`GET /api/connections/managed`).
+
 A statement over a datasource's `limits.maxConcurrent` is refused with `429` and code
 `CONCURRENCY_LIMIT` (docs/CONTEXT.md §4.16); `options.limit` above `limits.maxRows` is cut to
 the cap, and `options.unlimited` is bounded by it.

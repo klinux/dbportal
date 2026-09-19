@@ -39,7 +39,8 @@ export async function GET() {
     const sanitized = connections.map((conn) => ({
       ...Object.fromEntries(
         Object.entries(conn).filter(
-          ([key]) => key !== "password" && key !== "connectionString" && key !== "memberExportRules",
+          ([key]) =>
+            key !== "password" && key !== "connectionString" && key !== "memberExportRules" && key !== "objectRules",
         ),
       ),
       readOnly: !canWrite(conn, session),

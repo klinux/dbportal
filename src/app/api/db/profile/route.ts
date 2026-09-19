@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOrCreateProvider } from "@/lib/db/factory";
+import { assertObjectVisible } from "@/lib/api/object-gate";
 import { applicationNameFor } from "@/lib/db/application-name";
 import { createErrorResponse } from "@/lib/api/errors";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
@@ -37,6 +38,8 @@ export async function POST(req: NextRequest) {
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(guard.session.username),
     });
+    // The object profiled must be this session's to use (docs/CONTEXT.md §4.56).
+    assertObjectVisible({ route: "POST /api/db/profile", session: guard.session, connection, path, request: req, provider });
 
     {
       const capabilities = provider.getCapabilities();

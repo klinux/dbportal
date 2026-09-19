@@ -20,7 +20,9 @@ function rolesMatch(connectionRoles: string[], userRoles: string[]): boolean {
 function virtualOpens(conn: SeedConnection, all: SeedConnection[], userRoles: string[]): boolean {
   return (conn.members ?? []).every((id) => {
     const member = all.find((c) => c.id === id);
-    return member !== undefined && rolesMatch(member.roles, userRoles);
+    // A member with object rules is refused at declaration time (§4.56); a stored one that
+    // acquired rules later closes the virtual datasource rather than bypassing them.
+    return member !== undefined && rolesMatch(member.roles, userRoles) && !(member.objects && member.objects.length > 0);
   });
 }
 
@@ -76,6 +78,10 @@ export function filterByRoles(connections: SeedConnection[], userRoles: string[]
       ...(conn.limits?.queryTimeoutMs !== undefined ? { queryTimeout: conn.limits.queryTimeoutMs } : {}),
       ...(conn.requireTicket !== undefined ? { requireTicket: conn.requireTicket } : {}),
       ...(conn.exportRoles !== undefined ? { exportRoles: conn.exportRoles } : {}),
+      // The object rules (§4.56) travel with the connection so the object routes, the
+      // execution gate and the agent all judge from one declaration; an empty list is
+      // no rule, so the datasource stays unrestricted rather than hiding everything.
+      ...(conn.objects !== undefined && conn.objects.length > 0 ? { objectRules: conn.objects } : {}),
       ...(conn.approverRoles !== undefined ? { approverRoles: conn.approverRoles } : {}),
       ...(conn.approvalsRequired !== undefined ? { approvalsRequired: conn.approvalsRequired } : {}),
       ...(conn.sshProfile !== undefined ? { sshProfile: conn.sshProfile } : {}),

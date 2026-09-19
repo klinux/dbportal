@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { OBJECT_PATTERN, OBJECT_RULES_LIMIT, type ObjectRule } from "@/lib/objects/rules";
 import type { DatasourceLimits } from "@/lib/limits";
 import type { DatabaseConnection } from "@/lib/types";
 
@@ -60,6 +61,16 @@ const AllowedRoleSchema = z
     /^(\*|admin|user|group:[\x21-\x7e]{1,64}|role:[a-z0-9][a-z0-9-]{0,63})$/,
     "Must be *, admin, user, group:<name> or role:<id>",
   );
+
+/**
+ * One object rule (docs/CONTEXT.md §4.56): a name pattern and who it applies to. With any
+ * rule on a datasource, a person sees and may name exactly the objects the rules they hold
+ * match; an administrator sees everything.
+ */
+const ObjectRuleSchema = z.object({
+  match: z.string().regex(OBJECT_PATTERN, "A pattern has no whitespace or comma, and at most 200 characters"),
+  roles: z.array(AllowedRoleSchema).min(1, "A rule names at least one principal"),
+});
 
 // Who is in a named role (§4.19): a portal role, an identity provider's group, or one
 // person by the username the session carries. Never another named role: one lookup, no
@@ -237,6 +248,8 @@ export const SeedConnectionSchema = z
     requireTicket: z.boolean().optional(),
     /** Who may export a result as a file (§4.22); absent: everyone who can open, nobody on production. */
     exportRoles: z.array(AllowedRoleSchema).optional(),
+    /** Which objects each person sees and may name (§4.56); absent: every object. */
+    objects: z.array(ObjectRuleSchema).max(OBJECT_RULES_LIMIT).optional(),
     /** The SSH profile (a bastion declared once) this datasource is reached through (§4.9). */
     sshProfile: z.string().optional(),
     managed: z.boolean().optional(),
@@ -297,6 +310,8 @@ export const VIRTUAL_FORBIDDEN_FIELDS = [
   "writeApproval",
   "approverRoles",
   "approvalsRequired",
+  // Object rules (§4.56) belong to the members, and a member with rules is refused too.
+  "objects",
 ] as const;
 
 /** The engines a virtual datasource may join (§4.44): the ones the embedded engine attaches. */
@@ -323,13 +338,18 @@ export function virtualDeclarationError(conn: {
  */
 export function virtualMembersError(
   conn: { id: string; members?: string[]; environment?: string },
-  all: readonly { id: string; type: string; environment?: string; sshProfile?: string }[],
+  all: readonly { id: string; type: string; environment?: string; sshProfile?: string; objects?: readonly unknown[] }[],
   defaultEnvironment?: string,
 ): string | null {
   const env = conn.environment ?? defaultEnvironment;
   for (const id of conn.members ?? []) {
     const member = all.find((c) => c.id === id);
     if (!member) return `Virtual datasource "${conn.id}" names a member that is not declared: ${id}`;
+    // A member's object rules would not travel: a statement on the virtual datasource
+    // names the member's tables through the member's prefix, which no rule was written
+    // for, and the join would read what the member hides (§4.56).
+    if (member.objects !== undefined && member.objects.length > 0)
+      return `Virtual datasource "${conn.id}" cannot include ${id}: it limits which objects each person sees`;
     if (member.type === "virtual") return `Virtual datasource "${conn.id}" cannot include another virtual one: ${id}`;
     if (!VIRTUAL_MEMBER_TYPES.has(member.type))
       return `Virtual datasource "${conn.id}" can only join PostgreSQL and MySQL; ${id} is ${member.type}`;
@@ -396,6 +416,8 @@ export interface ManagedConnection extends DatabaseConnection {
   limits?: DatasourceLimits;
   requireTicket?: boolean;
   exportRoles?: string[];
+  /** The object rules (§4.56), present only when the datasource declares at least one. */
+  objectRules?: ObjectRule[];
   sshProfile?: string;
   seedId: string;
   /** A virtual datasource's export rules are its members' (§4.44): every one must allow. */

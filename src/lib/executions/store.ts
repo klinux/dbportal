@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { assertObjectsAllowed } from "@/lib/api/object-gate";
 import { canWrite, isReadStatement } from "@/lib/access";
 import { dangerOf } from "@/lib/guardrails";
 import { capPrepareOptions, withConcurrency } from "@/lib/limits";
@@ -118,6 +119,14 @@ export async function runExecution(record: ApprovalRequest, identity: ServiceIde
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(identity.session.username),
       ...providerAccessOptions(connection, identity.session),
+    });
+    // The object rules (docs/CONTEXT.md §4.56) hold for a token's statement as for a person's.
+    await assertObjectsAllowed({
+      route: ROUTE,
+      session: identity.session,
+      connection,
+      statements: [record.statement],
+      provider,
     });
     const prepared = provider.prepareQuery(record.statement, capPrepareOptions({}, connection.limits));
     const result = await withConcurrency(connection, identity.session.username, () =>

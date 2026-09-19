@@ -178,6 +178,7 @@ connections:
 | `connections[].password` | No | — | Password (use `${ENV_VAR}` syntax; Athena: the secret access key) |
 | `connections[].connectionString` | No | — | Full connection string (use `${ENV_VAR}`). Druid and Trino have no URI form this build parses — those connections need `host` and are addressed by host and port only |
 | `connections[].roles` | Yes | — | Who may open: `*`, `admin`, `user`, `group:<name>`, `role:<id>` |
+| `connections[].objects` | No | — | Which objects each person sees and may name (docs/CONTEXT.md §4.56): rules of `match` (a name pattern) and `roles`; absent: every object. Not on a virtual datasource, nor on a member of one |
 | `connections[].exportRoles` | No | — | Who may export a result as a file (docs/CONTEXT.md §4.22); absent: everyone outside production, nobody on production |
 | `connections[].managed` | No | from defaults | `true` = read-only, `false` = editable copy |
 | `connections[].environment` | No | from defaults | Environment badge |
@@ -285,6 +286,40 @@ export - except on production, where nothing leaves as a file until the list nam
     environment: production
     exportRoles: ["group:analysts", "role:oncall"]
 ```
+
+### Object rules
+
+Which objects each person sees and may name on the datasource (docs/CONTEXT.md §4.56).
+`objects` is a list of rules, each a `match` pattern and the `roles` it applies to, in the
+principal vocabulary of `roles`. With no rule the datasource shows every object to everyone
+who can open it. With any rule, a person sees exactly the objects the rules they hold match -
+in the tree, the autocomplete, the schema diff and the agent's grounding - and a statement
+naming anything else is refused (403, audited `object_forbidden`) on the SQL engines; on
+MongoDB and Redis the rules filter the tree only. An administrator always sees everything.
+
+A pattern is matched against the object's dotted path, case-insensitively, with `*` for any
+run of characters and `?` for one: `public.orders`, `sales.*`, `apim-2026.*`. A pattern with
+no dot matches the relation's own name in any schema (`orders`), which is the natural spelling
+on a search cluster, where an index has no container. An object a rule matches covers what
+nests under it. A statement's unqualified name is placed in the session's default schema when
+the engine reports one; otherwise the person is asked to qualify it, and a wildcard name
+(`logs-*`) is asked to be spelled out.
+
+```yaml
+  - id: "search-apim"
+    type: elasticsearch
+    host: search.internal
+    port: 9200
+    roles: ["*"]
+    objects:
+      - match: "apim-*"
+        roles: ["group:apim", "role:oncall"]
+      - match: "logs-*"
+        roles: ["group:platform"]
+```
+
+A virtual datasource cannot carry `objects`, and cannot include a member that has any: its
+statements name member tables through the member's prefix, which no rule was written for.
 
 ### Limits
 

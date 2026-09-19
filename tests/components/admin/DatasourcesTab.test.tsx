@@ -71,6 +71,7 @@ const {
   limitsOf,
   parseExportRoles,
   exportRolesText,
+  objectRulesOf,
 } = await import("@/components/admin/tabs/DatasourcesTab");
 
 const storeRow = {
@@ -229,6 +230,65 @@ describe("DatasourcesTab", () => {
     expect(getByRole("status").textContent).toContain("STORAGE_PROVIDER");
     expect((getByText("New datasource").closest("button") as HTMLButtonElement).disabled).toBe(true);
     expect(getByText("Dev shared")).not.toBeNull();
+  });
+
+  // docs/CONTEXT.md §4.56: the object rules travel with the save, read back when editing, and a
+  // rule with a pattern and nobody to see it is refused before anything is posted.
+  test("object rules are posted, read back, removed, and refused when half-filled", async () => {
+    const fetchMock = mockGlobalFetch({
+      "/api/admin/datasources": listing({
+        datasources: [{ ...storeRow, objects: [{ match: "public.orders", roles: ["user"] }] }],
+      }),
+    });
+    const { getByText, getByLabelText, getByTestId, queryByTestId } = await renderLoaded();
+    const save = () =>
+      act(async () => {
+        await (capturedModalProps.onConnect as (c: DatabaseConnection) => Promise<void>)(built);
+      });
+    fireEvent.click(getByText("New datasource"));
+    fireEvent.click(getByTestId("object-rule-add"));
+    fireEvent.change(getByLabelText("Object name pattern"), { target: { value: " apim-* " } });
+    await save();
+    expect(mockToastError).toHaveBeenCalledWith('The rule "apim-*" names nobody who sees it.');
+    expect(fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "POST")).toBeUndefined();
+
+    fireEvent.change(getByTestId("object-rule-0-input"), { target: { value: "group:apim" } });
+    await save();
+    const post = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "POST")!;
+    expect(JSON.parse((post[1] as RequestInit).body as string).objects).toEqual([{ match: "apim-*", roles: ["group:apim"] }]);
+
+    // Editing reads the stored rules back; removing the only rule posts none at all.
+    fireEvent.click(getByLabelText("Edit Orders"));
+    expect((getByLabelText("Object name pattern") as HTMLInputElement).value).toBe("public.orders");
+    expect(getByTestId("object-rule-0-chip-user")).not.toBeNull();
+    fireEvent.click(getByLabelText("Remove object rule"));
+    expect(queryByTestId("object-rule-0")).toBeNull();
+    await save();
+    const put = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "PUT")!;
+    expect(JSON.parse((put[1] as RequestInit).body as string)).not.toHaveProperty("objects");
+  });
+
+  test("a virtual datasource offers no object rules: its members carry their own", async () => {
+    mockGlobalFetch({
+      "/api/admin/datasources": listing({
+        datasources: [{ ...storeRow, id: "v", name: "Virt", type: "virtual", members: ["a", "b"], host: undefined }],
+      }),
+    });
+    const { getByLabelText, queryByTestId } = await renderLoaded();
+    fireEvent.click(getByLabelText("Edit Virt"));
+    expect(queryByTestId("datasource-objects")).toBeNull();
+  });
+
+  test("objectRulesOf drops a blank row and names what a half-filled one is missing", () => {
+    expect(objectRulesOf([{ key: 0, match: "  ", roles: [] }])).toEqual({ rules: [] });
+    expect(objectRulesOf([{ key: 0, match: "", roles: ["user"] }])).toEqual({ error: "An object rule needs a name pattern." });
+    expect(objectRulesOf([{ key: 0, match: "a b", roles: ["user"] }])).toEqual({
+      error: '"a b" is not a pattern: no spaces or commas, at most 200 characters.',
+    });
+    expect(objectRulesOf([{ key: 0, match: "x".repeat(201), roles: ["user"] }])).toMatchObject({ error: expect.any(String) });
+    expect(objectRulesOf([{ key: 0, match: " apim-* ", roles: ["group:apim"] }])).toEqual({
+      rules: [{ match: "apim-*", roles: ["group:apim"] }],
+    });
   });
 
   // docs/CONTEXT.md §4.16: the two limit fields travel with the save, and an edit shows what is set.

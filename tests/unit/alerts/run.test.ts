@@ -23,6 +23,8 @@ class SeedConnectionError extends Error {
   }
 }
 let access: number | null = null;
+/** The datasource's object rules (§4.56), when a test declares any. */
+let rules: { match: string; roles: string[] }[] | undefined;
 mock.module("@/lib/seed/resolve-connection", () => ({
   SeedConnectionError,
   resolveConnection: async (body: { connectionId?: string }, session: { username: string }) => {
@@ -34,6 +36,7 @@ mock.module("@/lib/seed/resolve-connection", () => ({
       type: "postgres",
       limits: { maxRows: 10 },
       opened: session.username,
+      ...(rules === undefined ? {} : { objectRules: rules }),
     };
   },
 }));
@@ -43,7 +46,9 @@ const query = mock(async (_sql: string) => {
   return { rows, fields: ["count"], rowCount: rows.length, executionTime: 1 };
 });
 const prepareQuery = mock((sql: string, options: unknown) => ({ query: sql, options }));
-mock.module("@/lib/db", () => ({ getOrCreateProvider: async () => ({ prepareQuery, query }) }));
+mock.module("@/lib/db", () => ({
+  getOrCreateProvider: async () => ({ prepareQuery, query, getCapabilities: () => ({ containerLevels: [] }) }),
+}));
 const channels: Record<string, { id: string; name: string; kind: string; target: string }> = {
   ops: { id: "ops", name: "Ops", kind: "slack", target: "C1" },
 };
@@ -184,6 +189,16 @@ describe("alerts run", () => {
     });
     expect(audited(3)).toMatchObject({ action: "delivery_failed", details: "channel ghost not declared" });
     expect(deliver).toHaveBeenCalledTimes(1);
+  });
+
+  // docs/CONTEXT.md §4.56: an alert reads only what its owner may; a hidden object is "access", like a closed datasource.
+  test("the owner's object rules: an alert on an object the owner may not use lands in error as access, and runs nothing", async () => {
+    const t0 = at("2026-09-14T12:00:00.000Z");
+    rules = [{ match: "orders", roles: ["admin"] }];
+    const state = await runAlert(record({ status: "ok" }), t0);
+    rules = undefined;
+    expect(state).toMatchObject({ status: "error", lastError: "access" });
+    expect(query).not.toHaveBeenCalled();
   });
 
   test("a statement that writes, an owner without access, and an engine error each land in error with a closed reason and page nobody", async () => {

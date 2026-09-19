@@ -18,7 +18,7 @@ import { GET } from "@/app/api/connections/managed/route";
 import { resetCache } from "@/lib/seed/config-loader";
 import { getSession } from "@/lib/auth";
 import { setSqliteSampleSeedState, SQLITE_SAMPLE_SEED_ID } from "@/lib/seed/sqlite-sample";
-import { getPendingSeeds } from "@/lib/seed";
+import { getManagedConnections, getPendingSeeds } from "@/lib/seed";
 import { SEED_CONFIG_UNREADABLE_REASON } from "@/hooks/use-connection-payload";
 
 describe("GET /api/connections/managed", () => {
@@ -43,6 +43,17 @@ describe("GET /api/connections/managed", () => {
     expect(ids).toContain("admin-only");
     expect(ids).toContain("everyone");
     expect(ids).toContain("admin-and-user");
+  });
+
+  // docs/CONTEXT.md §4.56: the object rules stay on the server. The browser is shown what the
+  // rules leave visible, never the rules - which name other people's groups.
+  it("strips the object rules the server holds for a datasource", async () => {
+    const held = (await getManagedConnections(["*"])).find((c) => c.seedId === "everyone");
+    expect(held?.objectRules).toEqual([{ match: "public.*", roles: ["*"] }]);
+    const data = await (await GET()).json();
+    const shown = data.connections.find((c: { seedId: string }) => c.seedId === "everyone");
+    expect(shown).toBeDefined();
+    expect(shown.objectRules).toBeUndefined();
   });
 
   it("strips password from managed:true connections", async () => {

@@ -1202,3 +1202,48 @@ describe("POST /api/db/objects/inventory", () => {
     expect("defaultContainer" in body).toBe(false);
   });
 });
+
+// docs/CONTEXT.md §4.56: what the datasource's object rules hide from this session is not listed,
+// not counted and not described - through the one provider every object route reads.
+describe("object rules", () => {
+  const ruled = { ...connection, objectRules: [{ match: "public.orders", roles: ["user"] }] };
+  const both = [object(["public", "orders"], "table"), object(["public", "secrets"], "table")];
+  const asUser = () => mockGetSession.mockResolvedValueOnce({ role: "user", username: "ada" } as never);
+
+  beforeEach(() => {
+    activeProvider = objectProvider({
+      listObjects: mock(async () => both),
+      countObjects: mock(async () => ({ table: { count: 2 }, view: { count: 0 } })),
+      describeObject: mock(async (path: readonly string[]) => emptyDetail(path)),
+    });
+  });
+
+  test("lists and counts only what the rules show a user, and describes a hidden object as not found", async () => {
+    asUser();
+    const listed = await listRoute.POST(
+      createMockRequest("/api/db/objects/list", { method: "POST", body: { connection: ruled, container: ["public"], kind: "table" } }) as never,
+    );
+    expect((await parseResponseJSON<DatabaseObject[]>(listed)).map((o) => o.name)).toEqual(["orders"]);
+
+    asUser();
+    const counted = await countsRoute.POST(
+      createMockRequest("/api/db/objects/counts", { method: "POST", body: { connection: ruled, container: ["public"] } }) as never,
+    );
+    // Recounted from the listing, which the mock answers for every kind alike.
+    expect(await parseResponseJSON<Record<string, unknown>>(counted)).toEqual({ table: { count: 1 }, view: { count: 1 } });
+
+    asUser();
+    const hidden = await describeRoute.POST(
+      createMockRequest("/api/db/objects/describe", { method: "POST", body: { connection: ruled, path: ["public", "secrets"], kind: "table" } }) as never,
+    );
+    expect(hidden.status).toBe(404);
+    expect((await parseResponseJSON<{ error: string }>(hidden)).error).toBe("No table named secrets");
+  });
+
+  test("an administrator sees everything, rules or not", async () => {
+    const listed = await listRoute.POST(
+      createMockRequest("/api/db/objects/list", { method: "POST", body: { connection: ruled, container: ["public"], kind: "table" } }) as never,
+    );
+    expect((await parseResponseJSON<DatabaseObject[]>(listed)).map((o) => o.name)).toEqual(["orders", "secrets"]);
+  });
+});

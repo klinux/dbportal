@@ -1,5 +1,6 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { createMockRequest, parseResponseJSON } from "../../helpers/mock-next";
+import { createMockProvider } from "../../helpers/mock-provider";
 import { clearRateLimitState } from "@/lib/api/rate-limit";
 import type { JobRecord } from "@/lib/storage/types";
 
@@ -12,6 +13,8 @@ import type { JobRecord } from "@/lib/storage/types";
  */
 let session: { role: string; username: string; groups?: string[] } | null = { role: "user", username: "ana" };
 mock.module("@/lib/auth", () => ({ getSession: async () => session }));
+// The object gate (§4.56) reads the provider's container depth; the worker is what runs the statement.
+mock.module("@/lib/db", () => ({ getOrCreateProvider: async () => createMockProvider() }));
 const realResolve = await import("@/lib/seed/resolve-connection");
 mock.module("@/lib/seed/resolve-connection", () => ({
   ...realResolve,
@@ -92,6 +95,19 @@ describe("POST /api/db/export", () => {
     expect((await post({ connection: { ...staging, exportRoles: [] }, sql: "SELECT 1", format: "json" })).status).toBe(
       403,
     );
+  });
+
+  // docs/CONTEXT.md §4.56: the datasource's object rules, judged before anything is queued.
+  test("the object rules: a statement naming a hidden object is refused, audited, and never queued", async () => {
+    const ruled = { ...staging, objectRules: [{ match: "public.orders", roles: ["user"] }] };
+    const refused = await post({ connection: ruled, sql: "SELECT * FROM public.secrets", format: "csv" });
+    expect(refused.status).toBe(403);
+    expect(((await parseResponseJSON(refused)) as { error: string }).error).toBe(
+      '"public.secrets" is not an object you may use on "Staging".',
+    );
+    expect(audited()[0]).toMatchObject({ type: "permission_denied", reason: "object_forbidden", user: "ana" });
+    expect(enqueued).toHaveLength(0);
+    expect((await post({ connection: ruled, sql: "SELECT * FROM public.orders", format: "csv" })).status).toBe(200);
   });
 
   test("only a statement that reads", async () => {

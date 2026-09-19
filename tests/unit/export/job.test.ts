@@ -16,6 +16,13 @@ mock.module("@/lib/roles/store", () => ({ withNamedRoles: async (s: unknown) => 
 const datasources: Record<string, Record<string, unknown>> = {
   "seed:staging": { id: "seed:staging", name: "Staging", type: "postgres", environment: "staging" },
   "seed:prod": { id: "seed:prod", name: "Prod", type: "postgres", environment: "production" },
+  "seed:ruled": {
+    id: "seed:ruled",
+    name: "Ruled",
+    type: "postgres",
+    environment: "staging",
+    objectRules: [{ match: "public.people", roles: ["user"] }],
+  },
   "seed:capped": {
     id: "seed:capped",
     name: "Capped",
@@ -24,7 +31,17 @@ const datasources: Record<string, Record<string, unknown>> = {
     limits: { maxRows: 1 },
   },
 };
+class SeedConnectionError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number,
+  ) {
+    super(message);
+    this.name = "SeedConnectionError";
+  }
+}
 mock.module("@/lib/seed/resolve-connection", () => ({
+  SeedConnectionError,
   resolveConnection: async (body: { connectionId: string }, s: unknown) => {
     session = s as typeof session;
     return datasources[body.connectionId];
@@ -179,6 +196,15 @@ describe("export job", () => {
     (mockProvider.query as ReturnType<typeof mock>).mockRejectedValueOnce(new QueryError("syntax error"));
     await expect(runExport(payload({ sql: "SELECT nope" }), "job-3")).rejects.toBeInstanceOf(QueryError);
     expect(existsSync(join(dir, "job-3.csv"))).toBe(false);
+  });
+
+  // docs/CONTEXT.md §4.56: the object rules, judged again where the statement runs.
+  test("the object rules again on the worker: a hidden object is refused with 403 and audited, nothing runs", async () => {
+    const refused = runExport(payload({ connectionId: "seed:ruled", sql: "SELECT id FROM public.secrets" }), "job-9");
+    await expect(refused).rejects.toMatchObject({ statusCode: 403 });
+    await expect(refused).rejects.toThrow('"public.secrets" is not an object you may use on "Ruled".');
+    expect(audit.mock.calls.map((c) => (c[0] as { reason?: string }).reason)).toContain("object_forbidden");
+    expect(mockProvider.query).not.toHaveBeenCalled();
   });
 
   test("the rule again on the worker: production closed to this person is refused and audited; a write is refused; nothing is written", async () => {

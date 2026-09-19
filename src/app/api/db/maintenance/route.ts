@@ -7,6 +7,7 @@ import { maintenanceControl, type MaintenancePlacement } from "@/lib/db/types";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 import { guardRoute } from "@/lib/api/require-session";
 import { auditRoleDenial } from "@/lib/api/role-denial";
+import { assertObjectsAllowed } from "@/lib/api/object-gate";
 import { assertWriteAllowed } from "@/lib/api/write-gate";
 import { logger } from "@/lib/logger";
 
@@ -48,6 +49,15 @@ export async function POST(request: Request) {
 
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(guard.session.username),
+    });
+    // The table the operation targets must be this session's to use (docs/CONTEXT.md §4.56).
+    await assertObjectsAllowed({
+      route: "POST /api/db/maintenance",
+      session: guard.session,
+      connection,
+      statements: [`${type} ${target ?? ""}`],
+      request,
+      provider,
     });
     const capabilities = provider.getCapabilities();
 

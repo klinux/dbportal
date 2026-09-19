@@ -7,6 +7,7 @@ import { applicationNameFor } from "@/lib/db/application-name";
 import { createErrorResponse } from "@/lib/api/errors";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 import { auditExecution, type ExecutionAction } from "@/lib/audit-execution";
+import { assertObjectsAllowed } from "@/lib/api/object-gate";
 import { assertWriteAllowed, providerAccessOptions, type WriteAccess } from "@/lib/api/write-gate";
 import { maskResult } from "@/lib/masking/store";
 import { clientAddress } from "@/lib/api/client-address";
@@ -68,6 +69,17 @@ export async function POST(req: NextRequest) {
       applicationName: applicationNameFor(guard.session.username),
       ...providerAccessOptions(connection, guard.session),
     });
+    // A statement inside the transaction names objects like any other (docs/CONTEXT.md §4.56).
+    if (action === "query" && typeof sql === "string") {
+      await assertObjectsAllowed({
+        route: "POST /api/db/transaction",
+        session: guard.session,
+        connection,
+        statements: [sql],
+        request: req,
+        provider,
+      });
+    }
 
     if (!isTransactionProvider(provider)) {
       return NextResponse.json(

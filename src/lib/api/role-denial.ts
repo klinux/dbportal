@@ -35,6 +35,7 @@ export function auditRoleDenial(opts: {
   reason?:
     | "insufficient_role"
     | "read_only_datasource"
+    | "object_forbidden"
     | "approval_required"
     | "guardrail"
     | "freeze_window"

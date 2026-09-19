@@ -59,6 +59,10 @@
  */
 
 import { z } from "zod";
+import { enumerateContainers } from "@/lib/db/container-walk";
+import { objectRefusal } from "@/lib/objects/gate";
+import { type ObjectScope, UNRESTRICTED } from "@/lib/objects/rules";
+import { scopeProvider } from "@/lib/objects/scoped-provider";
 import { type AuditReason, emitAuditEvent } from "@/lib/audit";
 import type { ExecutionProfile } from "@/lib/db/factory";
 import { ConnectionError, DatabaseConfigError, DatabaseError, PoolExhaustedError, QueryError } from "@/lib/db/errors";
@@ -246,6 +250,12 @@ export interface AgentToolContext {
   readonly actor: AgentRunActor;
   readonly connection: DatabaseConnection;
   readonly capabilities: ProviderCapabilities;
+  /**
+   * What the actor may see and name of the datasource (docs/CONTEXT.md §4.56): the
+   * grounding read shows only that, and a statement naming anything else is refused
+   * before it is sent. Absent means unrestricted, which is every datasource without rules.
+   */
+  readonly objectScope?: ObjectScope;
   /**
    * The provider's own vocabulary, read the same way and at the same moment as its
    * capabilities (#414).
@@ -1560,6 +1570,21 @@ async function runStatement(
 ): Promise<QueryResult> {
   const provider = await context.acquireProvider(context.connection, AGENT_EXECUTION_PROFILE);
   if (typeof provider.queryReadOnly !== "function") {
+    throw new Error("agent tool layer: the acquired provider exposes no read-only execution path");
+  }
+  // The datasource's object rules (docs/CONTEXT.md §4.56) hold for the agent as for the
+  // person: the same scanner, the same verdicts, and the refusal reaches the model as the
+  // statement's error so it can name another object or say it cannot.
+  const refusal = await objectRefusal({
+    scope: context.objectScope ?? UNRESTRICTED,
+    statements: [(validatedInput as { readonly sql: string }).sql],
+    type: context.connection.type,
+    datasourceName: context.connection.name,
+    depth: containerDepth(context.capabilities),
+    defaultContainer: async () => (await enumerateContainers(provider)).defaultContainer,
+  });
+  if (refusal !== null) throw new AgentObjectRefusal(refusal);
+  if (typeof provider.queryReadOnly !== "function") {
     // Not a refusal: `acquireExecutionProfileProvider` already refuses such a
     // provider, so reaching here means the injected acquirer is not the profile
     // seam. That is a server fault and must be loud, never a model-visible outcome.
@@ -1650,6 +1675,14 @@ interface AuditedAgentCall {
  * the audit records an execution, so the step settles like every other reach that
  * happened.
  */
+/** A statement refused by the datasource's object rules (docs/CONTEXT.md §4.56), before it was sent. */
+export class AgentObjectRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AgentObjectRefusal";
+  }
+}
+
 class AgentCuratedReadError extends Error {
   constructor(readonly reasonCode: AgentReadingDenyCode) {
     super(reasonCode);
@@ -2338,7 +2371,10 @@ export async function readObjectInventoryForGrounding(context: AgentToolContext)
           );
         });
         try {
-          const walked = await Promise.race([walkObjectInventory(provider, context.capabilities, declared), overran]);
+          const walked = await Promise.race([
+            walkObjectInventory(scopeProvider(provider, context.objectScope ?? UNRESTRICTED), context.capabilities, declared),
+            overran,
+          ]);
           inventory = walked.inventory;
           defaultContainer = walked.defaultContainer;
         } catch (error) {

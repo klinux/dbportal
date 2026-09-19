@@ -113,6 +113,25 @@ describe("POST /api/db/query", () => {
     );
   });
 
+  // docs/CONTEXT.md §4.56: the datasource's object rules, enforced on the statement's names
+  // before it runs; an administrator is never held by them.
+  test("refuses a statement naming an object the rules keep from this session, and audits it", async () => {
+    const ruled = { ...validConnection, roles: ["*"], objectRules: [{ match: "public.users", roles: ["user"] }] };
+    const post = (body: Record<string, unknown>) =>
+      POST(createMockRequest("/api/db/query", { method: "POST", body }) as never);
+    mockGetSession.mockImplementation(async () => ({ role: "user", username: "ada" }));
+
+    expect((await post({ connection: ruled, sql: "SELECT * FROM public.users" })).status).toBe(200);
+    const denied = await post({ connection: ruled, sql: "SELECT * FROM public.secrets" });
+    expect(denied.status).toBe(403);
+    expect((await parseResponseJSON<{ error: string }>(denied)).error).toBe(
+      '"public.secrets" is not an object you may use on "Test DB".',
+    );
+
+    mockGetSession.mockImplementation(async () => ({ role: "admin", username: "root" }));
+    expect((await post({ connection: ruled, sql: "SELECT * FROM public.secrets" })).status).toBe(200);
+  });
+
   // docs/CONTEXT.md §4.4: the datasource's write rule, enforced before anything reaches the
   // engine. `writeRoles: []` is read-only for everyone, this admin session included.
   test("a read-only datasource runs reads on a read-only pool and refuses writes, explained or not", async () => {

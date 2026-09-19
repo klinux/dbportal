@@ -36,7 +36,8 @@ import {
   type DatabaseType,
   ENVIRONMENT_ORDER,
 } from "@/lib/types";
-import { Database, FileCode2, KeyRound, Pencil, Plus, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
+import { Database, FileCode2, KeyRound, Pencil, Plus, RefreshCw, Trash2, TriangleAlert, X } from "lucide-react";
+import type { ObjectRule } from "@/lib/objects/rules";
 import { ProvisionAccountSheet } from "@/components/admin/ProvisionAccountSheet";
 import { canProvisionAccount } from "@/lib/provisioning/engines";
 import { toast } from "sonner";
@@ -129,6 +130,8 @@ interface StoreRow {
   limits?: DatasourceLimits;
   requireTicket?: boolean;
   exportRoles?: string[];
+  /** Which objects each person sees and may name (§4.56). */
+  objects?: ObjectRule[];
   ssl?: DatabaseConnection["ssl"];
   serviceName?: string;
   instanceName?: string;
@@ -166,6 +169,8 @@ interface ConfigRow {
   limits?: DatasourceLimits;
   requireTicket?: boolean;
   exportRoles?: string[];
+  /** Which objects each person sees and may name (§4.56). */
+  objects?: ObjectRule[];
 }
 
 type Row = StoreRow | ConfigRow;
@@ -225,6 +230,7 @@ export function toDatasourcePayload(
   exportRoles: string[] | undefined = undefined,
   twoReviewers = false,
   approverRoles: string[] | undefined = undefined,
+  objects: ObjectRule[] | undefined = undefined,
 ) {
   // The editor's own timeout field is the datasource's timeout limit (§4.16).
   const merged: DatasourceLimits = {
@@ -264,7 +270,36 @@ export function toDatasourcePayload(
     ...(exportRoles !== undefined ? { exportRoles } : {}),
     ...(writeApproval && twoReviewers ? { approvalsRequired: 2 } : {}),
     ...(approverRoles !== undefined ? { approverRoles } : {}),
+    // The object rules (§4.56): only when there is one, so a cleared list means no rule.
+    ...(objects !== undefined && objects.length > 0 ? { objects } : {}),
   };
+}
+
+/** One rule as the form edits it: keyed for React, and possibly still blank. */
+export interface ObjectRuleDraft {
+  key: number;
+  match: string;
+  roles: string[];
+}
+
+/**
+ * The rules the form saves, or an error naming what is missing: a blank row is dropped, a
+ * pattern with nobody to see it is a mistake rather than a rule, and a pattern with a
+ * space or a comma would not match anything the server lists.
+ */
+export function objectRulesOf(drafts: readonly ObjectRuleDraft[]): { rules: ObjectRule[] } | { error: string } {
+  const rules: ObjectRule[] = [];
+  for (const draft of drafts) {
+    const match = draft.match.trim();
+    if (match === "" && draft.roles.length === 0) continue;
+    if (match === "") return { error: "An object rule needs a name pattern." };
+    if (/[\s,]/.test(match) || match.length > 200) {
+      return { error: `"${match}" is not a pattern: no spaces or commas, at most 200 characters.` };
+    }
+    if (draft.roles.length === 0) return { error: `The rule "${match}" names nobody who sees it.` };
+    rules.push({ match, roles: draft.roles });
+  }
+  return { rules };
 }
 
 /**
@@ -397,6 +432,8 @@ export function DatasourcesTab() {
   const [requireTicket, setRequireTicket] = useState(false);
   const [exportPrincipals, setExportPrincipals] = useState<string[]>([]);
   const [exportNobody, setExportNobody] = useState(false);
+  const [objectRules, setObjectRules] = useState<ObjectRuleDraft[]>([]);
+  const [nextRuleKey, setNextRuleKey] = useState(0);
   const [maxRows, setMaxRows] = useState("");
   const [maxConcurrent, setMaxConcurrent] = useState("");
   const [pendingDelete, setPendingDelete] = useState<StoreRow | null>(null);
@@ -472,6 +509,7 @@ export function DatasourcesTab() {
     setRequireTicket(false);
     setExportPrincipals([]);
     setExportNobody(false);
+    setObjectRules([]);
     setOpenPrincipals([]);
     setApproverRoles([]);
     setMaxRows("");
@@ -488,6 +526,8 @@ export function DatasourcesTab() {
     setRequireTicket(row.requireTicket === true);
     setExportNobody(row.exportRoles !== undefined && row.exportRoles.length === 0);
     setExportPrincipals(row.exportRoles ?? []);
+    setObjectRules((row.objects ?? []).map((rule, key) => ({ key, match: rule.match, roles: [...rule.roles] })));
+    setNextRuleKey((row.objects ?? []).length);
     setOpenPrincipals(row.roles.filter((r) => r.startsWith("group:") || r.startsWith("role:")));
     setApproverRoles(row.approverRoles ?? []);
     setMaxRows(row.limits?.maxRows?.toString() ?? "");
@@ -533,6 +573,11 @@ export function DatasourcesTab() {
       toast.error("The name must contain at least one letter or digit.");
       return;
     }
+    const rules = objectRulesOf(objectRules);
+    if ("error" in rules) {
+      toast.error(rules.error);
+      return;
+    }
     const payload = toDatasourcePayload(
       conn,
       id,
@@ -544,6 +589,7 @@ export function DatasourcesTab() {
       exportNobody ? [] : exportPrincipals.length > 0 ? exportPrincipals : undefined,
       twoReviewers,
       writeApproval && approverRoles.length > 0 ? approverRoles : undefined,
+      conn.type === "virtual" ? undefined : rules.rules,
     );
     try {
       const res = await appFetch(
@@ -704,6 +750,72 @@ export function DatasourcesTab() {
           />
         )}
       </div>
+      {/* docs/CONTEXT.md §4.56: which objects each person sees and may name. Not on a virtual
+          datasource, whose members carry their own (and are refused with any). */}
+      {editing?.type !== "virtual" && (
+        <div className="space-y-1.5" data-testid="datasource-objects">
+          <Label className="text-xs text-fg-tertiary">
+            Which objects each person sees (blank: every object; administrators always see all)
+          </Label>
+          {objectRules.map((rule, index) => (
+            <div key={rule.key} className="flex items-start gap-2" data-testid={`object-rule-${index}`}>
+              <Input
+                id={`object-rule-${rule.key}-match`}
+                aria-label="Object name pattern"
+                placeholder="apim-* or public.orders"
+                value={rule.match}
+                className="w-44 h-8 text-xs"
+                onChange={(e) =>
+                  setObjectRules((current) =>
+                    current.map((r) => (r.key === rule.key ? { ...r, match: e.target.value } : r)),
+                  )
+                }
+              />
+              <div className="flex-1">
+                <PrincipalPicker
+                  value={rule.roles}
+                  onChange={(roles) =>
+                    setObjectRules((current) => current.map((r) => (r.key === rule.key ? { ...r, roles } : r)))
+                  }
+                  kinds={["wildcard", "role", "named", "group", "user"]}
+                  placeholder="Who sees them"
+                  idPrefix={`object-rule-${rule.key}`}
+                  label="Add a principal that sees these objects"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label="Remove object rule"
+                onClick={() => setObjectRules((current) => current.filter((r) => r.key !== rule.key))}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="object-rule-add"
+            onClick={() => {
+              setObjectRules((current) => [...current, { key: nextRuleKey, match: "", roles: [] }]);
+              setNextRuleKey((key) => key + 1);
+            }}
+          >
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            Add object rule
+          </Button>
+          <p className="text-[11px] text-fg-tertiary">
+            A pattern matches an object&apos;s dotted path (public.orders, logs-2026.*), with * for any run of
+            characters and ? for one; a pattern with no dot matches the relation&apos;s name in any schema. With any
+            rule, a person sees only what the rules they hold match, and a statement naming anything else is refused
+            on SQL engines; on MongoDB and Redis the rules filter the tree only.
+          </p>
+        </div>
+      )}
       {/* docs/CONTEXT.md §4.16: what one statement may return and how many a person may run at once. */}
       <div className="grid grid-cols-2 gap-3" data-testid="datasource-limits">
         <div className="space-y-1">

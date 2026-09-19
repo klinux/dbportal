@@ -1,4 +1,5 @@
 import { isReadStatement } from "@/lib/access";
+import { assertObjectsAllowed } from "@/lib/api/object-gate";
 import { emitAuditEvent } from "@/lib/audit";
 import { auditExecution, executionFailureReason } from "@/lib/audit-execution";
 import { findChannel } from "@/lib/channels/store";
@@ -87,6 +88,8 @@ export async function runAlert(record: AlertRecord, now = new Date()): Promise<A
       applicationName: applicationNameFor(owner.username),
       readOnly: true,
     });
+    // The owner's object rules (docs/CONTEXT.md §4.56): an alert reads only what its owner may.
+    await assertObjectsAllowed({ route: ALERT_ROUTE, session: owner, connection, statements: [record.sql], provider });
     const prepared = provider.prepareQuery(record.sql, capPrepareOptions({ limit: ALERT_MAX_ROWS }, connection.limits));
     const result = await withConcurrency(connection, owner.username, () =>
       auditExecution(
