@@ -2927,6 +2927,44 @@ describe("a 6.x cluster", () => {
     expect(closed.columns).toEqual([]);
   });
 
+  test("holds no composable template and no data stream, and is not asked for either", async () => {
+    // Measured on 6.x: `GET /_data_stream` answers `invalid_index_name_exception`
+    // ("Invalid index name [_data_stream], must not start with '_'") - the path read as
+    // an index name - and that one refusal sank the sidebar's whole inventory on
+    // connect. The kinds arrived in 7.8 and 7.9, so an older cluster holds none of
+    // them: a count of zero is the truth, and no request is spent finding it out.
+    serveSixCluster();
+    const provider = await connectProvider();
+
+    expect(await provider.countObjects([])).toMatchObject({
+      index: { count: 3 },
+      alias: { count: 2 },
+      pipeline: { count: 1 },
+      stream: { count: 0 },
+      template: { count: 0 },
+    });
+    expect(await provider.listObjects([], "stream")).toEqual([]);
+    expect(await provider.listObjects([], "template")).toEqual([]);
+    expect(pathsSent()).not.toContain("/_data_stream");
+    expect(pathsSent()).not.toContain("/_index_template");
+    // Still ONE version read for the SQL path and the two gates together.
+    expect(pathsSent().filter((path) => path === "/")).toHaveLength(1);
+  });
+
+  test("a 7.8 cluster has templates but no data streams yet, so the minor decides", async () => {
+    // The two kinds arrived one minor apart; a check on the major alone would either
+    // ask a 7.8 cluster for data streams it refuses, or hide templates it has.
+    serveSixCluster(JSON.stringify({ version: { number: "7.8.1", build_flavor: "default" } }));
+    replyFor = ((six) => (request: SentRequest) => (request.path === SQL_PATH ? defaultReply(request) : six(request)))(
+      replyFor,
+    );
+    const provider = await connectProvider();
+
+    expect(await provider.countObjects([])).toMatchObject({ stream: { count: 0 }, template: { count: 2 } });
+    expect(pathsSent()).toContain("/_index_template");
+    expect(pathsSent()).not.toContain("/_data_stream");
+  });
+
   test("a version this client cannot read is taken as current", async () => {
     // The modern path is the one every release since 7.0 has kept, so a payload that
     // says nothing readable gets the modern path - and here that is the refused one,
@@ -2938,6 +2976,17 @@ describe("a 6.x cluster", () => {
     await expect(failure).rejects.toBeInstanceOf(ConnectionError);
     await expect(failure).rejects.toThrow("Incorrect HTTP method for uri [/_sql?format=json]");
     expect(pathsSent()).toEqual(["/", SQL_PATH]);
+  });
+
+  test("a cluster this client cannot date is asked for every listing, and answers for itself", async () => {
+    // No age, no age-based decision: the version read is not cached either, so the
+    // listings ask again and let the cluster answer.
+    overridePath("/", ok(JSON.stringify({ version: { number: "unknown", build_flavor: "default" } })));
+    const provider = await connectProvider();
+
+    expect(await provider.countObjects([])).toMatchObject({ stream: { count: 1 }, template: { count: 2 } });
+    expect(pathsSent()).toContain("/_data_stream");
+    expect(pathsSent()).toContain("/_index_template");
   });
 
   test("a refused version read is reported as the refusal it is, before any statement", async () => {

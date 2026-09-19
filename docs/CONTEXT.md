@@ -1172,9 +1172,14 @@ built. Each lands as its own section when done.
   in `http-transport.ts` and the seam guard now lists `/_xpack/sql` as wire knowledge the
   provider must not spell. Measured on the live cluster: the 405 on `/_sql` and the 401 on
   `/_xpack/sql`; the rest is replay
-  ([`docs/providers/elasticsearch.md` §3.12](providers/elasticsearch.md)). The two folders
-  6.x has no endpoint for, composable templates and data streams, report the refusal as
-  their unavailable reason, which is the state a denied endpoint already had.
+  ([`docs/providers/elasticsearch.md` §3.12](providers/elasticsearch.md)). Then (0.7.2) the
+  two folders 6.x has no endpoint for: `GET /_data_stream` there is "Invalid index name
+  [_data_stream]", and one such refusal sank the whole object inventory the sidebar loads
+  on connect, as a toast on every open. Composable templates arrived in 7.8 and data
+  streams in 7.9, so the transport keeps the release it already read (major and minor)
+  and answers those two listings with an empty list, without a request, on a cluster that
+  predates the kind: the objects are not in its model, and zero is the truth. A cluster it
+  cannot date is asked and answers for itself.
 
 ## 5. Decisions already taken
 

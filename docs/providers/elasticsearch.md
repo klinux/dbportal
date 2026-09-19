@@ -460,12 +460,20 @@ provider never learns that a cluster has an age:
   rather than asking for `include_type_name=false` because only 6.7+ understands that parameter and
   7.x deprecates it.
 
-Not measured on 6.x beyond the two probes above: `field_multi_value_leniency` (added to the request
-body in 6.7, so a 6.8 cluster should accept it), `_cat/indices?bytes=b`, and the object listings.
-`_index_template` and `_data_stream` did not exist before 7.8/7.9, so on 6.x those two folders report
-the cluster's refusal as their unavailable reason rather than a count, which is the state
-`countObjects()` already has for a denied endpoint. 6.8 has been out of support since 2020; this is
-compatibility for the clusters that are still there, not a verified target.
+- **Two listings did not exist yet.** Composable templates shipped in 7.8 and data streams in 7.9.
+  Measured 2026-09-18 on 6.x: `GET /_data_stream` answers `invalid_index_name_exception`, "Invalid
+  index name [_data_stream], must not start with '_'" — the path read as an index name, exactly as
+  `/_sql` was — and that one refusal sank the whole object inventory the sidebar loads on connect,
+  as a toast. `templates()` and `dataStreams()` now consult the same release read (`readRelease()`,
+  major and minor, cached with the SQL path) and answer an **empty list without a request** on a
+  cluster that predates the kind: the objects are not in its model, so zero is the truth rather
+  than a refusal dressed as a count. A cluster the client cannot date (an unreadable number, or a
+  payload naming another distribution) is asked and answers for itself.
+
+Not measured on 6.x beyond the probes above: `field_multi_value_leniency` (added to the request body
+in 6.7, so a 6.8 cluster should accept it), `_cat/indices?bytes=b`, and the alias and pipeline
+listings. 6.8 has been out of support since 2020; this is compatibility for the clusters that are
+still there, not a verified target.
 
 ---
 
@@ -1464,10 +1472,10 @@ because the provider exposes no `cancelQuery` ([§3.8](#38-the-deadline-is-the-c
   ([transport.ts:205-219](../../src/lib/db/providers/sql/search/transport.ts)), and note the mapping
   read already tolerates the case: it takes the single entry of the payload rather than looking it up
   by the requested name, because an alias resolves to the concrete index behind it.
-- **Elasticsearch 6.x is served by replay, not by a live pass.** The `_xpack/sql` path and the typed
-  mapping are measured facts ([§3.12](#312-elasticsearch-6x-the-_xpack-prefix-and-the-mapping-type)),
-  but no 6.x cluster ran the whole surface; the `_index_template` and `_data_stream` folders are
-  unavailable there by construction.
+- **Elasticsearch 6.x is served by replay, not by a live pass.** The `_xpack/sql` path, the typed
+  mapping and the two listings it predates are measured facts
+  ([§3.12](#312-elasticsearch-6x-the-_xpack-prefix-and-the-mapping-type)), but no 6.x cluster ran
+  the whole surface.
 - **No maintenance operations at all** ([§8](#8-maintenance)).
 - **No active sessions and no slow queries**, structurally rather than unimplemented: a request is one
   HTTP request, and the slow log is a node log file no API returns ([§7](#7-monitoring--health)).

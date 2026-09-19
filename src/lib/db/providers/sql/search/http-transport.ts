@@ -416,6 +416,12 @@ const OPENSEARCH_QUERY_INSIGHTS = /^top_queries-\d{4}\.\d{2}\.\d{2}-\d+$/;
 // The dialect table: everything the two products disagree about
 // ============================================================================
 
+/** A product release, as far as this transport needs to compare one: major and minor. */
+interface SearchRelease {
+  readonly major: number;
+  readonly minor: number;
+}
+
 /**
  * One product's wire dialect.
  *
@@ -442,6 +448,18 @@ interface SearchDialectSpec {
    * protocol on both paths; only the path differs.
    */
   readonly legacySql: { readonly path: string; readonly belowMajor: number } | null;
+  /**
+   * The release that introduced each object listing, or null when the product has
+   * always had it. A cluster older than that holds NONE of the objects - the kind is
+   * not in its model at all - so the listing answers an empty list without a request,
+   * which is the truth about the cluster rather than a refusal dressed as a count.
+   * Measured 2026-09-18 on 6.x: `GET /_data_stream` answers
+   * `invalid_index_name_exception`, "Invalid index name [_data_stream], must not start
+   * with '_'" - the path read as an index name, exactly as `/_sql` was - and one such
+   * refusal sank the whole object inventory the sidebar loads on connect.
+   */
+  readonly indexTemplatesSince: SearchRelease | null;
+  readonly dataStreamsSince: SearchRelease | null;
   /** Whether SQL should tolerate multi-valued fields. Elasticsearch supports this request option. */
   readonly fieldMultiValueLeniency: boolean;
   /** The success envelope's declared-columns key. */
@@ -486,6 +504,9 @@ const DIALECTS: Readonly<Record<SearchDialectId, SearchDialectSpec>> = Object.fr
     sqlPath: "/_sql",
     sqlQuery: "format=json",
     legacySql: { path: "/_xpack/sql", belowMajor: 7 },
+    // Composable templates shipped in 7.8 and data streams in 7.9.
+    indexTemplatesSince: { major: 7, minor: 8 },
+    dataStreamsSince: { major: 7, minor: 9 },
     fieldMultiValueLeniency: true,
     columnsKey: "columns",
     // Elasticsearch folds the alias into `name`, so there is no separate member.
@@ -524,8 +545,10 @@ const DIALECTS: Readonly<Record<SearchDialectId, SearchDialectSpec>> = Object.fr
     label: "OpenSearch",
     sqlPath: "/_plugins/_sql",
     sqlQuery: "",
-    // The fork was cut from 7.10, after the prefix was gone; there is no older path.
+    // The fork was cut from 7.10, after the prefix was gone and with both listings.
     legacySql: null,
+    indexTemplatesSince: null,
+    dataStreamsSince: null,
     fieldMultiValueLeniency: false,
     columnsKey: "schema",
     aliasKey: "alias",
@@ -1081,6 +1104,8 @@ export class SearchHttpTransport implements SearchTransport {
   private readonly authorization: string | undefined;
   /** The SQL endpoint this cluster answers on, once the version payload has said which; see `resolveSqlPath`. */
   private sqlPath: string | null = null;
+  /** The cluster's release, read once per transport; null for a product this transport never asks. */
+  private release: SearchRelease | null = null;
 
   constructor(dialect: SearchDialectId, config: DatabaseConnection) {
     this.dialect = dialect;
@@ -1217,11 +1242,39 @@ export class SearchHttpTransport implements SearchTransport {
     if (this.sqlPath !== null) return this.sqlPath;
     if (this.spec.legacySql === null) return (this.sqlPath = this.spec.sqlPath);
 
-    const { version, product } = await this.version(signal);
-    const major = Number.parseInt(version, 10);
-    const legacy = product === UNDISTRIBUTED_PRODUCT && Number.isFinite(major) && major < this.spec.legacySql.belowMajor;
+    const release = await this.readRelease(signal);
+    const legacy = release !== null && release.major < this.spec.legacySql.belowMajor;
     this.sqlPath = legacy ? this.spec.legacySql.path : this.spec.sqlPath;
     return this.sqlPath;
+  }
+
+  /**
+   * The cluster's own release, once per transport, or null when the payload names
+   * another distribution or a number this client cannot read - both cases where no
+   * age-based decision may be taken (see `resolveSqlPath` for why the distribution
+   * matters). A read that fails is not cached, so the next caller asks again.
+   */
+  private async readRelease(signal?: AbortSignal): Promise<SearchRelease | null> {
+    if (this.release !== null) return this.release;
+
+    const { version, product } = await this.version(signal);
+    if (product !== UNDISTRIBUTED_PRODUCT) return null;
+    const [major, minor] = version.split(".").map((part) => Number.parseInt(part, 10));
+    if (!Number.isFinite(major)) return null;
+    this.release = { major, minor: Number.isFinite(minor) ? minor : 0 };
+    return this.release;
+  }
+
+  /**
+   * Whether this cluster predates a listing, and therefore holds none of its objects.
+   * False when the product has always had it, and false when the release is unknown:
+   * a cluster this client cannot date is asked, and answers for itself.
+   */
+  private async predates(since: SearchRelease | null, signal?: AbortSignal): Promise<boolean> {
+    if (since === null) return false;
+    const release = await this.readRelease(signal);
+    if (release === null) return false;
+    return release.major < since.major || (release.major === since.major && release.minor < since.minor);
   }
 
   public async version(signal?: AbortSignal): Promise<{ version: string; product: string }> {
@@ -1340,6 +1393,7 @@ export class SearchHttpTransport implements SearchTransport {
 
   /** Every composable index template in the cluster (#789). */
   public async templates(signal?: AbortSignal): Promise<SearchObjectInfo[]> {
+    if (await this.predates(this.spec.indexTemplatesSince, signal)) return [];
     const payload = asRecord(await this.request(INDEX_TEMPLATE_PATH, signal));
     if (payload === null) throw unreadableBody(this.spec, "an index template listing");
 
@@ -1361,6 +1415,7 @@ export class SearchHttpTransport implements SearchTransport {
    * whereas a template nests its definition one level down.
    */
   public async dataStreams(signal?: AbortSignal): Promise<SearchObjectInfo[]> {
+    if (await this.predates(this.spec.dataStreamsSince, signal)) return [];
     const payload = asRecord(await this.request(DATA_STREAM_PATH, signal));
     if (payload === null) throw unreadableBody(this.spec, "a data stream listing");
 
