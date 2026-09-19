@@ -2354,7 +2354,12 @@ export async function readObjectInventoryForGrounding(context: AgentToolContext)
       label: "provider object inventory",
       grounding: true,
       invoke: async (_validatedInput, budget, phase) => {
-        const provider = await context.acquireProvider(context.connection, AGENT_OPERATIONS_PROFILE);
+        // Read through the run's object scope (docs/CONTEXT.md §4.56): the same filter the
+  // monitoring route applies, so the model is shown no table and no statement the person could not see.
+  const provider = scopeProvider(
+    await context.acquireProvider(context.connection, AGENT_OPERATIONS_PROFILE),
+    context.objectScope ?? UNRESTRICTED,
+  );
         const startedAtMs = context.clock?.() ?? Date.now();
         phase.statementSent = true;
 

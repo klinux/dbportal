@@ -130,6 +130,29 @@ describe("POST /api/db/monitoring", () => {
     }));
   });
 
+  // docs/CONTEXT.md §4.56: a table's statistics and a statement somebody ran are shown only
+  // when the datasource's rules show them to this session; an administrator sees all.
+  test("filters the monitoring rows by the datasource's object rules for a user", async () => {
+    (mockProvider.getMonitoringData as ReturnType<typeof mock>).mockImplementation(async () => ({
+      timestamp: new Date(),
+      tables: [
+        { schemaName: "public", tableName: "orders", rowCount: 1, totalSize: "1 B", totalSizeBytes: 1 },
+        { schemaName: "public", tableName: "secrets", rowCount: 1, totalSize: "1 B", totalSizeBytes: 1 },
+      ],
+      slowQueries: [
+        { query: "SELECT * FROM public.orders", calls: 1, totalTime: 1, avgTime: 1, rows: 1 },
+        { query: "SELECT * FROM public.secrets", calls: 1, totalTime: 1, avgTime: 1, rows: 1 },
+      ],
+    }));
+    const ruled = { ...validConnection, objectRules: [{ match: "public.orders", roles: ["user"] }] };
+    mockGetSession.mockImplementation(async () => ({ role: "user", username: "ada" }));
+    const res = await POST(createMockRequest("/api/db/monitoring", { method: "POST", body: { connection: ruled } }) as never);
+    expect(res.status).toBe(200);
+    const data = await parseResponseJSON<{ tables: { tableName: string }[]; slowQueries: { query: string }[] }>(res);
+    expect(data.tables.map((t) => t.tableName)).toEqual(["orders"]);
+    expect(data.slowQueries.map((q) => q.query)).toEqual(["SELECT * FROM public.orders"]);
+  });
+
   test("valid connection returns 200 with monitoring data", async () => {
     const req = createMockRequest("/api/db/monitoring", {
       method: "POST",

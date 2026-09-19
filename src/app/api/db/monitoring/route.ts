@@ -5,6 +5,8 @@ import type { MonitoringOptions } from "@/lib/db/types";
 import { createErrorResponse } from "@/lib/api/errors";
 import { resolveConnection } from "@/lib/seed/resolve-connection";
 import { guardRoute } from "@/lib/api/require-session";
+import { type ObjectRule, objectScopeFor } from "@/lib/objects/rules";
+import { scopeProvider } from "@/lib/objects/scoped-provider";
 
 /**
  * POST /api/db/monitoring
@@ -40,7 +42,10 @@ export async function POST(req: NextRequest) {
     const provider = await getOrCreateProvider(connection, {
       applicationName: applicationNameFor(guard.session.username),
     });
-    const monitoringData = await provider.getMonitoringData(options);
+    // What this session may see of the datasource (docs/CONTEXT.md §4.56): a table's
+    // statistics by its address, a statement somebody ran by what it names.
+    const rules = (connection as { objectRules?: readonly ObjectRule[] }).objectRules;
+    const monitoringData = await scopeProvider(provider, objectScopeFor(rules, guard.session)).getMonitoringData(options);
 
     return NextResponse.json(monitoringData);
   } catch (error) {

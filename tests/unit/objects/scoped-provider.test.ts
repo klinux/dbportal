@@ -79,6 +79,49 @@ describe("scopeProvider", () => {
     expect(batch.truncated).toEqual({ limit: 3, reason: "bounded" });
   });
 
+  test("monitoring rows are filtered: statistics by the table's address, statements by what they name", async () => {
+    const tables = [
+      { schemaName: "public", tableName: "orders", rowCount: 1, totalSize: "1 B", totalSizeBytes: 1 },
+      { schemaName: "public", tableName: "secrets", rowCount: 1, totalSize: "1 B", totalSizeBytes: 1 },
+      // An engine with no containers reports an empty schema: the address is the name alone.
+      { schemaName: "", tableName: "orders", rowCount: 1, totalSize: "1 B", totalSizeBytes: 1 },
+    ];
+    const indexes = tables.map((t) => ({ ...t, indexName: `${t.tableName}_pk`, columns: ["id"], isUnique: true, isPrimary: true, indexSize: "1 B", indexSizeBytes: 1, scans: 0 }));
+    const statements = [
+      "SELECT * FROM public.orders WHERE id = 1",
+      "SELECT * FROM public.secrets",
+      // Unqualified, and the scope is a qualified pattern with no default schema to place it in: hidden.
+      "SELECT * FROM orders",
+      "<IDLE>",
+      "",
+    ];
+    const slowQueries = statements.map((query) => ({ query, calls: 1, totalTime: 1, avgTime: 1, rows: 1 }));
+    const activeSessions = statements.map((query, pid) => ({ pid, user: "u", database: "d", state: "active", query, duration: "1s", durationMs: 1 }));
+    const raw = provider({ tableStats: tables, indexStats: indexes, slowQueries, activeSessions, monitoring: { timestamp: new Date(0), tables, slowQueries } });
+    const scoped = scopeProvider(raw, { restricted: true, patterns: ["public.orders"] });
+
+    expect((await scoped.getTableStats()).map((t) => `${t.schemaName}.${t.tableName}`)).toEqual(["public.orders"]);
+    expect((await scoped.getIndexStats()).map((i) => i.indexName)).toEqual(["orders_pk"]);
+    expect((await scoped.getSlowQueries()).map((q) => q.query)).toEqual(["SELECT * FROM public.orders WHERE id = 1", ""]);
+    expect((await scoped.getActiveSessions()).map((s) => s.pid)).toEqual([0, 4]);
+    const data = await scoped.getMonitoringData();
+    expect(data.tables?.map((t) => t.tableName)).toEqual(["orders"]);
+    expect(data.slowQueries?.map((q) => q.query)).toEqual(["SELECT * FROM public.orders WHERE id = 1", ""]);
+    // Members the engine did not answer stay absent rather than becoming empty lists.
+    expect(data.indexes).toBeUndefined();
+    expect(data.activeSessions).toBeUndefined();
+  });
+
+  test("a scope on a relation name shows a search cluster's statistics, and a non-SQL engine's statements are all dropped", async () => {
+    const tables = [{ schemaName: "", tableName: "apim-1", rowCount: 1, totalSize: "1 B", totalSizeBytes: 1 }];
+    const scoped = scopeProvider(
+      provider({ type: "mongodb", tableStats: tables, slowQueries: [{ query: "db.apim.find()", calls: 1, totalTime: 1, avgTime: 1, rows: 1 }], capabilities: { containerLevels: [] } }),
+      { restricted: true, patterns: ["apim-*"] },
+    );
+    expect((await scoped.getTableStats()).map((t) => t.tableName)).toEqual(["apim-1"]);
+    expect(await scoped.getSlowQueries()).toEqual([]);
+  });
+
   test("everything else reaches the provider unchanged, methods bound to it", async () => {
     const raw = provider();
     const scoped = scopeProvider(raw, scope);

@@ -1402,7 +1402,9 @@ rules") answers `403` (audited `permission_denied` / `object_forbidden`) on `/ap
 rules keep from the session - or names one the server cannot place (an unqualified name with no
 default schema, a wildcard, a statement whose reach cannot be read, such as `CALL`); the error
 says which. The object routes under `/api/db/objects/*` list, count and describe only what the
-rules show, and a hidden object's `describe` is `404`. An administrator is never held by them,
+rules show, and a hidden object's `describe` is `404`; `/api/db/monitoring` answers a table's
+and an index's statistics only for visible tables, and a slow query or an active session only
+when its statement names nothing hidden. An administrator is never held by them,
 and the rules themselves are not returned to the browser (`objectRules` is stripped from
 `GET /api/connections/managed`).
 

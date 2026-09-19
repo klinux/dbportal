@@ -1222,9 +1222,13 @@ built. Each lands as its own section when done.
   A virtual datasource can neither carry rules nor include a member that has any: its
   statements name member tables through the member's prefix, which no rule was written
   for. Admin form: a rule list on the datasource sheet, pattern and principals per row,
-  refused before posting when half-filled. Limitations, stated: the rules are the
-  portal's, the datasource's credential still sees the whole engine, and a monitoring
-  panel's table statistics are not filtered by them yet.
+  refused before posting when half-filled. Monitoring (0.8.1) reads through the same
+  filter: a table's and an index's statistics by the table's address, and a slow query or
+  an active session by the statement it carries, kept only when the scanner finds it
+  names nothing hidden and dropped when it cannot be read at all - a statement somebody
+  else ran was the one place a hidden name could still appear; the agent's operations
+  readings go through it too. Limitation, stated: the rules are the portal's, and the
+  datasource's credential still sees the whole engine.
 
 ## 5. Decisions already taken
 
