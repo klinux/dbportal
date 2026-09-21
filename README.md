@@ -161,6 +161,7 @@ make stop         # app and database down
 `make help` lists the rest (`dev-bg`, `db-reset`, `status`, `check`, `test`, `coverage`).
 
 Operators: [docs/OPERATOR_GUIDE.md](docs/OPERATOR_GUIDE.md), from an empty cluster to a team.
+A chat bot that runs statements through the portal: [docs/BOT_INTEGRATION.md](docs/BOT_INTEGRATION.md).
 Kubernetes: [charts/dbportal](charts/dbportal) (three studios, workers scaled on the queue,
 the agent apart: the chart README) and [docs/HELM_CHART.md](docs/HELM_CHART.md).
 Topology: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §7.

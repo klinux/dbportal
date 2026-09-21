@@ -1253,7 +1253,9 @@ built. Each lands as its own section when done.
   and a deployment with no reviewers' channel still announces in the thread. Nothing
   else moved: who may decide is still the datasource's `approverRoles` through a named
   role whose members include `user:slack:<id>`, two reviewers still means two, and the
-  outcome still lands in the thread.
+  outcome still lands in the thread. The guide for the team that maintains such a bot,
+  what to set up once, what to send, what comes back and what the bot stops doing, is
+  [`docs/BOT_INTEGRATION.md`](BOT_INTEGRATION.md).
 
 ## 5. Decisions already taken
 

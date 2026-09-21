@@ -1334,7 +1334,7 @@ Audited as `backup` / `created` · `uploaded` · `restored`.
 
 ### Executions API (service tokens)
 
-For bots (docs/CONTEXT.md §4.10). Authenticate with `Authorization: Bearer dbp_…`, a token
+For bots (docs/CONTEXT.md §4.10; the integration guide is [BOT_INTEGRATION.md](BOT_INTEGRATION.md)). Authenticate with `Authorization: Bearer dbp_…`, a token
 an administrator created under Security → Service tokens. Rate limited like a person's
 queries, under the token's own name.
 
