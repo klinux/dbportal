@@ -199,8 +199,14 @@ browser ([`src/lib/vault/`](../src/lib/vault/), docs/SEED_CONNECTIONS.md "Vault 
   and Vault revokes the old user on its own.
 - **Added 2026-09-16, for a deployment without an injector:** the token is renewed by the
   server itself (`auth/token/renew-self` at half of each lease, so a periodic token lives as
-  long as the server; a 400/403 is a token Vault does not renew and is not asked again;
-  `VAULT_TOKEN_RENEW=off` for a token an injector renews); or an AppRole (`VAULT_ROLE_ID`,
+  long as the server; a 400 is a token Vault does not renew and is not asked again, a 403 or
+  a failure is asked again in a minute; `VAULT_TOKEN_RENEW=off` for a token an injector
+  renews). **Since 0.9.1 the renewal runs from boot, in every role** (`startVaultTokenRenewal`,
+  a one-minute tick from `instrumentation.ts`): it used to run only inside a Vault read, and
+  a read happens only when a Vault-backed datasource is resolved past the five-minute
+  credential cache, so a quiet weekend on a 24-hour periodic token expired it before
+  anything asked - every Vault datasource then failed at once. The first tick at boot also
+  makes an already-expired token a warning in the process's first minute; or an AppRole (`VAULT_ROLE_ID`,
   `VAULT_SECRET_ID`, `VAULT_APPROLE_MOUNT`) logged in at first use and again at 80% of the
   token's lease or on a 403, one login at a time, the session on `globalThis`
   (`Symbol.for("dbportal.vault-session")`); and, for a Vault on an internal name, the Vault

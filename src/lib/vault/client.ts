@@ -162,11 +162,13 @@ export function forgetVaultSession(): void {
 /**
  * `POST auth/token/renew-self` for the token the deployment was given, so a periodic token
  * (`vault token create -period=24h`) lives as long as the deployment does. Vault's answer
- * says when to come back: half of the new lease. A 400 or 403 is a token Vault does not
- * renew - the root token, one without a TTL, one already gone - and is not asked again;
- * anything else (Vault down, a timeout) is asked again in a minute. Never a throw: a
- * renewal that fails is a warning, and the request that prompted it goes on with the token
- * it has. `VAULT_TOKEN_RENEW=off` leaves the token to whoever supplied it (an injector).
+ * says when to come back: half of the new lease. A 400 is a token Vault does not renew -
+ * the root token, one without a TTL - and is not asked again; a 403 (a token already gone,
+ * or a Vault that briefly refused) and anything else (Vault down, a timeout) is asked again
+ * in a minute, so one refusal never silences the renewal for the life of the process and an
+ * expired token is a warning every minute rather than a mystery. Never a throw: a renewal
+ * that fails is a warning, and the request that prompted it goes on with the token it has.
+ * `VAULT_TOKEN_RENEW=off` leaves the token to whoever supplied it (an injector).
  */
 async function renewSelf(config: VaultConfig, token: string): Promise<TokenRenewal> {
   const controller = new AbortController();
@@ -188,7 +190,7 @@ async function renewSelf(config: VaultConfig, token: string): Promise<TokenRenew
   } finally {
     clearTimeout(timer);
   }
-  if (res.status === 400 || res.status === 403) {
+  if (res.status === 400) {
     logger.info("Vault token is not renewable; it will not be renewed", { route: "vault", status: res.status });
     return later(false, 0);
   }
@@ -221,6 +223,52 @@ async function renewIfDue(config: VaultConfig, token: string): Promise<void> {
       holder.renewing = null;
     });
   return holder.renewing;
+}
+
+/** How often the background renewal asks whether the token is due (§4.5). */
+export const RENEW_TICK_MS = 60_000;
+const RENEWAL_LOOP_KEY = Symbol.for("dbportal.vault-renewal-loop");
+
+/**
+ * Renew the deployment's token in the background, from boot, whether or not anything asks
+ * Vault for a secret.
+ *
+ * Renewal used to happen only inside a Vault read, and a Vault read happens only when a
+ * datasource with a Vault credential is resolved past the five-minute credential cache: a
+ * quiet weekend on a 24-hour periodic token, and the token had expired before anything
+ * asked. This asks at boot - so an expired token is a warning in the first minute of the
+ * process, not the first failed datasource - and then every minute, each tick renewing
+ * only when half the lease has passed (the same `renewIfDue`). Null when there is no
+ * token to renew: Vault not configured, an AppRole login (which re-logs in on its own),
+ * or `VAULT_TOKEN_RENEW=off`. One loop per process; a second start returns the first's
+ * stop. The timer never keeps the process alive.
+ */
+export function startVaultTokenRenewal(tickMs = RENEW_TICK_MS): (() => void) | null {
+  const holder = globalThis as typeof globalThis & { [RENEWAL_LOOP_KEY]?: () => void };
+  if (holder[RENEWAL_LOOP_KEY]) return holder[RENEWAL_LOOP_KEY];
+  if (!isVaultConfigured()) return null;
+  if (OFF.has((process.env.VAULT_TOKEN_RENEW ?? "").trim().toLowerCase())) return null;
+  let config: VaultConfig;
+  try {
+    config = getVaultConfig();
+  } catch (error) {
+    logger.warn("Vault token renewal not started", { route: "vault", error: error instanceof Error ? error.name : "error" });
+    return null;
+  }
+  if (config.auth.method !== "token") return null;
+  const token = config.auth.token;
+  const tick = (): void => {
+    void renewIfDue(config, token);
+  };
+  tick();
+  const timer = setInterval(tick, tickMs);
+  timer.unref();
+  const stop = (): void => {
+    clearInterval(timer);
+    delete holder[RENEWAL_LOOP_KEY];
+  };
+  holder[RENEWAL_LOOP_KEY] = stop;
+  return stop;
 }
 
 async function loginAppRole(

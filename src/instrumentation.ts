@@ -45,6 +45,10 @@ export async function register(): Promise<void> {
   // The agent role (docs/CONTEXT.md §4.30) holds no sample and prints no studio banner: it
   // serves the datasources its tokens name, and nothing a browser would open. The worker
   // role (§4.40) serves nothing but the queue.
+  // The Vault token the deployment was given is renewed from boot, in every role
+  // (docs/CONTEXT.md §4.5): a token renewed only when a secret was read expired on a quiet day.
+  const { startVaultTokenRenewal } = await import("@/lib/vault/client");
+  startVaultTokenRenewal();
   const { deploymentRole } = await import("@/lib/config/role");
   const role = deploymentRole();
   if (role !== "studio") {

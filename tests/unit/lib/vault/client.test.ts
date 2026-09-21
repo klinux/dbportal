@@ -15,6 +15,8 @@ import {
   vaultDispatcher,
   vaultToken,
   writeKvSecret,
+  startVaultTokenRenewal,
+  RENEW_RETRY_MS,
 } from "@/lib/vault/client";
 
 /**
@@ -267,6 +269,73 @@ describe("vault client", () => {
     } finally {
       now.mockRestore();
       info.mockRestore();
+    }
+  });
+
+  // docs/CONTEXT.md §4.5: renewal from boot, whether or not anything reads a secret - the
+  // token used to expire on a quiet weekend, and every Vault datasource failed at once.
+  test("token: the background loop renews at boot and ticks; one loop per process; nothing to renew answers null", async () => {
+    process.env.VAULT_TOKEN_RENEW = "on";
+    spyOn(logger, "info").mockImplementation(() => {});
+    const renewals = () => fetchSpy.mock.calls.filter(([url]) => String(url).endsWith("/renew-self")).length;
+    fetchSpy.mockImplementation(async () => jsonResponse({ auth: { lease_duration: 3600 } }));
+    const stop = startVaultTokenRenewal(5);
+    try {
+      expect(stop).not.toBeNull();
+      // A second start is the same loop, not a second timer.
+      expect(startVaultTokenRenewal(5)).toBe(stop);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      // Renewed once at boot; the following ticks found the lease not yet half spent.
+      expect(renewals()).toBe(1);
+    } finally {
+      stop!();
+    }
+    // Stopped: a new start is a new loop, and it renews at boot again.
+    forgetVaultSession();
+    const again = startVaultTokenRenewal(5);
+    expect(again).not.toBe(stop);
+    again!();
+    expect(renewals()).toBe(2);
+
+    // Nothing to renew: off, an AppRole login, no Vault at all, or a token that cannot be read.
+    process.env.VAULT_TOKEN_RENEW = "off";
+    expect(startVaultTokenRenewal(5)).toBeNull();
+    process.env.VAULT_TOKEN_RENEW = "on";
+    delete process.env.VAULT_TOKEN;
+    process.env.VAULT_ROLE_ID = "r";
+    process.env.VAULT_SECRET_ID = "s";
+    expect(startVaultTokenRenewal(5)).toBeNull();
+    delete process.env.VAULT_ROLE_ID;
+    delete process.env.VAULT_SECRET_ID;
+    process.env.VAULT_TOKEN_FILE = "/nonexistent/vault-token";
+    const warn = spyOn(logger, "warn").mockImplementation(() => {});
+    expect(startVaultTokenRenewal(5)).toBeNull();
+    expect(warn).toHaveBeenCalledWith("Vault token renewal not started", expect.objectContaining({ error: "VaultError" }));
+    delete process.env.VAULT_TOKEN_FILE;
+    delete process.env.VAULT_ADDR;
+    expect(startVaultTokenRenewal(5)).toBeNull();
+    expect(renewals()).toBe(2);
+  });
+
+  test("token: a 403 at renewal is asked again in a minute, so an expired token is a warning every minute rather than silence", async () => {
+    process.env.VAULT_TOKEN_RENEW = "on";
+    const warn = spyOn(logger, "warn").mockImplementation(() => {});
+    const now = spyOn(Date, "now").mockReturnValue(9_000_000);
+    const renewals = () => fetchSpy.mock.calls.filter(([url]) => String(url).endsWith("/renew-self")).length;
+    try {
+      fetchSpy.mockImplementation(async (url) =>
+        String(url).endsWith("/renew-self") ? jsonResponse({ errors: ["permission denied"] }, 403) : kvAnswer(),
+      );
+      await readKvSecret("secret", "x");
+      expect(renewals()).toBe(1);
+      expect(warn).toHaveBeenCalledWith("Vault token renewal failed", expect.objectContaining({ status: 403 }));
+      await readKvSecret("secret", "x");
+      expect(renewals()).toBe(1);
+      now.mockReturnValue(9_000_000 + RENEW_RETRY_MS + 1);
+      await readKvSecret("secret", "x");
+      expect(renewals()).toBe(2);
+    } finally {
+      now.mockRestore();
     }
   });
 
