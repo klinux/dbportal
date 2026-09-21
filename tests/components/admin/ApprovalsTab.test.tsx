@@ -269,6 +269,15 @@ describe("ApprovalsTab", () => {
     expect(getByTestId("ticket-req-1").textContent).toBe("ticket INC-42");
   });
 
+  // docs/CONTEXT.md §4.57: the reviewer sees the requester's own reason for holding the statement.
+  test("a request the requester held for review is badged with the reason", async () => {
+    mockGlobalFetch({
+      "/api/approvals": { ok: true, json: { approvals: [{ ...pending, review: { reason: "touches billing" } }] } },
+    });
+    const { getByTestId } = await renderLoaded();
+    expect(getByTestId("approval-review-req-1").textContent).toBe("held by requester: touches billing");
+  });
+
   // docs/CONTEXT.md §4.15: the reviewer sees why a statement waits when a guardrail held it.
   test("a request held by a guardrail is badged with the guardrail's name", async () => {
     mockGlobalFetch({

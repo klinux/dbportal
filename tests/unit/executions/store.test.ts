@@ -314,6 +314,19 @@ describe("executions store", () => {
     expect(plainRead.status).toBe("approved");
   });
 
+  // docs/CONTEXT.md §4.57: the bot may hold its own request for a reviewer, and must say why.
+  test("a request with review waits with the reason on the record, whatever the datasource would have let run", async () => {
+    const held = await ask({ review: { reason: "  touches billing rows  " } });
+    expect(held.status).toBe("pending");
+    expect(held.review).toEqual({ reason: "touches billing rows" });
+    expect(query).not.toHaveBeenCalled();
+    expect(await status(ask({ review: "yes" }))).toBe(400);
+    expect(await status(ask({ review: { reason: "   " } }))).toBe(400);
+    expect(await status(ask({ review: { reason: "x".repeat(501) } }))).toBe(400);
+    // Absent or null: no hold, the read runs as before.
+    expect((await ask({ review: null })).status).toBe("approved");
+  });
+
   // docs/CONTEXT.md §4.15: a guardrail holds a bot's statement too, on any datasource, unless it opted out.
   test("a statement that trips a guardrail waits with the guardrail on the record; an opted-out datasource runs it", async () => {
     const held = await ask({ datasourceId: "plain", statement: "DELETE FROM orders" });

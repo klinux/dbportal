@@ -1229,6 +1229,25 @@ built. Each lands as its own section when done.
   else ran was the one place a hidden name could still appear; the agent's operations
   readings go through it too. Limitation, stated: the rules are the portal's, and the
   datasource's credential still sees the whole engine.
+- **4.57 The bot holds its own request, and the thread decides — done (asked
+  2026-09-20).** A Slack bot that judges statements itself had nowhere to put the ones it
+  would not run: the portal's queue only held what the portal's policy held (a write on a
+  datasource with `writeApproval`, a guardrail, a token with `requireApproval`), so an
+  `UPDATE` with a `WHERE` the bot distrusted either ran or went to a human by hand. Two
+  additions to `POST /api/v1/executions` (§4.10). `review: { reason }` holds the request
+  for a reviewer whatever the datasource would have let run, like a guardrail the bot
+  raised itself; the reason (trimmed, at most 500 characters, required when `review` is
+  given) is stored on the record, shown as a badge on the reviewers' page, in the Slack
+  announcement ("Held for review by the requester: …", beside the guardrail's name when
+  one tripped too) and in what `GET /api/v1/executions/[id]` returns. And the announcement
+  with its Approve/Reject buttons (§4.24) now goes into the thread the request named
+  (`reply`) as well as to `SLACK_APPROVALS_CHANNEL`, so the team that watches the thread
+  decides where the request was made; either copy settles the request, and the other
+  answers "already decided" when pressed later. Both posts are best effort on their own,
+  and a deployment with no reviewers' channel still announces in the thread. Nothing
+  else moved: who may decide is still the datasource's `approverRoles` through a named
+  role whose members include `user:slack:<id>`, two reviewers still means two, and the
+  outcome still lands in the thread.
 
 ## 5. Decisions already taken
 

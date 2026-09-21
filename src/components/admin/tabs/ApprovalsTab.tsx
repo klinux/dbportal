@@ -221,6 +221,17 @@ export function ApprovalsTab() {
                               guardrail: {GUARDRAIL_LABEL[record.guardrail]}
                             </Badge>
                           )}
+                          {/* docs/CONTEXT.md §4.57: the bot held its own request, and said why. */}
+                          {record.review && (
+                            <Badge
+                              variant="outline"
+                              className="mb-1 ml-1 text-[10px] text-status-warning border-status-warning/40"
+                              title={record.review.reason}
+                              data-testid={`approval-review-${record.id}`}
+                            >
+                              held by requester: {record.review.reason}
+                            </Badge>
+                          )}
                           <FoldedStatement id={record.id} statement={record.statement} />
                           {record.ticket && (
                             <div

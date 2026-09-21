@@ -1338,7 +1338,12 @@ For bots (docs/CONTEXT.md §4.10). Authenticate with `Authorization: Bearer dbp_
 an administrator created under Security → Service tokens. Rate limited like a person's
 queries, under the token's own name.
 
-- `POST /api/v1/executions` — body `{ datasourceId, statement, onBehalfOf, reply?: { channel, threadTs? }, callback?: { url } }`.
+- `POST /api/v1/executions` — body `{ datasourceId, statement, onBehalfOf, reply?: { channel, threadTs? }, callback?: { url }, review?: { reason } }`.
+  `review.reason` (docs/CONTEXT.md §4.57; trimmed, 1–500 characters): the bot judged the statement itself and
+  wants a reviewer - the request waits (`202`, `status: "pending"`) whatever the datasource's policy would have
+  let run, the reason is on the record as `review` and in the Slack announcement, which is posted into the
+  `reply` thread (with the Approve/Reject buttons, when `SLACK_SIGNING_SECRET` is set) as well as to the
+  reviewers' channel. `400` for a `review` without a reason.
   `callback.url` (docs/CONTEXT.md §4.25): an HTTPS URL on a host in `CALLBACK_ALLOWED_HOSTS`; the outcome is
   POSTed there as the JSON of the record (as `GET /api/v1/executions/[id]` shows it) with
   `X-Dbportal-Signature: v1=<HMAC-SHA256 of "<X-Dbportal-Timestamp>.<body>" under CALLBACK_SIGNING_SECRET>`,

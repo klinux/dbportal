@@ -151,8 +151,15 @@ export interface ApprovalRequest {
   jobId?: string;
   /** The guardrail the statement tripped (§4.15), when that is why the request exists. */
   guardrail?: Guardrail;
+  /** The bot asked for a reviewer itself (§4.57), and said why. */
+  review?: ExecutionReview;
   /** The ticket or incident the requester named (§4.18). */
   ticket?: string;
+}
+
+/** Why a bot held its own request for a reviewer (docs/CONTEXT.md §4.57). */
+export interface ExecutionReview {
+  reason: string;
 }
 
 export interface ExecutionReply {

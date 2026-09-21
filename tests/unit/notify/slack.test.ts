@@ -90,12 +90,15 @@ describe("slack notifier", () => {
   test("the announcement carries Approve and Reject buttons when a signing secret is set, and none otherwise", async () => {
     await notifyReviewers(base);
     expect(sent()[0]).not.toHaveProperty("blocks");
+    expect(sent()[1]).not.toHaveProperty("blocks");
     expect(slackInteractive()).toBe(false);
     process.env.SLACK_SIGNING_SECRET = "s";
     try {
       expect(slackInteractive()).toBe(true);
       await notifyReviewers(base);
-      const blocks = sent()[1].blocks as {
+      // Both copies - the reviewers' channel and the request's thread (§4.57) - carry the buttons.
+      expect(sent()[2]).toHaveProperty("blocks");
+      const blocks = sent()[3].blocks as {
         type: string;
         block_id?: string;
         elements?: { action_id: string; value: string }[];
@@ -132,6 +135,11 @@ describe("slack notifier", () => {
 
   test("announces a pending request to the reviewers' channel with the person, the statement and the page", async () => {
     expect(await notifyReviewers(base)).toBe(true);
+    // Twice: the reviewers' channel, then the thread the request named (§4.57).
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const inThread = sent()[1];
+    expect(inThread).toMatchObject({ channel: "C0456", thread_ts: "1726.0001" });
+    expect(inThread.text).toBe(sent()[0].text);
     const [call] = fetchSpy.mock.calls as unknown[][];
     expect(String(call[0])).toBe("https://slack.com/api/chat.postMessage");
     expect((call[1] as RequestInit).headers).toMatchObject({ Authorization: "Bearer xoxb-test" });
@@ -141,9 +149,25 @@ describe("slack notifier", () => {
     expect(body.text).toContain("SELECT id FROM orders LIMIT 5");
     expect(body.text).toContain("https://portal.example.test/admin/approvals");
     expect(body).not.toHaveProperty("thread_ts");
-    // Without a reviewers' channel there is nowhere to announce.
+    // Without a reviewers' channel the thread still hears it; with neither, nowhere to announce.
     delete process.env.SLACK_APPROVALS_CHANNEL;
-    expect(await notifyReviewers(base)).toBe(false);
+    fetchSpy.mockClear();
+    expect(await notifyReviewers(base)).toBe(true);
+    expect(sent().map((body) => body.channel)).toEqual(["C0456"]);
+    const { reply, ...noThread } = base;
+    void reply;
+    expect(await notifyReviewers(noThread)).toBe(false);
+  });
+
+  // docs/CONTEXT.md §4.57 and §4.15: the announcement says why the request waits, when something held it.
+  test("the announcement names the guardrail and the requester's own reason for the hold", async () => {
+    await notifyReviewers({ ...base, guardrail: "delete_without_where", review: { reason: "touches billing" } });
+    const [body] = sent();
+    expect(body.text).toContain("Held by a guardrail: DELETE without WHERE.");
+    expect(body.text).toContain("Held for review by the requester: touches billing");
+    fetchSpy.mockClear();
+    await notifyReviewers(base);
+    expect(sent()[0].text).not.toContain("Held");
   });
 
   test("a request without a subject names the requester alone, and the link is relative without APP_URL", async () => {
@@ -215,21 +239,24 @@ describe("slack notifier", () => {
   });
 
   test("a refusal from Slack and a network failure are one warning each, never a throw; the text is not logged", async () => {
+    // One post per announcement here: a request that named no thread.
+    const { reply, ...one } = base;
+    void reply;
     fetchSpy.mockImplementation(
       async () => new Response(JSON.stringify({ ok: false, error: "channel_not_found" }), { status: 200 }),
     );
-    expect(await notifyReviewers(base)).toBe(false);
+    expect(await notifyReviewers(one)).toBe(false);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(warn.mock.calls[0])).toContain("channel_not_found");
     expect(JSON.stringify(warn.mock.calls[0])).not.toContain("SELECT");
     fetchSpy.mockImplementation(async () => {
       throw new TypeError("fetch failed");
     });
-    expect(await notifyReviewers(base)).toBe(false);
+    expect(await notifyReviewers(one)).toBe(false);
     expect(warn).toHaveBeenCalledTimes(2);
     // A body that is not JSON is a refusal too.
     fetchSpy.mockImplementation(async () => new Response("<html>", { status: 502 }));
-    expect(await notifyReviewers(base)).toBe(false);
+    expect(await notifyReviewers(one)).toBe(false);
   });
 
   test("previewOf pads columns, caps rows and cells, stringifies objects and empties nulls, and marks what was cut", () => {

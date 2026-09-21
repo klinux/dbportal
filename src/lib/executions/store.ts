@@ -19,7 +19,7 @@ import { notifyExecutionOutcome, notifyReviewers } from "@/lib/notify/slack";
 import { resolveConnection, SeedConnectionError } from "@/lib/seed/resolve-connection";
 import { enqueueJob } from "@/lib/jobs/queue";
 import { getStorageProvider } from "@/lib/storage/factory";
-import type { ApprovalRequest, ExecutionOutcome, ExecutionReply } from "@/lib/storage/types";
+import type { ApprovalRequest, ExecutionOutcome, ExecutionReply, ExecutionReview } from "@/lib/storage/types";
 import { findServiceTokenByActor } from "@/lib/service-tokens/store";
 import { withNamedRoles } from "@/lib/roles/store";
 import type { ServiceIdentity } from "@/lib/service-tokens/types";
@@ -55,6 +55,22 @@ export interface ExecutionRequestInput {
   reply?: unknown;
   ticket?: unknown;
   callback?: unknown;
+  /** `{ reason }`: the bot judged the statement itself and wants a reviewer (§4.57). */
+  review?: unknown;
+}
+
+export const REVIEW_REASON_MAX = 500;
+
+function readReview(value: unknown): ExecutionReview | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object") throw new ApprovalError("review must be { reason }", 400);
+  const { reason } = value as Record<string, unknown>;
+  const text = typeof reason === "string" ? reason.trim() : "";
+  if (!text) throw new ApprovalError("review.reason must say why the bot held the statement", 400);
+  if (text.length > REVIEW_REASON_MAX) {
+    throw new ApprovalError(`review.reason is longer than ${REVIEW_REASON_MAX} characters`, 400);
+  }
+  return { reason: text };
 }
 
 function readReply(value: unknown): ExecutionReply | undefined {
@@ -201,6 +217,7 @@ export async function submitExecution(
   if (!subject) throw new ApprovalError("onBehalfOf is required: the person the request is for", 400);
   const reply = readReply(input.reply);
   const callback = readCallback(input.callback);
+  const review = readReview(input.review);
   const { token } = identity;
   if (token.datasources && token.datasources.length > 0 && !token.datasources.includes(datasourceId)) {
     throw new ApprovalError(`This token may not use datasource "${datasourceId}"`, 403);
@@ -228,6 +245,7 @@ export async function submitExecution(
     id: randomUUID(),
     kind: "execution",
     ...(guardrail ? { guardrail } : {}),
+    ...(review ? { review } : {}),
     ...(ticket ? { ticket } : {}),
     ...(connection.approvalsRequired === 2 ? { approvalsRequired: 2 } : {}),
     datasourceId,
@@ -241,7 +259,10 @@ export async function submitExecution(
     ...(reply ? { reply } : {}),
     ...(callback ? { callback } : {}),
   };
-  const needsReview = token.requireApproval || guardrail !== null || (writes && connection.writeApproval === true);
+  // The bot's own hold (§4.57) counts like a guardrail: the request waits whatever the
+  // datasource's policy would have let run, and the reviewer is shown the bot's reason.
+  const needsReview =
+    token.requireApproval || guardrail !== null || review !== undefined || (writes && connection.writeApproval === true);
   if (needsReview) {
     await store.putApproval(record);
     logger.info("Execution queued for approval", {

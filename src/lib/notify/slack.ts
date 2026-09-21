@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { GUARDRAIL_LABEL } from "@/lib/guardrails";
 import type { ApprovalRequest } from "@/lib/storage/types";
 
 /**
@@ -148,19 +149,43 @@ export function statementExcerpt(statement: string): string {
   return `${statement.slice(0, STATEMENT_EXCERPT_CHARS)}\n… (${statement.length - STATEMENT_EXCERPT_CHARS} more characters; the whole statement is on the review page)`;
 }
 
-/** "X asked to run … on Y" to the reviewers' channel, with the page that decides. */
+/** Why the request waits, in the announcement: the guardrail it tripped, the bot's own reason, or nothing. */
+function holdLines(record: ApprovalRequest): string[] {
+  return [
+    ...(record.guardrail ? [`Held by a guardrail: ${GUARDRAIL_LABEL[record.guardrail]}.`] : []),
+    ...(record.review ? [`Held for review by the requester: ${record.review.reason}`] : []),
+  ];
+}
+
+/**
+ * "X asked to run … on Y", with the page that decides: to the reviewers' channel, and
+ * into the thread the request named (§4.57), so the team that watches the thread decides
+ * where the request was made. Both carry the buttons; a press on either settles the
+ * request, and the other copy answers "already decided" when pressed later. Each post
+ * is best effort on its own; true when at least one landed.
+ */
 export async function notifyReviewers(record: ApprovalRequest): Promise<boolean> {
+  if (!slackConfigured()) return false;
   const channel = process.env.SLACK_APPROVALS_CHANNEL;
-  if (!channel || !slackConfigured()) return false;
   const who = record.subject ? `${record.subject} (via ${record.requester})` : record.requester;
   const text = [
     `*Execution waiting for approval* on *${record.datasourceName}*`,
     `Asked by ${who}.`,
+    ...holdLines(record),
     `\`\`\`\n${statementExcerpt(record.statement)}\n\`\`\``,
     `Review: ${appUrl("/admin/approvals")}`,
   ].join("\n");
-  // With a signing secret the message carries the two buttons; without one, the link is the way.
-  return postSlackMessage({ channel, text, ...(slackInteractive() ? { blocks: approvalBlocks(record, text) } : {}) });
+  const blocks = slackInteractive() ? { blocks: approvalBlocks(record, text) } : {};
+  const inChannel = channel ? await postSlackMessage({ channel, text, ...blocks }) : false;
+  const inThread = record.reply
+    ? await postSlackMessage({
+        channel: record.reply.channel,
+        text,
+        ...(record.reply.threadTs ? { thread_ts: record.reply.threadTs } : {}),
+        ...blocks,
+      })
+    : false;
+  return inChannel || inThread;
 }
 
 /** The outcome, into the thread the request named. */
