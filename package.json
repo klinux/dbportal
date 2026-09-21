@@ -1,6 +1,6 @@
 {
   "name": "dbportal",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Shared database portal for SRE, DevOps and developers: central datasources, SSO, and an audit trail of every execution.",
   "license": "MIT",
   "private": true,
