@@ -32,6 +32,7 @@ const ALLOWED_KEYS = new Set([
   "subject",
   "ticket",
   "runbook",
+  "approved_by",
   "statement",
 ]);
 
@@ -759,6 +760,30 @@ describe("approval fields on the line", () => {
       emitAuditEvent({ type: "query_execution", action: "query", target: "t", user: "ana", result: "success" }),
     );
     expect(without).not.toHaveProperty("ticket");
+  });
+
+  // docs/CONTEXT.md §4.58: who approved outside the portal, on the line, apart from `reviewer`
+  // so the trail says which of the two let the statement run.
+  test("approved_by is written when set and absent otherwise, and never as reviewer", () => {
+    const line = captureLine(() =>
+      emitAuditEvent({
+        type: "query_execution",
+        action: "query",
+        target: "POST /api/v1/executions",
+        user: "svc:slack-bot",
+        result: "success",
+        approvedBy: "ana@example.test, U0456",
+      }),
+    );
+    expect(line.approved_by).toBe("ana@example.test, U0456");
+    expect(line).not.toHaveProperty("reviewer");
+    for (const key of Object.keys(line)) {
+      expect({ key, allowed: ALLOWED_KEYS.has(key) }).toEqual({ key, allowed: true });
+    }
+    const without = captureLine(() =>
+      emitAuditEvent({ type: "query_execution", action: "query", target: "t", user: "ana", result: "success" }),
+    );
+    expect(without).not.toHaveProperty("approved_by");
   });
 
   test("subject is written when set, bounded like every field, and absent otherwise", () => {

@@ -298,7 +298,9 @@ describe("executions store", () => {
     const record = (await runExecutionJob(queued.id))!;
     expect(record.execution).toMatchObject({ status: "failed", error: "permission_denied" });
     expect(query).not.toHaveBeenCalled();
-    expect(audit.mock.calls.map((c) => ((c as unknown[])[0] as { reason?: string }).reason)).toContain("object_forbidden");
+    expect(audit.mock.calls.map((c) => ((c as unknown[])[0] as { reason?: string }).reason)).toContain(
+      "object_forbidden",
+    );
   });
 
   test("a write on a datasource that requires approval, or any request from a token that requires it, waits and is announced", async () => {
@@ -325,6 +327,102 @@ describe("executions store", () => {
     expect(await status(ask({ review: { reason: "x".repeat(501) } }))).toBe(400);
     // Absent or null: no hold, the read runs as before.
     expect((await ask({ review: null })).status).toBe("approved");
+  });
+
+  // docs/CONTEXT.md §4.58: approvals the bot collected where it lives stand in for the
+  // datasource's writeApproval - and for nothing else.
+  test("approvedBy from a trusted token runs a write the datasource would have queued, and the approvers reach the record and the audit line", async () => {
+    const trusted = bot({ trustedApprovals: true });
+    liveToken = trusted;
+    const approvedBy = [
+      { reviewer: "  ana@example.test  ", at: "2026-09-14T00:00:00.000Z" },
+      { reviewer: "U0456", at: "2026-09-14T00:01:00.000Z" },
+    ];
+    const ran = await ask(
+      { datasourceId: "orders", statement: "DELETE FROM orders WHERE id = 1", approvedBy },
+      trusted,
+    );
+    expect(ran.status).toBe("approved");
+    expect(ran.reviewer).toBeUndefined();
+    expect(ran.approvedBy).toEqual([
+      { reviewer: "ana@example.test", at: "2026-09-14T00:00:00.000Z" },
+      { reviewer: "U0456", at: "2026-09-14T00:01:00.000Z" },
+    ]);
+    expect(notifyReviewers).not.toHaveBeenCalled();
+    await runExecutionJob(ran.id);
+    expect(audited().at(-1)).toMatchObject({ user: "svc:bot", subject: "U01", approvedBy: "ana@example.test, U0456" });
+    expect(audited().at(-1)).not.toHaveProperty("reviewer");
+    // Without approvedBy the same token, on the same datasource, still waits: the flag alone changes nothing.
+    expect((await ask({ datasourceId: "orders", statement: "DELETE FROM orders WHERE id = 1" }, trusted)).status).toBe(
+      "pending",
+    );
+    // A read never needed it; the approvers are still kept, for the record.
+    expect(await ask({ datasourceId: "plain", approvedBy }, trusted)).toMatchObject({
+      status: "approved",
+      approvedBy: ran.approvedBy,
+    });
+  });
+
+  test("approvedBy does not lift a guardrail, the bot's own hold, or a token that queues everything", async () => {
+    const trusted = bot({ trustedApprovals: true });
+    const approvedBy = [{ reviewer: "ana@example.test", at: "2026-09-14T00:00:00.000Z" }];
+    // The central guarantee: a DELETE without WHERE waits whoever the bot says approved, and
+    // the record carries both the guardrail and the declared approvers for the reviewer to see.
+    const held = await ask({ datasourceId: "orders", statement: "DELETE FROM orders", approvedBy }, trusted);
+    expect(held.status).toBe("pending");
+    expect(held.guardrail).toBe("delete_without_where");
+    expect(held.approvedBy).toEqual(approvedBy);
+    expect(await status(ask({ datasourceId: "plain", statement: "DELETE FROM orders", approvedBy }, trusted))).toBe(
+      200,
+    );
+    expect(rows.size).toBe(2);
+    for (const r of rows.values()) expect(r.status).toBe("pending");
+    // The bot held it itself: its hold wins over its own approvers.
+    const both = await ask({ review: { reason: "odd" }, approvedBy }, trusted);
+    expect(both.status).toBe("pending");
+    // requireApproval on the token queues reads too, approvers or not.
+    const all = await ask({ approvedBy }, bot({ trustedApprovals: true, requireApproval: true }));
+    expect(all.status).toBe("pending");
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  test("approvedBy is 400 for a token without trustedApprovals, and when malformed, naming the problem", async () => {
+    const approvedBy = [{ reviewer: "ana@example.test", at: "2026-09-14T00:00:00.000Z" }];
+    // Refused, not ignored: the write does not queue in silence with the approvers dropped.
+    const untrusted = await ask({
+      datasourceId: "orders",
+      statement: "DELETE FROM orders WHERE id = 1",
+      approvedBy,
+    }).catch((e) => e);
+    expect(untrusted).toBeInstanceOf(ApprovalError);
+    expect(untrusted.statusCode).toBe(400);
+    expect(untrusted.message).toContain("trustedApprovals");
+    expect(provider.putApproval).not.toHaveBeenCalled();
+    const trusted = bot({ trustedApprovals: true });
+    const refused = async (value: unknown) => {
+      const e = await ask({ approvedBy: value }, trusted).catch((x) => x);
+      expect(e).toBeInstanceOf(ApprovalError);
+      expect(e.statusCode).toBe(400);
+      return e.message as string;
+    };
+    expect(await refused("ana")).toContain("non-empty list");
+    expect(await refused([])).toContain("non-empty list");
+    expect(await refused(Array.from({ length: 11 }, () => approvedBy[0]))).toContain("at most 10");
+    expect(await refused(["ana"])).toContain("approvedBy[0] must be");
+    expect(await refused([{ reviewer: "  ", at: "2026-09-14T00:00:00.000Z" }])).toContain("approvedBy[0].reviewer");
+    expect(await refused([{ reviewer: "ana" }])).toContain("approvedBy[0].at");
+    expect(await refused([approvedBy[0], { reviewer: "bo", at: "yesterday" }])).toContain("approvedBy[1].at");
+    // Absent or null: nothing declared, the request is judged as before.
+    expect(await ask({ approvedBy: null }, trusted)).not.toHaveProperty("approvedBy");
+    // The reviewer is free text, as onBehalfOf is: an email, a chat id, a name all pass, bounded.
+    const shapes = [
+      { reviewer: "ana@example.test", at: "2026-09-14T00:00:00.000Z" },
+      { reviewer: "slack:U0456", at: "2026-09-14T00:00:00.000Z" },
+      { reviewer: "Ana Souza", at: "2026-09-14T00:00:00.000Z" },
+      { reviewer: "x".repeat(300), at: "2026-09-14T00:00:00.000Z" },
+    ];
+    const kept = (await ask({ approvedBy: shapes }, trusted)).approvedBy!;
+    expect(kept.map((a) => a.reviewer)).toEqual(["ana@example.test", "slack:U0456", "Ana Souza", "x".repeat(200)]);
   });
 
   // docs/CONTEXT.md §4.15: a guardrail holds a bot's statement too, on any datasource, unless it opted out.

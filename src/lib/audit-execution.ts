@@ -53,6 +53,8 @@ export interface ExecutionAuditContext {
   ticket?: string;
   /** The runbook the statement came from (§4.20). */
   runbook?: string;
+  /** Who approved this where the bot lives (§4.58), as the bot named them. */
+  approvedBy?: string;
 }
 
 /**
@@ -92,6 +94,7 @@ function record(
       ...(context.subject ? { subject: context.subject } : {}),
       ...(context.ticket ? { ticket: context.ticket } : {}),
       ...(context.runbook ? { runbook: context.runbook } : {}),
+      ...(context.approvedBy ? { approvedBy: context.approvedBy } : {}),
       ...(context.ip ? { ip: context.ip } : {}),
       ...(context.statement !== undefined && isStatementAuditEnabled() ? { details: context.statement } : {}),
     });

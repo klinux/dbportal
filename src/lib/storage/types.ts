@@ -153,8 +153,20 @@ export interface ApprovalRequest {
   guardrail?: Guardrail;
   /** The bot asked for a reviewer itself (§4.57), and said why. */
   review?: ExecutionReview;
+  /**
+   * The approvals the bot collected where it lives before sending the request (§4.58), as
+   * it named them; only a token with `trustedApprovals` may declare them. Distinct from
+   * `approvals`, which are decisions taken in the portal.
+   */
+  approvedBy?: ExecutionApprover[];
   /** The ticket or incident the requester named (§4.18). */
   ticket?: string;
+}
+
+/** One approval a bot collected outside the portal (docs/CONTEXT.md §4.58): who, as the bot names them, and when. */
+export interface ExecutionApprover {
+  reviewer: string;
+  at: string;
 }
 
 /** Why a bot held its own request for a reviewer (docs/CONTEXT.md §4.57). */
