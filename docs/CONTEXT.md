@@ -1279,7 +1279,12 @@ built. Each lands as its own section when done.
   rule, taken with the team that runs it. `approvedBy` from a token without
   `trustedApprovals` is refused with 400, as is a malformed list, the message naming the
   entry — refused, never ignored, so a bot that believes it declared approvers is not left
-  with a queued write and no idea why. Without the field nothing changed.
+  with a queued write and no idea why. Without the field nothing changed. Two additions on
+  merge: an entry naming the requester (`onBehalfOf`, case-insensitively) is refused with
+  400 — the four-eyes rule the portal applies to its own decisions (§4.24) holds for a
+  declared approval too; and when the request still waits (a guardrail held it), the
+  declared approvers are shown on the reviewers' page and in the Slack announcement, so the
+  reviewer sees what the bot already collected.
 
 ## 5. Decisions already taken
 

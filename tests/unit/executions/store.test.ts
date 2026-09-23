@@ -398,6 +398,14 @@ describe("executions store", () => {
     expect(untrusted.statusCode).toBe(400);
     expect(untrusted.message).toContain("trustedApprovals");
     expect(provider.putApproval).not.toHaveBeenCalled();
+    // The four-eyes rule (§4.24) holds for declared approvers: the requester cannot be one, in any case.
+    const self = await ask(
+      { datasourceId: "orders", statement: "DELETE FROM orders WHERE id = 1", onBehalfOf: "Ana@Example.test", approvedBy },
+      bot({ trustedApprovals: true }),
+    ).catch((e) => e);
+    expect(self).toBeInstanceOf(ApprovalError);
+    expect(self.statusCode).toBe(400);
+    expect(self.message).toContain("approvedBy[0] names the requester");
     const trusted = bot({ trustedApprovals: true });
     const refused = async (value: unknown) => {
       const e = await ask({ approvedBy: value }, trusted).catch((x) => x);

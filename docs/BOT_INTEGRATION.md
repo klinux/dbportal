@@ -108,8 +108,11 @@ portal's page. To hand the portal the first one instead:
   suspect; no count of approvers elsewhere answers that. Do not plan around `approvedBy`
   bypassing a guardrail: it will not, and the request goes to the reviewers' page as before.
 - Refusals: `400` when the token was not created with `trustedApprovals`, and for an empty
-  list, more than 10 entries, an entry without `reviewer`, or an `at` that does not parse
-  (the message names the entry). The portal refuses rather than ignores the field, so a bot
+  list, more than 10 entries, an entry without `reviewer`, an `at` that does not parse, or an
+  entry naming `onBehalfOf` (the person a request is for cannot approve it; the message
+  names the entry).
+- When a guardrail still holds the request, the reviewers' page and the Slack announcement
+  show the declared approvers, so the reviewer sees what the bot already collected. The portal refuses rather than ignores the field, so a bot
   that believes it declared approvers is never left with a queued write and no idea why.
 
 ## 3. The answers

@@ -154,6 +154,9 @@ function holdLines(record: ApprovalRequest): string[] {
   return [
     ...(record.guardrail ? [`Held by a guardrail: ${GUARDRAIL_LABEL[record.guardrail]}.`] : []),
     ...(record.review ? [`Held for review by the requester: ${record.review.reason}`] : []),
+    ...(record.approvedBy && record.approvedBy.length > 0
+      ? [`Approved where the request was made by: ${record.approvedBy.map((a) => a.reviewer).join(", ")}.`]
+      : []),
   ];
 }
 

@@ -269,6 +269,22 @@ describe("ApprovalsTab", () => {
     expect(getByTestId("ticket-req-1").textContent).toBe("ticket INC-42");
   });
 
+  // docs/CONTEXT.md §4.58: a request a guardrail held still shows what the bot collected before asking.
+  test("a request with declared approvers is badged with their names", async () => {
+    mockGlobalFetch({
+      "/api/approvals": {
+        ok: true,
+        json: {
+          approvals: [
+            { ...pending, approvedBy: [{ reviewer: "ana@example.test", at: "2026-09-22T14:03:00Z" }, { reviewer: "U0456", at: "2026-09-22T14:05:00Z" }] },
+          ],
+        },
+      },
+    });
+    const { getByTestId } = await renderLoaded();
+    expect(getByTestId("approval-approved-by-req-1").textContent).toBe("approved where requested by: ana@example.test, U0456");
+  });
+
   // docs/CONTEXT.md §4.57: the reviewer sees the requester's own reason for holding the statement.
   test("a request the requester held for review is badged with the reason", async () => {
     mockGlobalFetch({

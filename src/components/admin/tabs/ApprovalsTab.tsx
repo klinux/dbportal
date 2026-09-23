@@ -222,6 +222,17 @@ export function ApprovalsTab() {
                             </Badge>
                           )}
                           {/* docs/CONTEXT.md §4.57: the bot held its own request, and said why. */}
+                          {/* docs/CONTEXT.md §4.58: what the bot collected before asking; shown when the request still waits. */}
+                          {record.approvedBy && record.approvedBy.length > 0 && (
+                            <Badge
+                              variant="outline"
+                              className="mb-1 ml-1 text-[10px] text-fg-secondary"
+                              title={record.approvedBy.map((a) => `${a.reviewer} at ${a.at}`).join(", ")}
+                              data-testid={`approval-approved-by-${record.id}`}
+                            >
+                              approved where requested by: {record.approvedBy.map((a) => a.reviewer).join(", ")}
+                            </Badge>
+                          )}
                           {record.review && (
                             <Badge
                               variant="outline"

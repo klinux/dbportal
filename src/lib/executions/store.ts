@@ -79,7 +79,7 @@ const APPROVER_MAX = SUBJECT_MAX;
  * with the field named, never dropped in silence: a bot that believes it declared approvers
  * and had them ignored would have its write queued with no idea why.
  */
-function readApprovedBy(value: unknown): ExecutionApprover[] | undefined {
+function readApprovedBy(value: unknown, subject: string): ExecutionApprover[] | undefined {
   if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value) || value.length === 0)
     throw new ApprovalError("approvedBy must be a non-empty list of { reviewer, at }", 400);
@@ -93,6 +93,10 @@ function readApprovedBy(value: unknown): ExecutionApprover[] | undefined {
     if (!who) throw new ApprovalError(`approvedBy[${index}].reviewer must name who approved`, 400);
     if (typeof at !== "string" || Number.isNaN(Date.parse(at)))
       throw new ApprovalError(`approvedBy[${index}].at must be an ISO 8601 instant`, 400);
+    // The four-eyes rule the portal applies to its own decisions (§4.24): the person a
+    // request is for cannot be one of those who approved it, declared or not.
+    if (who.toLowerCase() === subject.toLowerCase())
+      throw new ApprovalError(`approvedBy[${index}] names the requester; a request cannot be approved by the person it is for`, 400);
     return { reviewer: who, at };
   });
 }
@@ -255,7 +259,7 @@ export async function submitExecution(
   const reply = readReply(input.reply);
   const callback = readCallback(input.callback);
   const review = readReview(input.review);
-  const approvedBy = readApprovedBy(input.approvedBy);
+  const approvedBy = readApprovedBy(input.approvedBy, subject);
   const { token } = identity;
   // Refused, not ignored: a token the operator did not trust with approvals must not learn
   // by trial that the field does nothing for it.

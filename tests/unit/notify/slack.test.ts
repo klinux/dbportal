@@ -166,6 +166,10 @@ describe("slack notifier", () => {
     expect(body.text).toContain("Held by a guardrail: DELETE without WHERE.");
     expect(body.text).toContain("Held for review by the requester: touches billing");
     fetchSpy.mockClear();
+    // §4.58: what the bot collected before asking, when the request still waits.
+    await notifyReviewers({ ...base, approvedBy: [{ reviewer: "ana@example.test", at: "x" }, { reviewer: "U0456", at: "y" }] });
+    expect(sent()[0].text).toContain("Approved where the request was made by: ana@example.test, U0456.");
+    fetchSpy.mockClear();
     await notifyReviewers(base);
     expect(sent()[0].text).not.toContain("Held");
   });

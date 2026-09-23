@@ -1350,8 +1350,9 @@ queries, under the token's own name.
   write on a datasource with `writeApproval` runs at once instead of waiting for a reviewer; the approvers are
   on the record as `approvedBy` and on the audit line as `approved_by`. It lifts `writeApproval` only: a
   guardrail, a `review` hold and a token with `requireApproval` still queue the request. `400` from a token
-  without `trustedApprovals`, and for an empty list, more than 10 entries, an entry without `reviewer`, or an
-  `at` that does not parse, naming the entry.
+  without `trustedApprovals`, and for an empty list, more than 10 entries, an entry without `reviewer`, an
+  `at` that does not parse, or an entry naming `onBehalfOf` (a request cannot be approved by the person it is
+  for), naming the entry.
   `callback.url` (docs/CONTEXT.md §4.25): an HTTPS URL on a host in `CALLBACK_ALLOWED_HOSTS`; the outcome is
   POSTed there as the JSON of the record (as `GET /api/v1/executions/[id]` shows it) with
   `X-Dbportal-Signature: v1=<HMAC-SHA256 of "<X-Dbportal-Timestamp>.<body>" under CALLBACK_SIGNING_SECRET>`,
