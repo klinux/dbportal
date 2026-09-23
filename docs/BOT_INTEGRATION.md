@@ -4,9 +4,9 @@ A guide for the team that maintains a chat bot (Slack, or any program) that rece
 requests to run statements on a database. It covers what to set up in the portal once,
 what the bot sends, what it gets back, and what the bot stops doing because the portal does
 it. The design behind each piece is in [CONTEXT.md](CONTEXT.md) §4.10 (the queue), §4.15
-(guardrails), §4.24 (Slack buttons), §4.25 (signed callback), §4.56 (object rules) and
-§4.57 (the bot's own hold); the request and response shapes are in
-[API_DOCS.md](API_DOCS.md) under "Executions API".
+(guardrails), §4.24 (Slack buttons), §4.25 (signed callback), §4.56 (object rules), §4.57
+(the bot's own hold) and §4.58 (the approvals the bot collected); the request and response
+shapes are in [API_DOCS.md](API_DOCS.md) under "Executions API".
 
 ## What moves from the bot to the portal
 
@@ -66,6 +66,51 @@ Content-Type: application/json
   reason is shown on the reviewers' page, in the announcement and in the record.
 - `callback: { url }`: optional; the outcome is POSTed there, signed, instead of polled. The
   host must be in `CALLBACK_ALLOWED_HOSTS`.
+- `approvedBy`: optional, see the next section. The people who already approved the request
+  where the bot lives; needs a token created with `trustedApprovals`.
+
+## 2a. When the bot already collected the approvals
+
+Some teams keep an approval flow in the chat itself: the request is posted, named people
+react, a rule says how many are needed, and only then does the bot act. Sent as in section
+2, such a write on a datasource with `writeApproval` would wait for a second approval on the
+portal's page. To hand the portal the first one instead:
+
+1. An administrator ticks **Trusted approvals** on the bot's service token (Security →
+   Service tokens). This is the operator's statement that the bot's approval flow was
+   reviewed; it is off by default and shown on the token's row.
+2. The bot sends `approvedBy` with the request:
+
+```json
+{
+  "datasourceId": "orders-prod",
+  "statement": "UPDATE orders SET status = 'cancelled' WHERE id = 42",
+  "onBehalfOf": "U0123",
+  "reply": { "channel": "C0456", "threadTs": "1726.0001" },
+  "approvedBy": [
+    { "reviewer": "ana@example.test", "at": "2026-09-22T14:03:00Z" },
+    { "reviewer": "U0456", "at": "2026-09-22T14:05:12Z" }
+  ]
+}
+```
+
+- `reviewer` is free text, as `onBehalfOf` is: the identity the bot can vouch for (an email,
+  a chat user id). 1 to 10 entries; `at` an ISO 8601 instant.
+- The portal **does not count** the approvers. How many a change needs, and who counts, is
+  the bot's rule, agreed with the team that runs it. The portal records who was declared:
+  on the record as `approvedBy`, on the audit line as `approved_by`, apart from `reviewer`
+  (a decision taken on the portal's page) so the trail says which of the two let it run.
+- What it does: a write on a datasource with `writeApproval` is approved by policy and runs
+  at once (`202 approved` with `jobId`, then the outcome in the thread).
+- **What it does not do.** A guardrail still holds the request (`DELETE` or `UPDATE` without
+  `WHERE`, `DROP`, `TRUNCATE` → `202 pending` with `guardrail`), and so do
+  `review: { reason }` and a token with `requireApproval`. Those say the *statement* is
+  suspect; no count of approvers elsewhere answers that. Do not plan around `approvedBy`
+  bypassing a guardrail: it will not, and the request goes to the reviewers' page as before.
+- Refusals: `400` when the token was not created with `trustedApprovals`, and for an empty
+  list, more than 10 entries, an entry without `reviewer`, or an `at` that does not parse
+  (the message names the entry). The portal refuses rather than ignores the field, so a bot
+  that believes it declared approvers is never left with a queued write and no idea why.
 
 ## 3. The answers
 
@@ -74,7 +119,7 @@ Content-Type: application/json
 | `200 { execution }` | Ran at once (a read, nothing to approve). `execution.execution` carries `rowCount`, `fields`, `rows` (bounded and masked) | Nothing required; the portal already posted the outcome into the thread |
 | `202`, `execution.status: "pending"` | Waiting for a reviewer; `guardrail` or `review` says why | Nothing; the buttons are already in the thread. Optionally: "waiting for approval" |
 | `202`, `execution.status: "approved"` with `jobId` | Approved, a worker is running it | Poll `GET /api/v1/executions/{id}` until `execution` is set |
-| `400` | Invalid body: `review` without a reason, `onBehalfOf` missing, statement over 32 000 characters, a `callback` host not allowed | Show the message |
+| `400` | Invalid body: `review` without a reason, `onBehalfOf` missing, statement over 32 000 characters, a `callback` host not allowed, `approvedBy` malformed or from a token without `trustedApprovals` | Show the message |
 | `403` | The token may not use the datasource, a write on a read-only one, a ticket required, a freeze window, or an object the datasource's rules keep from the token | Show the portal's message in the thread; it says what to do |
 | `404` | Unknown `datasourceId` | Show it |
 | `429` | The datasource's concurrency limit | Retry later |
@@ -94,7 +139,7 @@ own; the bot reads it back only if it wants to act on it.
 ## 4. A handler, in outline
 
 ```python
-def handle_request(user, channel, thread_ts, datasource, sql, reason=None, ticket=None):
+def handle_request(user, channel, thread_ts, datasource, sql, reason=None, ticket=None, approvers=()):
     body = {
         "datasourceId": datasource,
         "statement": sql,
@@ -105,6 +150,8 @@ def handle_request(user, channel, thread_ts, datasource, sql, reason=None, ticke
         body["ticket"] = ticket
     if reason:  # where the bot used to call a person
         body["review"] = {"reason": reason}
+    if approvers:  # the thread already approved it; needs trustedApprovals on the token
+        body["approvedBy"] = [{"reviewer": who, "at": when} for who, when in approvers]
 
     r = requests.post(f"{PORTAL}/api/v1/executions", json=body,
                       headers={"Authorization": f"Bearer {TOKEN}"}, timeout=30)
@@ -129,6 +176,8 @@ No database credential, no list of reviewers, no statement executed by the bot.
   rules and row limits. Keep only what the portal cannot know, and send it as
   `review.reason`.
 - The approval flow: the buttons replace it, and who may decide is declared per datasource.
+  A team that keeps its own flow in the chat instead sends its result as `approvedBy`
+  (section 2a); the guardrails stay the portal's either way.
 
 ## 6. A test plan
 
@@ -141,3 +190,7 @@ No database credential, no list of reviewers, no statement executed by the bot.
    badge on Admin → Approvals.
 5. A datasource outside the allowlist → `403`.
 6. `GET /api/v1/executions/{id}` on each → the record with its outcome.
+7. With `trustedApprovals` on the token: the `UPDATE` of step 2 with `approvedBy` →
+   `202 approved` with `jobId`, no announcement to the reviewers, the outcome in the thread;
+   `approved_by` on the audit line. The `DELETE` of step 3 with the same `approvedBy` →
+   still `202 pending` with `guardrail`. Without the flag, `approvedBy` → `400`.

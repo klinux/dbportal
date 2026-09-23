@@ -1256,6 +1256,30 @@ built. Each lands as its own section when done.
   outcome still lands in the thread. The guide for the team that maintains such a bot,
   what to set up once, what to send, what comes back and what the bot stops doing, is
   [`docs/BOT_INTEGRATION.md`](BOT_INTEGRATION.md).
+- **4.58 The bot brings the approvals it already collected — done (asked 2026-09-22).**
+  A team whose chat bot already runs an approval flow of its own (a thread where named
+  approvers react, a rule about how many are needed) had each write approved twice: once in
+  the thread, then again on `/admin/approvals`, because the condition in
+  `submitExecution` (`src/lib/executions/store.ts`) queued every write on a datasource with
+  `writeApproval` regardless. Two additions. On the service token, `trustedApprovals`
+  (`ServiceTokenRecord`, off unless the checkbox in `Security → Service tokens` is
+  ticked): the operator's statement that this bot's approval flow was reviewed and its
+  word about approvers is accepted. On `POST /api/v1/executions`,
+  `approvedBy: [{ reviewer, at }]` (1–10 entries; `reviewer` free text like `onBehalfOf`,
+  trimmed to 200 characters; `at` an ISO instant): the people who approved where the bot
+  lives. With both, a write on a datasource with `writeApproval` is approved by policy and
+  runs at once, the approvers on the record and on the audit line as `approved_by` — a
+  field of its own, apart from `reviewer`, so the trail always says whether a decision was
+  taken in the portal or declared from outside. **What `approvedBy` does not do, by
+  design:** it lifts `writeApproval` only. A guardrail (§4.15), the bot's own `review` hold
+  (§4.57) and a token with `requireApproval` still queue, whoever is declared — those say the
+  *statement* is suspect, and no count of approvers elsewhere answers that; the guardrail
+  in particular is the portal's last word on a statement nobody should have approved.
+  The portal does not count the approvers either: how many a change needs is the bot's
+  rule, taken with the team that runs it. `approvedBy` from a token without
+  `trustedApprovals` is refused with 400, as is a malformed list, the message naming the
+  entry — refused, never ignored, so a bot that believes it declared approvers is not left
+  with a queued write and no idea why. Without the field nothing changed.
 
 ## 5. Decisions already taken
 
