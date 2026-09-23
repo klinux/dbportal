@@ -38,9 +38,17 @@ interface Draft {
   groups: string;
   datasources: string;
   requireApproval: boolean;
+  trustedApprovals: boolean;
 }
 
-const EMPTY: Draft = { name: "", role: "user", groups: "", datasources: "", requireApproval: true };
+const EMPTY: Draft = {
+  name: "",
+  role: "user",
+  groups: "",
+  datasources: "",
+  requireApproval: true,
+  trustedApprovals: false,
+};
 
 /** Comma-separated names as the API's list. */
 export function listOf(text: string): string[] {
@@ -100,6 +108,7 @@ export function ServiceTokensTab() {
           groups: listOf(draft.groups),
           datasources: listOf(draft.datasources),
           requireApproval: draft.requireApproval,
+          trustedApprovals: draft.trustedApprovals,
         }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string; secret?: string };
@@ -241,6 +250,11 @@ export function ServiceTokensTab() {
                   </TableCell>
                   <TableCell className="text-xs text-fg-muted">
                     {token.requireApproval ? "every request" : "writes that need it"}
+                    {token.trustedApprovals && (
+                      <Badge variant="outline" className="ml-2 text-[10px]" title="May declare approvals it collected">
+                        trusted approvals
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-xs text-fg-muted whitespace-nowrap">
                     {token.lastUsedAt ? new Date(token.lastUsedAt).toLocaleString() : "never"}
@@ -347,6 +361,19 @@ export function ServiceTokensTab() {
                 <span>
                   Every request waits for a reviewer, reads included. Off, only writes on datasources that require
                   approval wait.
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-xs text-fg-secondary">
+                <input
+                  type="checkbox"
+                  checked={draft.trustedApprovals}
+                  onChange={(e) => setDraft({ ...draft, trustedApprovals: e.target.checked })}
+                  className="mt-0.5"
+                />
+                <span>
+                  Trusted approvals: the bot may declare who already approved a request where it lives, and a write that
+                  would otherwise wait for a reviewer runs at once. Guardrails still hold. Grant only to a bot whose
+                  approval flow you reviewed.
                 </span>
               </label>
             </div>

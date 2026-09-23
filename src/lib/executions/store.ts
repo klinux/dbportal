@@ -19,7 +19,13 @@ import { notifyExecutionOutcome, notifyReviewers } from "@/lib/notify/slack";
 import { resolveConnection, SeedConnectionError } from "@/lib/seed/resolve-connection";
 import { enqueueJob } from "@/lib/jobs/queue";
 import { getStorageProvider } from "@/lib/storage/factory";
-import type { ApprovalRequest, ExecutionOutcome, ExecutionReply, ExecutionReview } from "@/lib/storage/types";
+import type {
+  ApprovalRequest,
+  ExecutionApprover,
+  ExecutionOutcome,
+  ExecutionReply,
+  ExecutionReview,
+} from "@/lib/storage/types";
 import { findServiceTokenByActor } from "@/lib/service-tokens/store";
 import { withNamedRoles } from "@/lib/roles/store";
 import type { ServiceIdentity } from "@/lib/service-tokens/types";
@@ -57,9 +63,39 @@ export interface ExecutionRequestInput {
   callback?: unknown;
   /** `{ reason }`: the bot judged the statement itself and wants a reviewer (§4.57). */
   review?: unknown;
+  /** `[{ reviewer, at }]`: the approvals the bot already collected where it lives (§4.58). */
+  approvedBy?: unknown;
 }
 
 export const REVIEW_REASON_MAX = 500;
+export const APPROVED_BY_MAX = 10;
+const APPROVER_MAX = SUBJECT_MAX;
+
+/**
+ * The approvers a bot declares (§4.58). `reviewer` is free text like `onBehalfOf` - an
+ * email, a chat user id, a name - as the bot's own approval flow names people; imposing a
+ * shape here would make the bot send two identities and the trail harder to read. `at` must
+ * parse as an instant, so the record can be read back in order. Malformed input is refused
+ * with the field named, never dropped in silence: a bot that believes it declared approvers
+ * and had them ignored would have its write queued with no idea why.
+ */
+function readApprovedBy(value: unknown): ExecutionApprover[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.length === 0)
+    throw new ApprovalError("approvedBy must be a non-empty list of { reviewer, at }", 400);
+  if (value.length > APPROVED_BY_MAX)
+    throw new ApprovalError(`approvedBy may name at most ${APPROVED_BY_MAX} approvers`, 400);
+  return value.map((item, index) => {
+    if (typeof item !== "object" || item === null)
+      throw new ApprovalError(`approvedBy[${index}] must be { reviewer, at }`, 400);
+    const { reviewer, at } = item as Record<string, unknown>;
+    const who = typeof reviewer === "string" ? reviewer.trim().slice(0, APPROVER_MAX) : "";
+    if (!who) throw new ApprovalError(`approvedBy[${index}].reviewer must name who approved`, 400);
+    if (typeof at !== "string" || Number.isNaN(Date.parse(at)))
+      throw new ApprovalError(`approvedBy[${index}].at must be an ISO 8601 instant`, 400);
+    return { reviewer: who, at };
+  });
+}
 
 function readReview(value: unknown): ExecutionReview | undefined {
   if (value === undefined || value === null) return undefined;
@@ -156,6 +192,7 @@ export async function runExecution(record: ApprovalRequest, identity: ServiceIde
           ...(record.reviewer ? { approvalId: record.id, reviewer: record.reviewer } : {}),
           subject: record.subject,
           ...(record.ticket ? { ticket: record.ticket } : {}),
+          ...(record.approvedBy ? { approvedBy: record.approvedBy.map((a) => a.reviewer).join(", ") } : {}),
         },
         () => provider.query(prepared.query),
       ),
@@ -218,7 +255,13 @@ export async function submitExecution(
   const reply = readReply(input.reply);
   const callback = readCallback(input.callback);
   const review = readReview(input.review);
+  const approvedBy = readApprovedBy(input.approvedBy);
   const { token } = identity;
+  // Refused, not ignored: a token the operator did not trust with approvals must not learn
+  // by trial that the field does nothing for it.
+  if (approvedBy && token.trustedApprovals !== true) {
+    throw new ApprovalError("This token may not declare approvedBy: it was not created with trustedApprovals", 400);
+  }
   if (token.datasources && token.datasources.length > 0 && !token.datasources.includes(datasourceId)) {
     throw new ApprovalError(`This token may not use datasource "${datasourceId}"`, 403);
   }
@@ -246,6 +289,7 @@ export async function submitExecution(
     kind: "execution",
     ...(guardrail ? { guardrail } : {}),
     ...(review ? { review } : {}),
+    ...(approvedBy ? { approvedBy } : {}),
     ...(ticket ? { ticket } : {}),
     ...(connection.approvalsRequired === 2 ? { approvalsRequired: 2 } : {}),
     datasourceId,
@@ -261,8 +305,15 @@ export async function submitExecution(
   };
   // The bot's own hold (§4.57) counts like a guardrail: the request waits whatever the
   // datasource's policy would have let run, and the reviewer is shown the bot's reason.
+  // Approvals the bot collected (§4.58) stand in for the datasource's `writeApproval` only:
+  // a guardrail, the bot's own hold and a token that queues everything still wait, whoever
+  // the bot says approved. The guardrail in particular is the portal's last word on a
+  // statement nobody should have approved, and no declaration from outside overrides it.
   const needsReview =
-    token.requireApproval || guardrail !== null || review !== undefined || (writes && connection.writeApproval === true);
+    token.requireApproval ||
+    guardrail !== null ||
+    review !== undefined ||
+    (writes && connection.writeApproval === true && approvedBy === undefined);
   if (needsReview) {
     await store.putApproval(record);
     logger.info("Execution queued for approval", {

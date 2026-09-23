@@ -205,6 +205,12 @@ export interface AuditEvent {
   ticket?: string;
   /** The runbook the statement came from (docs/CONTEXT.md §4.20), by id. */
   runbook?: string;
+  /**
+   * Who approved a service token's write where the bot lives (docs/CONTEXT.md §4.58), as the
+   * bot named them, comma-separated. Kept apart from `reviewer`, which is a decision taken in
+   * the portal: the trail must say which of the two let a statement run.
+   */
+  approvedBy?: string;
 }
 
 const MAX_EVENTS = 1000;
@@ -517,6 +523,7 @@ export interface AuditLogLine {
   subject?: string;
   ticket?: string;
   runbook?: string;
+  approved_by?: string;
   statement?: string;
 }
 
@@ -550,6 +557,7 @@ export function toAuditLine(event: AuditEvent): AuditLogLine {
     ...(event.subject ? { subject: event.subject } : {}),
     ...(event.ticket ? { ticket: event.ticket } : {}),
     ...(event.runbook ? { runbook: event.runbook } : {}),
+    ...(event.approvedBy ? { approved_by: event.approvedBy } : {}),
     // Number.isFinite excludes NaN and +/-Infinity: JSON.stringify(NaN) silently produces `null`,
     // which would flip duration_ms from a number to null for that one line in a contract parsers
     // depend on. Omitting it entirely keeps the field's type stable instead.

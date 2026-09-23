@@ -17,6 +17,7 @@ const live = {
   groups: ["sre"],
   datasources: ["orders"],
   requireApproval: true,
+  trustedApprovals: true,
   prefix: "dbp_abcdef",
   createdAt: "2026-09-14T00:00:00.000Z",
   createdBy: "root",
@@ -27,6 +28,7 @@ const revoked = {
   id: "tok-0",
   name: "old-bot",
   requireApproval: false,
+  trustedApprovals: false,
   revokedAt: "2026-09-13T00:00:00.000Z",
   revokedBy: "root",
   lastUsedAt: undefined,
@@ -63,10 +65,14 @@ describe("ServiceTokensTab", () => {
     expect(bot.getByText("sre")).not.toBeNull();
     expect(bot.getByText("orders")).not.toBeNull();
     expect(bot.getByText("every request")).not.toBeNull();
+    // A token that may declare its own approvers is marked, so an operator sees at a glance
+    // which bots the portal trusts; one without the flag shows nothing.
+    expect(bot.getByText("trusted approvals")).not.toBeNull();
     expect(bot.getByLabelText("Revoke slack-bot")).not.toBeNull();
     const old = within(getByTestId("service-token-tok-0"));
     expect(old.getByText("revoked")).not.toBeNull();
     expect(old.getByText("writes that need it")).not.toBeNull();
+    expect(old.queryByText("trusted approvals")).toBeNull();
     expect(old.getByText("never")).not.toBeNull();
     expect(old.queryByLabelText("Revoke old-bot")).toBeNull();
   });
@@ -106,6 +112,7 @@ describe("ServiceTokensTab", () => {
       groups: ["sre", "ops"],
       datasources: ["orders"],
       requireApproval: true,
+      trustedApprovals: false,
     });
     expect(getByTestId("service-token-secret").textContent).toContain("dbp_the-secret-once");
     fireEvent.click(getByText("Done"));
@@ -124,10 +131,14 @@ describe("ServiceTokensTab", () => {
     expect(calls(fetchMock, "POST")).toHaveLength(0);
     fireEvent.change(getByLabelText("Name"), { target: { value: "dup" } });
     fireEvent.click(getByLabelText(/Every request waits/));
+    // Ticking trusted approvals is what sends the flag; it is off unless the operator asks.
+    fireEvent.click(getByLabelText(/Trusted approvals/));
     await act(async () => {
       fireEvent.click(getByText("Create token"));
     });
-    expect(JSON.parse((calls(fetchMock, "POST")[0][1] as RequestInit).body as string).requireApproval).toBe(false);
+    const posted = JSON.parse((calls(fetchMock, "POST")[0][1] as RequestInit).body as string);
+    expect(posted.requireApproval).toBe(false);
+    expect(posted.trustedApprovals).toBe(true);
     expect(mockToastError).toHaveBeenCalledWith("already exists");
   });
 

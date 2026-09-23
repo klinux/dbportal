@@ -100,6 +100,7 @@ export async function createServiceToken(
   const groups = normalizeGroups(stringList(body.groups, "groups"));
   const datasources = stringList(body.datasources, "datasources", NAME_SHAPE);
   const requireApproval = body.requireApproval === undefined ? false : body.requireApproval === true;
+  const trustedApprovals = body.trustedApprovals === true;
   const records = await readAll();
   if (records.some((r) => r.name === name && !r.revokedAt))
     throw new ServiceTokenError(`A live service token named "${name}" already exists`, 409);
@@ -111,6 +112,7 @@ export async function createServiceToken(
     ...(groups.length > 0 ? { groups } : {}),
     ...(datasources.length > 0 ? { datasources } : {}),
     requireApproval,
+    ...(trustedApprovals ? { trustedApprovals } : {}),
     secretHash: hashSecret(secret),
     prefix: secret.slice(0, SECRET_PREFIX.length + 6),
     createdAt: new Date().toISOString(),

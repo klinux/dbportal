@@ -15,6 +15,14 @@ export interface ServiceTokenRecord {
   datasources?: string[];
   /** Every request queues for a reviewer, reads included. */
   requireApproval: boolean;
+  /**
+   * The token may send `approvedBy` on an execution: the people who already approved it
+   * where the bot lives (a chat thread, a ticket). With it, a write on a datasource with
+   * `writeApproval` runs at once instead of queueing; the bot is trusted to have counted
+   * the approvers, so grant this only to a bot whose approval flow the operator reviewed.
+   * A guardrail, a `review` hold and `requireApproval` still queue, whatever is declared.
+   */
+  trustedApprovals?: boolean;
   /** SHA-256 of the secret, hex. */
   secretHash: string;
   /** The first characters of the secret, so an operator can tell tokens apart. */

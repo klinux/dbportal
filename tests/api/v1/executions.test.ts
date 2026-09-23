@@ -71,6 +71,7 @@ describe("/api/v1/executions", () => {
       onBehalfOf: "U01",
       reply: { channel: "C1" },
       callback: { url: "https://bot.example.test/hook" },
+      approvedBy: [{ reviewer: "ana@example.test", at: "2026-09-14T00:00:00.000Z" }],
       extra: 1,
     });
     expect(res.status).toBe(202);
@@ -83,6 +84,8 @@ describe("/api/v1/executions", () => {
       reply: { channel: "C1" },
       // docs/CONTEXT.md §4.25: the callback travels to the store, which validates it.
       callback: { url: "https://bot.example.test/hook" },
+      // docs/CONTEXT.md §4.58: so do the approvals the bot collected; the store checks the token may declare them.
+      approvedBy: [{ reviewer: "ana@example.test", at: "2026-09-14T00:00:00.000Z" }],
     });
     expect((who as { session: { username: string } }).session.username).toBe("svc:bot");
     // Approved by policy but not yet run: a worker still has to (§4.40), so 202 too.

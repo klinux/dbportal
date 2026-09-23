@@ -77,6 +77,14 @@ describe("service-tokens store", () => {
     expect(plain).toMatchObject({ role: "user", requireApproval: false });
     expect(plain).not.toHaveProperty("groups");
     expect(plain).not.toHaveProperty("datasources");
+    // Trusted approvals is opt-in and absent by default: a token that never asked for it
+    // must not be able to declare approvers, and an old record without the key means "no".
+    expect(plain).not.toHaveProperty("trustedApprovals");
+    const trusted = (await createServiceToken({ name: "trusted", trustedApprovals: true }, "root")).record;
+    expect(trusted.trustedApprovals).toBe(true);
+    // Only the boolean true grants it; a truthy string is not a grant.
+    const lax = (await createServiceToken({ name: "lax", trustedApprovals: "yes" }, "root")).record;
+    expect(lax).not.toHaveProperty("trustedApprovals");
   });
 
   test("refuses a bad name, a bad role, a non-list, a malformed datasource id, a non-object, and a duplicate live name", async () => {

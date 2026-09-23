@@ -27,6 +27,7 @@ export async function POST(request: Request) {
         reply: body.reply,
         ticket: body.ticket,
         callback: body.callback,
+        approvedBy: body.approvedBy,
       },
       guard.identity,
     );

@@ -1338,12 +1338,20 @@ For bots (docs/CONTEXT.md §4.10; the integration guide is [BOT_INTEGRATION.md](
 an administrator created under Security → Service tokens. Rate limited like a person's
 queries, under the token's own name.
 
-- `POST /api/v1/executions` — body `{ datasourceId, statement, onBehalfOf, reply?: { channel, threadTs? }, callback?: { url }, review?: { reason } }`.
+- `POST /api/v1/executions` — body `{ datasourceId, statement, onBehalfOf, reply?: { channel, threadTs? }, callback?: { url }, review?: { reason }, approvedBy?: [{ reviewer, at }] }`.
   `review.reason` (docs/CONTEXT.md §4.57; trimmed, 1–500 characters): the bot judged the statement itself and
   wants a reviewer - the request waits (`202`, `status: "pending"`) whatever the datasource's policy would have
   let run, the reason is on the record as `review` and in the Slack announcement, which is posted into the
   `reply` thread (with the Approve/Reject buttons, when `SLACK_SIGNING_SECRET` is set) as well as to the
   reviewers' channel. `400` for a `review` without a reason.
+  `approvedBy` (docs/CONTEXT.md §4.58): the approvals the bot already collected where it lives, 1–10 entries of
+  `{ reviewer, at }` - `reviewer` free text as the bot names people (an email, a chat user id), trimmed to 200
+  characters; `at` an ISO 8601 instant. Accepted only from a token created with `trustedApprovals`. With it, a
+  write on a datasource with `writeApproval` runs at once instead of waiting for a reviewer; the approvers are
+  on the record as `approvedBy` and on the audit line as `approved_by`. It lifts `writeApproval` only: a
+  guardrail, a `review` hold and a token with `requireApproval` still queue the request. `400` from a token
+  without `trustedApprovals`, and for an empty list, more than 10 entries, an entry without `reviewer`, or an
+  `at` that does not parse, naming the entry.
   `callback.url` (docs/CONTEXT.md §4.25): an HTTPS URL on a host in `CALLBACK_ALLOWED_HOSTS`; the outcome is
   POSTed there as the JSON of the record (as `GET /api/v1/executions/[id]` shows it) with
   `X-Dbportal-Signature: v1=<HMAC-SHA256 of "<X-Dbportal-Timestamp>.<body>" under CALLBACK_SIGNING_SECRET>`,
@@ -1358,8 +1366,10 @@ queries, under the token's own name.
   Rows are masked by the server's rules and bounded (200 rows, 256 KB). `404` for another token's request.
 
 Admin: `GET /api/admin/service-tokens`, `POST /api/admin/service-tokens` — body
-`{ name, role?, groups?, datasources?, requireApproval? }`, `201 { token, secret }` (the secret
-is returned once); `DELETE /api/admin/service-tokens/[id]` revokes. Audited as `service_token`.
+`{ name, role?, groups?, datasources?, requireApproval?, trustedApprovals? }`,
+`201 { token, secret }` (the secret is returned once; `trustedApprovals` lets the token send
+`approvedBy` on executions, docs/CONTEXT.md §4.58); `DELETE /api/admin/service-tokens/[id]`
+revokes. Audited as `service_token`.
 
 `POST /api/slack/interactions` (docs/CONTEXT.md §4.24) — Slack's interactivity request URL. No session:
 the request is verified by its `X-Slack-Signature` over `X-Slack-Request-Timestamp` and the raw body under
