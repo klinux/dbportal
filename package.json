@@ -162,6 +162,6 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.69.0",
-    "workflow": "4.8.1"
+    "workflow": "4.8.8"
   }
 }
