@@ -449,6 +449,90 @@ describe("executions store", () => {
     }
   });
 
+  // docs/CONTEXT.md §4.2: a script is judged and run statement by statement. The guardrail
+  // used to read the whole body, so a harmless first statement shielded whatever followed;
+  // the provider was handed the body whole, and the pg driver's array of results turned
+  // every field undefined, failing the run AFTER the statements had committed.
+  test("a script is split: the guardrail reads every statement, so a WHERE on the first does not shield an UPDATE without one", async () => {
+    const held = await ask({
+      datasourceId: "plain",
+      statement: "update orders set paid = 1 where id = 1;\nupdate orders set paid = 1;",
+    });
+    expect(held.status).toBe("pending");
+    expect(held.guardrail).toBe("update_without_where");
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  test("a script runs one statement per call, sums the rows, and keeps the last projection", async () => {
+    liveToken = bot();
+    queryResult = { rows: [], fields: [], rowCount: 4, executionTime: 1 };
+    const first = await ask({ datasourceId: "plain", statement: "update orders set paid = 1 where id = 1" });
+    await runExecutionJob(first.id);
+    queryResult = { rows: [{ id: 1, email: "a@b.c" }], fields: ["id", "email"], rowCount: 1, executionTime: 1 };
+
+    const ran = await runExecutionJob(
+      (
+        await ask({
+          datasourceId: "plain",
+          statement: "update orders set paid = 1 where id = 1;\nupdate orders set paid = 1 where id = 2;",
+        })
+      ).id,
+    );
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(ran?.execution?.status).toBe("done");
+    expect(ran?.execution?.executedCount).toBe(2);
+    expect(ran?.execution?.statements?.map((s) => s.status)).toEqual(["done", "done"]);
+    // The sum, not the last statement's count: a reader that knows nothing of scripts still
+    // sees the whole of what changed.
+    expect(ran?.execution?.rowCount).toBe(2);
+    expect(ran?.execution?.rows).toEqual([{ id: 1, email: "***" }]);
+  });
+
+  test("a script stops at the statement that failed, and says how far it got", async () => {
+    liveToken = bot();
+    let calls = 0;
+    query.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 2) throw new Error("syntax error at or near \"slect\"");
+      return queryResult;
+    });
+    try {
+      const ran = await runExecutionJob(
+        (
+          await ask({
+            datasourceId: "plain",
+            statement: "update orders set paid = 1 where id = 1;\nslect 1;\nupdate orders set paid = 1 where id = 3;",
+          })
+        ).id,
+      );
+      expect(ran?.execution?.status).toBe("failed");
+      expect(ran?.execution?.executedCount).toBe(1);
+      expect(ran?.execution?.statements?.map((s) => s.status)).toEqual(["done", "failed"]);
+      // The third never ran: two calls, not three.
+      expect(calls).toBe(2);
+      // A closed word, never the driver's message.
+      expect(ran?.execution?.error).not.toContain("slect");
+    } finally {
+      query.mockImplementation(async () => {
+        if (queryFails) throw queryFails;
+        return queryResult;
+      });
+    }
+  });
+
+  // docs/CONTEXT.md §4.21: each statement takes its own pooled connection, so a BEGIN would
+  // open a transaction the COMMIT on another connection never closes.
+  test("transaction control in the body is refused whole, before anything runs", async () => {
+    const refused = await ask({
+      datasourceId: "plain",
+      statement: "begin;\nupdate orders set paid = 1 where id = 1;\ncommit;",
+    }).catch((e) => e);
+    expect(refused).toBeInstanceOf(ApprovalError);
+    expect(refused.statusCode).toBe(400);
+    expect(refused.message).toContain("cannot open or close a transaction");
+    expect(query).not.toHaveBeenCalled();
+  });
+
   // docs/CONTEXT.md §4.16: the datasource's row cap holds the bot's statement too.
   test("a datasource's row cap reaches the provider; without one the options are empty", async () => {
     liveToken = bot();

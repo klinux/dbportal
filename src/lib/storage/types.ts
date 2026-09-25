@@ -196,6 +196,32 @@ export interface ExecutionOutcome {
   truncated?: boolean;
   /** A closed reason, never the driver's message. */
   error?: string;
+  /**
+   * One entry per statement of a script, in the order they were written
+   * (docs/CONTEXT.md §4.2). Present only when the request carried more than one:
+   * a single statement is described by the fields above alone, which is what
+   * every existing reader expects.
+   *
+   * `rowCount` above is the SUM across the statements that ran, so a reader that
+   * knows nothing of scripts still sees the whole of what changed rather than
+   * whichever statement happened to be last; `rows`/`fields` come from the last
+   * statement that projected any, which is the result a person asked for when a
+   * script ends in a SELECT.
+   */
+  statements?: ExecutionStatementOutcome[];
+  /** How many statements actually ran, which is fewer than `statements.length` after an error. */
+  executedCount?: number;
+}
+
+/** What one statement of a script did (docs/CONTEXT.md §4.2). The text is not repeated: the record already carries it. */
+export interface ExecutionStatementOutcome {
+  /** Zero-based position in the script as written. */
+  index: number;
+  status: "done" | "failed";
+  rowCount?: number;
+  durationMs: number;
+  /** A closed reason, never the driver's message. */
+  error?: string;
 }
 
 export interface ApprovalQuery {

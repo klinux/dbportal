@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { assertObjectsAllowed } from "@/lib/api/object-gate";
 import { canWrite, isReadStatement } from "@/lib/access";
-import { dangerOf } from "@/lib/guardrails";
+import { firstGuardrail } from "@/lib/guardrails";
+import { splitStatements } from "@/lib/sql/statement-splitter";
+import { resolveSqlGrammar } from "@/lib/sql/grammar";
+import { TRANSACTION_CONTROL_MESSAGE, firstTransactionControl } from "@/lib/sql/transaction-control";
+import { isSelectQuery } from "@/lib/db/utils/query-limiter";
 import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import { activeFreeze } from "@/lib/freezes/store";
 import { freezeMessage } from "@/lib/api/write-gate";
@@ -25,6 +29,7 @@ import type {
   ExecutionOutcome,
   ExecutionReply,
   ExecutionReview,
+  ExecutionStatementOutcome,
 } from "@/lib/storage/types";
 import { findServiceTokenByActor } from "@/lib/service-tokens/store";
 import { withNamedRoles } from "@/lib/roles/store";
@@ -176,46 +181,108 @@ export async function runExecution(record: ApprovalRequest, identity: ServiceIde
       applicationName: applicationNameFor(identity.session.username),
       ...providerAccessOptions(connection, identity.session),
     });
-    // The object rules (docs/CONTEXT.md §4.56) hold for a token's statement as for a person's.
+    // Read again here, not carried on the record: this runs in a worker that may not be the
+    // process that took the request, and the engine's grammar is what decided the guardrail.
+    const statements = splitStatements(record.statement, resolveSqlGrammar(connection.type)).map((s) => s.sql);
+    // The object rules (docs/CONTEXT.md §4.56) hold for a token's statement as for a person's,
+    // and for each statement of a script: a name the rules keep from this session is refused
+    // wherever in the script it sits.
     await assertObjectsAllowed({
       route: ROUTE,
       session: identity.session,
       connection,
-      statements: [record.statement],
+      statements,
       provider,
     });
-    const prepared = provider.prepareQuery(record.statement, capPrepareOptions({}, connection.limits));
-    const result = await withConcurrency(connection, identity.session.username, () =>
-      auditExecution(
-        {
-          route: ROUTE,
-          action: "query",
-          user: identity.session.username,
+    // One statement per call, which is the contract every provider keeps: handed a script,
+    // the pg driver answers with an ARRAY of results and the single-result reading turned
+    // every field undefined, failing the run AFTER the statements had committed.
+    const perStatement: ExecutionStatementOutcome[] = [];
+    let executedCount = 0;
+    let totalRows = 0;
+    let lastProjection: { fields: string[]; rows: Record<string, unknown>[]; truncated: boolean } | null = null;
+    let failure: string | null = null;
+
+    for (const [index, sql] of statements.entries()) {
+      const statementStart = Date.now();
+      // The limiter belongs to a statement a person reads back, so it is applied to a
+      // trailing SELECT only: a LIMIT injected midway through a script would change what
+      // the statements after it operate on.
+      const isLast = index === statements.length - 1;
+      const prepared =
+        isLast && isSelectQuery(sql, connection.type)
+          ? provider.prepareQuery(sql, capPrepareOptions({}, connection.limits))
+          : { query: sql };
+      try {
+        // Sequential by requirement: a statement may depend on the one before it, and a
+        // failure must stop the rest.
+        // eslint-disable-next-line no-await-in-loop
+        const result = await withConcurrency(connection, identity.session.username, () =>
+          auditExecution(
+            {
+              route: ROUTE,
+              action: "query",
+              user: identity.session.username,
+              connectionName: connection.name,
+              statement: prepared.query,
+              ...(record.reviewer ? { approvalId: record.id, reviewer: record.reviewer } : {}),
+              subject: record.subject,
+              ...(record.ticket ? { ticket: record.ticket } : {}),
+              ...(record.approvedBy ? { approvedBy: record.approvedBy.map((a) => a.reviewer).join(", ") } : {}),
+            },
+            () => provider.query(prepared.query),
+          ),
+        );
+        // eslint-disable-next-line no-await-in-loop -- masks this statement's own rows, in order.
+        const masked = await maskResult(result, {
+          session: identity.session,
           connectionName: connection.name,
-          statement: prepared.query,
-          ...(record.reviewer ? { approvalId: record.id, reviewer: record.reviewer } : {}),
-          subject: record.subject,
-          ...(record.ticket ? { ticket: record.ticket } : {}),
-          ...(record.approvedBy ? { approvedBy: record.approvedBy.map((a) => a.reviewer).join(", ") } : {}),
-        },
-        () => provider.query(prepared.query),
-      ),
-    );
-    const masked = await maskResult(result, {
-      session: identity.session,
-      connectionName: connection.name,
-      reveal: false,
-    });
-    const bounded = boundRows(masked.rows);
+          reveal: false,
+        });
+        executedCount += 1;
+        totalRows += masked.rowCount ?? 0;
+        if (masked.fields.length > 0) {
+          const bounded = boundRows(masked.rows);
+          lastProjection = { fields: masked.fields, rows: bounded.rows, truncated: bounded.truncated };
+        }
+        perStatement.push({
+          index,
+          status: "done",
+          rowCount: masked.rowCount,
+          durationMs: Date.now() - statementStart,
+        });
+      } catch (error) {
+        // Stop here: the statements after this one assumed it succeeded. What already ran
+        // stays - there is no transaction around a script on pooled connections - and
+        // `executedCount` is how a reader learns how far it got.
+        failure = error instanceof FrozenError ? "freeze_window" : executionFailureReason(error);
+        perStatement.push({ index, status: "failed", durationMs: Date.now() - statementStart, error: failure });
+        break;
+      }
+    }
+
+    // A script says so; a single statement keeps exactly the shape it always had.
+    const script = statements.length > 1 ? { statements: perStatement, executedCount } : {};
+    if (failure !== null) {
+      logger.warn("Queued execution failed", { route: ROUTE, approvalId: record.id, reason: failure });
+    }
     outcome = {
-      status: "done",
+      status: failure === null ? "done" : "failed",
       startedAt: startedAt.toISOString(),
       finishedAt: new Date().toISOString(),
       durationMs: Date.now() - startedAt.getTime(),
-      rowCount: masked.rowCount,
-      fields: masked.fields,
-      rows: bounded.rows,
-      ...(bounded.truncated ? { truncated: true } : {}),
+      // The sum, not the last statement's: a reader that knows nothing of scripts still sees
+      // the whole of what changed.
+      rowCount: totalRows,
+      ...(lastProjection
+        ? {
+            fields: lastProjection.fields,
+            rows: lastProjection.rows,
+            ...(lastProjection.truncated ? { truncated: true } : {}),
+          }
+        : {}),
+      ...(failure !== null ? { error: failure } : {}),
+      ...script,
     };
   } catch (error) {
     // The reason is a closed word; the driver's message stays in the server log, never here.
@@ -286,7 +353,21 @@ export async function submitExecution(
     const frozen = await activeFreeze(datasourceId);
     if (frozen) throw new ApprovalError(freezeMessage(connection.name, frozen), 403);
   }
-  const guardrail = connection.guardrails === false ? null : dangerOf(statement, connection.type);
+  // The script as the engine reads it (docs/CONTEXT.md §4.2). Everything below judges the
+  // statements, not the text: a guardrail that read the whole body saw only its first
+  // keyword, so `update t set c = 1 where id = 1; update t set c = 2` passed as an UPDATE
+  // with a WHERE and the second statement ran unjudged.
+  const statements = splitStatements(statement, resolveSqlGrammar(connection.type)).map((s) => s.sql);
+  if (statements.length === 0) {
+    throw new ApprovalError("statement has no SQL to run", 400);
+  }
+  // Each statement takes its own pooled connection, so a BEGIN here opens a transaction the
+  // COMMIT that follows - on another connection - never closes. Refused whole, before any of
+  // it runs, the way `/api/db/multi-query` refuses it.
+  if (firstTransactionControl(statements, connection.type)) {
+    throw new ApprovalError(TRANSACTION_CONTROL_MESSAGE, 400);
+  }
+  const guardrail = connection.guardrails === false ? null : firstGuardrail(statements, connection.type);
   const store = await requireStore();
   const record: ApprovalRequest = {
     id: randomUUID(),
