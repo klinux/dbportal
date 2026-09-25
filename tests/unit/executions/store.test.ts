@@ -140,6 +140,7 @@ const {
   waitForExecution,
   RESULT_MAX_ROWS,
   statementCount,
+  statementsOf,
 } = await import("@/lib/executions/store");
 const { ApprovalError } = await import("@/lib/approvals/errors");
 
@@ -450,23 +451,134 @@ describe("executions store", () => {
     }
   });
 
-  // docs/CONTEXT.md §4.10: a script is refused whole. Every gate classifies a text by its
-  // leading statement, so `SELECT 1; DELETE FROM t` read as a read and the DELETE ran past
-  // the read-only rule, the approval, the ticket and the freeze window.
-  test("a body holding more than one statement is refused before any gate reads it", async () => {
+  // docs/CONTEXT.md §4.2: a script is judged and run statement by statement. The guardrail
+  // used to read the whole body, so a harmless first statement shielded whatever followed;
+  // the provider was handed the body whole, and the pg driver's array of results turned
+  // every field undefined, failing the run AFTER the statements had committed.
+  test("a script is split: the guardrail reads every statement, so a WHERE on the first does not shield an UPDATE without one", async () => {
+    const held = await ask({
+      datasourceId: "plain",
+      statement: "update orders set paid = 1 where id = 1;\nupdate orders set paid = 1;",
+    });
+    expect(held.status).toBe("pending");
+    expect(held.guardrail).toBe("update_without_where");
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  test("a script runs one statement per call, sums the rows, and keeps the last projection", async () => {
+    liveToken = bot();
+    queryResult = { rows: [], fields: [], rowCount: 4, executionTime: 1 };
+    const first = await ask({ datasourceId: "plain", statement: "update orders set paid = 1 where id = 1" });
+    await runExecutionJob(first.id);
+    queryResult = { rows: [{ id: 1, email: "a@b.c" }], fields: ["id", "email"], rowCount: 1, executionTime: 1 };
+
+    const ran = await runExecutionJob(
+      (
+        await ask({
+          datasourceId: "plain",
+          statement: "update orders set paid = 1 where id = 1;\nupdate orders set paid = 1 where id = 2;",
+        })
+      ).id,
+    );
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(ran?.execution?.status).toBe("done");
+    expect(ran?.execution?.executedCount).toBe(2);
+    expect(ran?.execution?.statements?.map((s) => s.status)).toEqual(["done", "done"]);
+    // The sum, not the last statement's count: a reader that knows nothing of scripts still
+    // sees the whole of what changed.
+    expect(ran?.execution?.rowCount).toBe(2);
+    expect(ran?.execution?.rows).toEqual([{ id: 1, email: "***" }]);
+  });
+
+  test("a script stops at the statement that failed, and says how far it got", async () => {
+    liveToken = bot();
+    let calls = 0;
+    query.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 2) throw new Error("syntax error at or near \"slect\"");
+      return queryResult;
+    });
+    try {
+      const ran = await runExecutionJob(
+        (
+          await ask({
+            datasourceId: "plain",
+            statement: "update orders set paid = 1 where id = 1;\nslect 1;\nupdate orders set paid = 1 where id = 3;",
+          })
+        ).id,
+      );
+      expect(ran?.execution?.status).toBe("failed");
+      expect(ran?.execution?.executedCount).toBe(1);
+      expect(ran?.execution?.statements?.map((s) => s.status)).toEqual(["done", "failed"]);
+      // The third never ran: two calls, not three.
+      expect(calls).toBe(2);
+      // A closed word, never the driver's message.
+      expect(ran?.execution?.error).not.toContain("slect");
+    } finally {
+      query.mockImplementation(async () => {
+        if (queryFails) throw queryFails;
+        return queryResult;
+      });
+    }
+  });
+
+  // docs/CONTEXT.md §4.21: each statement takes its own pooled connection, so a BEGIN would
+  // open a transaction the COMMIT on another connection never closes.
+  test("transaction control in the body is refused whole, before anything runs", async () => {
     const refused = await ask({
-      datasourceId: "locked",
-      statement: "select 1;\ndelete from orders where id = 1;",
+      datasourceId: "plain",
+      statement: "begin;\nupdate orders set paid = 1 where id = 1;\ncommit;",
     }).catch((e) => e);
     expect(refused).toBeInstanceOf(ApprovalError);
     expect(refused.statusCode).toBe(400);
-    expect(refused.message).toContain("one statement");
+    expect(refused.message).toContain("cannot open or close a transaction");
     expect(query).not.toHaveBeenCalled();
-    // A trailing semicolon or a comment is still one statement; a command on an engine whose
-    // language is not SQL is one statement whatever it holds.
-    expect((await ask({ datasourceId: "plain", statement: "select 1; -- done" })).status).toBe("approved");
-    expect(statementCount("db.a.find(); db.b.find()", "mongodb")).toBe(1);
-    expect(statementCount("/* only */ -- comments", "postgres")).toBe(0);
+  });
+
+  // The hole the review found: every gate classified a body by its leading statement, so a
+  // script led by a SELECT carried its write past the read-only rule, the approval, the
+  // ticket and the freeze window. `isReadStatement("SELECT 1; DELETE FROM t")` is true.
+  test("a script that only LOOKS like a read is judged by all of its statements", async () => {
+    const script = "select 1;\ndelete from orders where id = 1;";
+
+    // Read-only for this token: the write in the script must be refused, not let through.
+    const refused = await ask({ datasourceId: "locked", statement: script }).catch((e) => e);
+    expect(refused).toBeInstanceOf(ApprovalError);
+    expect(refused.statusCode).toBe(403);
+    expect(refused.message).toContain("read-only");
+    expect(query).not.toHaveBeenCalled();
+
+    // A datasource that asks approval for writes must queue it, not run it at once.
+    expect((await ask({ datasourceId: "orders", statement: script })).status).toBe("pending");
+
+    // The ticket rule reads the same list.
+    datasources.plain.requireTicket = true;
+    try {
+      const noTicket = await ask({ datasourceId: "plain", statement: script }).catch((e) => e);
+      expect(noTicket).toBeInstanceOf(ApprovalError);
+      expect(noTicket.statusCode).toBe(403);
+      expect(noTicket.message).toContain("ticket");
+    } finally {
+      delete datasources.plain.requireTicket;
+    }
+
+    // And the freeze window, which is read again when the job runs.
+    frozenWindow = { id: "w", reason: "Deploy", from: "x", until: "2026-09-14T02:00:00.000Z" };
+    try {
+      const frozen = await ask({ datasourceId: "plain", statement: script }).catch((e) => e);
+      expect(frozen).toBeInstanceOf(ApprovalError);
+      expect(frozen.statusCode).toBe(403);
+    } finally {
+      frozenWindow = null;
+    }
+  });
+
+  // A body that is only comments has nothing to run; a script on an engine whose language
+  // is not SQL is one statement whatever it holds.
+  test("statementsOf drops comments, and leaves a non-SQL body whole", () => {
+    expect(statementsOf("/* only */ -- comments", "postgres")).toEqual([]);
+    expect(statementsOf("select 1; -- done", "postgres")).toEqual(["select 1"]);
+    expect(statementsOf("db.a.find(); db.b.find()", "mongodb")).toEqual(["db.a.find(); db.b.find()"]);
   });
 
   // docs/CONTEXT.md §4.16: the datasource's row cap holds the bot's statement too.

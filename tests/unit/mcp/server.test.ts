@@ -198,6 +198,18 @@ describe("mcp server", () => {
     expect(isError(write)).toBe(true);
     expect(textOf(write)).toContain("Only a statement that reads");
     expect(submit).toHaveBeenCalledTimes(2);
+    // A script led by a read carries its write past a gate that classifies the BODY:
+    // `isReadStatement("SELECT 1; DELETE FROM t")` is true. Every statement is read here.
+    const script = await call("run_query", {
+      datasourceId: "orders",
+      statement: "SELECT 1;\nDELETE FROM orders WHERE id = 1;",
+    });
+    expect(isError(script)).toBe(true);
+    expect(textOf(script)).toContain("Only a statement that reads");
+    expect(submit).toHaveBeenCalledTimes(2);
+    // A script that only reads is still allowed through.
+    expect(isError(await call("run_query", { datasourceId: "orders", statement: "SELECT 1;\nSELECT 2;" }))).toBe(false);
+    expect(submit).toHaveBeenCalledTimes(3);
     expect(textOf(await call("run_query", { datasourceId: "orders", statement: "" }))).toBe("statement is required");
     record = { id: "exec-2", status: "pending" };
     expect(parsed(await call("run_query", { datasourceId: "orders", statement: "SELECT 1" }))).toMatchObject({

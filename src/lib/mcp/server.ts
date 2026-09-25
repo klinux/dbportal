@@ -1,4 +1,4 @@
-import { isReadStatement, principalsOf } from "@/lib/access";
+import { readsOnly, isReadStatement, principalsOf } from "@/lib/access";
 import { assertContainerDepth, ObjectRouteError } from "@/lib/api/object-route";
 import { ApprovalError } from "@/lib/approvals/errors";
 import { getOrCreateProvider } from "@/lib/db";
@@ -160,7 +160,9 @@ async function runQuery(args: Record<string, unknown>, identity: ServiceIdentity
   const connection = await open(args.datasourceId, identity);
   const statement = typeof args.statement === "string" ? args.statement.trim() : "";
   if (!statement) throw new ApprovalError("statement is required", 400);
-  if (!isReadStatement(statement, connection.type)) {
+  // Every statement, not the body: `isReadStatement("SELECT 1; DELETE FROM t")` is true,
+  // so a script led by a SELECT carried its write past this gate and onto the engine.
+  if (!readsOnly(statement, connection.type)) {
     throw new ApprovalError(`Only a statement that reads may run through the MCP surface on "${connection.name}"`, 403);
   }
   const submitted = await submitExecution(

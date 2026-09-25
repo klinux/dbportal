@@ -8,6 +8,7 @@ import {
   memberPrincipalsOf,
   normalizeGroups,
   principalsOf,
+  readsOnly,
 } from "@/lib/access";
 
 /**
@@ -109,6 +110,21 @@ describe("isReadStatement", () => {
   test("an engine without SQL text is never a read", () => {
     expect(isReadStatement('{"find": "users"}', "mongodb")).toBe(false);
     expect(isReadStatement("GET key", "redis")).toBe(false);
+  });
+
+  // `isReadStatement` answers for the LEADING statement, so a gate that asks it of a whole
+  // script lets the rest through: `SELECT 1; DELETE FROM t` is a read by that reading.
+  // Callers that gate on "this only reads" ask `readsOnly`, which reads every statement.
+  test("readsOnly reads every statement of a script, not just the first", () => {
+    expect(isReadStatement("SELECT 1; DELETE FROM t", "postgres")).toBe(true);
+    expect(readsOnly("SELECT 1; DELETE FROM t", "postgres")).toBe(false);
+    expect(readsOnly("select 1;\nselect 2;", "postgres")).toBe(true);
+    expect(readsOnly("SELECT 1", "postgres")).toBe(true);
+    expect(readsOnly("DELETE FROM t WHERE id = 1", "postgres")).toBe(false);
+    // Comments hold no statement to refuse, and an engine whose statements are not SQL
+    // text is never a read - the same answer `isReadStatement` gives.
+    expect(readsOnly("-- nothing here", "postgres")).toBe(true);
+    expect(readsOnly('{"find": "users"}', "mongodb")).toBe(false);
   });
 });
 
