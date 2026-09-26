@@ -39,12 +39,40 @@ describe("dangerOf", () => {
     expect(dangerOf("WITH x AS (SELECT 1) DELETE FROM orders", "postgres")).toBe("delete_without_where");
   });
 
+  // A privilege change neither reads nor writes a row, so the write rule never saw it and
+  // `analyzeQuery` types it as neither a DELETE nor an UPDATE: it reached the engine having
+  // passed no gate at all.
+  test("a privilege change trips, whatever it grants and to whom", () => {
+    expect(dangerOf("GRANT SELECT ON orders TO reporting", "postgres")).toBe("grant");
+    expect(dangerOf("grant all privileges on *.* to 'bot'@'%'", "mysql")).toBe("grant");
+    expect(dangerOf("REVOKE INSERT ON orders FROM reporting", "postgres")).toBe("grant");
+    expect(dangerOf("/* ticket-42 */ GRANT USAGE ON SCHEMA public TO app", "postgres")).toBe("grant");
+  });
+
+  test("CREATE and ALTER trip only when the subject is an identity", () => {
+    expect(dangerOf("CREATE ROLE reporting", "postgres")).toBe("grant");
+    expect(dangerOf("CREATE USER bot WITH PASSWORD 'x'", "postgres")).toBe("grant");
+    expect(dangerOf("ALTER ROLE app SET search_path = public", "postgres")).toBe("grant");
+    expect(dangerOf("alter user 'bot'@'%' identified by 'x'", "mysql")).toBe("grant");
+    // A table is not an identity: these stay with the write rule, as before.
+    expect(dangerOf("CREATE TABLE role (id int)", "postgres")).toBeNull();
+    expect(dangerOf("ALTER TABLE users ADD c int", "postgres")).toBeNull();
+    expect(dangerOf("CREATE INDEX i ON users (id)", "postgres")).toBeNull();
+  });
+
+  test("the word in a string or a comment is not a privilege change", () => {
+    expect(dangerOf("SELECT * FROM audit WHERE action = 'grant'", "postgres")).toBeNull();
+    expect(dangerOf("-- GRANT SELECT ON orders TO reporting\nSELECT 1", "postgres")).toBeNull();
+    expect(dangerOf("INSERT INTO log (note) VALUES ('revoke access')", "postgres")).toBeNull();
+  });
+
   test("firstGuardrail reports the first statement that trips, and every guardrail has a label", () => {
     expect(firstGuardrail(["SELECT 1", "DELETE FROM a WHERE 1=1", "TRUNCATE b", "DROP TABLE c"], "postgres")).toBe(
       "truncate",
     );
+    expect(firstGuardrail(["SELECT 1", "GRANT SELECT ON a TO b"], "postgres")).toBe("grant");
     expect(firstGuardrail(["SELECT 1"], "postgres")).toBeNull();
-    for (const key of ["delete_without_where", "update_without_where", "drop", "truncate"] as const) {
+    for (const key of ["delete_without_where", "update_without_where", "drop", "truncate", "grant"] as const) {
       expect(GUARDRAIL_LABEL[key].length).toBeGreaterThan(0);
     }
   });
