@@ -139,6 +139,43 @@ becomes `done`, or `failed` with `error` as a closed word (`permission_denied`,
 `freeze_window`, `execution_failed`, …). The portal posts the outcome into the thread on its
 own; the bot reads it back only if it wants to act on it.
 
+### A request carrying more than one statement
+
+`statement` may hold a script. The portal splits it under the engine's grammar and judges
+**each** statement: a guardrail on any of them holds the whole request, and the request is
+held before anything runs, so a script that waits had none of its statements executed.
+
+Transaction control in the body (`BEGIN`, `START TRANSACTION`, `COMMIT`, `ROLLBACK`,
+`SAVEPOINT`, `RELEASE`, `END`) is **refused whole with `400`**: each statement takes its own
+pooled connection, so a `BEGIN` here would open a transaction the `COMMIT` on another
+connection never closes.
+
+When it runs, the statements run in order and stop at the first error. **There is no
+transaction around them**: what already ran stays. The outcome then carries two extra
+fields, present only when the request held more than one statement:
+
+```json
+"execution": {
+  "status": "failed",
+  "rowCount": 5,
+  "executedCount": 1,
+  "statements": [
+    { "index": 0, "status": "done",   "rowCount": 5, "durationMs": 3 },
+    { "index": 1, "status": "failed", "durationMs": 1, "error": "query_error" }
+  ]
+}
+```
+
+- `rowCount` at the top is the **sum** across the statements that ran, so a reader that
+  knows nothing of scripts still sees the whole of what changed.
+- `rows`/`fields` come from the last statement that projected any — the result a person
+  asked for when a script ends in a `SELECT`.
+- `executedCount` is how far it got. A bot should say so: `status: "failed"` alone reads as
+  "nothing happened", and that reading is what sends someone to run the script again and
+  apply the first statements twice.
+
+A request with a single statement is unchanged: no `statements`, no `executedCount`.
+
 ## 4. A handler, in outline
 
 ```python
