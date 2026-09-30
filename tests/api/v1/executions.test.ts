@@ -72,6 +72,7 @@ describe("/api/v1/executions", () => {
       reply: { channel: "C1" },
       callback: { url: "https://bot.example.test/hook" },
       approvedBy: [{ reviewer: "ana@example.test", at: "2026-09-14T00:00:00.000Z" }],
+      review: { reason: "the bot wants a human to look" },
       extra: 1,
     });
     expect(res.status).toBe(202);
@@ -86,6 +87,8 @@ describe("/api/v1/executions", () => {
       callback: { url: "https://bot.example.test/hook" },
       // docs/CONTEXT.md §4.58: so do the approvals the bot collected; the store checks the token may declare them.
       approvedBy: [{ reviewer: "ana@example.test", at: "2026-09-14T00:00:00.000Z" }],
+      // docs/CONTEXT.md §4.57: and the bot's own hold, which the store turns into a wait.
+      review: { reason: "the bot wants a human to look" },
     });
     expect((who as { session: { username: string } }).session.username).toBe("svc:bot");
     // Approved by policy but not yet run: a worker still has to (§4.40), so 202 too.
@@ -95,6 +98,33 @@ describe("/api/v1/executions", () => {
     const ran = await post({ datasourceId: "orders", statement: "SELECT 1", onBehalfOf: "U01" });
     expect(ran.status).toBe(200);
     expect((await ran.json()).execution.execution.status).toBe("done");
+  });
+
+  // The route names the fields it forwards one by one, so a field the store
+  // understands is silently dropped if nobody adds it here — which is what
+  // happened to `review`: the store had readReview and needsReview from the
+  // start, and no request ever reached them. Listing the contract in one
+  // place makes the next omission a failing test instead of a field that
+  // quietly does nothing.
+  test("every field the store accepts survives the route", async () => {
+    const body = {
+      datasourceId: "orders",
+      statement: "DELETE FROM orders WHERE id = 1",
+      onBehalfOf: "ana@example.test",
+      reply: { channel: "C1", threadTs: "1726.0001" },
+      ticket: "PLAT-1",
+      review: { reason: "a person should see this one" },
+      callback: { url: "https://bot.example.test/hook" },
+      approvedBy: [{ reviewer: "bruno@example.test", at: "2026-09-14T00:00:00.000Z" }],
+    };
+
+    await post(body);
+
+    const [input] = submit.mock.calls[0] as unknown[];
+    for (const field of Object.keys(body)) {
+      expect(input).toHaveProperty(field);
+    }
+    expect(input).toEqual(body);
   });
 
   test("a body that is not an object is 400; the store's refusals keep their status; anything else is 500", async () => {

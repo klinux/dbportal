@@ -26,6 +26,7 @@ export async function POST(request: Request) {
         onBehalfOf: body.onBehalfOf,
         reply: body.reply,
         ticket: body.ticket,
+        review: body.review,
         callback: body.callback,
         approvedBy: body.approvedBy,
       },
