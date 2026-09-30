@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { assertObjectsAllowed } from "@/lib/api/object-gate";
 import { canWrite, isReadStatement } from "@/lib/access";
+import { readsSqlText, resolveSqlGrammar, type SqlGrammar } from "@/lib/sql/grammar";
+import type { DatabaseType } from "@/lib/types";
+import { readSqlSpan } from "@/lib/sql/spans";
+import { splitStatements } from "@/lib/sql/statement-splitter";
 import { dangerOf } from "@/lib/guardrails";
 import { capPrepareOptions, withConcurrency } from "@/lib/limits";
 import { activeFreeze } from "@/lib/freezes/store";
@@ -68,6 +72,24 @@ export interface ExecutionRequestInput {
 }
 
 export const REVIEW_REASON_MAX = 500;
+
+/** Whether a fragment the splitter returned holds code, not only comments and whitespace. */
+function hasCode(sql: string, grammar: SqlGrammar): boolean {
+  let index = 0;
+  while (index < sql.length) {
+    const span = readSqlSpan(sql, index, grammar);
+    if (span === null) return true;
+    index = span.end;
+  }
+  return false;
+}
+
+/** How many statements a SQL body holds; a text that is not SQL is one statement. */
+export function statementCount(sql: string, type: DatabaseType): number {
+  if (!readsSqlText(type)) return 1;
+  const grammar = resolveSqlGrammar(type);
+  return splitStatements(sql, grammar).filter((statement) => hasCode(statement.sql, grammar)).length;
+}
 export const APPROVED_BY_MAX = 10;
 const APPROVER_MAX = SUBJECT_MAX;
 
@@ -271,6 +293,14 @@ export async function submitExecution(
   }
   // Resolving applies the datasource's own access rule to the token's role and groups.
   const connection = await resolveConnection({ connectionId: `seed:${datasourceId}` }, identity.session);
+  // One statement per request, for now. The read rule, the guardrail and the freeze window
+  // all classify a text by its leading statement, so `SELECT 1; DELETE FROM t` read as a
+  // read and the DELETE ran past every gate - and the pg driver answers a script with an
+  // array of results the outcome could not read, failing the run after it had committed.
+  // Refused with the reason until a script is judged and run statement by statement.
+  if (statementCount(statement, connection.type) > 1) {
+    throw new ApprovalError("statement must hold one statement; send a script one statement per request", 400);
+  }
   const writes = !isReadStatement(statement, connection.type);
   if (writes && !canWrite(connection, identity.session)) {
     throw new ApprovalError(

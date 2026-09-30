@@ -139,6 +139,7 @@ const {
   submitExecution,
   waitForExecution,
   RESULT_MAX_ROWS,
+  statementCount,
 } = await import("@/lib/executions/store");
 const { ApprovalError } = await import("@/lib/approvals/errors");
 
@@ -447,6 +448,25 @@ describe("executions store", () => {
     } finally {
       delete datasources.plain.guardrails;
     }
+  });
+
+  // docs/CONTEXT.md §4.10: a script is refused whole. Every gate classifies a text by its
+  // leading statement, so `SELECT 1; DELETE FROM t` read as a read and the DELETE ran past
+  // the read-only rule, the approval, the ticket and the freeze window.
+  test("a body holding more than one statement is refused before any gate reads it", async () => {
+    const refused = await ask({
+      datasourceId: "locked",
+      statement: "select 1;\ndelete from orders where id = 1;",
+    }).catch((e) => e);
+    expect(refused).toBeInstanceOf(ApprovalError);
+    expect(refused.statusCode).toBe(400);
+    expect(refused.message).toContain("one statement");
+    expect(query).not.toHaveBeenCalled();
+    // A trailing semicolon or a comment is still one statement; a command on an engine whose
+    // language is not SQL is one statement whatever it holds.
+    expect((await ask({ datasourceId: "plain", statement: "select 1; -- done" })).status).toBe("approved");
+    expect(statementCount("db.a.find(); db.b.find()", "mongodb")).toBe(1);
+    expect(statementCount("/* only */ -- comments", "postgres")).toBe(0);
   });
 
   // docs/CONTEXT.md §4.16: the datasource's row cap holds the bot's statement too.
