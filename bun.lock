@@ -39,7 +39,7 @@
         "@tanstack/react-table": "^9.2.4",
         "@tanstack/react-virtual": "^3.14.13",
         "@xyflow/react": "^12.11.6",
-        "@zumer/snapdom": "2.15.0",
+        "@zumer/snapdom": "3.2.0",
         "better-sqlite3": "^13.0.3",
         "cassandra-driver": "^4.9.0",
         "class-variance-authority": "^0.7.1",
@@ -1103,7 +1103,7 @@
 
     "@xyflow/system": ["@xyflow/system@0.0.82", "", { "dependencies": { "@types/d3-drag": "^3.0.7", "@types/d3-interpolate": "^3.0.4", "@types/d3-selection": "^3.0.10", "@types/d3-transition": "^3.0.8", "@types/d3-zoom": "^3.0.8", "d3-drag": "^3.0.0", "d3-interpolate": "^3.0.1", "d3-selection": "^3.0.0", "d3-zoom": "^3.0.0" } }, "sha512-4DKnL3CGtCGLRSmgDqaajRVgeksMXq/Yw4wPfdMfm7JvdIiWHGzVYOfFUztiATwdBXZqUU6HhehwUdbV9G23PQ=="],
 
-    "@zumer/snapdom": ["@zumer/snapdom@2.15.0", "", {}, "sha512-rdayfg832lYhy2v2DRr4LwzhIT0ZMeGKYicVmtzbji95KhUd7Z1g6/5jTsDEU4q32a6ywbIpAixO45hubsEftQ=="],
+    "@zumer/snapdom": ["@zumer/snapdom@3.2.0", "", {}, "sha512-FVYVoH3XXJdgFfZo6VxEX6DZ5XWNlYypMynOLKKFTa0XEZBMOVSQBVDHO66uIcK9q7yuYMyyAb5/KaMYsHIuxg=="],
 
     "abort-controller": ["abort-controller@3.0.0", "", { "dependencies": { "event-target-shim": "^5.0.0" } }, "sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg=="],
 

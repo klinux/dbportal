@@ -98,7 +98,7 @@
     "@tanstack/react-table": "^9.2.4",
     "@tanstack/react-virtual": "^3.14.13",
     "@xyflow/react": "^12.11.6",
-    "@zumer/snapdom": "2.15.0",
+    "@zumer/snapdom": "3.2.0",
     "better-sqlite3": "^13.0.3",
     "cassandra-driver": "^4.9.0",
     "class-variance-authority": "^0.7.1",
