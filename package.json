@@ -97,7 +97,7 @@
     "@radix-ui/react-tooltip": "^1.2.16",
     "@tanstack/react-table": "^9.2.4",
     "@tanstack/react-virtual": "^3.14.13",
-    "@xyflow/react": "^12.11.6",
+    "@xyflow/react": "^12.12.0",
     "@zumer/snapdom": "2.15.0",
     "better-sqlite3": "^13.0.3",
     "cassandra-driver": "^4.9.0",
