@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { assertObjectsAllowed } from "@/lib/api/object-gate";
 import { canWrite, isReadStatement } from "@/lib/access";
-import { readsSqlText, resolveSqlGrammar, type SqlGrammar } from "@/lib/sql/grammar";
+import { readsSqlText, resolveSqlGrammar } from "@/lib/sql/grammar";
 import type { DatabaseType } from "@/lib/types";
-import { readSqlSpan, hasCode } from "@/lib/sql/spans";
+import { hasCode } from "@/lib/sql/spans";
 import { splitStatements } from "@/lib/sql/statement-splitter";
 import { firstGuardrail } from "@/lib/guardrails";
 import { TRANSACTION_CONTROL_MESSAGE, firstTransactionControl } from "@/lib/sql/transaction-control";
@@ -75,13 +75,6 @@ export interface ExecutionRequestInput {
 }
 
 export const REVIEW_REASON_MAX = 500;
-
-/** How many statements a SQL body holds; a text that is not SQL is one statement. */
-export function statementCount(sql: string, type: DatabaseType): number {
-  if (!readsSqlText(type)) return 1;
-  const grammar = resolveSqlGrammar(type);
-  return splitStatements(sql, grammar).filter((statement) => hasCode(statement.sql, grammar)).length;
-}
 
 /**
  * The statements a body holds, comments and empty fragments dropped. Every gate reads this

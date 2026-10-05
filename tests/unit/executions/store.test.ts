@@ -139,7 +139,6 @@ const {
   submitExecution,
   waitForExecution,
   RESULT_MAX_ROWS,
-  statementCount,
   statementsOf,
 } = await import("@/lib/executions/store");
 const { ApprovalError } = await import("@/lib/approvals/errors");
@@ -575,6 +574,14 @@ describe("executions store", () => {
 
   // A body that is only comments has nothing to run; a script on an engine whose language
   // is not SQL is one statement whatever it holds.
+  test("a body with nothing to run - comments only - is refused before any gate reads it", async () => {
+    const refused = await ask({ datasourceId: "plain", statement: "-- nothing\n/* at all */" }).catch((e) => e);
+    expect(refused).toBeInstanceOf(ApprovalError);
+    expect(refused.statusCode).toBe(400);
+    expect(refused.message).toContain("no SQL to run");
+    expect(query).not.toHaveBeenCalled();
+  });
+
   test("statementsOf drops comments, and leaves a non-SQL body whole", () => {
     expect(statementsOf("/* only */ -- comments", "postgres")).toEqual([]);
     expect(statementsOf("select 1; -- done", "postgres")).toEqual(["select 1"]);

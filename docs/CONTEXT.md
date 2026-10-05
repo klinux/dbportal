@@ -346,7 +346,7 @@ without `requireApproval`, runs at once (200) — otherwise it waits (202) on
 opening a window (the requester is absent; a fixed text is safer than a period), and the
 bounded, masked outcome is stored on the record for the bot to read back. The audit line is
 the ordinary `query_execution` with the token as actor, the person as `subject` and the
-reviewer when there was one. **A script is judged and run statement by statement (0.10.3):**
+reviewer when there was one. **A script is judged and run statement by statement (0.11.0):**
 every gate used to classify a text by its leading statement, so `SELECT 1; DELETE FROM t`
 read as a read and the DELETE ran past the read-only rule, the approval, the ticket and the
 freeze window; and the pg driver answers a script with an array of results the outcome could
