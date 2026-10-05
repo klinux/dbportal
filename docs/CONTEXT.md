@@ -405,14 +405,18 @@ built. Each lands as its own section when done.
   the caller's role. Audited as `backup` created/uploaded/restored. The image installs
   `postgresql-client`; a server without it says so and takes none.
 - **4.15 Guardrails per statement — done.** [`src/lib/guardrails.ts`](../src/lib/guardrails.ts):
-  a `DELETE` or `UPDATE` without `WHERE`, a `DROP`, a `TRUNCATE` - read from the
+  a `DELETE` or `UPDATE` without `WHERE`, a `DROP`, a `TRUNCATE`, or a change to who may
+  do what (`GRANT`/`REVOKE`, `CREATE`/`ALTER` of a `ROLE`/`USER`/`GROUP`, `ALTER DEFAULT
+  PRIVILEGES`, `RENAME USER`, `SET PASSWORD`) - read from the
   statement's code with comments and string literals blanked - is held for a reviewer on
   every datasource, whoever asks and whether or not the datasource requires approval
   for writes; the request records which guardrail (`guardrail` on the approval record,
   shown on the reviewer's page and in the studio's waiting state), and the refusal is
   audited as `guardrail`. The bot queue applies the same rule. A datasource opts out with
-  `guardrails: false`. Not done: the automatic `EXPLAIN` before a write - a reviewer sees
-  the text, not the plan.
+  `guardrails: false`. The privilege shape is here because it neither reads nor writes a
+  row: the write rule never saw it and the four row shapes did not type it, so it reached
+  the engine having passed no gate at all. Not done: the automatic `EXPLAIN` before a
+  write - a reviewer sees the text, not the plan.
 - **4.16 Limits per datasource — done.** `limits: { maxRows, queryTimeoutMs, maxConcurrent }`
   on the datasource (seed file, or the editor: the timeout it already had, plus two
   fields), applied on the server ([`src/lib/limits.ts`](../src/lib/limits.ts)) before the

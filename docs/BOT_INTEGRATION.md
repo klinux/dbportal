@@ -103,7 +103,7 @@ portal's page. To hand the portal the first one instead:
 - What it does: a write on a datasource with `writeApproval` is approved by policy and runs
   at once (`202 approved` with `jobId`, then the outcome in the thread).
 - **What it does not do.** A guardrail still holds the request (`DELETE` or `UPDATE` without
-  `WHERE`, `DROP`, `TRUNCATE` → `202 pending` with `guardrail`), and so do
+  `WHERE`, `DROP`, `TRUNCATE`, or a privilege change → `202 pending` with `guardrail`), and so do
   `review: { reason }` and a token with `requireApproval`. Those say the *statement* is
   suspect; no count of approvers elsewhere answers that. Do not plan around `approvedBy`
   bypassing a guardrail: it will not, and the request goes to the reviewers' page as before.
@@ -175,7 +175,7 @@ No database credential, no list of reviewers, no statement executed by the bot.
 
 - Direct execution against the database, and the credentials that made it possible.
 - The "may it run" logic the portal already has: guardrails (`DELETE` or `UPDATE` without
-  `WHERE`, `DROP`, `TRUNCATE`), read-only datasources, freeze windows, tickets, object
+  `WHERE`, `DROP`, `TRUNCATE`, a privilege change), read-only datasources, freeze windows, tickets, object
   rules and row limits. Keep only what the portal cannot know, and send it as
   `review.reason`.
 - The approval flow: the buttons replace it, and who may decide is declared per datasource.

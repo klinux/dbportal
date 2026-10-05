@@ -247,8 +247,10 @@ credentials that person resolves for each member, locked after the members are a
 
 ### Guardrails
 
-Whatever the write rule says, a `DELETE` or `UPDATE` without `WHERE`, a `DROP` and a
-`TRUNCATE` wait for a reviewer on `/admin/approvals` (docs/CONTEXT.md §4.15). A datasource
+Whatever the write rule says, a `DELETE` or `UPDATE` without `WHERE`, a `DROP`, a
+`TRUNCATE` and a change to who may do what (`GRANT`/`REVOKE`, `CREATE`/`ALTER` of a
+`ROLE`/`USER`/`GROUP`, `ALTER DEFAULT PRIVILEGES`, `RENAME USER`, `SET PASSWORD`)
+wait for a reviewer on `/admin/approvals` (docs/CONTEXT.md §4.15). A datasource
 where that is unwanted - a scratch database - opts out:
 
 ```yaml
