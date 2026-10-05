@@ -599,3 +599,14 @@ export function hasUnterminatedSpan(sql: string, grammar: SqlGrammar = DEFAULT_S
 
   return false;
 }
+
+/** Whether a fragment the splitter returned holds code, not only comments and whitespace. */
+export function hasCode(sql: string, grammar: SqlGrammar): boolean {
+  let index = 0;
+  while (index < sql.length) {
+    const span = readSqlSpan(sql, index, grammar);
+    if (span === null) return true;
+    index = span.end;
+  }
+  return false;
+}

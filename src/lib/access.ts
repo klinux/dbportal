@@ -1,5 +1,7 @@
 import { analyzeQuery } from "@/lib/db/utils/query-limiter";
-import { readsSqlText } from "@/lib/sql/grammar";
+import { readsSqlText, resolveSqlGrammar } from "@/lib/sql/grammar";
+import { hasCode } from "@/lib/sql/spans";
+import { splitStatements } from "@/lib/sql/statement-splitter";
 import type { DatabaseType } from "@/lib/types";
 
 /**
@@ -147,6 +149,19 @@ export function isReadStatement(sql: string, type?: DatabaseType): boolean {
   if (explained !== null) return isReadStatement(explained, type);
   if (/^\s*(show|describe|desc)\b/i.test(stripLeadingComments(sql))) return true;
   return analyzeQuery(sql, type).type === "SELECT";
+}
+
+/**
+ * Whether EVERY statement of a body only reads. A gate that asks `isReadStatement` of the
+ * whole text is answered by its leading statement, so `SELECT 1; DELETE FROM t` reads as a
+ * read and the DELETE goes through. Callers that gate on "this only reads" ask this.
+ */
+export function readsOnly(sql: string, type?: DatabaseType): boolean {
+  if (!readsSqlText(type)) return false;
+  const grammar = resolveSqlGrammar(type);
+  const statements = splitStatements(sql, grammar).filter((s) => hasCode(s.sql, grammar));
+  if (statements.length === 0) return true;
+  return statements.every((s) => isReadStatement(s.sql, type));
 }
 
 function stripLeadingComments(sql: string): string {

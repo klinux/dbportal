@@ -346,13 +346,21 @@ without `requireApproval`, runs at once (200) — otherwise it waits (202) on
 opening a window (the requester is absent; a fixed text is safer than a period), and the
 bounded, masked outcome is stored on the record for the bot to read back. The audit line is
 the ordinary `query_execution` with the token as actor, the person as `subject` and the
-reviewer when there was one. **One statement per request (0.10.1):** the read rule, the
-guardrail and the freeze window all classify a text by its leading statement, so
-`SELECT 1; DELETE FROM t` read as a read and the DELETE ran past every gate, and the pg driver
-answers a script with an array of results the outcome could not read, failing the run after
-it had committed (found by a contributor, #19). A body holding more than one statement,
-comments aside, is refused with 400 and the reason, on this route and through the MCP
-`run_query`; judging and running a script statement by statement is #19's work. **The Slack notifier** (`src/lib/notify/slack.ts`,
+reviewer when there was one. **A script is judged and run statement by statement (0.10.3):**
+every gate used to classify a text by its leading statement, so `SELECT 1; DELETE FROM t`
+read as a read and the DELETE ran past the read-only rule, the approval, the ticket and the
+freeze window; and the pg driver answers a script with an array of results the outcome could
+not read, failing the run after it had committed. `statement` is now split under the engine's
+grammar before any gate, and the read rule, the guardrails, the ticket rule, the freeze
+window and the object rules read **every** statement: a guardrail on any of them holds the
+whole request, before anything runs. `readsOnly` (`src/lib/access.ts`) is what a caller asks
+instead of `isReadStatement` when the question is "does this only read", and the MCP
+`run_query` asks it too. Transaction control in the body is refused whole with 400: each
+statement takes its own pooled connection, so a `BEGIN` would open a transaction the `COMMIT`
+never closes. The statements then run in order and **stop at the first error, with no
+transaction around them** — what already ran stays — and the outcome carries `statements[]`
+and `executedCount` beside the summed `rowCount`. 0.10.2 refused a multi-statement body with
+400 while this was being written. **The Slack notifier** (`src/lib/notify/slack.ts`,
 `SLACK_BOT_TOKEN`, `SLACK_APPROVALS_CHANNEL`, `APP_URL`): best effort, a pending request is
 announced to the reviewers' channel with a link to the page, and the outcome is posted into
 the thread the request named, with ten rows at most; the full result stays behind login.

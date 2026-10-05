@@ -1339,10 +1339,10 @@ an administrator created under Security → Service tokens. Rate limited like a 
 queries, under the token's own name.
 
 - `POST /api/v1/executions` — body `{ datasourceId, statement, onBehalfOf, reply?: { channel, threadTs? }, callback?: { url }, review?: { reason }, approvedBy?: [{ reviewer, at }] }`.
-  `statement` holds **one** statement: a body with more than one (under the engine's grammar; comments do not count)
-  is `400`, because every gate classifies a text by its leading statement and the engines answer a script in
-  ways the outcome cannot read. Send a script one statement per request. The MCP `run_query` goes through the
-  same rule.
+  `statement` may hold a script. It is split under the engine's grammar and **every gate reads every
+  statement**: the read-only rule, the guardrails, the ticket rule, the freeze window and the object
+  rules. A `SELECT 1; DELETE FROM t` is therefore a write, not a read. Transaction control in the body
+  (`BEGIN`, `COMMIT`, `ROLLBACK`, …) is `400`. The MCP `run_query` reads every statement the same way.
   `review.reason` (docs/CONTEXT.md §4.57; trimmed, 1–500 characters): the bot judged the statement itself and
   wants a reviewer - the request waits (`202`, `status: "pending"`) whatever the datasource's policy would have
   let run, the reason is on the record as `review` and in the Slack announcement, which is posted into the
