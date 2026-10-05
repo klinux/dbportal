@@ -25,18 +25,31 @@ export const GUARDRAIL_LABEL: Record<Guardrail, string> = {
 };
 
 /**
- * Statements that change who may do what: GRANT, REVOKE, and the roles and users a
- * privilege is granted to. They neither read nor write a row, so the write rule never saw
- * them, and `analyzeQuery` types them as neither a DELETE nor an UPDATE — a privilege
- * change reached the engine having passed no gate at all.
+ * Statements that change who may do what: GRANT and REVOKE, the identities a privilege is
+ * granted to, and the shapes that change a credential. They neither read nor write a row,
+ * so the write rule never saw them, and `analyzeQuery` types them as neither a DELETE nor
+ * an UPDATE — a privilege change reached the engine having passed no gate at all.
  *
  * Here rather than refused outright because the shape is legitimate: a reviewer approving
  * `GRANT SELECT ON orders TO reporting` is a normal afternoon. What must not happen is it
  * running because nobody was looking.
  */
 const PRIVILEGE_ALONE = new Set(["GRANT", "REVOKE"]);
-/** `CREATE`/`ALTER` only count when what follows is an identity, not a table. */
-const PRIVILEGE_SUBJECT = new Set(["ROLE", "USER", "GROUP"]);
+
+/**
+ * `CREATE`/`ALTER` whose subject is an identity, not a table. The optional `OR REPLACE`
+ * sits between the verb and the subject (MariaDB); `IF NOT EXISTS` comes after it and does
+ * not need skipping. `ALTER DEFAULT PRIVILEGES` is the one that matters most to a reviewer:
+ * it grants on every table created from then on, so it is a privilege change even though
+ * the word GRANT is not what leads.
+ */
+const PRIVILEGE_SUBJECT = /^\s*(?:CREATE|ALTER)\s+(?:OR\s+REPLACE\s+)?(?:ROLE|USER|GROUP|DEFAULT\s+PRIVILEGES)\b/i;
+
+/**
+ * Two-word leaders that change an identity or its credential and lead with neither verb
+ * above: MySQL's `RENAME USER a TO b` and `SET PASSWORD FOR …`.
+ */
+const PRIVILEGE_PAIR = /^\s*(?:RENAME\s+USER|SET\s+PASSWORD)\b/i;
 
 /** The statement's code with comments and string literals blanked, keeping the length. */
 function codeOnly(sql: string): string {
@@ -58,11 +71,8 @@ function leadingKeyword(code: string): string | null {
  */
 function changesPrivileges(code: string): boolean {
   const first = leadingKeyword(code);
-  if (first === null) return false;
-  if (PRIVILEGE_ALONE.has(first)) return true;
-  if (first !== "CREATE" && first !== "ALTER") return false;
-  const second = /^\s*[A-Za-z]+\s+([A-Za-z]+)/.exec(code);
-  return second !== null && PRIVILEGE_SUBJECT.has(second[1].toUpperCase());
+  if (first !== null && PRIVILEGE_ALONE.has(first)) return true;
+  return PRIVILEGE_SUBJECT.test(code) || PRIVILEGE_PAIR.test(code);
 }
 
 export function dangerOf(sql: string, type?: DatabaseType): Guardrail | null {
