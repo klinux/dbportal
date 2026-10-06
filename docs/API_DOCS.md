@@ -1432,9 +1432,11 @@ A statement over a datasource's `limits.maxConcurrent` is refused with `429` and
 `CONCURRENCY_LIMIT` (docs/CONTEXT.md §4.16); `options.limit` above `limits.maxRows` is cut to
 the cap, and `options.unlimited` is bounded by it.
 
-An approval record may carry `guardrail` (docs/CONTEXT.md §4.15): `delete_without_where`,
-`update_without_where`, `drop`, `truncate` or `grant` - the reason the statement waits even on a
-datasource without `writeApproval`. `grant` covers the statements that change who may do what:
+An approval record may carry `guardrail` (docs/CONTEXT.md §4.15): `delete`,
+`delete_without_where`, `update_without_where`, `drop`, `truncate` or `grant` - the reason the
+statement waits even on a datasource without `writeApproval`. **Every `DELETE` waits**, with or
+without a `WHERE`: `delete_without_where` when it has none, `delete` when it has one, so a
+reviewer can tell the two apart. `grant` covers the statements that change who may do what:
 `GRANT`/`REVOKE`, `CREATE`/`ALTER` of a `ROLE`/`USER`/`GROUP`, `ALTER DEFAULT PRIVILEGES`,
 `RENAME USER` and `SET PASSWORD`. The 403 `APPROVAL_REQUIRED` answer carries the same field.
 

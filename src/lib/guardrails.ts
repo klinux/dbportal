@@ -14,9 +14,16 @@ import type { DatabaseType } from "@/lib/types";
  * datasource may opt out with `guardrails: false`; an engine whose statements are not SQL
  * text has nothing here to read and gets none.
  */
-export type Guardrail = "delete_without_where" | "update_without_where" | "drop" | "truncate" | "grant";
+export type Guardrail =
+  | "delete"
+  | "delete_without_where"
+  | "update_without_where"
+  | "drop"
+  | "truncate"
+  | "grant";
 
 export const GUARDRAIL_LABEL: Record<Guardrail, string> = {
+  delete: "DELETE",
   delete_without_where: "DELETE without WHERE",
   update_without_where: "UPDATE without WHERE",
   drop: "DROP",
@@ -83,8 +90,18 @@ export function dangerOf(sql: string, type?: DatabaseType): Guardrail | null {
   if (changesPrivileges(code)) return "grant";
   const shape = analyzeQuery(sql, type).type;
   if (shape !== "DELETE" && shape !== "UPDATE") return null;
+  // A DELETE waits whether or not it carries a WHERE. The WHERE test asks only
+  // whether the word is present, and a predicate that is always true satisfies it:
+  // `DELETE FROM t WHERE 1=1` emptied a table here with no reviewer. Rather than
+  // chase trivially-true predicates - `1=1`, `true`, `'a'='a'`, and whatever is
+  // written next - every DELETE is held and a person reads the statement.
+  //
+  // UPDATE keeps the narrower rule: it has the same hole (`UPDATE t SET c = 1 WHERE 1=1`
+  // rewrote every row), but holding every UPDATE would queue the ordinary single-row
+  // edit this route exists to serve. Named in docs/CONTEXT.md §4.15 as the open half.
+  if (shape === "DELETE") return /\bWHERE\b/i.test(code) ? "delete" : "delete_without_where";
   if (/\bWHERE\b/i.test(code)) return null;
-  return shape === "DELETE" ? "delete_without_where" : "update_without_where";
+  return "update_without_where";
 }
 
 /** The first guardrail any of the statements trips, or null. */
