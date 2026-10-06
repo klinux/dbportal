@@ -210,8 +210,10 @@ describe("executions store", () => {
     expect(await status(ask({ datasourceId: "locked", statement: "DELETE FROM t WHERE id = 1" }))).toBe(403);
     expect(provider.putApproval).not.toHaveBeenCalled();
     // The allowlist admits what it names; an admin token may write on the locked one.
+    // An UPDATE with a WHERE, not a DELETE: every DELETE now waits on a reviewer
+    // (§4.15), and this test is about the allowlist, not the guardrail.
     const ran = await ask(
-      { datasourceId: "locked", statement: "DELETE FROM t WHERE id = 1" },
+      { datasourceId: "locked", statement: "UPDATE t SET c = 1 WHERE id = 1" },
       bot({ role: "admin" }, { role: "admin" }),
     );
     expect(ran.status).toBe("approved");
@@ -339,8 +341,10 @@ describe("executions store", () => {
       { reviewer: "  ana@example.test  ", at: "2026-09-14T00:00:00.000Z" },
       { reviewer: "U0456", at: "2026-09-14T00:01:00.000Z" },
     ];
+    // An UPDATE with a WHERE: this is about `approvedBy` satisfying the datasource's
+    // write approval, and every DELETE now waits on a reviewer regardless (§4.15).
     const ran = await ask(
-      { datasourceId: "orders", statement: "DELETE FROM orders WHERE id = 1", approvedBy },
+      { datasourceId: "orders", statement: "UPDATE orders SET paid = true WHERE id = 1", approvedBy },
       trusted,
     );
     expect(ran.status).toBe("approved");

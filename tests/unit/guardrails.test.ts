@@ -3,16 +3,38 @@ import { GUARDRAIL_LABEL, dangerOf, firstGuardrail } from "@/lib/guardrails";
 
 /**
  * Guardrails (docs/CONTEXT.md §4.15): which statements trip one, and which do not - a WHERE
- * inside a comment or a string does not count, a WHERE in the code does, and the four
- * shapes are the only four.
+ * inside a comment or a string does not count, a WHERE in the code does, and the shapes
+ * listed are the only ones.
  */
 describe("dangerOf", () => {
-  test("a DELETE or UPDATE without WHERE trips; with one it does not", () => {
+  test("every DELETE trips; an UPDATE only without a WHERE", () => {
     expect(dangerOf("DELETE FROM orders", "postgres")).toBe("delete_without_where");
     expect(dangerOf("delete from orders;", "postgres")).toBe("delete_without_where");
     expect(dangerOf("UPDATE orders SET paid = true", "postgres")).toBe("update_without_where");
-    expect(dangerOf("DELETE FROM orders WHERE id = 1", "postgres")).toBeNull();
+    // A DELETE with a WHERE waits too, under its own name so a reviewer can tell
+    // the two apart on the approvals page.
+    expect(dangerOf("DELETE FROM orders WHERE id = 1", "postgres")).toBe("delete");
     expect(dangerOf("UPDATE orders SET paid = true WHERE id IN (1, 2)", "postgres")).toBeNull();
+  });
+
+  // Why every DELETE and not only the bare one: the WHERE test asks whether the word is
+  // present, and a predicate that is always true satisfies it. Measured against a real
+  // Postgres, `DELETE FROM department WHERE 1=1` ran with no reviewer and left 0 of 3 rows.
+  test("a predicate that is always true no longer passes a DELETE through", () => {
+    expect(dangerOf("DELETE FROM orders WHERE 1=1", "postgres")).toBe("delete");
+    expect(dangerOf("DELETE FROM orders WHERE true", "postgres")).toBe("delete");
+    expect(dangerOf("DELETE FROM orders WHERE 'a' = 'a'", "postgres")).toBe("delete");
+    expect(dangerOf("DELETE FROM orders USING t WHERE true", "postgres")).toBe("delete");
+    // The same hole is still open for UPDATE, deliberately: holding every UPDATE would
+    // queue the single-row edit this route exists to serve.
+    expect(dangerOf("UPDATE orders SET paid = true WHERE 1=1", "postgres")).toBeNull();
+  });
+
+  // A SELECT is not a DELETE because the word appears in it.
+  test("the shape is read, not the word", () => {
+    expect(dangerOf("SELECT * FROM orders WHERE deleted_at IS NULL", "postgres")).toBeNull();
+    expect(dangerOf("SELECT 'delete from orders'", "postgres")).toBeNull();
+    expect(dangerOf("INSERT INTO audit SELECT * FROM orders WHERE id = 1", "postgres")).toBeNull();
   });
 
   test("a WHERE in a comment or a string literal is not a WHERE", () => {
@@ -89,12 +111,20 @@ describe("dangerOf", () => {
   });
 
   test("firstGuardrail reports the first statement that trips, and every guardrail has a label", () => {
-    expect(firstGuardrail(["SELECT 1", "DELETE FROM a WHERE 1=1", "TRUNCATE b", "DROP TABLE c"], "postgres")).toBe(
-      "truncate",
-    );
+    // `DELETE ... WHERE 1=1` used to stand here as the harmless statement the scan
+    // walks past - which is the bug this rule closes. A plain SELECT is the harmless one.
+    expect(firstGuardrail(["SELECT 1", "SELECT 2", "TRUNCATE b", "DROP TABLE c"], "postgres")).toBe("truncate");
+    expect(firstGuardrail(["SELECT 1", "DELETE FROM a WHERE 1=1", "TRUNCATE b"], "postgres")).toBe("delete");
     expect(firstGuardrail(["SELECT 1", "GRANT SELECT ON a TO b"], "postgres")).toBe("grant");
     expect(firstGuardrail(["SELECT 1"], "postgres")).toBeNull();
-    for (const key of ["delete_without_where", "update_without_where", "drop", "truncate", "grant"] as const) {
+    for (const key of [
+      "delete",
+      "delete_without_where",
+      "update_without_where",
+      "drop",
+      "truncate",
+      "grant",
+    ] as const) {
       expect(GUARDRAIL_LABEL[key].length).toBeGreaterThan(0);
     }
   });

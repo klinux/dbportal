@@ -413,7 +413,7 @@ built. Each lands as its own section when done.
   the caller's role. Audited as `backup` created/uploaded/restored. The image installs
   `postgresql-client`; a server without it says so and takes none.
 - **4.15 Guardrails per statement — done.** [`src/lib/guardrails.ts`](../src/lib/guardrails.ts):
-  a `DELETE` or `UPDATE` without `WHERE`, a `DROP`, a `TRUNCATE`, or a change to who may
+  **any `DELETE`**, an `UPDATE` without `WHERE`, a `DROP`, a `TRUNCATE`, or a change to who may
   do what (`GRANT`/`REVOKE`, `CREATE`/`ALTER` of a `ROLE`/`USER`/`GROUP`, `ALTER DEFAULT
   PRIVILEGES`, `RENAME USER`, `SET PASSWORD`) - read from the
   statement's code with comments and string literals blanked - is held for a reviewer on
@@ -423,8 +423,16 @@ built. Each lands as its own section when done.
   audited as `guardrail`. The bot queue applies the same rule. A datasource opts out with
   `guardrails: false`. The privilege shape is here because it neither reads nor writes a
   row: the write rule never saw it and the four row shapes did not type it, so it reached
-  the engine having passed no gate at all. Not done: the automatic `EXPLAIN` before a
-  write - a reviewer sees the text, not the plan.
+  the engine having passed no gate at all. **Every `DELETE` waits (0.11.2)** because the
+  `WHERE` test asks only whether the word is present, and a predicate that is always true
+  satisfies it: `DELETE FROM department WHERE 1=1` ran against a real Postgres with no
+  reviewer and left 0 of 3 rows. Chasing `1=1`, `true`, `'a'='a'` and whatever is written
+  next is a race; holding every `DELETE` is not. The two are told apart on the record:
+  `delete_without_where` and `delete`. **The same hole is still open for `UPDATE`**, left
+  deliberately: `UPDATE t SET c = 1 WHERE 1=1` rewrote every row in the same measurement,
+  but holding every `UPDATE` would queue the ordinary single-row edit this route exists to
+  serve. Not done: that `UPDATE` half, and the automatic `EXPLAIN` before a write - a
+  reviewer sees the text, not the plan.
 - **4.16 Limits per datasource — done.** `limits: { maxRows, queryTimeoutMs, maxConcurrent }`
   on the datasource (seed file, or the editor: the timeout it already had, plus two
   fields), applied on the server ([`src/lib/limits.ts`](../src/lib/limits.ts)) before the

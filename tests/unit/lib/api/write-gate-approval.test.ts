@@ -109,7 +109,8 @@ describe("assertWriteAllowed with write approval", () => {
     expect(err.approval.guardrail).toBe("delete_without_where");
     expect([...rows.values()][0].guardrail).toBe("delete_without_where");
     // A statement that reads, or a write with its WHERE, is not held on that datasource.
-    expect(await gate(["DELETE FROM orders WHERE id = 1"], plain)).toEqual({});
+    // An UPDATE, not a DELETE: every DELETE waits now, with or without a WHERE.
+    expect(await gate(["UPDATE orders SET paid = true WHERE id = 1"], plain)).toEqual({});
     expect(await gate(["SELECT 1"], plain)).toEqual({});
     // Opted out, the same statement runs.
     expect(await gate(["TRUNCATE orders"], { ...plain, guardrails: false })).toEqual({});
