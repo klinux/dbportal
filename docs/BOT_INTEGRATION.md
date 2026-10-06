@@ -103,7 +103,8 @@ portal's page. To hand the portal the first one instead:
 - What it does: a write on a datasource with `writeApproval` is approved by policy and runs
   at once (`202 approved` with `jobId`, then the outcome in the thread).
 - **What it does not do.** A guardrail still holds the request (any `DELETE`, an `UPDATE`
-  without `WHERE`, `DROP`, `TRUNCATE`, or a privilege change → `202 pending` with `guardrail`),
+  without `WHERE` or with an always-true one, `DROP`, `TRUNCATE`, or a privilege change →
+  `202 pending` with `guardrail`),
   and so do
   `review: { reason }` and a token with `requireApproval`. Those say the *statement* is
   suspect; no count of approvers elsewhere answers that. Do not plan around `approvedBy`

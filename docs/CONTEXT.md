@@ -428,11 +428,16 @@ built. Each lands as its own section when done.
   satisfies it: `DELETE FROM department WHERE 1=1` ran against a real Postgres with no
   reviewer and left 0 of 3 rows. Chasing `1=1`, `true`, `'a'='a'` and whatever is written
   next is a race; holding every `DELETE` is not. The two are told apart on the record:
-  `delete_without_where` and `delete`. **The same hole is still open for `UPDATE`**, left
-  deliberately: `UPDATE t SET c = 1 WHERE 1=1` rewrote every row in the same measurement,
-  but holding every `UPDATE` would queue the ordinary single-row edit this route exists to
-  serve. Not done: that `UPDATE` half, and the automatic `EXPLAIN` before a write - a
-  reviewer sees the text, not the plan.
+  `delete_without_where` and `delete`. **For `UPDATE` the spellings that are always true
+  are read instead (0.11.2):** `UPDATE t SET c = 1 WHERE 1=1` rewrote every row in the same
+  measurement, but holding every `UPDATE` would queue the ordinary single-row edit this
+  route exists to serve, so a `WHERE` that is true of every row by construction - `1=1`,
+  `true`, `1`, `x = x`, a string compared to itself, or any of those as a top-level `OR`
+  branch - is held as `update_always_true`; two blanked strings compare equal whether they
+  were, erring toward a minute of review over a rewritten table. It is a list, and a list
+  can be outrun (`WHERE id > 0`): the general `UPDATE` case stays open, deliberately. Not
+  done: that general half, and the automatic `EXPLAIN` before a write - a reviewer sees the
+  text, not the plan.
 - **4.16 Limits per datasource — done.** `limits: { maxRows, queryTimeoutMs, maxConcurrent }`
   on the datasource (seed file, or the editor: the timeout it already had, plus two
   fields), applied on the server ([`src/lib/limits.ts`](../src/lib/limits.ts)) before the

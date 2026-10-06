@@ -18,6 +18,7 @@ export type Guardrail =
   | "delete"
   | "delete_without_where"
   | "update_without_where"
+  | "update_always_true"
   | "drop"
   | "truncate"
   | "grant";
@@ -26,6 +27,7 @@ export const GUARDRAIL_LABEL: Record<Guardrail, string> = {
   delete: "DELETE",
   delete_without_where: "DELETE without WHERE",
   update_without_where: "UPDATE without WHERE",
+  update_always_true: "UPDATE with an always-true WHERE",
   drop: "DROP",
   truncate: "TRUNCATE",
   grant: "GRANT or REVOKE",
@@ -82,6 +84,64 @@ function changesPrivileges(code: string): boolean {
   return PRIVILEGE_SUBJECT.test(code) || PRIVILEGE_PAIR.test(code);
 }
 
+/** Where an UPDATE's predicate ends: the clauses that may follow a WHERE on the engines served. */
+const AFTER_PREDICATE = /\b(?:RETURNING|ORDER\s+BY|LIMIT|OUTPUT)\b[\s\S]*$/i;
+
+/**
+ * Whether a WHERE predicate is true of every row by construction: `1=1`, `true`, `1`,
+ * `x = x`, a string compared to itself (both blanked by `codeOnly`, so they read as two
+ * empty sides), or any of those as a top-level `OR` branch (`WHERE id = 5 OR 1=1`).
+ *
+ * This is the UPDATE half of the hole the DELETE rule closed by holding every DELETE:
+ * `UPDATE t SET c = 1 WHERE 1=1` rewrote every row with no reviewer. Every UPDATE is not
+ * held - the single-row edit is what the route exists for - so the spellings that are
+ * always true are read instead. It is a list, and a list can be outrun (`WHERE id > 0`);
+ * the general case stays open and named in docs/CONTEXT.md §4.15. What is here errs
+ * toward holding: two blanked strings compare as equal whether they were, because a
+ * review of `WHERE 'a' = 'b'` costs a minute and a missed `WHERE 'a' = 'a'` costs the table.
+ */
+function alwaysTrueWhere(code: string): boolean {
+  const at = code.search(/\bWHERE\b/i);
+  if (at < 0) return false;
+  const predicate = code
+    .slice(at + "WHERE".length)
+    .replace(AFTER_PREDICATE, "")
+    .replace(/;\s*$/, "");
+  return predicateAlwaysTrue(predicate);
+}
+
+/** Whether a predicate, or any top-level `OR` branch of it, is true by construction. */
+function predicateAlwaysTrue(predicate: string): boolean {
+  return topLevelOrBranches(predicate).some((branch) => {
+    const text = branch.replace(/\s+/g, " ").trim();
+    // A parenthesised branch is a predicate of its own: `id = 5 OR (status = 'x' OR true)`.
+    if (/^\(.*\)$/.test(text)) return predicateAlwaysTrue(text.slice(1, -1));
+    if (/^(?:true|1)$/i.test(text)) return true;
+    const equality = /^(.*?)\s*=\s*(.*)$/.exec(text);
+    if (equality === null) return false;
+    return equality[1].trim() === equality[2].trim();
+  });
+}
+
+/** The predicate split on `OR` outside parentheses. */
+function topLevelOrBranches(predicate: string): string[] {
+  const branches: string[] = [];
+  let depth = 0;
+  let start = 0;
+  const re = /[()]|\bOR\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(predicate)) !== null) {
+    if (match[0] === "(") depth += 1;
+    else if (match[0] === ")") depth -= 1;
+    else if (depth === 0) {
+      branches.push(predicate.slice(start, match.index));
+      start = match.index + match[0].length;
+    }
+  }
+  branches.push(predicate.slice(start));
+  return branches;
+}
+
 export function dangerOf(sql: string, type?: DatabaseType): Guardrail | null {
   const code = codeOnly(sql);
   const keyword = leadingKeyword(code);
@@ -100,8 +160,8 @@ export function dangerOf(sql: string, type?: DatabaseType): Guardrail | null {
   // rewrote every row), but holding every UPDATE would queue the ordinary single-row
   // edit this route exists to serve. Named in docs/CONTEXT.md §4.15 as the open half.
   if (shape === "DELETE") return /\bWHERE\b/i.test(code) ? "delete" : "delete_without_where";
-  if (/\bWHERE\b/i.test(code)) return null;
-  return "update_without_where";
+  if (!/\bWHERE\b/i.test(code)) return "update_without_where";
+  return alwaysTrueWhere(code) ? "update_always_true" : null;
 }
 
 /** The first guardrail any of the statements trips, or null. */

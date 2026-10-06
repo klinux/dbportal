@@ -25,9 +25,35 @@ describe("dangerOf", () => {
     expect(dangerOf("DELETE FROM orders WHERE true", "postgres")).toBe("delete");
     expect(dangerOf("DELETE FROM orders WHERE 'a' = 'a'", "postgres")).toBe("delete");
     expect(dangerOf("DELETE FROM orders USING t WHERE true", "postgres")).toBe("delete");
-    // The same hole is still open for UPDATE, deliberately: holding every UPDATE would
-    // queue the single-row edit this route exists to serve.
-    expect(dangerOf("UPDATE orders SET paid = true WHERE 1=1", "postgres")).toBeNull();
+  });
+
+  // The UPDATE half: every UPDATE is not held - the single-row edit is what the route exists
+  // for - but the spellings that are true of every row by construction are read, since
+  // `UPDATE t SET c = 1 WHERE 1=1` rewrote every row with no reviewer. A list can be outrun;
+  // the general case stays open in docs/CONTEXT.md §4.15.
+  test("an UPDATE whose WHERE is always true trips, under its own name", () => {
+    expect(dangerOf("UPDATE orders SET paid = true WHERE 1=1", "postgres")).toBe("update_always_true");
+    expect(dangerOf("UPDATE orders SET paid = true WHERE 1 = 1;", "postgres")).toBe("update_always_true");
+    expect(dangerOf("UPDATE orders SET paid = true WHERE true", "postgres")).toBe("update_always_true");
+    expect(dangerOf("UPDATE orders SET paid = true WHERE TRUE RETURNING id", "postgres")).toBe("update_always_true");
+    expect(dangerOf("UPDATE orders SET paid = true WHERE 1", "mysql")).toBe("update_always_true");
+    expect(dangerOf("UPDATE orders SET paid = true WHERE 'a' = 'a'", "postgres")).toBe("update_always_true");
+    expect(dangerOf("UPDATE orders SET paid = true WHERE id = id", "postgres")).toBe("update_always_true");
+    expect(dangerOf("UPDATE orders SET paid = true WHERE (1=1)", "postgres")).toBe("update_always_true");
+    expect(dangerOf("UPDATE orders SET paid = true WHERE id = 5 OR 1=1", "postgres")).toBe("update_always_true");
+    expect(dangerOf("UPDATE orders SET paid = true WHERE id = 5 OR (status = 'x' OR true)", "postgres")).toBe(
+      "update_always_true",
+    );
+    // Toward holding: two blanked strings compare equal whether they were.
+    expect(dangerOf("UPDATE orders SET paid = true WHERE 'a' = 'b'", "postgres")).toBe("update_always_true");
+    // Bounded predicates pass, an OR inside parentheses is not a top-level branch, and a
+    // value compared to a different one is not the same token.
+    expect(dangerOf("UPDATE orders SET paid = true WHERE id = 1", "postgres")).toBeNull();
+    expect(dangerOf("UPDATE orders SET paid = true WHERE id = 1 ORDER BY id LIMIT 1", "mysql")).toBeNull();
+    expect(dangerOf("UPDATE orders SET paid = true WHERE (id = 5 OR 1=1) AND status = 'x'", "postgres")).toBeNull();
+    expect(dangerOf("UPDATE orders SET paid = true WHERE id = 1 OR id = 2", "postgres")).toBeNull();
+    expect(dangerOf("UPDATE orders SET paid = true WHERE a = b", "postgres")).toBeNull();
+    expect(dangerOf("UPDATE orders SET paid = true WHERE id > 0", "postgres")).toBeNull();
   });
 
   // A SELECT is not a DELETE because the word appears in it.
@@ -121,6 +147,7 @@ describe("dangerOf", () => {
       "delete",
       "delete_without_where",
       "update_without_where",
+      "update_always_true",
       "drop",
       "truncate",
       "grant",
