@@ -191,7 +191,9 @@ describe("ApprovalsTab", () => {
       id: "exec-2",
       execution: { status: "failed", startedAt: "x", finishedAt: "y", durationMs: 1, error: "query_error" },
     };
-    const notRun = { ...ran, id: "exec-3", execution: undefined };
+    // Approved with no outcome yet: the gap between Run now and the worker
+    // finishing. It reads as in flight, not as a decision that did nothing.
+    const running = { ...ran, id: "exec-3", execution: undefined };
     let decided = false;
     const fetchMock = mockGlobalFetch({
       "/api/approvals/exec-1": (req) => {
@@ -200,7 +202,7 @@ describe("ApprovalsTab", () => {
       },
       "/api/approvals": () => ({
         ok: true,
-        json: { approvals: decided ? [ran, failed, notRun] : [queued, ran, failed, notRun] },
+        json: { approvals: decided ? [ran, failed, running] : [queued, ran, failed, running] },
       }),
     });
     const { getByTestId, getByLabelText, queryByLabelText, queryByTestId } = await renderLoaded();
@@ -210,7 +212,7 @@ describe("ApprovalsTab", () => {
     expect(queryByLabelText("Approve svc:slack-bot for 15 minutes")).toBeNull();
     expect(within(getByTestId("approval-exec-0")).getByText("3 rows in 12 ms")).not.toBeNull();
     expect(within(getByTestId("approval-exec-2")).getByText("failed: query_error")).not.toBeNull();
-    expect(within(getByTestId("approval-exec-3")).getByText("not run")).not.toBeNull();
+    expect(within(getByTestId("approval-exec-3")).getByText("running…")).not.toBeNull();
 
     await act(async () => {
       fireEvent.click(getByLabelText("Run request from U0123"));
