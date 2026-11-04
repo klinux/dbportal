@@ -687,6 +687,7 @@ function AuditStats() {
     const successRate = total > 0 ? Math.round((successful / total) * 100) : 0;
     const avgTime = total > 0 ? Math.round(events.reduce((sum, e) => sum + (e.duration ?? 0), 0) / total) : 0;
 
+    // oxlint-disable-next-line react/purity -- the day buckets follow the clock on each refresh; a value held from mount would lose today on a tab left open past midnight.
     const now = new Date();
     const byDay: { day: string; count: number }[] = [];
     for (let i = 6; i >= 0; i--) {
