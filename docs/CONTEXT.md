@@ -1317,6 +1317,32 @@ built. Each lands as its own section when done.
   declared approvers are shown on the reviewers' page and in the Slack announcement, so the
   reviewer sees what the bot already collected.
 
+- **4.59 The reviewer decides where the bot lives, and the token relays it — done (asked
+  2026-11-05).** A request a guardrail held (§4.15) is decided by a reviewer — on
+  `/approvals`, or by the Slack buttons (§4.24) when the portal can receive the click. A
+  deployment with no inbound path from the chat (portal and bot both internal, Socket Mode
+  the only channel) left the reviewer a link and a context switch: read the thread, open
+  the portal, find the row, decide. One addition on the service token and one route. On the
+  token, `trustedReviews` (`ServiceTokenRecord`, off unless the checkbox in `Security →
+  Service tokens` is ticked): the operator's statement that this bot's decision flow was
+  reviewed and its word about WHO decided is accepted. On
+  `POST /api/v1/executions/[id]/decision`, `{ decision: "approve" | "reject", reviewer,
+  note? }` (`reviewer` free text like `onBehalfOf`, trimmed to 200 characters): the
+  decision a reviewer made where the bot lives. What bounds the relay: the token reaches
+  only records it queued itself; the named reviewer must pass the datasource's own
+  `approverRoles` — the same `canReview` the page and the Slack buttons apply
+  (`withNamedRoles` on the name, so membership is the named roles', never the token's) —
+  and the person the request is for cannot decide it (§4.24 against the `subject`, since
+  the record's requester is the token). What stays trusted, by the operator's choice as in
+  §4.58: that the named person really chose — Socket Mode authenticates the click to the
+  bot, but gives it nothing to forward as proof. The decision is the page's
+  `decideApproval` and the run is `settleDecision`, so the two-reviewer rule (§4.28), the
+  409 on a settled record and the audit line are the same — the trail names the reviewer
+  and the route, so a decision relayed by a bot reads as exactly that. A token without
+  `trustedReviews` is refused with 403 naming the flag; a reviewer outside `approverRoles`
+  with 403 naming the datasource — refused, never ignored, for the same reason §4.58
+  refuses a malformed `approvedBy`.
+
 ## 5. Decisions already taken
 
 - **TypeScript stays.** The 50k-line driver layer is the main asset; rewriting the backend

@@ -117,6 +117,28 @@ portal's page. To hand the portal the first one instead:
   show the declared approvers, so the reviewer sees what the bot already collected. The portal refuses rather than ignores the field, so a bot
   that believes it declared approvers is never left with a queued write and no idea why.
 
+## 2b. When the reviewer also lives in the chat
+
+A request the guardrail held waits for a reviewer. The portal's own Slack buttons decide it
+when Slack can POST the click back; a deployment with no inbound path (portal and bot both
+internal) cannot receive it — but the bot's Socket Mode connection still can. With
+`trustedReviews` on the token (`Security → Service tokens`), the bot relays the decision:
+
+```
+POST /api/v1/executions/{id}/decision
+{ "decision": "approve", "reviewer": "ana@example.test", "note": "optional" }
+```
+
+Only on records this token queued. The named reviewer must pass the datasource's
+`approverRoles` — the portal refuses anyone else with a 403 naming the datasource — and the
+person the request is for cannot decide it. Approved, the statement runs at once and the
+record answers as any decision would; the audit names the reviewer and the route.
+
+What the portal trusts, and the operator accepts by ticking the flag: that the named person
+really pressed. Authenticate the press on the bot's side (membership of the admins' group,
+never the requester) before relaying — the portal's fence bounds WHO can be named, not
+whether they clicked.
+
 ## 3. The answers
 
 | Status | Meaning | What the bot does |
@@ -241,3 +263,8 @@ No database credential, no list of reviewers, no statement executed by the bot.
    `202 approved` with `jobId`, no announcement to the reviewers, the outcome in the thread;
    `approved_by` on the audit line. The `DELETE` of step 3 with the same `approvedBy` →
    still `202 pending` with `guardrail`. Without the flag, `approvedBy` → `400`.
+8. With `trustedReviews` on the token: `POST /api/v1/executions/{id}/decision` on the
+   pending `DELETE` of step 3, naming a reviewer the datasource's `approverRoles` accept →
+   `200`, the statement runs, the reviewer on the audit line. The same call naming anyone
+   else → `403`; naming the person the request is for → `403`; repeated → `409`. Without
+   the flag → `403`.

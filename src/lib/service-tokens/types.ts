@@ -23,6 +23,15 @@ export interface ServiceTokenRecord {
    * A guardrail, a `review` hold and `requireApproval` still queue, whatever is declared.
    */
   trustedApprovals?: boolean;
+  /**
+   * Whether this token may DECIDE a pending execution it queued, naming the human reviewer
+   * who chose (docs/CONTEXT.md §4.10). The named reviewer must pass the datasource's own
+   * `approverRoles` (the same `canReview` the page and the Slack buttons use), so the token
+   * can only relay a decision from someone the portal already recognizes as a reviewer. The
+   * portal trusts the token that the named person really decided — same trust shape as
+   * `trustedApprovals` — so grant it only to a bot whose decision flow the operator reviewed.
+   */
+  trustedReviews?: boolean;
   /** SHA-256 of the secret, hex. */
   secretHash: string;
   /** The first characters of the secret, so an operator can tell tokens apart. */

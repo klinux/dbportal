@@ -53,7 +53,23 @@ const datasources: Record<string, Record<string, unknown>> = {
     writeApproval: true,
     approvalsRequired: 2,
   },
+  held: {
+    id: "held",
+    seedId: "held",
+    name: "Held",
+    type: "postgres",
+    roles: ["*"],
+    writeApproval: true,
+    // The mocked withNamedRoles gives every session namedRoles: ["bots"], so a named
+    // reviewer passes here and fails on every datasource above (their default is admin).
+    approverRoles: ["role:bots"],
+  },
 };
+// canReview (the decision relay's fence) reads the datasource by its unfiltered id.
+mock.module("@/lib/seed", () => ({
+  getSeedConnectionByIdUnfiltered: async (id: string) => datasources[id] ?? null,
+}));
+
 // Flipped by one test: the datasource refuses the token at run time (mock.module is
 // process-wide, so the mock is switched by a flag rather than re-registered).
 let denyAll = false;
@@ -131,6 +147,7 @@ mock.module("@/lib/jobs/queue", () => ({
 }));
 const {
   boundRows,
+  decideExecutionForToken,
   getExecutionForToken,
   markExecutionLost,
   runExecution,
@@ -771,5 +788,51 @@ describe("executions store", () => {
     expect(byBytes.rows.length).toBeLessThan(10);
     expect(byBytes.truncated).toBe(true);
     expect(boundRows([{ a: 1 }])).toEqual({ rows: [{ a: 1 }], truncated: false });
+  });
+
+  // docs/CONTEXT.md §4.10: a decision relayed by the token that queued the request. The
+  // token needs trustedReviews, reaches only its own records, the named reviewer must pass
+  // the datasource's approverRoles, and the person the request is for cannot decide it.
+  test("a token with trustedReviews relays an approve that runs, naming the reviewer; a reject answers the thread", async () => {
+    liveToken = bot({ trustedReviews: true });
+    const queued = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
+    expect(queued.status).toBe("pending");
+    const decided = await decideExecutionForToken(
+      queued.id,
+      liveToken,
+      { decision: "approve", reviewer: "ana@example.test" },
+    );
+    expect(decided.status).toBe("approved");
+    expect(decided.reviewer).toBe("ana@example.test");
+    expect(decided.jobId).toBeDefined();
+    expect((await runExecutionJob(queued.id))?.execution?.status).toBe("done");
+
+    const second = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 2" }, liveToken);
+    const rejected = await decideExecutionForToken(
+      second.id,
+      liveToken,
+      { decision: "reject", reviewer: "ana@example.test", note: "not today" },
+    );
+    expect(rejected.status).toBe("rejected");
+    expect(notifyExecutionOutcome).toHaveBeenCalledWith(rejected);
+  });
+
+  test("the decision relay refuses: no trustedReviews, a foreign record, a reviewer outside approverRoles, the subject, and a settled record", async () => {
+    liveToken = bot({ trustedReviews: true });
+    const queued = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
+    const relay = (over: Record<string, unknown>, identity = liveToken!, id = queued.id) =>
+      decideExecutionForToken(id, identity, { decision: "approve", reviewer: "ana@example.test", ...over });
+
+    expect(await status(relay({}, bot()))).toBe(403); // created without trustedReviews
+    expect(await status(relay({}, bot({ trustedReviews: true }, { username: "svc:other" })))).toBe(404); // not its record
+    expect(await status(relay({ reviewer: "U01" }))).toBe(403); // the subject cannot decide its own request
+    expect(await status(relay({ decision: "drop" }))).toBe(400);
+    expect(await status(relay({ reviewer: "  " }))).toBe(400);
+    // orders has no approverRoles, so its reviewers default to admin - the named person fails the fence.
+    const onOrders = await ask({ datasourceId: "orders", statement: "DELETE FROM orders WHERE id = 1" }, liveToken);
+    expect(await status(relay({}, liveToken, onOrders.id))).toBe(403);
+    // Nothing above decided it; the one valid decision still works, and a second is a 409.
+    await relay({});
+    expect(await status(relay({}))).toBe(409);
   });
 });

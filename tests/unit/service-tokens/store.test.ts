@@ -85,6 +85,11 @@ describe("service-tokens store", () => {
     // Only the boolean true grants it; a truthy string is not a grant.
     const lax = (await createServiceToken({ name: "lax", trustedApprovals: "yes" }, "root")).record;
     expect(lax).not.toHaveProperty("trustedApprovals");
+    expect(plain).not.toHaveProperty("trustedReviews");
+    const relay = (await createServiceToken({ name: "relay", trustedReviews: true }, "root")).record;
+    expect(relay.trustedReviews).toBe(true);
+    const laxRelay = (await createServiceToken({ name: "lax-relay", trustedReviews: "yes" }, "root")).record;
+    expect(laxRelay).not.toHaveProperty("trustedReviews");
   });
 
   test("refuses a bad name, a bad role, a non-list, a malformed datasource id, a non-object, and a duplicate live name", async () => {

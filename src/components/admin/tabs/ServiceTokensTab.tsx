@@ -39,6 +39,7 @@ interface Draft {
   datasources: string;
   requireApproval: boolean;
   trustedApprovals: boolean;
+  trustedReviews: boolean;
 }
 
 const EMPTY: Draft = {
@@ -48,6 +49,7 @@ const EMPTY: Draft = {
   datasources: "",
   requireApproval: true,
   trustedApprovals: false,
+  trustedReviews: false,
 };
 
 /** Comma-separated names as the API's list. */
@@ -109,6 +111,7 @@ export function ServiceTokensTab() {
           datasources: listOf(draft.datasources),
           requireApproval: draft.requireApproval,
           trustedApprovals: draft.trustedApprovals,
+          trustedReviews: draft.trustedReviews,
         }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string; secret?: string };
@@ -255,6 +258,11 @@ export function ServiceTokensTab() {
                         trusted approvals
                       </Badge>
                     )}
+                    {token.trustedReviews && (
+                      <Badge variant="outline" className="ml-2 text-[10px]" title="May relay a reviewer's decision on its own pending executions">
+                        trusted reviews
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-xs text-fg-muted whitespace-nowrap">
                     {token.lastUsedAt ? new Date(token.lastUsedAt).toLocaleString() : "never"}
@@ -374,6 +382,19 @@ export function ServiceTokensTab() {
                   Trusted approvals: the bot may declare who already approved a request where it lives, and a write that
                   would otherwise wait for a reviewer runs at once. Guardrails still hold. Grant only to a bot whose
                   approval flow you reviewed.
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-xs text-fg-secondary">
+                <input
+                  type="checkbox"
+                  checked={draft.trustedReviews}
+                  onChange={(e) => setDraft({ ...draft, trustedReviews: e.target.checked })}
+                  className="mt-0.5"
+                />
+                <span>
+                  Trusted reviews: the bot may relay a reviewer&apos;s decision on a pending execution it queued,
+                  naming who chose. The named reviewer must pass the datasource&apos;s approver roles; the portal
+                  trusts the bot that the person really decided. Grant only to a bot whose decision flow you reviewed.
                 </span>
               </label>
             </div>
