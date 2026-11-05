@@ -190,6 +190,8 @@ export function OverviewTab({ user }: OverviewTabProps) {
   // once per mount. A bare read during render would be impure and would mint a new array
   // identity on every pass, invalidating every memo below it.
   const [history] = useState<QueryHistoryItem[]>(() => storage.getHistory());
+  // Read once with the history it measures: that list never changes while this tab is mounted.
+  const [now] = useState(() => new Date());
   const [fleetHealth, setFleetHealth] = useState<FleetHealthItem[]>([]);
   const [fleetLoading, setFleetLoading] = useState(false);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -263,7 +265,6 @@ export function OverviewTab({ user }: OverviewTabProps) {
     const successRate = total > 0 ? Math.round((successful / total) * 100) : 0;
     const avgTime = total > 0 ? Math.round(history.reduce((sum, h) => sum + h.executionTime, 0) / total) : 0;
 
-    const now = new Date();
     const byDay: { day: string; success: number; fail: number }[] = [];
     for (let i = 6; i >= 0; i--) {
       const dayStart = startOfDay(subDays(now, i));
@@ -280,7 +281,7 @@ export function OverviewTab({ user }: OverviewTabProps) {
     }
 
     return { total, successful, failed, successRate, avgTime, byDay };
-  }, [history]);
+  }, [history, now]);
 
   const healthScore = useMemo(() => {
     if (fleetHealth.length === 0) return 0;
@@ -289,19 +290,18 @@ export function OverviewTab({ user }: OverviewTabProps) {
   }, [fleetHealth]);
 
   const todayQueries = useMemo(() => {
-    const todayStart = startOfDay(new Date()).getTime();
+    const todayStart = startOfDay(now).getTime();
     return history.filter((h) => new Date(h.executedAt).getTime() >= todayStart).length;
-  }, [history]);
+  }, [history, now]);
 
   const yesterdayQueries = useMemo(() => {
-    const now = new Date();
     const yesterdayStart = startOfDay(subDays(now, 1)).getTime();
     const todayStart = startOfDay(now).getTime();
     return history.filter((h) => {
       const t = new Date(h.executedAt).getTime();
       return t >= yesterdayStart && t < todayStart;
     }).length;
-  }, [history]);
+  }, [history, now]);
 
   const avgLatency = useMemo(() => {
     const healthy = fleetHealth.filter((h) => h.status !== "error");
