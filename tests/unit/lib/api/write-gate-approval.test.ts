@@ -13,6 +13,14 @@ const provider = {
   putApproval: mock(async (record: ApprovalRequest) => {
     rows.set(record.id, { ...record });
   }),
+  // The conditional transition (§4.59): written only while the stored row still has the
+  // expected status - the same arbitration the real providers do with one UPDATE.
+  putApprovalIf: mock(async (record: ApprovalRequest, expectedStatus: string) => {
+    const current = rows.get(record.id);
+    if (!current || current.status !== expectedStatus) return false;
+    rows.set(record.id, { ...record });
+    return true;
+  }),
   getApproval: mock(async (id: string) => rows.get(id) ?? null),
   listApprovals: mock(async (query: ApprovalQuery) =>
     [...rows.values()]

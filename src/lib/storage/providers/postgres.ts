@@ -436,6 +436,15 @@ export class PostgresStorageProvider implements ServerStorageProvider {
     );
   }
 
+  async putApprovalIf(record: ApprovalRequest, expectedStatus: string): Promise<boolean> {
+    this.ensurePool();
+    const { rowCount } = await this.pool!.query(
+      "UPDATE approval_requests SET status = $2, data = $3 WHERE id = $1 AND status = $4",
+      [record.id, record.status, JSON.stringify(record), expectedStatus],
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
   async getApproval(id: string): Promise<ApprovalRequest | null> {
     this.ensurePool();
     const { rows } = await this.pool!.query("SELECT data FROM approval_requests WHERE id = $1", [id]);

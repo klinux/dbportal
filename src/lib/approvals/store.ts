@@ -234,6 +234,9 @@ export async function decideApproval(input: {
   decision: ApprovalDecision;
   windowMinutes?: unknown;
   note?: unknown;
+  /** How the decision arrived when not by a session of its own — e.g. `token:<name>` for
+   * the relay (§4.59). On the audit line, so a relayed decision never reads as a click. */
+  via?: string;
 }): Promise<ApprovalRequest> {
   const store = await requireStore();
   const found = await store.getApproval(input.id);
@@ -260,8 +263,12 @@ export async function decideApproval(input: {
     const approvals = [...given, { reviewer: input.reviewer, at: reviewedAt.toISOString() }];
     if (approvals.length < needed) {
       const waiting: ApprovalRequest = { ...record, approvals, ...note };
-      await store.putApproval(waiting);
-      auditDecision(record, input.reviewer, `approve ${approvals.length} of ${needed}`);
+      // Conditional on the stored status: a decision that lands between the read above
+      // and this write must not be overwritten back to pending by a stale copy.
+      if (!(await store.putApprovalIf(waiting, "pending"))) {
+        throw new ApprovalError(`Approval request "${input.id}" was decided by someone else`, 409);
+      }
+      auditDecision(record, input.reviewer, `approve ${approvals.length} of ${needed}`, input.via);
       return waiting;
     }
   }
@@ -276,12 +283,19 @@ export async function decideApproval(input: {
     ...(minutes !== undefined ? { windowUntil: new Date(reviewedAt.getTime() + minutes * 60_000).toISOString() } : {}),
     ...note,
   };
-  await store.putApproval(decided);
-  auditDecision(record, input.reviewer, input.decision);
+  // The arbiter of concurrent decisions (§4.59): decideApproval is read-check-write, and
+  // two deciders - a page click racing a relayed decision, or a caller's retry - both see
+  // pending and would both enqueue a run. The write lands only if the row is STILL
+  // pending; exactly one caller wins, the loser gets the same 409 a late decision gets,
+  // and never hands settleDecision a second job.
+  if (!(await store.putApprovalIf(decided, "pending"))) {
+    throw new ApprovalError(`Approval request "${input.id}" was decided by someone else`, 409);
+  }
+  auditDecision(record, input.reviewer, input.decision, input.via);
   return decided;
 }
 
-function auditDecision(record: ApprovalRequest, reviewer: string, action: string): void {
+function auditDecision(record: ApprovalRequest, reviewer: string, action: string, via?: string): void {
   try {
     emitAuditEvent({
       type: "approval_decision",
@@ -292,6 +306,7 @@ function auditDecision(record: ApprovalRequest, reviewer: string, action: string
       result: "success",
       approvalId: record.id,
       reviewer,
+      ...(via ? { via } : {}),
     });
   } catch (auditError) {
     logger.error("Failed to record approval_decision audit event", auditError, { route: "approvals/store" });

@@ -196,6 +196,12 @@ export interface AuditEvent {
   approvalId?: string;
   reviewer?: string;
   /**
+   * How a decision arrived when not by a session of its own (§4.59): `token:<name>` for
+   * one relayed by the service token that queued the request. Absent for a decision taken
+   * in the portal, so the trail always distinguishes a click from a relay.
+   */
+  via?: string;
+  /**
    * Whom a service token acted for (docs/CONTEXT.md §4.10): the person who asked in chat,
    * as the token's caller named them. The actor stays the token; this is the second name
    * a reader needs to attribute the execution.

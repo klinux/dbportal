@@ -101,6 +101,14 @@ export async function createServiceToken(
   const datasources = stringList(body.datasources, "datasources", NAME_SHAPE);
   const requireApproval = body.requireApproval === undefined ? false : body.requireApproval === true;
   const trustedApprovals = body.trustedApprovals === true;
+  const trustedReviews = body.trustedReviews === true;
+  // Together they close the loop: the token declares the approvals that release its own
+  // write, and decides what its own declaration left pending. One trust per token.
+  if (trustedApprovals && trustedReviews)
+    throw new ServiceTokenError(
+      "trustedApprovals and trustedReviews cannot live on the same token: it would declare the approvals and then decide its own requests",
+      400,
+    );
   const records = await readAll();
   if (records.some((r) => r.name === name && !r.revokedAt))
     throw new ServiceTokenError(`A live service token named "${name}" already exists`, 409);
@@ -113,6 +121,7 @@ export async function createServiceToken(
     ...(datasources.length > 0 ? { datasources } : {}),
     requireApproval,
     ...(trustedApprovals ? { trustedApprovals } : {}),
+    ...(trustedReviews ? { trustedReviews } : {}),
     secretHash: hashSecret(secret),
     prefix: secret.slice(0, SECRET_PREFIX.length + 6),
     createdAt: new Date().toISOString(),
