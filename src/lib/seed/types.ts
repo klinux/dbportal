@@ -187,6 +187,13 @@ export const SeedDefaultsSchema = z.object({
   managed: z.boolean().optional(),
   environment: ConnectionEnvironmentSchema.optional(),
   ssl: SSLConfigSchema,
+  /**
+   * The reviewers every connection gets unless it names its own (§4.6): the fleet's
+   * reviewer list, written once. Without it, a connection without `approverRoles` is
+   * reviewed by administrators only — which silently excludes the bot's decision relay
+   * (§4.59) from every datasource somebody forgot to configure.
+   */
+  approverRoles: z.array(AllowedRoleSchema).optional(),
 });
 
 export const LimitsSchema = z.object({
