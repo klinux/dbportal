@@ -559,6 +559,14 @@ export async function decideExecutionForToken(
 
   const record = await getExecutionForToken(id, identity);
   if (!record) throw new ApprovalError("Execution not found", 404);
+  // Two reviewers (§4.28) exist so that no single actor releases the statement - and the
+  // relay is one actor, whatever names it sends. An approve is refused; a reject stays
+  // allowed, because either reviewer's rejection ends the request and runs nothing.
+  if (input.decision === "approve" && (record.approvalsRequired ?? 1) > 1)
+    throw new ApprovalError(
+      "This datasource requires two reviewers; a relayed approval cannot be one of them - decide on the approvals page",
+      403,
+    );
   // Four-eyes against the person, not the token: the record's requester is the token
   // itself, which decideApproval checks - the human it acted for is the subject.
   if (record.subject && reviewer.toLowerCase() === record.subject.toLowerCase())
@@ -570,6 +578,12 @@ export async function decideExecutionForToken(
       403,
     );
 
-  const decided = await decideApproval({ id, reviewer, decision: input.decision, note: input.note });
+  const decided = await decideApproval({
+    id,
+    reviewer,
+    decision: input.decision,
+    note: input.note,
+    via: `token:${identity.token.name}`,
+  });
   return settleDecision(decided);
 }

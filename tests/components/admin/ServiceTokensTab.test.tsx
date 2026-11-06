@@ -113,6 +113,7 @@ describe("ServiceTokensTab", () => {
       datasources: ["orders"],
       requireApproval: true,
       trustedApprovals: false,
+      trustedReviews: false,
     });
     expect(getByTestId("service-token-secret").textContent).toContain("dbp_the-secret-once");
     fireEvent.click(getByText("Done"));

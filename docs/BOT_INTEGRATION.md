@@ -130,14 +130,20 @@ POST /api/v1/executions/{id}/decision
 ```
 
 Only on records this token queued. The named reviewer must pass the datasource's
-`approverRoles` — the portal refuses anyone else with a 403 naming the datasource — and the
-person the request is for cannot decide it. Approved, the statement runs at once and the
-record answers as any decision would; the audit names the reviewer and the route.
+`approverRoles` — the portal refuses anyone else with a 403 naming the datasource; roles by
+`group:` and the default (`admin`) always refuse a relay, whose session is the name alone —
+and the person the request is for cannot decide it. A datasource with `approvalsRequired: 2`
+refuses a relayed approve (two reviewers exist so no single actor releases the statement —
+and the relay is one actor); a relayed reject is taken. Approved, the statement runs at
+once and the record answers as any decision would; the audit line carries
+`via: token:<name>`, so a relayed decision never reads as a page click.
 
 What the portal trusts, and the operator accepts by ticking the flag: that the named person
 really pressed. Authenticate the press on the bot's side (membership of the admins' group,
-never the requester) before relaying — the portal's fence bounds WHO can be named, not
-whether they clicked.
+never the requester — compare Slack ids there, since the portal's four-eyes only compares
+the strings it is given) before relaying — the portal's fence bounds WHO can be named, not
+whether they clicked. The flag is exclusive with `trustedApprovals`: the token that queues
+with declared approvals and the one that relays decisions must be different tokens.
 
 ## 3. The answers
 
@@ -265,6 +271,9 @@ No database credential, no list of reviewers, no statement executed by the bot.
    still `202 pending` with `guardrail`. Without the flag, `approvedBy` → `400`.
 8. With `trustedReviews` on the token: `POST /api/v1/executions/{id}/decision` on the
    pending `DELETE` of step 3, naming a reviewer the datasource's `approverRoles` accept →
-   `200`, the statement runs, the reviewer on the audit line. The same call naming anyone
-   else → `403`; naming the person the request is for → `403`; repeated → `409`. Without
-   the flag → `403`.
+   `200`, the statement runs, the reviewer and `via: token:<name>` on the audit line. The
+   same call naming anyone else → `403`; naming the person the request is for → `403`;
+   repeated, or racing another decision → `409`, and the statement ran exactly once. On a
+   datasource with `approvalsRequired: 2`, a relayed approve → `403` (decide on the page);
+   a relayed reject → `200`. Without the flag → `403`. Creating a token with both
+   `trustedReviews` and `trustedApprovals` → `400`.

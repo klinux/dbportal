@@ -301,6 +301,17 @@ export class SQLiteStorageProvider implements ServerStorageProvider {
     ).run(record.id, record.requestedAt, record.status, record.requester, record.datasourceId, JSON.stringify(record));
   }
 
+  async putApprovalIf(record: ApprovalRequest, expectedStatus: string): Promise<boolean> {
+    this.ensureDb();
+    const result = this.db!.prepare("UPDATE approval_requests SET status = ?, data = ? WHERE id = ? AND status = ?").run(
+      record.status,
+      JSON.stringify(record),
+      record.id,
+      expectedStatus,
+    );
+    return result.changes > 0;
+  }
+
   async getApproval(id: string): Promise<ApprovalRequest | null> {
     this.ensureDb();
     const row = this.db!.prepare("SELECT data FROM approval_requests WHERE id = ?").get(id) as

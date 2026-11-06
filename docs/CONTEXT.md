@@ -1335,13 +1335,34 @@ built. Each lands as its own section when done.
   and the person the request is for cannot decide it (§4.24 against the `subject`, since
   the record's requester is the token). What stays trusted, by the operator's choice as in
   §4.58: that the named person really chose — Socket Mode authenticates the click to the
-  bot, but gives it nothing to forward as proof. The decision is the page's
-  `decideApproval` and the run is `settleDecision`, so the two-reviewer rule (§4.28), the
-  409 on a settled record and the audit line are the same — the trail names the reviewer
-  and the route, so a decision relayed by a bot reads as exactly that. A token without
-  `trustedReviews` is refused with 403 naming the flag; a reviewer outside `approverRoles`
-  with 403 naming the datasource — refused, never ignored, for the same reason §4.58
-  refuses a malformed `approvedBy`.
+  bot, but gives it nothing to forward as proof; the reviewer is free text like
+  `onBehalfOf`, so the relay can name anyone the roles list — that is the breadth being
+  accepted, and the checkbox says so. Three consequences of that trust being the token's.
+  A datasource with `approvalsRequired: 2` (§4.28) refuses a relayed APPROVE outright: two
+  reviewers exist so that no single actor releases the statement, and the relay is one
+  actor whatever names it sends — those decisions stay on the page; a relayed REJECT is
+  taken, because either reviewer's rejection ends the request and runs nothing.
+  `trustedReviews` and `trustedApprovals` (§4.58) cannot live on the same token — together
+  they would declare the approvals that release a write and then decide what that
+  declaration left pending — so the bot that queues with `approvedBy` and the one that
+  relays decisions hold different tokens. And the audit line carries `via: token:<name>`,
+  so a relayed decision never reads as a click on the page. The decision is the page's
+  `decideApproval` and the run is `settleDecision`, so the two-reviewer rule, the 409 on a
+  settled record and the audit shape are otherwise the same. The decision write itself is
+  CONDITIONAL on the stored row still being pending (`putApprovalIf`, on the storage
+  provider): decideApproval is read-check-write, and two concurrent deciders — a page
+  click racing a relay, or a caller's retry — would otherwise both see pending and both
+  enqueue a run of the statement. Exactly one wins; the loser gets the same 409 a late
+  decision gets. That closes a race the page alone already had, which the relay's
+  retrying, automated path made worth fixing now. A token without `trustedReviews` is
+  refused with 403 naming the flag; a reviewer outside `approverRoles` with 403 naming the
+  datasource — refused, never ignored, for the same reason §4.58 refuses a malformed
+  `approvedBy`. The relay's session is built from the reviewer's name alone, with no
+  groups: `approverRoles` by `group:` and the default (`admin`) always refuse it — closed
+  by construction, like the Slack buttons' session. And the four-eyes check compares
+  identity STRINGS: a subject named by chat id and the same person named as reviewer by
+  e-mail pass it — the relay's caller is told to authenticate the press on its own side,
+  where both identities are known.
 
 ## 5. Decisions already taken
 

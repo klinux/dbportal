@@ -69,6 +69,9 @@ class CaptureProvider implements ServerStorageProvider {
     return [];
   }
   async putApproval(): Promise<void> {}
+  async putApprovalIf(): Promise<boolean> {
+    return true;
+  }
   async getApproval(): Promise<null> {
     return null;
   }

@@ -90,6 +90,12 @@ describe("service-tokens store", () => {
     expect(relay.trustedReviews).toBe(true);
     const laxRelay = (await createServiceToken({ name: "lax-relay", trustedReviews: "yes" }, "root")).record;
     expect(laxRelay).not.toHaveProperty("trustedReviews");
+    // Together they close the loop: declare the approvals, then decide your own request.
+    const both = await createServiceToken({ name: "loop", trustedApprovals: true, trustedReviews: true }, "root").catch(
+      (e) => e,
+    );
+    expect(both.statusCode).toBe(400);
+    expect(both.message).toContain("cannot live on the same token");
   });
 
   test("refuses a bad name, a bad role, a non-list, a malformed datasource id, a non-object, and a duplicate live name", async () => {

@@ -309,6 +309,13 @@ export interface ServerStorageProvider {
   maintainAuditStorage(now: Date, retainBefore: string | null): Promise<AuditMaintenance>;
   /** Write or replace one approval request by its id (§4.6). */
   putApproval(record: ApprovalRequest): Promise<void>;
+  /**
+   * Write the record only if the stored row still has `expectedStatus`, and report
+   * whether it was written (§4.59). The arbiter of concurrent decisions: deciders on the
+   * studio and the worker share nothing but this storage, so the conditional write is the
+   * one place exactly one of them can win — the loser enqueues nothing.
+   */
+  putApprovalIf(record: ApprovalRequest, expectedStatus: string): Promise<boolean>;
   getApproval(id: string): Promise<ApprovalRequest | null>;
   /** Newest first, filtered by whichever of status, requester and datasourceId are given. */
   listApprovals(query: ApprovalQuery): Promise<ApprovalRequest[]>;

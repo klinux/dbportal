@@ -1371,13 +1371,15 @@ queries, under the token's own name.
   Rows are masked by the server's rules and bounded (200 rows, 256 KB). `404` for another token's request.
 - `POST /api/v1/executions/[id]/decision` — body `{ decision: "approve" | "reject", reviewer, note? }`:
   a reviewer's decision on a pending execution, relayed by the token that queued it
-  (docs/CONTEXT.md §4.59). Needs `trustedReviews` on the token, and `reviewer` must pass the
-  datasource's `approverRoles`; approved, the statement runs at once. `200 { execution }` as
-  the decision left it; `400` malformed; `403` the flag, the reviewer or the subject;
-  `404` another token's request; `409` already decided.
+  (docs/CONTEXT.md §4.59). Needs `trustedReviews` on the token (exclusive with
+  `trustedApprovals`), and `reviewer` must pass the datasource's `approverRoles`; approved,
+  the statement runs at once, `via: token:<name>` on the audit line. `200 { execution }` as
+  the decision left it; `400` malformed; `403` the flag, the reviewer, the subject, or an
+  approve on a two-reviewer datasource; `404` another token's request; `409` already
+  decided — including by a concurrent decision, which runs the statement exactly once.
 
 Admin: `GET /api/admin/service-tokens`, `POST /api/admin/service-tokens` — body
-`{ name, role?, groups?, datasources?, requireApproval?, trustedApprovals?, trustedReviews? }`,
+`{ name, role?, groups?, datasources?, requireApproval?, trustedApprovals?, trustedReviews? }` (the last two are mutually exclusive),
 `201 { token, secret }` (the secret is returned once; `trustedApprovals` lets the token send
 `approvedBy` on executions, docs/CONTEXT.md §4.58); `DELETE /api/admin/service-tokens/[id]`
 revokes. Audited as `service_token`.

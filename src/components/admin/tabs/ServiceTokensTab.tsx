@@ -375,6 +375,7 @@ export function ServiceTokensTab() {
                 <input
                   type="checkbox"
                   checked={draft.trustedApprovals}
+                  disabled={draft.trustedReviews}
                   onChange={(e) => setDraft({ ...draft, trustedApprovals: e.target.checked })}
                   className="mt-0.5"
                 />
@@ -388,13 +389,14 @@ export function ServiceTokensTab() {
                 <input
                   type="checkbox"
                   checked={draft.trustedReviews}
+                  disabled={draft.trustedApprovals}
                   onChange={(e) => setDraft({ ...draft, trustedReviews: e.target.checked })}
                   className="mt-0.5"
                 />
                 <span>
                   Trusted reviews: the bot may relay a reviewer&apos;s decision on a pending execution it queued,
                   naming who chose. The named reviewer must pass the datasource&apos;s approver roles; the portal
-                  trusts the bot that the person really decided. Grant only to a bot whose decision flow you reviewed.
+                  trusts the bot that the person really decided. Grant only to a bot whose decision flow you reviewed. Exclusive with trusted approvals: one token must not declare the approvals and then decide its own requests.
                 </span>
               </label>
             </div>
