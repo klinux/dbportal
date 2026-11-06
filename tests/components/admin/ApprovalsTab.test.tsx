@@ -191,7 +191,11 @@ describe("ApprovalsTab", () => {
       id: "exec-2",
       execution: { status: "failed", startedAt: "x", finishedAt: "y", durationMs: 1, error: "query_error" },
     };
-    const notRun = { ...ran, id: "exec-3", execution: undefined };
+    // Approved with no outcome yet, in its two shapes: with a jobId the worker owns it
+    // (the gap between Run now and the outcome); without one the enqueue failed, nothing
+    // will ever run it, and the row must not claim otherwise.
+    const queuedForWorker = { ...ran, id: "exec-3", execution: undefined, jobId: "job-1" };
+    const neverEnqueued = { ...ran, id: "exec-4", execution: undefined };
     let decided = false;
     const fetchMock = mockGlobalFetch({
       "/api/approvals/exec-1": (req) => {
@@ -200,7 +204,11 @@ describe("ApprovalsTab", () => {
       },
       "/api/approvals": () => ({
         ok: true,
-        json: { approvals: decided ? [ran, failed, notRun] : [queued, ran, failed, notRun] },
+        json: {
+          approvals: decided
+            ? [ran, failed, queuedForWorker, neverEnqueued]
+            : [queued, ran, failed, queuedForWorker, neverEnqueued],
+        },
       }),
     });
     const { getByTestId, getByLabelText, queryByLabelText, queryByTestId } = await renderLoaded();
@@ -210,7 +218,8 @@ describe("ApprovalsTab", () => {
     expect(queryByLabelText("Approve svc:slack-bot for 15 minutes")).toBeNull();
     expect(within(getByTestId("approval-exec-0")).getByText("3 rows in 12 ms")).not.toBeNull();
     expect(within(getByTestId("approval-exec-2")).getByText("failed: query_error")).not.toBeNull();
-    expect(within(getByTestId("approval-exec-3")).getByText("not run")).not.toBeNull();
+    expect(within(getByTestId("approval-exec-3")).getByText("queued 3 min ago")).not.toBeNull();
+    expect(within(getByTestId("approval-exec-4")).getByText("not run")).not.toBeNull();
 
     await act(async () => {
       fireEvent.click(getByLabelText("Run request from U0123"));

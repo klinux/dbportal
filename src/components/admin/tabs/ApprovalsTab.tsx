@@ -29,12 +29,25 @@ function ago(iso: string, now: number): string {
   return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
 }
 
-/** What a decided row says after the badge: the window a person got, or what a queued execution did. */
+/**
+ * What a decided row says after the badge: the window a person got, or what a queued
+ * execution did. An approved execution whose worker has not finished yet reads "queued"
+ * rather than "not run" - a reviewer who just pressed Run now refreshes into that gap and
+ * would read "not run" as the press having done nothing (found driving the bot's lab).
+ * Only with a jobId, though: an approval whose enqueue failed is approved with neither
+ * jobId nor outcome, nothing will ever run it, and "not run" is the truth of that row.
+ * The queued label carries its age: a job no worker picked up (worker down, queue
+ * stalled) would otherwise read "queued…" forever, and the age is what tells a reviewer
+ * to stop waiting - markExecutionLost only covers a worker that died mid-run.
+ */
 export function outcomeLabel(record: ApprovalRequest, now: number): string {
   if (record.kind === "execution") {
     const outcome = record.execution;
     if (record.status !== "approved") return "";
-    if (!outcome) return "not run";
+    if (!outcome) {
+      if (!record.jobId) return "not run";
+      return record.reviewedAt ? `queued ${ago(record.reviewedAt, now)}` : "queued…";
+    }
     if (outcome.status === "failed") return `failed: ${outcome.error ?? "execution_failed"}`;
     const rows = outcome.rowCount ?? outcome.rows?.length ?? 0;
     return `${rows} row${rows === 1 ? "" : "s"} in ${outcome.durationMs} ms`;
@@ -154,7 +167,7 @@ export function ApprovalsTab() {
       <AdminSectionHeader
         icon={ClipboardCheck}
         title="Write approvals"
-        description="A write on a datasource that requires approval does not run until a reviewer opens a write window for the person who asked. Approve for a bounded number of minutes; the person runs the statement again."
+        description="A write on a datasource that requires approval waits for a reviewer. A person's request gets a write window: approve for a bounded number of minutes and the person runs the statement again. A bot's request (via the service API) runs once, as soon as the last required reviewer presses Run now."
         actions={
           <>
             <Button
