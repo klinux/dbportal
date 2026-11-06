@@ -48,12 +48,17 @@ The config file is YAML (`.yaml`, `.yml`) or JSON (`.json`). Format is auto-dete
 ```yaml
 version: "1"
 
-defaults:                    # Optional — merges managed/environment/ssl only
+defaults:                    # Optional — merges managed/environment/ssl/approverRoles
   managed: true
   environment: production
   ssl:
     mode: require
     rejectUnauthorized: true
+  # The fleet's reviewer list, written once: every connection without its own
+  # approverRoles inherits this; one that names its own keeps it. "admin" keeps
+  # the administrators; the named role is who else may decide (the bot's
+  # decision relay included). Absent, the old default stands: administrators only.
+  approverRoles: ["admin", "role:reviewers"]
 
 connections:
   - id: "analytics-pg"       # Required, unique, lowercase slug [a-z0-9-]
@@ -612,7 +617,7 @@ execution: a rule that cannot be enforced is not reported as enforced.
     password: "${ORDERS_PASS}"
     roles: ["group:support"]
     writeApproval: true
-    approverRoles: ["group:dba"]     # administrators when absent
+    approverRoles: ["group:dba"]     # defaults.approverRoles, or administrators, when absent
 ```
 
 With `writeApproval: true`, a statement that writes runs only inside an open **write
