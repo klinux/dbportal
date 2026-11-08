@@ -505,6 +505,25 @@ describe("SQLiteStorageProvider", () => {
       expect(run).toHaveBeenCalledWith("req-1", record.requestedAt, "pending", "ana", "orders", JSON.stringify(record));
     });
 
+    test("putApprovalIf writes only when the row still has the expected status, reporting the match", async () => {
+      await provider.initialize();
+      const approved = { ...record, status: "approved" as const };
+
+      // The row was still pending: the conditional UPDATE changes one row.
+      const hit = mock(() => ({ changes: 1 }));
+      mockPrepare.mockImplementationOnce(() => ({ run: hit, all: mock(() => []), get: mock(() => undefined) }));
+      expect(await provider.putApprovalIf(approved, "pending")).toBe(true);
+      expect((mockPrepare.mock.calls as unknown[][]).at(-1)![0] as string).toContain(
+        "UPDATE approval_requests SET status = ?, data = ? WHERE id = ? AND status = ?",
+      );
+      expect(hit).toHaveBeenCalledWith("approved", JSON.stringify(approved), "req-1", "pending");
+
+      // Someone already moved it off pending: no row matches, so the caller lost.
+      const miss = mock(() => ({ changes: 0 }));
+      mockPrepare.mockImplementationOnce(() => ({ run: miss, all: mock(() => []), get: mock(() => undefined) }));
+      expect(await provider.putApprovalIf(approved, "pending")).toBe(false);
+    });
+
     test("getApproval parses the row and answers null for an unknown id", async () => {
       await provider.initialize();
       mockPrepare.mockImplementationOnce(() => ({
@@ -539,6 +558,7 @@ describe("SQLiteStorageProvider", () => {
 
     test("every approval method refuses before initialize()", async () => {
       await expect(provider.putApproval(record)).rejects.toThrow("not initialized");
+      await expect(provider.putApprovalIf(record, "pending")).rejects.toThrow("not initialized");
       await expect(provider.getApproval("x")).rejects.toThrow("not initialized");
       await expect(provider.listApprovals({ limit: 1 })).rejects.toThrow("not initialized");
     });

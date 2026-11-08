@@ -1354,7 +1354,12 @@ built. Each lands as its own section when done.
   click racing a relay, or a caller's retry — would otherwise both see pending and both
   enqueue a run of the statement. Exactly one wins; the loser gets the same 409 a late
   decision gets. That closes a race the page alone already had, which the relay's
-  retrying, automated path made worth fixing now. A token without `trustedReviews` is
+  retrying, automated path made worth fixing now. This arbitration is the terminal
+  transition OFF pending (a reject, or the final approval). The FIRST of two approvals
+  keeps the row pending, so two concurrent firsts are last-writer-wins: one approval is
+  dropped, but the request stays pending and asks for another — nothing runs
+  under-approved. Strict 1-of-2 serialization needs per-approval provenance and is
+  deferred (§4.28). A token without `trustedReviews` is
   refused with 403 naming the flag; a reviewer outside `approverRoles` with 403 naming the
   datasource — refused, never ignored, for the same reason §4.58 refuses a malformed
   `approvedBy`. The relay's session is built from the reviewer's name alone, with no

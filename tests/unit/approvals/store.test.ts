@@ -250,6 +250,67 @@ describe("approvals store", () => {
     }
   });
 
+  // docs/CONTEXT.md §4.28/§4.59: the first of two approvals keeps the row pending, so the
+  // conditional write cannot serialize two concurrent firsts - the later overwrites the
+  // earlier and one approval is dropped. The test pins the FAIL-SAFE: the loss leaves the
+  // request pending and asking for another approval; nothing runs under-approved.
+  it("two first-of-two approvals racing on a stale read drop one, but the request stays pending", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const two = await requestApproval({
+        datasourceId: "plain",
+        datasourceName: "Plain",
+        requester: "ana",
+        statement: "DELETE FROM t",
+        route: "POST /api/db/query",
+        approvalsRequired: 2,
+      });
+      // root's approval lands and is kept.
+      const afterRoot = await decideApproval({ id: two.id, reviewer: "root", decision: "approve" });
+      expect(afterRoot.status).toBe("pending");
+      expect(afterRoot.approvals?.map((a) => a.reviewer)).toEqual(["root"]);
+
+      // bob decided from a snapshot taken BEFORE root's write (approvals still empty). His
+      // write is conditional only on "pending", which still holds, so it overwrites root's.
+      provider.getApproval.mockImplementationOnce(async () => ({ ...two }));
+      const afterBob = await decideApproval({ id: two.id, reviewer: "bob", decision: "approve" });
+
+      expect(afterBob.status).toBe("pending"); // still short of the two it needs
+      expect(afterBob.approvals?.map((a) => a.reviewer)).toEqual(["bob"]); // root's was dropped
+      expect(rows.get(two.id)?.status).toBe("pending"); // fail-safe: nothing ran
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  // The conditional write's loss branch (§4.59): a decision that flips the row off pending
+  // between this caller's read and write gets the same 409 a late decision gets.
+  it("a decision whose conditional write loses the race answers 409, for both the append and the terminal path", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      // Terminal path (needed = 1): read saw pending, but it was approved before the write.
+      const one = await ask("gil", "plain");
+      provider.getApproval.mockImplementationOnce(async () => ({ ...one }));
+      rows.set(one.id, { ...one, status: "approved", reviewer: "root" });
+      expect(await status(decideApproval({ id: one.id, reviewer: "bob", decision: "approve" }))).toBe(409);
+
+      // Append path (needed = 2): read saw pending, but it was rejected before the write.
+      const two = await requestApproval({
+        datasourceId: "plain",
+        datasourceName: "Plain",
+        requester: "ana",
+        statement: "DELETE FROM t",
+        route: "POST /api/db/query",
+        approvalsRequired: 2,
+      });
+      provider.getApproval.mockImplementationOnce(async () => ({ ...two }));
+      rows.set(two.id, { ...two, status: "rejected", reviewer: "root" });
+      expect(await status(decideApproval({ id: two.id, reviewer: "bob", decision: "approve" }))).toBe(409);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   // docs/CONTEXT.md §4.28: a request nobody decided in time expires on the next read, is written
   // back and audited, and the person asks again by asking again.
   it("a pending request older than the TTL expires on read, cannot be decided, and does not stand in for a new one", async () => {
@@ -296,6 +357,29 @@ describe("approvals store", () => {
     } finally {
       logSpy.mockRestore();
       errorSpy.mockRestore();
+    }
+  });
+
+  // docs/CONTEXT.md §4.59: expiry is a conditional write too. A decision landing right at the
+  // deadline must win - the expiry sweep must not overwrite an approved row back to expired,
+  // because runExecutionJob would then have nothing stopping a stale read from running.
+  it("an expiry that races a decision at the deadline keeps the decision, not the expiry", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const old = await ask("fay", "plain");
+      const aged = { ...old, requestedAt: new Date(Date.now() - 25 * 3_600_000).toISOString() };
+      // The stored row was decided right at the deadline (approved).
+      rows.set(old.id, { ...aged, status: "approved", reviewer: "root", reviewedAt: new Date().toISOString() });
+      // But the reader's snapshot was taken just before, still pending and past its TTL, so
+      // settleExpiry tries to write it expired - and must lose to the stored decision.
+      provider.getApproval.mockImplementationOnce(async () => ({ ...aged, status: "pending" }));
+
+      const read = await getApproval(old.id);
+
+      expect(read?.status).toBe("approved"); // the decision won the conditional write
+      expect(rows.get(old.id)?.status).toBe("approved"); // expiry did not clobber it
+    } finally {
+      logSpy.mockRestore();
     }
   });
 

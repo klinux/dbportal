@@ -131,6 +131,17 @@ describe("delegation", () => {
 
     expect(inner.mergeData).toHaveBeenCalledWith("u", { history: [] });
   });
+
+  // An approval record carries no credential to seal, so the conditional write
+  // is a straight passthrough — including the boolean the caller races on.
+  test("putApprovalIf forwards the record and expected status and returns the inner verdict", async () => {
+    const putApprovalIf = mock(async () => false);
+    const inner = stubProvider({ putApprovalIf } as never);
+    const record = { id: "req-1", status: "approved" } as never;
+
+    expect(await withCredentialEncryption(inner).putApprovalIf(record, "pending")).toBe(false);
+    expect(putApprovalIf).toHaveBeenCalledWith(record, "pending");
+  });
 });
 
 describe("the warning", () => {

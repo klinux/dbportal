@@ -526,6 +526,8 @@ export interface AuditLogLine {
   correlation_id?: string;
   approval_id?: string;
   reviewer?: string;
+  /** How a decision arrived when not by a session (§4.59): `token:<name>` for a relay, absent for a click. */
+  via?: string;
   subject?: string;
   ticket?: string;
   runbook?: string;
@@ -560,6 +562,7 @@ export function toAuditLine(event: AuditEvent): AuditLogLine {
     ...(event.correlationId ? { correlation_id: event.correlationId } : {}),
     ...(event.approvalId ? { approval_id: event.approvalId } : {}),
     ...(event.reviewer ? { reviewer: event.reviewer } : {}),
+    ...(event.via ? { via: event.via } : {}),
     ...(event.subject ? { subject: event.subject } : {}),
     ...(event.ticket ? { ticket: event.ticket } : {}),
     ...(event.runbook ? { runbook: event.runbook } : {}),

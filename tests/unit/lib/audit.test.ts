@@ -6,6 +6,7 @@ import {
   getServerAuditBuffer,
   loadAuditFromStorage,
   saveAuditToStorage,
+  toAuditLine,
 } from "@/lib/audit";
 
 describe("AuditRingBuffer", () => {
@@ -402,5 +403,34 @@ describe("saveAuditToStorage", () => {
     // Should keep the last 1000 (indices 500-1499)
     expect(parsed[0].id).toBe("id-500");
     expect(parsed[999].id).toBe("id-1499");
+  });
+});
+
+describe("toAuditLine", () => {
+  const decision: AuditEvent = {
+    id: "evt-1",
+    timestamp: "2026-11-08T00:00:00.000Z",
+    type: "approval_decision",
+    action: "approve",
+    target: "d",
+    user: "ana",
+    result: "success",
+    connectionName: "D",
+    approvalId: "a1",
+    reviewer: "ana",
+  };
+
+  // The stdout line is the authoritative trail: a decision relayed by the bot's
+  // token must be distinguishable there from a click on the page (§4.59). The
+  // ring-buffer event carried `via` already; this proves it survives the
+  // conversion the downstream parsers actually read.
+  test("carries via onto the line when a decision was relayed by a token", () => {
+    const line = toAuditLine({ ...decision, via: "token:bot" });
+    expect(line.via).toBe("token:bot");
+  });
+
+  test("omits via for a decision taken on the page", () => {
+    const line = toAuditLine(decision);
+    expect("via" in line).toBe(false);
   });
 });
