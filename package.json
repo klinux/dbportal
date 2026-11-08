@@ -152,7 +152,7 @@
     "@types/react-dom": "^19.2.7",
     "@types/ssh2": "^1.15.6",
     "@workflow/world-local": "4.2.4",
-    "@workflow/world-postgres": "4.3.3",
+    "@workflow/world-postgres": "5.1.1",
     "ai": "7.0.59",
     "eslint": "^10.11.0",
     "eslint-config-next": "^16.3.4",
