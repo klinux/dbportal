@@ -641,6 +641,7 @@ reviews records already in the store. And whoever the list names can **see in th
 queue the pending requests — statements included — of every datasource that inherits the
 default**, even datasources they have no `roles` access to: reviewing a statement means reading
 it. This already held per datasource; the default makes it fleet-wide for the ones that inherit.
+
 With `SLACK_SIGNING_SECRET` set, the Slack announcement of a bot's request carries Approve and
 Reject (docs/CONTEXT.md §4.24); the presser reviews as `slack:<Slack user id>`, so name a role
 with `members: ["user:slack:U0123"]` and put `role:<id>` in `approverRoles`.
