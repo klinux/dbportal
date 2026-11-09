@@ -29,6 +29,10 @@ export async function listKnownPrincipals(): Promise<KnownPrincipal[]> {
     for (const member of role.members) add(member, `role ${role.name}`);
   }
   const config = await loadConfig();
+  // The fleet-wide reviewer list (§4.6) names principals that may never appear on an
+  // individual connection, so read it directly: without this a `role:`/`group:` that
+  // lives only in the default is not offered in the reviewer selector.
+  for (const id of config?.defaults?.approverRoles ?? []) add(id, "defaults.approverRoles");
   for (const conn of config?.connections ?? []) {
     for (const id of [
       ...conn.roles,

@@ -277,6 +277,24 @@ describe("SeedDefaultsSchema", () => {
     const result = SeedDefaultsSchema.safeParse({ environment: "Not Valid" });
     expect(result.success).toBe(false);
   });
+
+  // §4.6: the field carries the fleet's reviewer list through the parser, and each entry is
+  // validated as a role just like a connection's own list.
+  it("accepts a non-empty approverRoles default and refuses an invalid role in it", () => {
+    const ok = SeedDefaultsSchema.safeParse({ approverRoles: ["admin", "role:reviewers"] });
+    expect(ok.success).toBe(true);
+    expect(ok.success && ok.data.approverRoles).toEqual(["admin", "role:reviewers"]);
+    expect(SeedDefaultsSchema.safeParse({ approverRoles: ["Not A Role!"] }).success).toBe(false);
+  });
+
+  // An empty list would be inherited by every datasource that names none, and
+  // `matchesAccess([])` is false for everyone — nobody, admins included, could review them.
+  // Omitting the field is how you keep the admins-only default; `[]` is refused.
+  it("refuses an empty approverRoles default so it cannot lock everyone out", () => {
+    expect(SeedDefaultsSchema.safeParse({ approverRoles: [] }).success).toBe(false);
+    // Absent stays valid — that is the admins-only default.
+    expect(SeedDefaultsSchema.safeParse({}).success).toBe(true);
+  });
 });
 
 describe("SeedConnectionSchema: MongoDB's authSource", () => {

@@ -58,6 +58,8 @@ defaults:                    # Optional — merges managed/environment/ssl/appro
   # approverRoles inherits this; one that names its own keeps it. "admin" keeps
   # the administrators; the named role is who else may decide (the bot's
   # decision relay included). Absent, the old default stands: administrators only.
+  # It must name at least one role: an empty list would be inherited by every
+  # datasource that names none and leave them reviewable by no one, admins included.
   approverRoles: ["admin", "role:reviewers"]
 
 connections:
@@ -631,6 +633,14 @@ Approvals section or through `GET/POST /api/approvals`. Nobody reviews their own
 `approvalsRequired: 2` (docs/CONTEXT.md §4.28) asks for two distinct reviewers before the write
 runs; the first approval is kept and the request waits for the second. A request nobody decides
 within `APPROVAL_TTL_HOURS` (24 by default) expires, and the person asks again by running again.
+
+Two things the `defaults.approverRoles` inheritance does and does not reach. It applies to the
+**seed file only**: a datasource added through the Admin UI without its own `approverRoles`
+stays reviewable by administrators only (as its form says), so the default never changes who
+reviews records already in the store. And whoever the list names can **see in the Approvals
+queue the pending requests — statements included — of every datasource that inherits the
+default**, even datasources they have no `roles` access to: reviewing a statement means reading
+it. This already held per datasource; the default makes it fleet-wide for the ones that inherit.
 With `SLACK_SIGNING_SECRET` set, the Slack announcement of a bot's request carries Approve and
 Reject (docs/CONTEXT.md §4.24); the presser reviews as `slack:<Slack user id>`, so name a role
 with `members: ["user:slack:U0123"]` and put `role:<id>` in `approverRoles`.
