@@ -30,13 +30,16 @@ const record: ApprovalRequest = {
 };
 const submit = mock(async () => record);
 const getForToken = mock(async (id: string) => (id === "exec-1" ? record : null));
+const decideForToken = mock(async () => ({ ...record, status: "approved", reviewer: "ana@example.test" }));
 mock.module("@/lib/executions/store", () => ({
   submitExecution: (...args: unknown[]) => submit(...(args as [])),
   getExecutionForToken: (id: string) => getForToken(id),
+  decideExecutionForToken: (...args: unknown[]) => decideForToken(...(args as [])),
 }));
 
 const { POST } = await import("@/app/api/v1/executions/route");
 const { GET } = await import("@/app/api/v1/executions/[id]/route");
+const { POST: DECIDE } = await import("@/app/api/v1/executions/[id]/decision/route");
 const { ApprovalError } = await import("@/lib/approvals/errors");
 
 const url = "http://localhost/api/v1/executions";
@@ -151,5 +154,37 @@ describe("/api/v1/executions", () => {
       throw new ApprovalError("Executions need server storage", 503);
     });
     expect((await GET(new Request(url), params("exec-1"))).status).toBe(503);
+  });
+
+  // docs/CONTEXT.md §4.10: the decision relay hands the body and the identity to the store
+  // and answers the record as the decision left it; the store's refusals keep their status.
+  test("POST /decision needs a token, hands body and identity to the store, and keeps the store's refusals", async () => {
+    const decide = (body: unknown) =>
+      DECIDE(
+        new Request(`${url}/exec-1/decision`, {
+          method: "POST",
+          body: typeof body === "string" ? body : JSON.stringify(body),
+          headers: { "Content-Type": "application/json" },
+        }),
+        params("exec-1"),
+      );
+
+    identity = null;
+    expect((await decide({ decision: "approve", reviewer: "ana@example.test" })).status).toBe(401);
+    identity = { token: { id: "t1" }, session: { role: "user", username: "svc:bot" } };
+
+    const res = await decide({ decision: "approve", reviewer: "ana@example.test", note: "ok" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).execution).toMatchObject({ status: "approved", reviewer: "ana@example.test" });
+    const [id, who, input] = decideForToken.mock.calls.at(-1) as unknown[];
+    expect(id).toBe("exec-1");
+    expect(who).toBe(identity);
+    expect(input).toMatchObject({ decision: "approve", reviewer: "ana@example.test", note: "ok" });
+
+    expect((await decide("{not json")).status).toBe(400);
+    decideForToken.mockImplementationOnce(async () => {
+      throw new ApprovalError("This token may not decide executions: it was not created with trustedReviews", 403);
+    });
+    expect((await decide({ decision: "approve", reviewer: "ana@example.test" })).status).toBe(403);
   });
 });

@@ -117,6 +117,34 @@ portal's page. To hand the portal the first one instead:
   show the declared approvers, so the reviewer sees what the bot already collected. The portal refuses rather than ignores the field, so a bot
   that believes it declared approvers is never left with a queued write and no idea why.
 
+## 2b. When the reviewer also lives in the chat
+
+A request the guardrail held waits for a reviewer. The portal's own Slack buttons decide it
+when Slack can POST the click back; a deployment with no inbound path (portal and bot both
+internal) cannot receive it — but the bot's Socket Mode connection still can. With
+`trustedReviews` on the token (`Security → Service tokens`), the bot relays the decision:
+
+```
+POST /api/v1/executions/{id}/decision
+{ "decision": "approve", "reviewer": "ana@example.test", "note": "optional" }
+```
+
+Only on records this token queued. The named reviewer must pass the datasource's
+`approverRoles` — the portal refuses anyone else with a 403 naming the datasource; roles by
+`group:` and the default (`admin`) always refuse a relay, whose session is the name alone —
+and the person the request is for cannot decide it. A datasource with `approvalsRequired: 2`
+refuses a relayed approve (two reviewers exist so no single actor releases the statement —
+and the relay is one actor); a relayed reject is taken. Approved, the statement runs at
+once and the record answers as any decision would; the audit line carries
+`via: token:<name>`, so a relayed decision never reads as a page click.
+
+What the portal trusts, and the operator accepts by ticking the flag: that the named person
+really pressed. Authenticate the press on the bot's side (membership of the admins' group,
+never the requester — compare Slack ids there, since the portal's four-eyes only compares
+the strings it is given) before relaying — the portal's fence bounds WHO can be named, not
+whether they clicked. The flag is exclusive with `trustedApprovals`: the token that queues
+with declared approvals and the one that relays decisions must be different tokens.
+
 ## 3. The answers
 
 | Status | Meaning | What the bot does |
@@ -241,3 +269,11 @@ No database credential, no list of reviewers, no statement executed by the bot.
    `202 approved` with `jobId`, no announcement to the reviewers, the outcome in the thread;
    `approved_by` on the audit line. The `DELETE` of step 3 with the same `approvedBy` →
    still `202 pending` with `guardrail`. Without the flag, `approvedBy` → `400`.
+8. With `trustedReviews` on the token: `POST /api/v1/executions/{id}/decision` on the
+   pending `DELETE` of step 3, naming a reviewer the datasource's `approverRoles` accept →
+   `200`, the statement runs, the reviewer and `via: token:<name>` on the audit line. The
+   same call naming anyone else → `403`; naming the person the request is for → `403`;
+   repeated, or racing another decision → `409`, and the statement ran exactly once. On a
+   datasource with `approvalsRequired: 2`, a relayed approve → `403` (decide on the page);
+   a relayed reject → `200`. Without the flag → `403`. Creating a token with both
+   `trustedReviews` and `trustedApprovals` → `400`.

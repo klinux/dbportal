@@ -15,6 +15,14 @@ const provider = {
   putApproval: mock(async (record: ApprovalRequest) => {
     rows.set(record.id, { ...record });
   }),
+  // The conditional transition (§4.59): written only while the stored row still has the
+  // expected status - the same arbitration the real providers do with one UPDATE.
+  putApprovalIf: mock(async (record: ApprovalRequest, expectedStatus: string) => {
+    const current = rows.get(record.id);
+    if (!current || current.status !== expectedStatus) return false;
+    rows.set(record.id, { ...record });
+    return true;
+  }),
   getApproval: mock(async (id: string) => rows.get(id) ?? null),
   listApprovals: mock(async (query: ApprovalQuery) => [...rows.values()].slice(0, query.limit)),
 };
@@ -53,7 +61,44 @@ const datasources: Record<string, Record<string, unknown>> = {
     writeApproval: true,
     approvalsRequired: 2,
   },
+  held: {
+    id: "held",
+    seedId: "held",
+    name: "Held",
+    type: "postgres",
+    roles: ["*"],
+    writeApproval: true,
+    // The mocked withNamedRoles gives every session namedRoles: ["bots"], so a named
+    // reviewer passes here and fails on every datasource above (their default is admin).
+    approverRoles: ["role:bots"],
+  },
+  twoHeld: {
+    id: "twoHeld",
+    seedId: "twoHeld",
+    name: "TwoHeld",
+    type: "postgres",
+    roles: ["*"],
+    writeApproval: true,
+    approvalsRequired: 2,
+    approverRoles: ["role:bots"],
+  },
+  grouped: {
+    id: "grouped",
+    seedId: "grouped",
+    name: "Grouped",
+    type: "postgres",
+    roles: ["*"],
+    writeApproval: true,
+    // The relay's session is built from the NAME alone - no groups - so group-based
+    // reviewer roles always refuse it, same as the Slack buttons' session would.
+    approverRoles: ["group:dba"],
+  },
 };
+// canReview (the decision relay's fence) reads the datasource by its unfiltered id.
+mock.module("@/lib/seed", () => ({
+  getSeedConnectionByIdUnfiltered: async (id: string) => datasources[id] ?? null,
+}));
+
 // Flipped by one test: the datasource refuses the token at run time (mock.module is
 // process-wide, so the mock is switched by a flag rather than re-registered).
 let denyAll = false;
@@ -131,6 +176,7 @@ mock.module("@/lib/jobs/queue", () => ({
 }));
 const {
   boundRows,
+  decideExecutionForToken,
   getExecutionForToken,
   markExecutionLost,
   runExecution,
@@ -771,5 +817,106 @@ describe("executions store", () => {
     expect(byBytes.rows.length).toBeLessThan(10);
     expect(byBytes.truncated).toBe(true);
     expect(boundRows([{ a: 1 }])).toEqual({ rows: [{ a: 1 }], truncated: false });
+  });
+
+  // docs/CONTEXT.md §4.10: a decision relayed by the token that queued the request. The
+  // token needs trustedReviews, reaches only its own records, the named reviewer must pass
+  // the datasource's approverRoles, and the person the request is for cannot decide it.
+  test("a token with trustedReviews relays an approve that runs, naming the reviewer; a reject answers the thread", async () => {
+    liveToken = bot({ trustedReviews: true });
+    const queued = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
+    expect(queued.status).toBe("pending");
+    const decided = await decideExecutionForToken(
+      queued.id,
+      liveToken,
+      { decision: "approve", reviewer: "ana@example.test" },
+    );
+    expect(decided.status).toBe("approved");
+    expect(decided.reviewer).toBe("ana@example.test");
+    expect(decided.jobId).toBeDefined();
+    expect((await runExecutionJob(queued.id))?.execution?.status).toBe("done");
+
+    const second = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 2" }, liveToken);
+    const rejected = await decideExecutionForToken(
+      second.id,
+      liveToken,
+      { decision: "reject", reviewer: "ana@example.test", note: "not today" },
+    );
+    expect(rejected.status).toBe("rejected");
+    expect(notifyExecutionOutcome).toHaveBeenCalledWith(rejected);
+  });
+
+  test("the decision relay refuses: no trustedReviews, a foreign record, a reviewer outside approverRoles, the subject, and a settled record", async () => {
+    liveToken = bot({ trustedReviews: true });
+    const queued = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
+    const relay = (over: Record<string, unknown>, identity = liveToken!, id = queued.id) =>
+      decideExecutionForToken(id, identity, { decision: "approve", reviewer: "ana@example.test", ...over });
+
+    expect(await status(relay({}, bot()))).toBe(403); // created without trustedReviews
+    expect(await status(relay({}, bot({ trustedReviews: true }, { username: "svc:other" })))).toBe(404); // not its record
+    expect(await status(relay({ reviewer: "U01" }))).toBe(403); // the subject cannot decide its own request
+    expect(await status(relay({ decision: "drop" }))).toBe(400);
+    expect(await status(relay({ reviewer: "  " }))).toBe(400);
+    // orders has no approverRoles, so its reviewers default to admin - the named person fails the fence.
+    const onOrders = await ask({ datasourceId: "orders", statement: "DELETE FROM orders WHERE id = 1" }, liveToken);
+    expect(await status(relay({}, liveToken, onOrders.id))).toBe(403);
+    // Group-based reviewer roles refuse too: the relay's session carries no groups.
+    const onGrouped = await ask({ datasourceId: "grouped", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
+    expect(await status(relay({}, liveToken, onGrouped.id))).toBe(403);
+    // Nothing above decided it; the one valid decision still works, and a second is a 409.
+    await relay({});
+    expect(await status(relay({}))).toBe(409);
+  });
+
+  // §4.28 exists so no single actor releases the statement - and the relay is one actor,
+  // whatever names it sends. Two distinct names must not run it; a reject still ends it,
+  // because either reviewer's rejection runs nothing.
+  test("a two-reviewer datasource refuses a relayed approve under any name, and still takes a relayed reject", async () => {
+    liveToken = bot({ trustedReviews: true });
+    const queued = await ask({ datasourceId: "twoHeld", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
+    const approve = (reviewer: string) =>
+      decideExecutionForToken(queued.id, liveToken!, { decision: "approve", reviewer });
+    expect(await status(approve("ana@example.test"))).toBe(403);
+    expect(await status(approve("bruno@example.test"))).toBe(403);
+    expect(rows.get(queued.id)?.status).toBe("pending");
+    expect(enqueued.filter((j) => j.payload.approvalId === queued.id)).toHaveLength(0);
+
+    const rejected = await decideExecutionForToken(queued.id, liveToken, {
+      decision: "reject",
+      reviewer: "ana@example.test",
+    });
+    expect(rejected.status).toBe("rejected");
+  });
+
+  // The decision is read-check-write; the conditional transition is what makes exactly one
+  // of two concurrent deciders win. The loser gets the same 409 a late decision gets, and
+  // never hands the queue a second job - the statement runs once.
+  test("two concurrent relayed approves produce one run and one 409, never two jobs", async () => {
+    liveToken = bot({ trustedReviews: true });
+    const queued = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
+    const before = enqueued.length;
+    const results = await Promise.allSettled([
+      decideExecutionForToken(queued.id, liveToken, { decision: "approve", reviewer: "ana@example.test" }),
+      decideExecutionForToken(queued.id, liveToken, { decision: "approve", reviewer: "bruno@example.test" }),
+    ]);
+    const won = results.filter((r) => r.status === "fulfilled");
+    const lost = results.filter((r) => r.status === "rejected");
+    expect(won).toHaveLength(1);
+    expect(lost).toHaveLength(1);
+    expect((lost[0] as PromiseRejectedResult).reason).toBeInstanceOf(ApprovalError);
+    expect(((lost[0] as PromiseRejectedResult).reason as { statusCode: number }).statusCode).toBe(409);
+    expect(enqueued.length - before).toBe(1);
+  });
+
+  // §4.59: a relayed decision must never read as a page click - the audit line names the
+  // token that carried it.
+  test("a relayed decision's audit line carries the token it came by", async () => {
+    liveToken = bot({ trustedReviews: true });
+    const queued = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
+    await decideExecutionForToken(queued.id, liveToken, { decision: "approve", reviewer: "ana@example.test" });
+    const line = audited()
+      .reverse()
+      .find((e) => e.type === "approval_decision" && e.approvalId === queued.id);
+    expect(line).toMatchObject({ via: "token:bot", reviewer: "ana@example.test" });
   });
 });

@@ -53,7 +53,10 @@ function expiredCopy(record: ApprovalRequest, now: number): ApprovalRequest | nu
  * thing without a scheduler.
  */
 async function settleExpiry(
-  store: { putApproval(record: ApprovalRequest): Promise<void> },
+  store: {
+    putApprovalIf(record: ApprovalRequest, expectedStatus: string): Promise<boolean>;
+    getApproval(id: string): Promise<ApprovalRequest | null>;
+  },
   records: ApprovalRequest[],
   now = Date.now(),
 ): Promise<ApprovalRequest[]> {
@@ -64,7 +67,13 @@ async function settleExpiry(
       out.push(record);
       continue;
     }
-    await store.putApproval(expired);
+    // Conditional on the row still being pending: a decision landing right at
+    // the deadline must win, not be overwritten by the expiry. On a loss, re-read
+    // and return whatever that decision wrote - never run on a clobbered status.
+    if (!(await store.putApprovalIf(expired, "pending"))) {
+      out.push((await store.getApproval(record.id)) ?? record);
+      continue;
+    }
     try {
       emitAuditEvent({
         type: "approval_decision",
@@ -234,6 +243,9 @@ export async function decideApproval(input: {
   decision: ApprovalDecision;
   windowMinutes?: unknown;
   note?: unknown;
+  /** How the decision arrived when not by a session of its own — e.g. `token:<name>` for
+   * the relay (§4.59). On the audit line, so a relayed decision never reads as a click. */
+  via?: string;
 }): Promise<ApprovalRequest> {
   const store = await requireStore();
   const found = await store.getApproval(input.id);
@@ -260,8 +272,17 @@ export async function decideApproval(input: {
     const approvals = [...given, { reviewer: input.reviewer, at: reviewedAt.toISOString() }];
     if (approvals.length < needed) {
       const waiting: ApprovalRequest = { ...record, approvals, ...note };
-      await store.putApproval(waiting);
-      auditDecision(record, input.reviewer, `approve ${approvals.length} of ${needed}`);
+      // This write stays conditional on "pending", so it loses to a decision that flips
+      // the row OFF pending between the read above and here (a reject, or a final
+      // approval) - that returns 409. It does NOT serialize two concurrent FIRST-of-two
+      // approvals: both see pending, both write, and the later one's `approvals` array
+      // wins, dropping the other. That loss fails safe - the request stays pending and
+      // asks for another approval; nothing runs under-approved. Making 1-of-2 strictly
+      // serial needs per-approval provenance (a version/CAS) and is deferred (§4.28).
+      if (!(await store.putApprovalIf(waiting, "pending"))) {
+        throw new ApprovalError(`Approval request "${input.id}" was decided by someone else`, 409);
+      }
+      auditDecision(record, input.reviewer, `approve ${approvals.length} of ${needed}`, input.via);
       return waiting;
     }
   }
@@ -276,12 +297,19 @@ export async function decideApproval(input: {
     ...(minutes !== undefined ? { windowUntil: new Date(reviewedAt.getTime() + minutes * 60_000).toISOString() } : {}),
     ...note,
   };
-  await store.putApproval(decided);
-  auditDecision(record, input.reviewer, input.decision);
+  // The arbiter of concurrent decisions (§4.59): decideApproval is read-check-write, and
+  // two deciders - a page click racing a relayed decision, or a caller's retry - both see
+  // pending and would both enqueue a run. The write lands only if the row is STILL
+  // pending; exactly one caller wins, the loser gets the same 409 a late decision gets,
+  // and never hands settleDecision a second job.
+  if (!(await store.putApprovalIf(decided, "pending"))) {
+    throw new ApprovalError(`Approval request "${input.id}" was decided by someone else`, 409);
+  }
+  auditDecision(record, input.reviewer, input.decision, input.via);
   return decided;
 }
 
-function auditDecision(record: ApprovalRequest, reviewer: string, action: string): void {
+function auditDecision(record: ApprovalRequest, reviewer: string, action: string, via?: string): void {
   try {
     emitAuditEvent({
       type: "approval_decision",
@@ -292,6 +320,7 @@ function auditDecision(record: ApprovalRequest, reviewer: string, action: string
       result: "success",
       approvalId: record.id,
       reviewer,
+      ...(via ? { via } : {}),
     });
   } catch (auditError) {
     logger.error("Failed to record approval_decision audit event", auditError, { route: "approvals/store" });

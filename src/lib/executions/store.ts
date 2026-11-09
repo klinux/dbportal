@@ -17,7 +17,7 @@ import { getOrCreateProvider } from "@/lib/db";
 import { applicationNameFor } from "@/lib/db/application-name";
 import { providerAccessOptions } from "@/lib/api/write-gate";
 import { ApprovalError } from "@/lib/approvals/errors";
-import { NOTE_MAX_CHARS, STATEMENT_MAX_CHARS, getApproval } from "@/lib/approvals/store";
+import { NOTE_MAX_CHARS, STATEMENT_MAX_CHARS, canReview, decideApproval, getApproval } from "@/lib/approvals/store";
 import { logger } from "@/lib/logger";
 import { maskResult } from "@/lib/masking/store";
 import { notifyCallback, readCallbackUrl } from "@/lib/notify/callback";
@@ -528,3 +528,62 @@ export async function getExecutionForToken(id: string, identity: ServiceIdentity
 
 /** The bounded note a reviewer may leave; re-exported so the decision path and this module agree. */
 export const EXECUTION_NOTE_MAX = NOTE_MAX_CHARS;
+
+/**
+ * A reviewer's decision on a pending execution, relayed by the token that queued it
+ * (§4.10). The bot sits where the reviewer is - a chat thread - and the portal has no
+ * inbound path from there, so the token carries the decision and NAMES who made it.
+ *
+ * What bounds the relay: the token must have been created with `trustedReviews` (the
+ * operator's choice, like `trustedApprovals`); it only reaches records it queued itself;
+ * the named reviewer must pass the datasource's own `approverRoles` - the same `canReview`
+ * the page and the Slack buttons apply - so the token can only name people the portal
+ * already recognizes as reviewers; and the person the request is for cannot decide it.
+ * What stays trusted: that the named person really chose. The trail records the reviewer
+ * and the route, so a decision relayed by a bot reads as exactly that.
+ *
+ * The decision itself is the page's `decideApproval` and the run is `settleDecision` -
+ * one decision path, however it arrives.
+ */
+export async function decideExecutionForToken(
+  id: string,
+  identity: ServiceIdentity,
+  input: { decision?: unknown; reviewer?: unknown; note?: unknown },
+): Promise<ApprovalRequest> {
+  if (identity.token.trustedReviews !== true)
+    throw new ApprovalError("This token may not decide executions: it was not created with trustedReviews", 403);
+  if (input.decision !== "approve" && input.decision !== "reject")
+    throw new ApprovalError('decision must be "approve" or "reject"', 400);
+  const reviewer = typeof input.reviewer === "string" ? input.reviewer.trim().slice(0, SUBJECT_MAX) : "";
+  if (!reviewer) throw new ApprovalError("reviewer must name who decided", 400);
+
+  const record = await getExecutionForToken(id, identity);
+  if (!record) throw new ApprovalError("Execution not found", 404);
+  // Two reviewers (§4.28) exist so that no single actor releases the statement - and the
+  // relay is one actor, whatever names it sends. An approve is refused; a reject stays
+  // allowed, because either reviewer's rejection ends the request and runs nothing.
+  if (input.decision === "approve" && (record.approvalsRequired ?? 1) > 1)
+    throw new ApprovalError(
+      "This datasource requires two reviewers; a relayed approval cannot be one of them - decide on the approvals page",
+      403,
+    );
+  // Four-eyes against the person, not the token: the record's requester is the token
+  // itself, which decideApproval checks - the human it acted for is the subject.
+  if (record.subject && reviewer.toLowerCase() === record.subject.toLowerCase())
+    throw new ApprovalError("reviewer names the person this request is for; a request cannot be decided by them", 403);
+  const session = await withNamedRoles({ role: "user" as const, username: reviewer });
+  if (!(await canReview(record, session)))
+    throw new ApprovalError(
+      `"${reviewer}" is not a reviewer of "${record.datasourceName}": the datasource's approverRoles do not name them`,
+      403,
+    );
+
+  const decided = await decideApproval({
+    id,
+    reviewer,
+    decision: input.decision,
+    note: input.note,
+    via: `token:${identity.token.name}`,
+  });
+  return settleDecision(decided);
+}

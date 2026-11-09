@@ -196,6 +196,12 @@ export interface AuditEvent {
   approvalId?: string;
   reviewer?: string;
   /**
+   * How a decision arrived when not by a session of its own (§4.59): `token:<name>` for
+   * one relayed by the service token that queued the request. Absent for a decision taken
+   * in the portal, so the trail always distinguishes a click from a relay.
+   */
+  via?: string;
+  /**
    * Whom a service token acted for (docs/CONTEXT.md §4.10): the person who asked in chat,
    * as the token's caller named them. The actor stays the token; this is the second name
    * a reader needs to attribute the execution.
@@ -520,6 +526,8 @@ export interface AuditLogLine {
   correlation_id?: string;
   approval_id?: string;
   reviewer?: string;
+  /** How a decision arrived when not by a session (§4.59): `token:<name>` for a relay, absent for a click. */
+  via?: string;
   subject?: string;
   ticket?: string;
   runbook?: string;
@@ -554,6 +562,7 @@ export function toAuditLine(event: AuditEvent): AuditLogLine {
     ...(event.correlationId ? { correlation_id: event.correlationId } : {}),
     ...(event.approvalId ? { approval_id: event.approvalId } : {}),
     ...(event.reviewer ? { reviewer: event.reviewer } : {}),
+    ...(event.via ? { via: event.via } : {}),
     ...(event.subject ? { subject: event.subject } : {}),
     ...(event.ticket ? { ticket: event.ticket } : {}),
     ...(event.runbook ? { runbook: event.runbook } : {}),

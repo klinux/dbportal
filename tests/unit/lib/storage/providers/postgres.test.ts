@@ -681,6 +681,26 @@ describe("PostgresStorageProvider", () => {
       expect(params).toEqual(["req-1", record.requestedAt, "pending", "ana", "orders", JSON.stringify(record)]);
     });
 
+    test("putApprovalIf updates only while the status still matches, reporting whether a row changed", async () => {
+      await provider.initialize();
+      const approved = { ...record, status: "approved" as const };
+
+      mockQuery.mockClear();
+      mockQuery.mockResolvedValueOnce({ rowCount: 1, rows: [] });
+      expect(await provider.putApprovalIf(approved, "pending")).toBe(true);
+      const [sql, params] = (mockQuery.mock.calls as unknown[][])[0] as [string, unknown[]];
+      expect(sql).toBe("UPDATE approval_requests SET status = $2, data = $3 WHERE id = $1 AND status = $4");
+      expect(params).toEqual(["req-1", "approved", JSON.stringify(approved), "pending"]);
+
+      // No row still pending: the caller lost the race.
+      mockQuery.mockResolvedValueOnce({ rowCount: 0, rows: [] });
+      expect(await provider.putApprovalIf(approved, "pending")).toBe(false);
+
+      // A driver that omits rowCount counts as no change, never a silent true.
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      expect(await provider.putApprovalIf(approved, "pending")).toBe(false);
+    });
+
     test("getApproval parses the row and answers null for an unknown id", async () => {
       await provider.initialize();
       mockQuery.mockImplementation(async () => ({ rows: [{ data: JSON.stringify(record) }] }));
@@ -704,6 +724,7 @@ describe("PostgresStorageProvider", () => {
 
     test("every approval method refuses before initialize()", async () => {
       await expect(provider.putApproval(record)).rejects.toThrow("not initialized");
+      await expect(provider.putApprovalIf(record, "pending")).rejects.toThrow("not initialized");
       await expect(provider.getApproval("x")).rejects.toThrow("not initialized");
       await expect(provider.listApprovals({ limit: 1 })).rejects.toThrow("not initialized");
     });

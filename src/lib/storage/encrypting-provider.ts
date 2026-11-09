@@ -103,6 +103,10 @@ class CredentialEncryptingProvider implements ServerStorageProvider {
     return this.inner.putApproval(record);
   }
 
+  putApprovalIf(record: ApprovalRequest, expectedStatus: string): Promise<boolean> {
+    return this.inner.putApprovalIf(record, expectedStatus);
+  }
+
   getApproval(id: string): Promise<ApprovalRequest | null> {
     return this.inner.getApproval(id);
   }

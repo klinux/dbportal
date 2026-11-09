@@ -241,6 +241,8 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "queues, or runs at once, a statement a service token submits (POST). It reaches a provider through @/lib/executions/store, but only behind guardServiceRoute, the Bearer-token twin of guardRoute; tests/api/v1/executions.test.ts proves the 401",
   "v1/executions/[id]":
     "reads one execution request the calling token queued, from the app's own storage backend; never opens a user database (GET, no POST export). Same Bearer gate",
+  "v1/executions/[id]/decision":
+    "relays a reviewer's decision on an execution the calling token queued (POST). It reaches a provider through @/lib/executions/store, but only behind guardServiceRoute, the Bearer-token twin of guardRoute",
   "admin/freezes":
     "lists and declares freeze windows in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/freezes.test.ts proves the 403",
   "admin/freezes/[id]":
