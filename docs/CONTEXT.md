@@ -234,6 +234,17 @@ someone's behalf later.
 - Store: `approval_requests` table beside `audit_events` in both server stores; without a
   server store the write is a 503 that says what to configure. Reviewers: the datasource's
   `approverRoles` or administrators (`canApprove`); nobody reviews their own request.
+  `defaults.approverRoles` in the seed file is the fleet's reviewer list written once:
+  a connection without its own inherits it at load (`mergeDefaults`), one with its own
+  keeps it — so adding a datasource does not silently fall back to administrators-only,
+  which excluded the bot's decision relay (§4.59) from every forgotten one. It must name
+  at least one role (schema `.min(1)`): an empty default would be inherited everywhere and,
+  since `matchesAccess([])` is false for all, leave those datasources reviewable by no one,
+  admins included — omit it to keep the admins-only default. Two bounds: it applies to the
+  SEED FILE only (a datasource added through the Admin UI without its own list stays
+  admins-only, so the default never changes who reviews store records), and whoever it names
+  can see in the Approvals queue the pending statements of every inheriting datasource, even
+  ones they have no `roles` access to — reviewing a statement means reading it.
   `GET /api/approvals` (reviewer's list, `?scope=mine` for one's own), `GET/POST
   /api/approvals/[id]` (`{ decision, windowMinutes?, note? }`).
 - Audit: `approval_decision` event with `approvalId` + `reviewer`; every execution inside the

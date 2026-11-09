@@ -15,6 +15,9 @@ mock.module("@/lib/roles/store", () => ({
 mock.module("@/lib/seed/config-loader", () => ({
   loadConfig: async () => ({
     version: "1",
+    // The fleet-wide reviewer (§4.6) lives only in defaults, on no connection: it must still
+    // be offered in the selector, or an administrator cannot pick the role the default names.
+    defaults: { approverRoles: ["role:reviewers"] },
     connections: [
       { id: "orders", roles: ["*", "group:support"], writeRoles: ["role:oncall"], approverRoles: ["group:dba"] },
     ],
@@ -65,6 +68,7 @@ describe("known principals", () => {
       "named role:oncall <- role On-call",
       "group group:sre <- role On-call",
       "user user:ana@example.test <- role On-call",
+      "named role:reviewers <- defaults.approverRoles",
       "group group:support <- datasource orders",
       "group group:dba <- datasource orders",
       "group group:analysts <- datasource hr",

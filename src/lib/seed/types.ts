@@ -187,6 +187,18 @@ export const SeedDefaultsSchema = z.object({
   managed: z.boolean().optional(),
   environment: ConnectionEnvironmentSchema.optional(),
   ssl: SSLConfigSchema,
+  /**
+   * The reviewers every connection gets unless it names its own (§4.6): the fleet's
+   * reviewer list, written once. Without it, a connection without `approverRoles` is
+   * reviewed by administrators only — which silently excludes the bot's decision relay
+   * (§4.59) from every datasource somebody forgot to configure.
+   *
+   * Refused empty: `matchesAccess([])` is false for everyone and the `?? ["admin"]`
+   * fallback only covers ABSENT, not present-but-empty — so an empty default would make
+   * every inheriting datasource reviewable by no one, admins included, and jam its
+   * approval-gated writes. Absent is the way to keep the admins-only default.
+   */
+  approverRoles: z.array(AllowedRoleSchema).min(1, "defaults.approverRoles cannot be empty: an empty list is reviewable by no one, not even an administrator — omit it to keep the admins-only default").optional(),
 });
 
 export const LimitsSchema = z.object({

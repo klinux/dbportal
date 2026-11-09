@@ -8,6 +8,7 @@ export function mergeDefaults(conn: SeedConnection, defaults: SeedDefaults | und
     managed: conn.managed ?? defaults.managed,
     environment: conn.environment ?? defaults.environment,
     ssl: conn.ssl ?? defaults.ssl,
+    approverRoles: conn.approverRoles ?? defaults.approverRoles,
   };
 }
 

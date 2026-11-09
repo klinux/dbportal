@@ -30,6 +30,18 @@ describe("mergeDefaults", () => {
     expect(merged.managed).toBe(true);
   });
 
+  // The fleet's reviewer list, written once (§4.6): a connection without its own
+  // approverRoles inherits it; one with its own keeps it — including an explicit
+  // narrower list, which must never be widened by the default.
+  it("merges approverRoles defaults, and a connection's own list wins", () => {
+    const defaults: SeedDefaults = { approverRoles: ["admin", "role:reviewers"] };
+    expect(mergeDefaults({ ...baseConn }, defaults).approverRoles).toEqual(["admin", "role:reviewers"]);
+    expect(mergeDefaults({ ...baseConn, approverRoles: ["group:dba"] }, defaults).approverRoles).toEqual([
+      "group:dba",
+    ]);
+    expect(mergeDefaults({ ...baseConn }, undefined).approverRoles).toBeUndefined();
+  });
+
   it("merges ssl defaults", () => {
     const defaults: SeedDefaults = { ssl: { mode: "require", rejectUnauthorized: true } };
     const merged = mergeDefaults({ ...baseConn }, defaults);
