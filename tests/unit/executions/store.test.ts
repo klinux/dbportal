@@ -819,16 +819,21 @@ describe("executions store", () => {
     expect(boundRows([{ a: 1 }])).toEqual({ rows: [{ a: 1 }], truncated: false });
   });
 
-  // docs/CONTEXT.md §4.10: a decision relayed by the token that queued the request. The
-  // token needs trustedReviews, reaches only its own records, the named reviewer must pass
-  // the datasource's approverRoles, and the person the request is for cannot decide it.
-  test("a token with trustedReviews relays an approve that runs, naming the reviewer; a reject answers the thread", async () => {
-    liveToken = bot({ trustedReviews: true });
+  // docs/CONTEXT.md §4.59: the decision is relayed by a DIFFERENT token than the one that
+  // queued the request — `trustedReviews` and `trustedApprovals` are mutually exclusive, so
+  // the reviewer token's actor is NEVER `record.requester`. (Scoping the lookup by requester
+  // made every real relay 404; this test uses two distinct `svc:` actors on purpose.) The
+  // token needs `trustedReviews` and the datasource in its allowlist; the named reviewer
+  // must pass the datasource's `approverRoles`; the person the request is for cannot decide.
+  test("a DIFFERENT trustedReviews token relays an approve that runs, naming the reviewer; a reject answers the thread", async () => {
+    liveToken = bot({ name: "patito" }, { username: "svc:patito" }); // the SUBMITTER, which also runs the job
+    const reviews = bot({ trustedReviews: true, name: "patito-reviews" }, { username: "svc:patito-reviews" });
     const queued = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
     expect(queued.status).toBe("pending");
+    expect(queued.requester).toBe("svc:patito"); // owned by the submitter, not the reviewer
     const decided = await decideExecutionForToken(
       queued.id,
-      liveToken,
+      reviews,
       { decision: "approve", reviewer: "ana@example.test" },
     );
     expect(decided.status).toBe("approved");
@@ -839,21 +844,26 @@ describe("executions store", () => {
     const second = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 2" }, liveToken);
     const rejected = await decideExecutionForToken(
       second.id,
-      liveToken,
+      reviews,
       { decision: "reject", reviewer: "ana@example.test", note: "not today" },
     );
     expect(rejected.status).toBe("rejected");
     expect(notifyExecutionOutcome).toHaveBeenCalledWith(rejected);
   });
 
-  test("the decision relay refuses: no trustedReviews, a foreign record, a reviewer outside approverRoles, the subject, and a settled record", async () => {
+  test("the decision relay refuses: no trustedReviews, a datasource outside its allowlist, a reviewer outside approverRoles, the subject, and a settled record", async () => {
     liveToken = bot({ trustedReviews: true });
     const queued = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
     const relay = (over: Record<string, unknown>, identity = liveToken!, id = queued.id) =>
       decideExecutionForToken(id, identity, { decision: "approve", reviewer: "ana@example.test", ...over });
 
     expect(await status(relay({}, bot()))).toBe(403); // created without trustedReviews
-    expect(await status(relay({}, bot({ trustedReviews: true }, { username: "svc:other" })))).toBe(404); // not its record
+    // A reviews token whose allowlist excludes the record's datasource cannot reach it. (A
+    // DIFFERENT token is NOT refused on its own — that is the whole relay; the allowlist is
+    // the scope, not "who queued it".)
+    expect(
+      await status(relay({}, bot({ trustedReviews: true, datasources: ["elsewhere"] }, { username: "svc:other" }))),
+    ).toBe(404);
     expect(await status(relay({ reviewer: "U01" }))).toBe(403); // the subject cannot decide its own request
     expect(await status(relay({ decision: "drop" }))).toBe(400);
     expect(await status(relay({ reviewer: "  " }))).toBe(400);

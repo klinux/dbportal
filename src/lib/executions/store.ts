@@ -526,6 +526,24 @@ export async function getExecutionForToken(id: string, identity: ServiceIdentity
   return record;
 }
 
+/**
+ * One execution a REVIEWS token may decide, scoped by its datasource allowlist —
+ * NOT by who queued it. The relay is always a DIFFERENT token from the submitter
+ * (`trustedReviews` and `trustedApprovals` are mutually exclusive, §4.58), so its
+ * actor never equals `record.requester`; reusing getExecutionForToken here made
+ * every real relay 404 "Execution not found", because the record is owned by the
+ * submitting token. The datasource allowlist is the same gate the submit path
+ * applies (an empty allowlist means every datasource); `approverRoles` still
+ * decides who the named reviewer may be.
+ */
+export async function getExecutionForReviewer(id: string, identity: ServiceIdentity): Promise<ApprovalRequest | null> {
+  const record = await getApproval(id);
+  if (!record || record.kind !== "execution") return null;
+  const allow = identity.token.datasources;
+  if (allow && allow.length > 0 && !allow.includes(record.datasourceId)) return null;
+  return record;
+}
+
 /** The bounded note a reviewer may leave; re-exported so the decision path and this module agree. */
 export const EXECUTION_NOTE_MAX = NOTE_MAX_CHARS;
 
@@ -557,7 +575,7 @@ export async function decideExecutionForToken(
   const reviewer = typeof input.reviewer === "string" ? input.reviewer.trim().slice(0, SUBJECT_MAX) : "";
   if (!reviewer) throw new ApprovalError("reviewer must name who decided", 400);
 
-  const record = await getExecutionForToken(id, identity);
+  const record = await getExecutionForReviewer(id, identity);
   if (!record) throw new ApprovalError("Execution not found", 404);
   // Two reviewers (§4.28) exist so that no single actor releases the statement - and the
   // relay is one actor, whatever names it sends. An approve is refused; a reject stays
