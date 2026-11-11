@@ -1340,7 +1340,10 @@ built. Each lands as its own section when done.
   `POST /api/v1/executions/[id]/decision`, `{ decision: "approve" | "reject", reviewer,
   note? }` (`reviewer` free text like `onBehalfOf`, trimmed to 200 characters): the
   decision a reviewer made where the bot lives. What bounds the relay: the token reaches
-  only records it queued itself; the named reviewer must pass the datasource's own
+  executions on the datasources in its own allowlist — NOT only the ones it queued, because
+  `trustedReviews` and `trustedApprovals` are mutually exclusive (§4.58), so the reviewing
+  token never queued anything; scoping by `requester` once made every real relay 404; the
+  named reviewer must pass the datasource's own
   `approverRoles` — the same `canReview` the page and the Slack buttons apply
   (`withNamedRoles` on the name, so membership is the named roles', never the token's) —
   and the person the request is for cannot decide it (§4.24 against the `subject`, since
