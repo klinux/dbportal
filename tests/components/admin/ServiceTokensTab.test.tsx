@@ -114,10 +114,34 @@ describe("ServiceTokensTab", () => {
       requireApproval: true,
       trustedApprovals: false,
       trustedReviews: false,
+      reviewsFor: [],
     });
     expect(getByTestId("service-token-secret").textContent).toContain("dbp_the-secret-once");
     fireEvent.click(getByText("Done"));
     expect(queryByTestId("service-token-secret")).toBeNull();
+  });
+
+  test("reviewsFor appears only under trusted reviews and posts the paired token names", async () => {
+    const fetchMock = mockGlobalFetch({
+      "/api/admin/service-tokens": (req) =>
+        req.method === "POST"
+          ? { status: 201, ok: true, json: { token: live, secret: "dbp_the-secret-once" } }
+          : listing([]),
+    });
+    const { getByText, getByLabelText, queryByLabelText } = await renderLoaded();
+    fireEvent.click(getByText("New token"));
+    fireEvent.change(getByLabelText("Name"), { target: { value: "queue-bot-reviews" } });
+    // The field is hidden until the token can review.
+    expect(queryByLabelText(/^Reviews for/)).toBeNull();
+    fireEvent.click(getByLabelText(/Trusted reviews/));
+    fireEvent.change(getByLabelText(/^Reviews for/), { target: { value: "queue-bot, queue-bot" } });
+    await act(async () => {
+      fireEvent.click(getByText("Create token"));
+    });
+    const [post] = calls(fetchMock, "POST");
+    const body = JSON.parse((post[1] as RequestInit).body as string);
+    expect(body.trustedReviews).toBe(true);
+    expect(body.reviewsFor).toEqual(["queue-bot"]); // de-duped by listOf
   });
 
   test("a blank name is refused before any request; the server's refusal is shown in its words", async () => {

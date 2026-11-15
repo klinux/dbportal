@@ -33,7 +33,7 @@ import type {
   ExecutionReview,
   ExecutionStatementOutcome,
 } from "@/lib/storage/types";
-import { findServiceTokenByActor } from "@/lib/service-tokens/store";
+import { actorOf, findServiceTokenByActor } from "@/lib/service-tokens/store";
 import { withNamedRoles } from "@/lib/roles/store";
 import type { ServiceIdentity } from "@/lib/service-tokens/types";
 import { executionFailureReason } from "@/lib/audit-execution";
@@ -526,6 +526,31 @@ export async function getExecutionForToken(id: string, identity: ServiceIdentity
   return record;
 }
 
+/**
+ * One execution a REVIEWS token may decide. The relay is always a DIFFERENT token from the
+ * submitter (`trustedReviews` and `trustedApprovals` are mutually exclusive, §4.58), so its
+ * actor never equals `record.requester`; reusing getExecutionForToken here made every real
+ * relay 404 "Execution not found", because the record is owned by the submitting token.
+ *
+ * Two gates replace that scope. The record's datasource must be in the token's allowlist —
+ * the same gate the submit path applies (an empty allowlist means every datasource). AND the
+ * record's requester must be a token this one was declared to serve: its own actor, or a
+ * `svc:<name>` named in `reviewsFor`. Without the pairing a trustedReviews token with no (or
+ * an empty) allowlist could decide a request queued by any unrelated bot that happened to
+ * land in a shared datasource — the hole the datasource-only scope left open. `approverRoles`
+ * still decides who the named reviewer may be.
+ */
+export async function getExecutionForReviewer(id: string, identity: ServiceIdentity): Promise<ApprovalRequest | null> {
+  const record = await getApproval(id);
+  if (!record || record.kind !== "execution") return null;
+  const allow = identity.token.datasources;
+  if (allow && allow.length > 0 && !allow.includes(record.datasourceId)) return null;
+  // The token speaks for itself and for the tokens it names in reviewsFor, nothing else.
+  const serves = new Set([identity.token.name, ...(identity.token.reviewsFor ?? [])].map((name) => actorOf({ name })));
+  if (!serves.has(record.requester)) return null;
+  return record;
+}
+
 /** The bounded note a reviewer may leave; re-exported so the decision path and this module agree. */
 export const EXECUTION_NOTE_MAX = NOTE_MAX_CHARS;
 
@@ -535,7 +560,8 @@ export const EXECUTION_NOTE_MAX = NOTE_MAX_CHARS;
  * inbound path from there, so the token carries the decision and NAMES who made it.
  *
  * What bounds the relay: the token must have been created with `trustedReviews` (the
- * operator's choice, like `trustedApprovals`); it only reaches records it queued itself;
+ * operator's choice, like `trustedApprovals`); it reaches only records queued by itself or
+ * by a token it names in `reviewsFor`, within its datasource allowlist (getExecutionForReviewer);
  * the named reviewer must pass the datasource's own `approverRoles` - the same `canReview`
  * the page and the Slack buttons apply - so the token can only name people the portal
  * already recognizes as reviewers; and the person the request is for cannot decide it.
@@ -557,7 +583,7 @@ export async function decideExecutionForToken(
   const reviewer = typeof input.reviewer === "string" ? input.reviewer.trim().slice(0, SUBJECT_MAX) : "";
   if (!reviewer) throw new ApprovalError("reviewer must name who decided", 400);
 
-  const record = await getExecutionForToken(id, identity);
+  const record = await getExecutionForReviewer(id, identity);
   if (!record) throw new ApprovalError("Execution not found", 404);
   // Two reviewers (§4.28) exist so that no single actor releases the statement - and the
   // relay is one actor, whatever names it sends. An approve is refused; a reject stays

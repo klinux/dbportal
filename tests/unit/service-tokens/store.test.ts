@@ -96,6 +96,17 @@ describe("service-tokens store", () => {
     );
     expect(both.statusCode).toBe(400);
     expect(both.message).toContain("cannot live on the same token");
+    // reviewsFor is the pairing: the tokens a reviews token may decide for. It is absent by
+    // default, stored when given alongside trustedReviews, and refused without it — there is
+    // nothing to pair on a token that cannot review.
+    expect(relay).not.toHaveProperty("reviewsFor");
+    const paired = (
+      await createServiceToken({ name: "paired", trustedReviews: true, reviewsFor: ["queue-bot"] }, "root")
+    ).record;
+    expect(paired.reviewsFor).toEqual(["queue-bot"]);
+    const orphan = await createServiceToken({ name: "orphan", reviewsFor: ["queue-bot"] }, "root").catch((e) => e);
+    expect(orphan.statusCode).toBe(400);
+    expect(orphan.message).toContain("trustedReviews");
   });
 
   test("refuses a bad name, a bad role, a non-list, a malformed datasource id, a non-object, and a duplicate live name", async () => {
@@ -103,6 +114,9 @@ describe("service-tokens store", () => {
     expect(await status(createServiceToken({ name: "ok", role: "root" }, "root"))).toBe(400);
     expect(await status(createServiceToken({ name: "ok", groups: "sre" }, "root"))).toBe(400);
     expect(await status(createServiceToken({ name: "ok", datasources: ["Not Valid"] }, "root"))).toBe(400);
+    expect(
+      await status(createServiceToken({ name: "ok", trustedReviews: true, reviewsFor: ["Not Valid"] }, "root")),
+    ).toBe(400);
     expect(await status(createServiceToken("nope", "root"))).toBe(400);
     await createServiceToken({ name: "dup" }, "root");
     expect(await status(createServiceToken({ name: "dup" }, "root"))).toBe(409);
