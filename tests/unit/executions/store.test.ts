@@ -164,6 +164,7 @@ let liveToken: ServiceIdentity | null = null;
 mock.module("@/lib/service-tokens/store", () => ({
   findServiceTokenByActor: async (actor: string) =>
     liveToken && liveToken.session.username === actor ? liveToken : null,
+  actorOf: (token: { name: string }) => `svc:${token.name}`,
 }));
 
 // The queue (§4.40): what an approved request is handed to; the handler is called back by the tests.
@@ -823,14 +824,18 @@ describe("executions store", () => {
   // queued the request — `trustedReviews` and `trustedApprovals` are mutually exclusive, so
   // the reviewer token's actor is NEVER `record.requester`. (Scoping the lookup by requester
   // made every real relay 404; this test uses two distinct `svc:` actors on purpose.) The
-  // token needs `trustedReviews` and the datasource in its allowlist; the named reviewer
-  // must pass the datasource's `approverRoles`; the person the request is for cannot decide.
-  test("a DIFFERENT trustedReviews token relays an approve that runs, naming the reviewer; a reject answers the thread", async () => {
-    liveToken = bot({ name: "patito" }, { username: "svc:patito" }); // the SUBMITTER, which also runs the job
-    const reviews = bot({ trustedReviews: true, name: "patito-reviews" }, { username: "svc:patito-reviews" });
+  // pairing is explicit: the reviews token names, in `reviewsFor`, the tokens it may decide
+  // for — here `queue-bot`, the submitter. The datasource must also be in its allowlist; the
+  // named reviewer must pass the datasource's `approverRoles`; the person it is for cannot decide.
+  test("a paired trustedReviews token relays an approve that runs, naming the reviewer; a reject answers the thread", async () => {
+    liveToken = bot({ name: "queue-bot" }, { username: "svc:queue-bot" }); // the SUBMITTER, which also runs the job
+    const reviews = bot(
+      { trustedReviews: true, name: "queue-bot-reviews", reviewsFor: ["queue-bot"] },
+      { username: "svc:queue-bot-reviews" },
+    );
     const queued = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
     expect(queued.status).toBe("pending");
-    expect(queued.requester).toBe("svc:patito"); // owned by the submitter, not the reviewer
+    expect(queued.requester).toBe("svc:queue-bot"); // owned by the submitter, not the reviewer
     const decided = await decideExecutionForToken(
       queued.id,
       reviews,
@@ -851,6 +856,39 @@ describe("executions store", () => {
     expect(notifyExecutionOutcome).toHaveBeenCalledWith(rejected);
   });
 
+  // The pairing is the scope, not the datasource allowlist. A trustedReviews token can only
+  // decide requests queued by a token it names in `reviewsFor` (or its own) — so a review
+  // token cannot reach an unrelated bot's request even when it shares a datasource, the hole
+  // the datasource-only scope left open. Proven both ways: allowlist empty (every datasource)
+  // and the datasource explicitly allowed; both 404 because the queuer is not served.
+  test("a trustedReviews token cannot decide a request from a token outside its reviewsFor", async () => {
+    liveToken = bot({ name: "queue-bot" }, { username: "svc:queue-bot" });
+    const queued = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
+    expect(queued.requester).toBe("svc:queue-bot");
+
+    const strangerNoAllowlist = bot(
+      { trustedReviews: true, name: "other-reviews", reviewsFor: ["someone-else"] },
+      { username: "svc:other-reviews" },
+    );
+    const strangerAllowingHeld = bot(
+      { trustedReviews: true, name: "other-reviews", reviewsFor: ["someone-else"], datasources: ["held"] },
+      { username: "svc:other-reviews" },
+    );
+    const decide = (identity: ServiceIdentity) =>
+      decideExecutionForToken(queued.id, identity, { decision: "approve", reviewer: "ana@example.test" });
+
+    expect(await status(decide(strangerNoAllowlist))).toBe(404); // empty allowlist = every datasource, still refused
+    expect(await status(decide(strangerAllowingHeld))).toBe(404); // datasource allowed, still refused — pairing fails
+    expect(rows.get(queued.id)?.status).toBe("pending"); // nothing decided it
+
+    // A reviews token that queues AND decides its own request needs no list: itself is served.
+    const solo = bot({ trustedReviews: true, name: "solo" }, { username: "svc:solo" });
+    const own = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 2" }, solo);
+    expect(own.requester).toBe("svc:solo");
+    const decided = await decideExecutionForToken(own.id, solo, { decision: "approve", reviewer: "ana@example.test" });
+    expect(decided.status).toBe("approved");
+  });
+
   test("the decision relay refuses: no trustedReviews, a datasource outside its allowlist, a reviewer outside approverRoles, the subject, and a settled record", async () => {
     liveToken = bot({ trustedReviews: true });
     const queued = await ask({ datasourceId: "held", statement: "DELETE FROM t WHERE id = 1" }, liveToken);
@@ -858,11 +896,19 @@ describe("executions store", () => {
       decideExecutionForToken(id, identity, { decision: "approve", reviewer: "ana@example.test", ...over });
 
     expect(await status(relay({}, bot()))).toBe(403); // created without trustedReviews
-    // A reviews token whose allowlist excludes the record's datasource cannot reach it. (A
-    // DIFFERENT token is NOT refused on its own — that is the whole relay; the allowlist is
-    // the scope, not "who queued it".)
+    // A reviews token whose allowlist excludes the record's datasource cannot reach it, even
+    // when it IS paired to the queuer (reviewsFor names "bot") — so this isolates the
+    // allowlist gate from the pairing gate the test above covers.
     expect(
-      await status(relay({}, bot({ trustedReviews: true, datasources: ["elsewhere"] }, { username: "svc:other" }))),
+      await status(
+        relay(
+          {},
+          bot(
+            { trustedReviews: true, reviewsFor: ["bot"], datasources: ["elsewhere"] },
+            { username: "svc:other" },
+          ),
+        ),
+      ),
     ).toBe(404);
     expect(await status(relay({ reviewer: "U01" }))).toBe(403); // the subject cannot decide its own request
     expect(await status(relay({ decision: "drop" }))).toBe(400);

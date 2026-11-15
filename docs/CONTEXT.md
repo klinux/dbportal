@@ -1339,11 +1339,17 @@ built. Each lands as its own section when done.
   reviewed and its word about WHO decided is accepted. On
   `POST /api/v1/executions/[id]/decision`, `{ decision: "approve" | "reject", reviewer,
   note? }` (`reviewer` free text like `onBehalfOf`, trimmed to 200 characters): the
-  decision a reviewer made where the bot lives. What bounds the relay: the token reaches
-  executions on the datasources in its own allowlist — NOT only the ones it queued, because
-  `trustedReviews` and `trustedApprovals` are mutually exclusive (§4.58), so the reviewing
-  token never queued anything; scoping by `requester` once made every real relay 404; the
-  named reviewer must pass the datasource's own
+  decision a reviewer made where the bot lives. What bounds the relay: the token reaches an
+  execution only when it was queued by a token the reviews token is PAIRED to — itself, or a
+  token named in `reviewsFor` (`ServiceTokenRecord`, token names, set beside the checkbox at
+  creation) — and the execution's datasource is in the token's own allowlist. Scoping by
+  `requester` alone once made every real relay 404, because `trustedReviews` and
+  `trustedApprovals` are mutually exclusive (§4.58) so the reviewing token never queued
+  anything; but scoping by the datasource alone was too wide — a reviews token with an empty
+  allowlist (every datasource) could decide a request from any unrelated bot that shared one.
+  The pairing is the fix: a reviews token speaks only for the bots it was declared to serve.
+  A token that queues AND decides its own requests needs no list, since itself is always
+  served. The named reviewer must pass the datasource's own
   `approverRoles` — the same `canReview` the page and the Slack buttons apply
   (`withNamedRoles` on the name, so membership is the named roles', never the token's) —
   and the person the request is for cannot decide it (§4.24 against the `subject`, since

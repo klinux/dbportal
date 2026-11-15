@@ -32,6 +32,15 @@ export interface ServiceTokenRecord {
    * `trustedApprovals` — so grant it only to a bot whose decision flow the operator reviewed.
    */
   trustedReviews?: boolean;
+  /**
+   * The names of the tokens whose requests this `trustedReviews` token may decide — the
+   * pairing that keeps a review token speaking only for the bots it was declared to serve.
+   * A decision is accepted only when the record's requester is one of these (`svc:<name>`)
+   * or this token itself; the datasource allowlist still applies on top. A token that
+   * queues AND decides its own requests needs no list — itself is always allowed. Empty or
+   * absent therefore means "only my own requests", never "any request in my datasources".
+   */
+  reviewsFor?: string[];
   /** SHA-256 of the secret, hex. */
   secretHash: string;
   /** The first characters of the secret, so an operator can tell tokens apart. */

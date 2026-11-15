@@ -129,7 +129,13 @@ POST /api/v1/executions/{id}/decision
 { "decision": "approve", "reviewer": "ana@example.test", "note": "optional" }
 ```
 
-Only on records this token queued. The named reviewer must pass the datasource's
+Because `trustedReviews` and `trustedApprovals` are exclusive, the token that decides is a
+DIFFERENT one from the token that queued — so the reviews token declares which tokens it may
+decide for in `reviewsFor` (token names, set beside the checkbox). A relay reaches an
+execution only when it was queued by one of those tokens (or by this token itself, for a bot
+that queues and decides alone) AND the execution's datasource is in this token's allowlist —
+so a reviews token cannot decide an unrelated bot's request even in a shared datasource. The
+named reviewer must pass the datasource's
 `approverRoles` — the portal refuses anyone else with a 403 naming the datasource; roles by
 `group:` and the default (`admin`) always refuse a relay, whose session is the name alone —
 and the person the request is for cannot decide it. A datasource with `approvalsRequired: 2`

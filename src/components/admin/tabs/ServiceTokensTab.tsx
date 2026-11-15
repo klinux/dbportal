@@ -40,6 +40,7 @@ interface Draft {
   requireApproval: boolean;
   trustedApprovals: boolean;
   trustedReviews: boolean;
+  reviewsFor: string;
 }
 
 const EMPTY: Draft = {
@@ -50,6 +51,7 @@ const EMPTY: Draft = {
   requireApproval: true,
   trustedApprovals: false,
   trustedReviews: false,
+  reviewsFor: "",
 };
 
 /** Comma-separated names as the API's list. */
@@ -112,6 +114,7 @@ export function ServiceTokensTab() {
           requireApproval: draft.requireApproval,
           trustedApprovals: draft.trustedApprovals,
           trustedReviews: draft.trustedReviews,
+          reviewsFor: draft.trustedReviews ? listOf(draft.reviewsFor) : [],
         }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string; secret?: string };
@@ -259,9 +262,14 @@ export function ServiceTokensTab() {
                       </Badge>
                     )}
                     {token.trustedReviews && (
-                      <Badge variant="outline" className="ml-2 text-[10px]" title="May relay a reviewer's decision on its own pending executions">
+                      <Badge variant="outline" className="ml-2 text-[10px]" title="May relay a reviewer's decision on a pending execution">
                         trusted reviews
                       </Badge>
+                    )}
+                    {token.reviewsFor && token.reviewsFor.length > 0 && (
+                      <span className="ml-2 font-mono text-[10px] text-fg-muted" title="Decides requests queued by these tokens">
+                        reviews for {token.reviewsFor.join(", ")}
+                      </span>
                     )}
                   </TableCell>
                   <TableCell className="text-xs text-fg-muted whitespace-nowrap">
@@ -399,6 +407,24 @@ export function ServiceTokensTab() {
                   trusts the bot that the person really decided. Grant only to a bot whose decision flow you reviewed. Exclusive with trusted approvals: one token must not declare the approvals and then decide its own requests.
                 </span>
               </label>
+              {draft.trustedReviews && (
+                <div className="space-y-1.5 pl-6">
+                  <Label htmlFor="token-reviews-for" className="text-xs text-fg-tertiary">
+                    Reviews for (comma-separated token names, optional)
+                  </Label>
+                  <Input
+                    id="token-reviews-for"
+                    value={draft.reviewsFor}
+                    onChange={(e) => setDraft({ ...draft, reviewsFor: e.target.value })}
+                    placeholder="queue-bot"
+                    className="h-8 text-xs font-mono bg-panel border-hairline-strong"
+                  />
+                  <p className="text-[11px] text-fg-muted">
+                    The tokens whose requests this one may decide. Empty means only its own — a token that queues and
+                    decides alone needs no list.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
           <div className="shrink-0 border-t border-hairline bg-surface px-4 md:px-8 py-3 flex justify-end gap-2">

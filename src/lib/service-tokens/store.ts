@@ -109,6 +109,11 @@ export async function createServiceToken(
       "trustedApprovals and trustedReviews cannot live on the same token: it would declare the approvals and then decide its own requests",
       400,
     );
+  // The tokens this reviews token may speak for. It belongs only to a trustedReviews token:
+  // without the trust there is nothing to pair. Empty means "only my own requests".
+  const reviewsFor = stringList(body.reviewsFor, "reviewsFor", NAME_SHAPE);
+  if (reviewsFor.length > 0 && !trustedReviews)
+    throw new ServiceTokenError("reviewsFor only applies to a token created with trustedReviews", 400);
   const records = await readAll();
   if (records.some((r) => r.name === name && !r.revokedAt))
     throw new ServiceTokenError(`A live service token named "${name}" already exists`, 409);
@@ -122,6 +127,7 @@ export async function createServiceToken(
     requireApproval,
     ...(trustedApprovals ? { trustedApprovals } : {}),
     ...(trustedReviews ? { trustedReviews } : {}),
+    ...(reviewsFor.length > 0 ? { reviewsFor } : {}),
     secretHash: hashSecret(secret),
     prefix: secret.slice(0, SECRET_PREFIX.length + 6),
     createdAt: new Date().toISOString(),
