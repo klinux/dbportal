@@ -60,7 +60,7 @@
         "next": "^16.3.8",
         "next-themes": "^0.4.6",
         "openid-client": "^6.8.8",
-        "oracledb": "^6.10.0",
+        "oracledb": "^26.0.0",
         "pg": "^8.23.1",
         "react": "^19.3.1",
         "react-dom": "^19.3.1",
@@ -2015,7 +2015,7 @@
 
     "ora": ["ora@8.2.0", "", { "dependencies": { "chalk": "^5.3.0", "cli-cursor": "^5.0.0", "cli-spinners": "^2.9.2", "is-interactive": "^2.0.0", "is-unicode-supported": "^2.0.0", "log-symbols": "^6.0.0", "stdin-discarder": "^0.2.2", "string-width": "^7.2.0", "strip-ansi": "^7.1.0" } }, "sha512-weP+BZ8MVNnlCm8c0Qdc1WSWq4Qn7I+9CJGm7Qali6g44e/PUzbjNqJX5NJ9ljlNMosfJvg1fKEGILklK9cwnw=="],
 
-    "oracledb": ["oracledb@6.10.0", "", {}, "sha512-kGUumXmrEWbSpBuKJyb9Ip3rXcNgKK6grunI3/cLPzrRvboZ6ZoLi9JQ+z6M/RIG924tY8BLflihL4CKKQAYMA=="],
+    "oracledb": ["oracledb@26.0.0", "", {}, "sha512-ywUqFidj/mPjRjfpOQdzcXT98lhiJzavPCbyPF9JYivcgrpHx7ENj4ZGQDclrpGXeozUBLc5BNXV7yj5qTMxDw=="],
 
     "os-paths": ["os-paths@4.4.0", "", {}, "sha512-wrAwOeXp1RRMFfQY8Sy7VaGVmPocaLwSFOYCGKSyo8qmJ+/yaafCl5BCA1IQZWqFSRBrKDYFeR9d/VyQzfH/jg=="],
 
