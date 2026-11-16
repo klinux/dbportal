@@ -17,6 +17,11 @@ updates:
       # new major waits for a manual pass.
       - dependency-name: "@zumer/snapdom"
         update-types: ["version-update:semver-major"]
+      # Above 2.3.7, keyboard selection in the Create Table dialog breaks and
+      # CreateTableModal.test.tsx overflows the stack (CI hangs). A later version
+      # goes in only after that dialog is driven by keyboard in a browser.
+      - dependency-name: "@radix-ui/react-select"
+        versions: [">2.3.7"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
