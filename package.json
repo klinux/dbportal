@@ -158,7 +158,7 @@
     "eslint-config-next": "^16.4.6",
     "happy-dom": "^21.0.4",
     "knip": "^6.34.0",
-    "oxlint": "^1.90.0",
+    "oxlint": "^1.93.0",
     "tailwindcss": "^4.3.5",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.69.0",
