@@ -524,6 +524,10 @@ export class RedisProvider extends BaseDatabaseProvider {
       db,
       connectTimeout: this.queryTimeout,
       lazyConnect: true,
+      // ioredis 6 speaks RESP3 by default, and RESP3 changes reply shapes this provider
+      // renders (ZRANGE ... WITHSCORES comes back as nested pairs, not a flat list). RESP2 is
+      // the shape every result here was built and tested on.
+      protocol: 2,
       ...(tls ? { tls } : {}),
     };
   }
