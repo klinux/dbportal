@@ -29,6 +29,13 @@ updates:
         versions: [">=1.2.0"]
       - dependency-name: "@radix-ui/react-popover"
         versions: [">=1.2.0"]
+      # Nothing imports the menubar and hover-card wrappers, yet their 1.2 releases
+      # move the top-level popper (popover, select, tooltip) and roving-focus (tabs,
+      # radio-group). They wait for the dialog/popover/select move above.
+      - dependency-name: "@radix-ui/react-menubar"
+        versions: [">=1.2.0"]
+      - dependency-name: "@radix-ui/react-hover-card"
+        versions: [">=1.2.0"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
