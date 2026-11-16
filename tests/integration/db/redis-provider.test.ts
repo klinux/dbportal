@@ -373,6 +373,18 @@ describe("RedisProvider", () => {
   });
 
   // --------------------------------------------------------------------------
+  // Wire protocol
+  // --------------------------------------------------------------------------
+
+  // ioredis 6 defaults to RESP3. Measured 2026-11-16 against redis 8.10.3: with the default,
+  // `ZRANGE board 0 -1 WITHSCORES` rendered as two rows of nested pairs (["x","1"]) instead
+  // of the four flat values ioredis 5 gave; with protocol 2 every result matched ioredis 5.
+  test("every connection asks ioredis for RESP2", async () => {
+    await provider.connect();
+    expect(capturedRedisOptions[capturedRedisOptions.length - 1]).toMatchObject({ protocol: 2 });
+  });
+
+  // --------------------------------------------------------------------------
   // TLS
   // --------------------------------------------------------------------------
 
