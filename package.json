@@ -111,7 +111,7 @@
     "input-otp": "^1.5.0",
     "ioredis": "^6.0.0",
     "jose": "^6.2.17",
-    "lucide-react": "^1.48.0",
+    "lucide-react": "^1.72.0",
     "monaco-editor": "^0.57.0",
     "mongodb": "^7.6.0",
     "mssql": "^12.7.2",
