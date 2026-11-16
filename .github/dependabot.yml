@@ -5,6 +5,18 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    ignore:
+      # The agent runtime is installed at ratified versions only
+      # (tests/unit/agent-dependency-boundary.test.ts fails any other); moving it is a
+      # deliberate ratification, never a routine bump.
+      - dependency-name: "ai"
+      - dependency-name: "@ai-sdk/*"
+      - dependency-name: "workflow"
+      - dependency-name: "@workflow/*"
+      # Chart and diagram exports are visual and no test checks their output, so a
+      # new major waits for a manual pass.
+      - dependency-name: "@zumer/snapdom"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
