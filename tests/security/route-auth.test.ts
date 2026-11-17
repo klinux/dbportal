@@ -283,6 +283,8 @@ const ROUTES_WITHOUT_A_PROVIDER: Record<string, string> = {
     "browses the Vault KV mount and shapes one secret for the datasource sheet (GET); talks to Vault, never opens a user database. Admin-gated by requireAdmin; tests/api/admin/vault-kv.test.ts proves the 403",
   "admin/principals":
     "lists the principals already named anywhere - the seed file, the app's own storage backend, the tokens (GET); never opens a user database. Admin-gated by requireAdmin; tests/api/admin/principals.test.ts proves the 403",
+  "admin/users":
+    "lists the people seen signing in and their recent sign-in counts, from the app's own storage backend and its audit record (GET); never opens a user database. Admin-gated by requireAdmin; tests/api/admin/users.test.ts proves the 403",
   "admin/roles":
     "lists and declares named roles in the app's own storage backend and the seed file; never opens a user database (GET/POST). Admin-gated by requireAdmin; tests/api/admin/roles.test.ts proves the 403",
   "admin/roles/[id]":
@@ -494,6 +496,8 @@ describe("routes that reach a provider require a session", () => {
       "the principals already named in the seed file, the app's own storage backend and the tokens, gathered once; opens no user database",
     "@/lib/principals-seen":
       "the people and groups seen signing in, one document in the app's own storage backend; opens no user database",
+    "@/lib/portal-users":
+      "the people seen signing in, with sign-in counts read from the audit record in the app's own storage backend; opens no user database",
     "@/lib/environments/store":
       "environments from the built-ins, the seed file and the app's own storage backend, merged by id; opens no user database",
     "@/lib/api/runbooks": "the runbook routes' error answer and id reader; reaches no provider",

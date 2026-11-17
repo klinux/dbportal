@@ -1388,6 +1388,22 @@ built. Each lands as its own section when done.
   identity STRINGS: a subject named by chat id and the same person named as reviewer by
   e-mail pass it — the relay's caller is told to authenticate the press on its own side,
   where both identities are known.
+- **4.60 Who uses the portal — done (asked 2026-11-17).** An administrator had no way to
+  see who signs in: the people were remembered (§4.49) only to feed the principal picker,
+  and the sign-ins sat in the audit record one event at a time. Security → **Users**
+  ([`UsersTab`](../src/components/admin/tabs/UsersTab.tsx), `GET /api/admin/users`,
+  [`src/lib/portal-users.ts`](../src/lib/portal-users.ts)) lists everybody seen signing in,
+  most recent first: the role, groups and method (password or SSO) of their last sign-in,
+  first and last sign-in, and how many `login_success` events the audit record holds for
+  them over the last 30 days. Built on what existed, no new table: a person's `user:`
+  entry in `shared:principals` now also keeps `role`, `groups` and `method`, and refreshes
+  hourly (groups stay daily) or at once when any of the three changes; the counts are one
+  bounded read of the record (20 000 events, past which the page says the counts are a
+  floor), and a record that cannot be read leaves the people listed with the counts
+  unknown. An entry remembered before this shows a dash for the role until that person
+  signs in again. Deliberately not "who is online": sessions are signed cookies the server
+  does not list; the nearest honest answer, last activity from the audit record, is left
+  for when somebody asks. Read-only - who may sign in stays the identity provider's call.
 
 ## 5. Decisions already taken
 

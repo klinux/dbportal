@@ -206,6 +206,7 @@ run_group "Group 5b/6: SshProfilesTab" \
   tests/components/admin/FreezeWindowsTab.test.tsx \
   tests/components/admin/NamedRolesTab.test.tsx \
   tests/components/admin/EnvironmentsTab.test.tsx \
+  tests/components/admin/UsersTab.test.tsx \
   tests/components/admin/ChannelsTab.test.tsx \
   tests/components/admin/TrailAlertsCard.test.tsx \
   tests/components/alerts/AlertsPanel.test.tsx \

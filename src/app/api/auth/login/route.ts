@@ -192,7 +192,7 @@ export async function POST(request: NextRequest) {
     if (matched) {
       await login(matched.role, matched.email);
       // So the picker offers this person before anybody types them (§4.49). Never throws.
-      await rememberSignIn(matched.email);
+      await rememberSignIn(matched.email, [], new Date(), { role: matched.role, method: "password" });
       resetRateLimit("login_client", clientKey);
       resetRateLimit("login_account", accountKey);
       // Isolated in its own try/catch, separate from login() above, matching logout and the OIDC
