@@ -59,7 +59,7 @@ mock.module("@/lib/oidc", () => ({
 const mockLogin = mock(async (_role: string, _username?: string, _groups?: string[]) => {});
 
 // The sign-in remembered for the principal picker (§4.49): asserted by what reaches it.
-const mockRemember = mock(async (_username: string, _groups?: readonly string[]) => {});
+const mockRemember = mock(async (_username: string, _groups?: readonly string[], _now?: Date, _detail?: unknown) => {});
 mock.module("@/lib/principals-seen", () => ({ rememberSignIn: mockRemember }));
 
 mock.module("@/lib/auth", () => ({
@@ -120,7 +120,8 @@ describe("GET /api/auth/oidc/callback", () => {
     expect(mockDecryptState).toHaveBeenCalledWith("encrypted-state-cookie");
     expect(mockExchangeCode).toHaveBeenCalledTimes(1);
     expect(mockLogin).toHaveBeenCalledWith("user", "user@example.com", []);
-    expect(mockRemember).toHaveBeenCalledWith("user@example.com", []);
+    // The mapped role and the method ride along for the Users page (§4.60).
+    expect(mockRemember).toHaveBeenCalledWith("user@example.com", [], expect.any(Date), { role: "user", method: "oidc" });
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toContain("/");
   });

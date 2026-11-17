@@ -10,7 +10,7 @@ import { RFC6238_SECRET } from "../../helpers/rfc6238";
 const mockLogin = mock(async (_role: string, _email?: string) => {});
 
 // The sign-in remembered for the principal picker (§4.49): asserted by what reaches it.
-const mockRemember = mock(async (_username: string) => {});
+const mockRemember = mock(async (_username: string, _groups?: readonly string[], _now?: Date, _detail?: unknown) => {});
 mock.module("@/lib/principals-seen", () => ({ rememberSignIn: mockRemember }));
 
 mock.module("@/lib/auth", () => ({
@@ -215,7 +215,11 @@ describe("POST /api/auth/login", () => {
 
     expect(mockLogin).toHaveBeenCalledTimes(1);
     expect(mockLogin).toHaveBeenCalledWith("admin", "admin@libredb.org");
-    expect(mockRemember).toHaveBeenCalledWith("admin@libredb.org");
+    // The role and method ride along for the Users page (§4.60).
+    expect(mockRemember).toHaveBeenCalledWith("admin@libredb.org", [], expect.any(Date), {
+      role: "admin",
+      method: "password",
+    });
   });
 
   test("calls login() with role and email for user", async () => {

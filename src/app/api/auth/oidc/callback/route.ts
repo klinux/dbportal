@@ -97,7 +97,7 @@ export async function GET(request: Request) {
     await login(role, username, groups);
     // So the picker offers this person and their groups before anybody types them (§4.49).
     // Never throws: the sign-in already happened.
-    await rememberSignIn(String(username), groups);
+    await rememberSignIn(String(username), groups, new Date(), { role, method: "oidc" });
 
     // Clean up state cookie
     cookieStore.delete({ name: "oidc-state", path: getBasePath() || "/" });

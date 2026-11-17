@@ -73,6 +73,14 @@ export interface SeenPrincipalRecord {
   id: string;
   firstSeenAt: string;
   lastSeenAt: string;
+  /**
+   * A person's last sign-in as the Users page shows it (docs/CONTEXT.md §4.60): the portal
+   * role it granted, the groups the provider sent, and how they signed in. Only on `user:`
+   * entries, and absent on one remembered before §4.60 until that person signs in again.
+   */
+  role?: "admin" | "user";
+  groups?: string[];
+  method?: "password" | "oidc";
 }
 
 /** Collection names that can be synced to server storage */

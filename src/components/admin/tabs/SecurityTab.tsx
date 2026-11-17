@@ -23,6 +23,7 @@ import {
   Users,
   Layers,
   BellRing,
+  UserRound,
 } from "lucide-react";
 import { MaskingSettings } from "@/components/MaskingSettings";
 import { SshProfilesTab } from "@/components/admin/tabs/SshProfilesTab";
@@ -31,6 +32,7 @@ import { FreezeWindowsTab } from "@/components/admin/tabs/FreezeWindowsTab";
 import { NamedRolesTab } from "@/components/admin/tabs/NamedRolesTab";
 import { EnvironmentsTab } from "@/components/admin/tabs/EnvironmentsTab";
 import { ChannelsTab } from "@/components/admin/tabs/ChannelsTab";
+import { UsersTab } from "@/components/admin/tabs/UsersTab";
 import { DEFAULT_THRESHOLDS, type ThresholdConfig } from "@/lib/monitoring-thresholds";
 import { storage } from "@/lib/storage";
 import { toast } from "sonner";
@@ -44,6 +46,7 @@ const FREEZES_TAB_LABEL = "Freeze windows";
 const ROLES_TAB_LABEL = "Roles";
 const ENVIRONMENTS_TAB_LABEL = "Environments";
 const CHANNELS_TAB_LABEL = "Channels";
+const USERS_TAB_LABEL = "Users";
 const ACCESS_CARD_TITLE = "Security & Access";
 const SUPPORTED_LABEL = "Supported";
 const CONFIGURABLE_LABEL = "Configurable";
@@ -59,13 +62,17 @@ export function SecurityTab() {
       <AdminSectionHeader
         icon={Shield}
         title="Security"
-        description="What leaves the server and who may see it: masking rules, the access model, alert thresholds, the bastions datasources are reached through, and the tokens bots call the API with."
+        description="What leaves the server and who may see it: masking rules, who has signed in, the access model, alert thresholds, the bastions datasources are reached through, and the tokens bots call the API with."
       />
       <Tabs defaultValue="masking">
         <TabsList className={ADMIN_SUBTAB_LIST_CLASS}>
           <TabsTrigger value="masking" className={ADMIN_SUBTAB_TRIGGER_CLASS}>
             <EyeOff className="h-3.5 w-3.5" />
             {MASKING_TAB_LABEL}
+          </TabsTrigger>
+          <TabsTrigger value="users" className={ADMIN_SUBTAB_TRIGGER_CLASS}>
+            <UserRound className="h-3.5 w-3.5" />
+            {USERS_TAB_LABEL}
           </TabsTrigger>
           <TabsTrigger value="access" className={ADMIN_SUBTAB_TRIGGER_CLASS}>
             <Lock className="h-3.5 w-3.5" />
@@ -103,6 +110,11 @@ export function SecurityTab() {
 
         <TabsContent value="masking" className="mt-4">
           <MaskingSettings />
+        </TabsContent>
+
+        {/* docs/CONTEXT.md §4.60: who has signed in, and how lately. */}
+        <TabsContent value="users" className="mt-4">
+          <UsersTab />
         </TabsContent>
 
         <TabsContent value="access" className="mt-4">
