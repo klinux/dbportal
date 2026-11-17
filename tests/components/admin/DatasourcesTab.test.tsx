@@ -158,7 +158,12 @@ describe("DatasourcesTab", () => {
 
     const orders = within(getByTestId("datasource-row-prod-orders"));
     expect(orders.getByText("Users")).not.toBeNull();
-    expect(orders.getByText("orders.internal:5432/orders")).not.toBeNull();
+    // The target truncates so a long generated database name cannot push the action
+    // buttons off screen; the full value has to survive in the tooltip.
+    const target = orders.getByText("orders.internal:5432/orders");
+    expect(target.getAttribute("title")).toBe("orders.internal:5432/orders");
+    expect(target.className).toContain("truncate");
+    expect(orders.getByText("root@example.test")).not.toBeNull();
     expect(orders.getByLabelText("Edit Orders")).not.toBeNull();
     expect(orders.getByLabelText("Delete Orders")).not.toBeNull();
 

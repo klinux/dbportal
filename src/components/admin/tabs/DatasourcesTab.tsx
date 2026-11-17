@@ -947,6 +947,14 @@ export function DatasourcesTab() {
                         {visible.map((row) => {
                           const engine = getDBConfig(row.type);
                           const Icon = engine.icon;
+                          const target =
+                            row.source === "store"
+                              ? row.type === "virtual"
+                                ? (row.members ?? []).join(" + ")
+                                : [row.host, row.port, row.database].filter(Boolean).length > 0
+                                  ? `${row.host ?? ""}${row.port ? `:${row.port}` : ""}${row.database ? `/${row.database}` : ""}`
+                                  : "—"
+                              : "declared in seed file";
                           return (
                             <TableRow key={`${row.source}:${row.id}`} data-testid={`datasource-row-${row.id}`}>
                               <TableCell className="text-xs">
@@ -959,14 +967,14 @@ export function DatasourcesTab() {
                                   {engine.label}
                                 </span>
                               </TableCell>
-                              <TableCell className="text-xs font-mono text-fg-tertiary">
-                                {row.source === "store"
-                                  ? row.type === "virtual"
-                                    ? (row.members ?? []).join(" + ")
-                                    : [row.host, row.port, row.database].filter(Boolean).length > 0
-                                      ? `${row.host ?? ""}${row.port ? `:${row.port}` : ""}${row.database ? `/${row.database}` : ""}`
-                                      : "—"
-                                  : "declared in seed file"}
+                              {/* Cells are nowrap: a long database name (MySQL ones are
+                                  generated, 30+ chars) used to push Actions off screen.
+                                  Truncate here; the full target stays in the tooltip. */}
+                              <TableCell
+                                className="text-xs font-mono text-fg-tertiary max-w-[16rem] truncate"
+                                title={target}
+                              >
+                                {target}
                               </TableCell>
                               <TableCell className="text-xs">
                                 <div className="flex flex-wrap gap-1">
@@ -1015,9 +1023,10 @@ export function DatasourcesTab() {
                                     <FileCode2 className="h-3 w-3" /> seed file
                                   </Badge>
                                 ) : (
-                                  <span className="text-fg-muted" title={`Last change by ${row.updatedBy}`}>
-                                    {new Date(row.updatedAt).toLocaleDateString()} · {row.updatedBy}
-                                  </span>
+                                  <div className="text-fg-muted" title={`Last change by ${row.updatedBy}`}>
+                                    <div>{new Date(row.updatedAt).toLocaleDateString()}</div>
+                                    <div className="max-w-[12rem] truncate text-[10px]">{row.updatedBy}</div>
+                                  </div>
                                 )}
                               </TableCell>
                               <TableCell className="text-right">
