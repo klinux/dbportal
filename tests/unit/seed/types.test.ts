@@ -176,9 +176,18 @@ describe("SeedConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects empty connections array", () => {
-    const result = SeedConfigSchema.safeParse({ version: "1", connections: [] });
-    expect(result.success).toBe(false);
+  // A defaults-only seed is valid: an operator may declare a fleet-wide `approverRoles`
+  // (§4.6) and leave every datasource to the admin UI. Connections may be empty or omitted.
+  it("accepts an empty (or omitted) connections array", () => {
+    const withEmpty = SeedConfigSchema.safeParse({
+      version: "1",
+      defaults: { approverRoles: ["admin", "role:reviewers"] },
+      connections: [],
+    });
+    expect(withEmpty.success).toBe(true);
+    const omitted = SeedConfigSchema.safeParse({ version: "1", defaults: { approverRoles: ["admin"] } });
+    expect(omitted.success).toBe(true);
+    if (omitted.success) expect(omitted.data.connections).toEqual([]);
   });
 });
 

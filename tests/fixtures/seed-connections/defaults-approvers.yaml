@@ -1,0 +1,7 @@
+version: "1"
+# A defaults-only seed: no connections declared in git, only a fleet-wide reviewer
+# list (§4.6). Every datasource created in the admin UI inherits these approvers
+# unless it sets its own.
+defaults:
+  approverRoles: ["admin", "role:reviewers"]
+connections: []
