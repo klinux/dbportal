@@ -377,7 +377,9 @@ export const SeedConfigSchema = z
   .object({
     version: z.literal("1"),
     defaults: SeedDefaultsSchema.optional(),
-    connections: z.array(SeedConnectionSchema).min(1, "At least one connection is required"),
+    // Empty is allowed: a seed that declares only `defaults` (e.g. a fleet-wide
+    // `approverRoles`, §4.6) and leaves every datasource to the admin UI is valid.
+    connections: z.array(SeedConnectionSchema).default([]),
     sshProfiles: z.array(SshProfileSchema).optional(),
     /** Freeze windows declared once (§4.17); read-only on the admin page. */
     freezeWindows: z.array(FreezeWindowSchema).optional(),

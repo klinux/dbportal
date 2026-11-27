@@ -235,16 +235,22 @@ someone's behalf later.
   server store the write is a 503 that says what to configure. Reviewers: the datasource's
   `approverRoles` or administrators (`canApprove`); nobody reviews their own request.
   `defaults.approverRoles` in the seed file is the fleet's reviewer list written once:
-  a connection without its own inherits it at load (`mergeDefaults`), one with its own
-  keeps it — so adding a datasource does not silently fall back to administrators-only,
-  which excluded the bot's decision relay (§4.59) from every forgotten one. It must name
-  at least one role (schema `.min(1)`): an empty default would be inherited everywhere and,
-  since `matchesAccess([])` is false for all, leave those datasources reviewable by no one,
-  admins included — omit it to keep the admins-only default. Two bounds: it applies to the
-  SEED FILE only (a datasource added through the Admin UI without its own list stays
-  admins-only, so the default never changes who reviews store records), and whoever it names
-  can see in the Approvals queue the pending statements of every inheriting datasource, even
-  ones they have no `roles` access to — reviewing a statement means reading it.
+  every datasource without its own inherits it — a seed connection at load (`mergeDefaults`)
+  AND one created in the Admin UI (`collectDeclared` fills it the same way). The sheet shows
+  the reviewer field only when `writeApproval` is on (`DatasourcesTab`), so a datasource held
+  by a GUARDRAIL alone (write approval off) has no way through the UI to name non-admin
+  reviewers, and a blank field is admins-only either way — so without this fleet inheritance
+  those datasources stay admins-only and silently exclude the bot's decision relay (§4.59).
+  One with its own list keeps it. A seed may declare ONLY `defaults` and no `connections` (an
+  empty list is valid) to set this fleet-wide and leave every datasource to the Admin UI. The
+  default must name at least one role (schema `.min(1)`): an empty default would be inherited
+  everywhere and, since `matchesAccess([])` is false for all, leave those datasources
+  reviewable by no one, admins included — omit it to keep the admins-only default. Two bounds.
+  Whoever it names can see in the Approvals queue the pending statements of every inheriting
+  datasource, even ones they have no `roles` access to — reviewing a statement means reading
+  it. And it is fleet-wide, NOT environment-scoped: a blank field on a PRODUCTION store
+  datasource inherits it too, so the default's reviewers can approve production write-windows —
+  name reviewers explicitly on any datasource that should differ.
   `GET /api/approvals` (reviewer's list, `?scope=mine` for one's own), `GET/POST
   /api/approvals/[id]` (`{ decision, windowMinutes?, note? }`).
 - Audit: `approval_decision` event with `approvalId` + `reviewer`; every execution inside the

@@ -38,7 +38,20 @@ async function collectDeclared(): Promise<SeedConnection[]> {
   const declared = new Set(fromConfig.map((conn) => conn.id));
   let shared: SeedConnection[] = [];
   try {
-    shared = (await listSharedDatasources()).filter((record) => !declared.has(record.id));
+    const defaultApprovers = config?.defaults?.approverRoles;
+    shared = (await listSharedDatasources())
+      .filter((record) => !declared.has(record.id))
+      // The fleet-wide reviewer list (§4.6) is a default a datasource without its own
+      // `approverRoles` inherits - and a datasource created at runtime in the admin UI has
+      // no field to set one, so without this it would always fall back to admins-only even
+      // when the operator declared a fleet default. Only `approverRoles` is filled (not the
+      // rest of mergeDefaults): a runtime record already carries its own environment/ssl
+      // from the sheet, and a default must not refile it. A record with its own list keeps it.
+      .map((record) =>
+        record.approverRoles === undefined && defaultApprovers !== undefined
+          ? { ...record, approverRoles: defaultApprovers }
+          : record,
+      );
   } catch (error) {
     logger.error("Shared datasources could not be read; serving the seed config only", error, {
       route: "seed/index",

@@ -102,4 +102,27 @@ describe("seed index: shared store merge", () => {
     expect(ids.has("everyone")).toBe(true);
     expect(ids.has("runtime-orders")).toBe(false);
   });
+
+  // §4.6: a runtime (admin-UI) datasource has no field for `approverRoles`, so a fleet-wide
+  // default is the only way it gets non-admin reviewers. A defaults-only seed (no connections)
+  // must reach it, or the admin buttons / approvals stay admins-only on every UI datasource.
+  it("a runtime datasource inherits defaults.approverRoles when it declares none", async () => {
+    process.env.SEED_CONFIG_PATH = path.join(FIXTURES, "defaults-approvers.yaml");
+    resetCache();
+    shared = [runtime({ roles: ["*"] })];
+    const record = await getSeedConnectionByIdUnfiltered("runtime-orders");
+    expect(record?.approverRoles).toEqual(["admin", "role:reviewers"]);
+    expect((await getConfigSeedIds()).size).toBe(0); // no git-declared connections
+    process.env.SEED_CONFIG_PATH = path.join(FIXTURES, "multi-role-config.yaml");
+  });
+
+  // A runtime datasource with its own list keeps it: the default fills a gap, never overrides.
+  it("a runtime datasource's own approverRoles wins over the default", async () => {
+    process.env.SEED_CONFIG_PATH = path.join(FIXTURES, "defaults-approvers.yaml");
+    resetCache();
+    shared = [runtime({ roles: ["*"], approverRoles: ["role:special"] })];
+    const record = await getSeedConnectionByIdUnfiltered("runtime-orders");
+    expect(record?.approverRoles).toEqual(["role:special"]);
+    process.env.SEED_CONFIG_PATH = path.join(FIXTURES, "multi-role-config.yaml");
+  });
 });
